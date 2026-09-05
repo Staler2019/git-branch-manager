@@ -153,10 +153,14 @@ void main() {
             width: 420,
             child: ScopedDiffView(
               softWrap: softWrap,
-              title: 'Unstaged',
-              file: file,
-              staged: false,
-              onStageScope: (int h, List<int> l) {},
+              sources: <ScopedDiffSource>[
+                ScopedDiffSource(
+                  title: 'Unstaged',
+                  file: file,
+                  staged: false,
+                  onStageScope: (int h, List<int> l) {},
+                ),
+              ],
             ),
           );
         },

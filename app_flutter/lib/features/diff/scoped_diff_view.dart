@@ -35,9 +35,14 @@ import 'widgets/diff_line.dart';
 /// This widget does not scroll. Both callers put it inside their own scroll
 /// view -- `2 file` mode needs two independent ones and `unified` needs one
 /// shared one, and a widget that scrolled itself could not be stacked.
-class ScopedDiffView extends StatefulWidget {
-  const ScopedDiffView({
-    super.key,
+/// One diff, and everything that decides what its cards say and do.
+///
+/// A [ScopedDiffView] takes a *list* of these because `unified` mode draws
+/// the unstaged and staged diffs as one list, and direction is a property of
+/// each card rather than of the view around it. `2 file` mode passes a
+/// one-element list, which is the same shape it always had.
+class ScopedDiffSource {
+  const ScopedDiffSource({
     required this.title,
     required this.file,
     required this.staged,
@@ -46,11 +51,11 @@ class ScopedDiffView extends StatefulWidget {
     this.emptyLabel = 'No changes',
     this.loading = false,
     this.truncated = false,
-    this.onTemporaryScopeChanged,
-    required this.softWrap,
   });
 
-  /// Column heading -- `Unstaged` or `Staged`.
+  /// Column heading -- `Unstaged` or `Staged`. Drawn only when the view is
+  /// showing column heads at all; a merged list replaces them with one count
+  /// in the pane's own title bar (U3).
   final String title;
 
   /// The file's diff, or null when this side has nothing for the selected
@@ -64,6 +69,8 @@ class ScopedDiffView extends StatefulWidget {
   /// hunk index.
   final DiffFile? file;
 
+  /// Which direction this diff's cards act in. Never mixed within one
+  /// source, and never inferred from position in the list.
   final bool staged;
 
   /// Called with the hunk index and the lines that actually move -- never
@@ -81,9 +88,7 @@ class ScopedDiffView extends StatefulWidget {
 
   final String emptyLabel;
 
-  /// A diff request for this side is in flight. The column head still
-  /// renders, so switching files does not make the heading flicker away and
-  /// back; only the body below it becomes the spinner.
+  /// A diff request for this side is in flight.
   final bool loading;
 
   /// The core refused this side's diff for being over its byte cap, so
@@ -92,6 +97,31 @@ class ScopedDiffView extends StatefulWidget {
   /// into it by the caller, because the caller would then have to decide the
   /// wording and the two sides could drift apart.
   final bool truncated;
+
+  /// True when this source has rows to draw. A binary file and a refused one
+  /// both have "no content" without being empty, which is why the three
+  /// states are separate fields rather than one nullable [file].
+  bool get hasContent =>
+      file != null && !file!.binary && file!.hunks.isNotEmpty;
+}
+
+class ScopedDiffView extends StatefulWidget {
+  const ScopedDiffView({
+    super.key,
+    required this.sources,
+    this.showColumnHeads = true,
+    this.onTemporaryScopeChanged,
+    required this.softWrap,
+  });
+
+  /// The diffs to draw, in painted order. One element is `2 file` mode's
+  /// column; two is `unified`'s merged list.
+  final List<ScopedDiffSource> sources;
+
+  /// Whether each source draws its own `.variant-B-colhead`. False for a
+  /// merged list, where a head would be labelling a column that is not
+  /// there (U3) -- and a head labelling nothing is worse than no head.
+  final bool showColumnHeads;
 
   /// Reports how to submit the current one-shot scope, or null when there
   /// is none, so `repositoryStageSelectedLines` can act on the same block
@@ -117,11 +147,29 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
   late final SelectionTouchTracker _tracker;
 
-  /// Splitting the file into scopes is the one expensive thing this build
+  /// Splitting a file into scopes is the one expensive thing this build
   /// does, and `_tracker`'s listener rebuilds on every frame of a selection
-  /// drag. The cache's key is `widget.file`'s identity -- the same signal
+  /// drag. Each cache's key is its source's file identity -- the same signal
   /// [didUpdateWidget] already treats as "a new diff".
-  final DiffScopeCache _scopeCache = DiffScopeCache();
+  ///
+  /// One cache per source rather than one shared: [DiffScopeCache] holds a
+  /// single entry, so two sources sharing one would evict each other on every
+  /// build and the memo would never hit.
+  final List<DiffScopeCache> _scopeCaches = <DiffScopeCache>[];
+
+  DiffScopeCache _cacheFor(int sourceIndex) {
+    while (_scopeCaches.length <= sourceIndex) {
+      _scopeCaches.add(DiffScopeCache());
+    }
+    return _scopeCaches[sourceIndex];
+  }
+
+  /// The scopes of every source, by source index.
+  List<Map<int, List<DiffScope>>> _scopesBySource() =>
+      <Map<int, List<DiffScope>>>[
+        for (int i = 0; i < widget.sources.length; i++)
+          _cacheFor(i).scopesOf(widget.sources[i].file),
+      ];
 
   /// Focus for the well, so `SCOPES` row 7's 「Shift + ↑ ↓」 half reaches
   /// [CallbackShortcuts] after a plain click.
@@ -157,9 +205,24 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // now sits at those indices. This is the plan's
     // 「staging 狀態改變（diff 重新載入）就清空」 clause: staging is what
     // produces the new diff.
-    if (!identical(oldWidget.file, widget.file)) {
+    if (_diffsChanged(oldWidget.sources, widget.sources)) {
       _dropSelection(alsoClearHighlight: false);
     }
+  }
+
+  /// True when any source's diff was replaced, or the list changed length.
+  /// Identity, not equality: a new [DiffFile] instance is a new diff even
+  /// when it happens to hold the same lines, and that is what renumbers the
+  /// positional row keys.
+  static bool _diffsChanged(
+    List<ScopedDiffSource> before,
+    List<ScopedDiffSource> after,
+  ) {
+    if (before.length != after.length) return true;
+    for (int i = 0; i < before.length; i++) {
+      if (!identical(before[i].file, after[i].file)) return true;
+    }
+    return false;
   }
 
   @override
@@ -231,16 +294,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     });
   }
 
-  void _reportScope(Map<int, List<int>> temporary) {
+  void _reportScope(TemporaryScope? temporary) {
     final void Function(void Function()? submit)? report =
         widget.onTemporaryScopeChanged;
     if (report == null) return;
-    final bool hasScope = temporary.isNotEmpty;
+    final bool hasScope = temporary != null;
     if (hasScope == _reportedScope) return;
     _reportedScope = hasScope;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       report(hasScope ? () => _submitTemporary(temporary) : null);
+      // `temporary` is promoted non-null by `hasScope` above.
     });
   }
 
@@ -253,7 +317,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// collapses the selection by itself; the keyboard path
   /// (`GbmActionId.repositoryStageSelectedLines`) is not, and without this
   /// the scope would still be live afterwards and stage a second time.
-  void _submitTemporary(Map<int, List<int>> byHunk) {
+  void _submitTemporary(TemporaryScope scope) {
     // The highlight goes **before** the dispatch, synchronously, and that
     // order is the fix for a real crash the device tier found. Staging
     // replaces the diff; a `clearSelection()` deferred to after the dispatch
@@ -272,8 +336,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // (`GbmActionId.repositoryStageSelectedLines`) is not, and neither are
     // the two inputs that select no text at all.
     _selectionAreaKey.currentState?.selectableRegion.clearSelection();
-    for (final MapEntry<int, List<int>> entry in byHunk.entries) {
-      widget.onStageScope(entry.key, entry.value);
+    // One source, decided by [resolveTemporaryScope]: git has no action that
+    // stages and unstages at once, so a scope that spanned both directions
+    // would have no single dispatch (U5).
+    if (scope.sourceIndex >= widget.sources.length) return;
+    final ScopedDiffSource source = widget.sources[scope.sourceIndex];
+    for (final MapEntry<int, List<int>> entry in scope.byHunk.entries) {
+      source.onStageScope(entry.key, entry.value);
     }
     _dropSelection(alsoClearHighlight: false);
   }
@@ -281,12 +350,8 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final DiffFile? diffFile = widget.file;
-    final Map<int, List<DiffScope>> byHunk = _scopeCache.scopesOf(diffFile);
-    final int scopeCount = byHunk.values.fold<int>(
-      0,
-      (int sum, List<DiffScope> scopes) => sum + scopes.length,
-    );
+    final List<ScopedDiffSource> sources = widget.sources;
+    final List<Map<int, List<DiffScope>>> scopesBySource = _scopesBySource();
 
     // One read of the touched set, gated once: everything derived from it --
     // the one-shot block, the row tint, the submitter published to
@@ -295,49 +360,43 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final Set<String> settledTouched = _tracker.isDragging
         ? const <String>{}
         : _tracker.touched;
-    final Map<int, List<int>> temporary = touchedChangedLines(
-      settledTouched,
-      <int, Set<int>>{
-        for (final MapEntry<int, List<DiffScope>> entry in byHunk.entries)
-          entry.key: <int>{
-            for (final DiffScope scope in entry.value)
-              ...scope.changedLineIndices,
-          },
-      },
+    final List<Map<int, Set<int>>> changedBySource = <Map<int, Set<int>>>[
+      for (final Map<int, List<DiffScope>> byHunk in scopesBySource)
+        <int, Set<int>>{
+          for (final MapEntry<int, List<DiffScope>> entry in byHunk.entries)
+            entry.key: <int>{
+              for (final DiffScope scope in entry.value)
+                ...scope.changedLineIndices,
+            },
+        },
+    ];
+    final TemporaryScope? temporary = resolveTemporaryScope(
+      rowsInRenderOrder: _rowsInRenderOrder(),
+      touched: settledTouched,
+      changedBySource: changedBySource,
     );
     _reportScope(temporary);
+
+    final bool anyContent = sources.any(
+      (ScopedDiffSource source) => source.hasContent,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        _ColumnHead(
-          title: widget.title,
-          staged: widget.staged,
-          scopeCount: scopeCount,
-        ),
-        if (widget.loading)
-          const Padding(
-            padding: EdgeInsets.all(GbmSpacing.space4),
-            child: Center(
-              child: SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        if (widget.showColumnHeads)
+          for (int i = 0; i < sources.length; i++)
+            _ColumnHead(
+              title: sources[i].title,
+              staged: sources[i].staged,
+              scopeCount: scopesBySource[i].values.fold<int>(
+                0,
+                (int sum, List<DiffScope> scopes) => sum + scopes.length,
               ),
             ),
-          )
-        // Before the null arm: a refused diff also has no file, and falling
-        // through to `emptyLabel` would say "Nothing unstaged" about a file
-        // the row's own +N badge says has changes.
-        else if (widget.truncated)
-          _placeholder(colors, kDiffTooLargeLabel)
-        else if (diffFile == null)
-          _placeholder(colors, widget.emptyLabel)
-        else if (diffFile.binary)
-          _placeholder(colors, '${diffFile.displayPath} (binary file)')
-        else if (diffFile.hunks.isEmpty)
-          _placeholder(colors, widget.emptyLabel)
+        if (!anyContent)
+          _emptyBody(colors)
         else
           Padding(
             padding: const EdgeInsets.all(GbmSpacing.space2),
@@ -348,10 +407,14 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
               ),
               padding: const EdgeInsets.all(GbmSpacing.space2),
-              // One SelectionArea per side. A selection cannot cross the
-              // seam between the two columns, which is deliberate: a scope
-              // is per file *and* per side, so a drag spanning both would
-              // have no single meaning.
+              // One SelectionArea for the whole view. In `2 file` mode that
+              // is one per side, because each side is its own view and a
+              // selection cannot cross the seam between two columns. In
+              // `unified` it spans both directions deliberately: the drag is
+              // allowed to run across the boundary, and
+              // [resolveTemporaryScope] is what decides which single
+              // direction it acts in (U5) -- a rule the user can see in the
+              // button's own label, rather than a wall they hit mid-drag.
               // The drag window. Reports are only the user's own between
               // these two, which is also the only window in which reading
               // them does not feed back into itself -- see
@@ -392,7 +455,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                       // mid-restructure. That is the same
                       // read-the-selection-back limitation recorded on
                       // `_dropSelection`.
-                      if (temporary.isEmpty) return;
+                      if (temporary == null) return;
                       _submitTemporary(temporary);
                     },
                   // `SCOPES` row 7's other half: 「diff 區按住拖過多行，或
@@ -410,12 +473,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                     LogicalKeyboardKey.arrowDown,
                     shift: true,
                   ): () =>
-                      _extendByRow(diffFile, 1),
+                      _extendByRow(1),
                   const SingleActivator(
                     LogicalKeyboardKey.arrowUp,
                     shift: true,
                   ): () =>
-                      _extendByRow(diffFile, -1),
+                      _extendByRow(-1),
                 },
                 child: Focus(
                   focusNode: _wellFocus,
@@ -441,7 +504,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                     },
                     onPointerUp: (_) {
                       _tracker.endGesture();
-                      _adoptRangeFromTouched(diffFile);
+                      _adoptRangeFromTouched();
                     },
                     onPointerCancel: (_) => _tracker.endGesture(),
                     child: SelectionArea(
@@ -458,8 +521,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: _wellChildren(
-                          diffFile,
-                          byHunk,
+                          scopesBySource,
                           temporary,
                           settledTouched,
                         ),
@@ -474,17 +536,75 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     );
   }
 
-  /// Every row of [diffFile], in the order they are painted.
+  /// What to draw when no source has a single row to show.
+  ///
+  /// The precedence is the same chain the single-source version had, read
+  /// across every source instead of one: in flight beats refused, refused
+  /// beats binary, and only then does the caller's own wording apply. It is
+  /// reached only when *nothing* has content, so a merged list with cards on
+  /// one side and nothing on the other draws no placeholder at all -- the
+  /// pane's own count already says the other side is empty, and a
+  /// 「Nothing staged」 line in the middle of a list of unstaged cards would
+  /// read as a section that failed to load.
+  Widget _emptyBody(GbmColors colors) {
+    final List<ScopedDiffSource> sources = widget.sources;
+    if (sources.isEmpty) return _placeholder(colors, 'No changes');
+    if (sources.any((ScopedDiffSource s) => s.loading)) {
+      return const Padding(
+        padding: EdgeInsets.all(GbmSpacing.space4),
+        child: Center(
+          child: SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      );
+    }
+    // Before the empty arm: a refused diff also has no file, and falling
+    // through to `emptyLabel` would say "Nothing unstaged" about a file the
+    // row's own +N badge says has changes.
+    if (sources.any((ScopedDiffSource s) => s.truncated)) {
+      return _placeholder(colors, kDiffTooLargeLabel);
+    }
+    final ScopedDiffSource? binary = sources
+        .where((ScopedDiffSource s) => s.file?.binary ?? false)
+        .firstOrNull;
+    if (binary != null) {
+      return _placeholder(colors, '${binary.file!.displayPath} (binary file)');
+    }
+    return _placeholder(colors, sources.first.emptyLabel);
+  }
+
+  /// Every row of every source, in the order they are painted.
   ///
   /// Painted order, not model order, because `SCOPES` row 7's range is a
   /// range over what the user can see -- and it is the *only* order in which
   /// 「跨 hunk 但不能跨檔」 has a meaning: the last row of one hunk is
   /// adjacent to the first row of the next.
-  List<String> _rowsInRenderOrder(DiffFile diffFile) => <String>[
-    for (int h = 0; h < diffFile.hunks.length; h++)
-      for (int i = 0; i < diffFile.hunks[h].lines.length; i++)
-        selectionRowKey(h, i),
-  ];
+  ///
+  /// In a merged list this order is also what settles a drag's direction:
+  /// [resolveTemporaryScope] takes the first *changed* row it finds here, so
+  /// "which card did the selection reach first" is answered by the same list
+  /// the rows were laid out from rather than by a second traversal that
+  /// could disagree with it ([CULT-single-source-of-truth]).
+  List<String> _rowsInRenderOrder() {
+    final List<String> rows = <String>[];
+    for (
+      int sourceIndex = 0;
+      sourceIndex < widget.sources.length;
+      sourceIndex++
+    ) {
+      final DiffFile? file = widget.sources[sourceIndex].file;
+      if (file == null) continue;
+      for (int h = 0; h < file.hunks.length; h++) {
+        for (int i = 0; i < file.hunks[h].lines.length; i++) {
+          rows.add(selectionRowKey(sourceIndex, h, i));
+        }
+      }
+    }
+    return rows;
+  }
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
   ///
@@ -497,20 +617,26 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// Stepping from row zero would spend the first few presses on context
   /// that stages nothing and shows no card at all, so the opening press
   /// would read as "the key does nothing".
-  void _extendByRow(DiffFile diffFile, int delta) {
-    final List<String> rows = _rowsInRenderOrder(diffFile);
+  void _extendByRow(int delta) {
+    final List<String> rows = _rowsInRenderOrder();
     if (rows.isEmpty) return;
 
     int anchorIndex = _anchorRow == null ? -1 : rows.indexOf(_anchorRow!);
     int focusIndex = _focusRow == null ? -1 : rows.indexOf(_focusRow!);
 
     if (anchorIndex < 0 || focusIndex < 0) {
+      final List<Map<int, List<DiffScope>>> scopesBySource = _scopesBySource();
       final Set<String> changed = <String>{
-        for (final MapEntry<int, List<DiffScope>> entry
-            in _scopeCache.scopesOf(diffFile).entries)
-          for (final DiffScope scope in entry.value)
-            for (final int line in scope.changedLineIndices)
-              selectionRowKey(entry.key, line),
+        for (
+          int sourceIndex = 0;
+          sourceIndex < scopesBySource.length;
+          sourceIndex++
+        )
+          for (final MapEntry<int, List<DiffScope>> entry
+              in scopesBySource[sourceIndex].entries)
+            for (final DiffScope scope in entry.value)
+              for (final int line in scope.changedLineIndices)
+                selectionRowKey(sourceIndex, entry.key, line),
       };
       final Iterable<String> ordered = delta >= 0 ? rows : rows.reversed;
       final String? seed = ordered.where(changed.contains).firstOrNull;
@@ -532,20 +658,19 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// two inputs `SCOPES` row 7 lists share one range instead of each owning
   /// its own. Without this, a `Shift + ↓` after a drag would re-seed and
   /// collapse the drag back to a single row.
-  void _adoptRangeFromTouched(DiffFile? diffFile) {
-    if (diffFile == null) return;
+  void _adoptRangeFromTouched() {
     final Set<String> touched = _tracker.touched;
     if (touched.isEmpty) return;
-    final List<String> rows = _rowsInRenderOrder(
-      diffFile,
-    ).where(touched.contains).toList();
+    final List<String> rows = _rowsInRenderOrder()
+        .where(touched.contains)
+        .toList();
     if (rows.isEmpty) return;
     _anchorRow = rows.first;
     _focusRow = rows.last;
   }
 
-  /// `SCOPES` row 6: selects every row of [hunkIndex] as the one-shot scope,
-  /// so one press moves 「該段所有變更行」.
+  /// `SCOPES` row 6: selects every row of one hunk as the one-shot scope, so
+  /// one press moves 「該段所有變更行」.
   ///
   /// Every row, context included, for the same reason [_GapBlock] tracks
   /// context rows during a drag: the button's primary number is how many
@@ -558,18 +683,19 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// unlatches) and its pointer-up [SelectionTouchTracker.endGesture]; doing
   /// this inline would race the row delegates that are still settling from
   /// the tap's own collapse of the text selection.
-  void _selectHunk(DiffFile diffFile, int hunkIndex) {
+  void _selectHunk(int sourceIndex, DiffFile diffFile, int hunkIndex) {
     final Set<String> rows = <String>{
       for (int i = 0; i < diffFile.hunks[hunkIndex].lines.length; i++)
-        selectionRowKey(hunkIndex, i),
+        selectionRowKey(sourceIndex, hunkIndex, i),
     };
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _tracker.setTouched(rows);
       // So a following Shift + ↑ ↓ grows or shrinks the hunk rather than
       // re-seeding somewhere else.
-      _anchorRow = selectionRowKey(hunkIndex, 0);
+      _anchorRow = selectionRowKey(sourceIndex, hunkIndex, 0);
       _focusRow = selectionRowKey(
+        sourceIndex,
         hunkIndex,
         diffFile.hunks[hunkIndex].lines.length - 1,
       );
@@ -577,7 +703,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   }
 
   /// Built imperatively rather than as one nested collection-for, because
-  /// the loop carries a running scope ordinal across hunks.
+  /// the loop carries a running scope ordinal across hunks -- and now across
+  /// sources, so a merged list numbers its cards 1..N once rather than
+  /// restarting at each direction.
   ///
   /// **There is no temporary card here at all.** This list emits exactly
   /// three kinds of child -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
@@ -601,20 +729,40 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// recorded hazard is a reason to solve the problem, not a licence to
   /// change the design ([FLU-selectionarea-gives-a-string]).
   List<Widget> _wellChildren(
-    DiffFile diffFile,
-    Map<int, List<DiffScope>> byHunk,
-    Map<int, List<int>> temporary,
+    List<Map<int, List<DiffScope>>> scopesBySource,
+    TemporaryScope? temporary,
     Set<String> settledTouched,
   ) {
-    final int temporaryChanged = temporary.values.fold<int>(
+    final List<Widget> children = <Widget>[];
+    int ordinal = 1;
+
+    // The one-shot scope belongs to exactly one source, so every card in
+    // every *other* source draws as an ordinary card -- not struck through,
+    // not tinted. That is U5 made visible: the excluded cards keep their own
+    // buttons and stay pressable.
+    final Map<int, List<int>> temporaryByHunk =
+        temporary?.byHunk ?? const <int, List<int>>{};
+    final int temporaryChanged = temporaryByHunk.values.fold<int>(
       0,
       (int sum, List<int> lines) => sum + lines.length,
     );
-    final String temporaryLabel = scopeButtonLabel(
-      staged: widget.staged,
-      spanned: settledTouched.length,
-      changed: temporaryChanged,
-    );
+    // How many rows the drag framed *within the winning source*: the label's
+    // primary number is 匡選行數, and counting rows the scope excluded would
+    // promise to move lines the button will not touch.
+    final int temporarySpanned = temporary == null
+        ? 0
+        : settledTouched
+              .where(
+                (String row) => row.startsWith('${temporary.sourceIndex}:'),
+              )
+              .length;
+    final String temporaryLabel = temporary == null
+        ? ''
+        : scopeButtonLabel(
+            staged: widget.sources[temporary.sourceIndex].staged,
+            spanned: temporarySpanned,
+            changed: temporaryChanged,
+          );
     // The head goes on the first card the selection reaches, and only that
     // one: it is one scope and one press, however many cards it spans. The
     // rows it reaches in later cards still carry the dashed body and the
@@ -622,77 +770,101 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // claiming to be a second action.
     bool temporaryHeadPlaced = false;
 
-    final List<Widget> children = <Widget>[];
-    int ordinal = 1;
+    for (
+      int sourceIndex = 0;
+      sourceIndex < widget.sources.length;
+      sourceIndex++
+    ) {
+      final ScopedDiffSource source = widget.sources[sourceIndex];
+      final DiffFile? diffFile = source.file;
+      if (diffFile == null || !source.hasContent) continue;
+      final Map<int, List<DiffScope>> byHunk = scopesBySource[sourceIndex];
+      final bool isTemporarySource =
+          temporary != null && temporary.sourceIndex == sourceIndex;
 
-    for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
-      final DiffHunk hunk = diffFile.hunks[hunkIndex];
-      children.add(
-        _HunkHeading(
-          hunk: hunk,
-          hunkIndex: hunkIndex,
-          onTap: () => _selectHunk(diffFile, hunkIndex),
-        ),
-      );
+      for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
+        final DiffHunk hunk = diffFile.hunks[hunkIndex];
+        children.add(
+          _HunkHeading(
+            hunk: hunk,
+            hunkIndex: hunkIndex,
+            onTap: () => _selectHunk(sourceIndex, diffFile, hunkIndex),
+          ),
+        );
 
-      for (final DiffSegment segment in hunkSegments(
-        hunk,
-        byHunk[hunkIndex] ?? const <DiffScope>[],
-        firstOrdinal: ordinal,
-      )) {
-        switch (segment) {
-          case DiffGapSegment():
-            children.add(
-              _GapBlock(
-                hunk: hunk,
-                hunkIndex: hunkIndex,
-                lineIndices: segment.lineIndices,
-                staged: widget.staged,
-                tracker: _tracker,
-                touched: settledTouched,
-                softWrap: widget.softWrap,
-              ),
-            );
-          case DiffScopeSegment(:final DiffScope scope):
-            final bool superseded = (temporary[hunkIndex] ?? const <int>[]).any(
-              scope.changedLineIndices.contains,
-            );
-            final Set<int> temporaryLines = superseded
-                ? (temporary[hunkIndex] ?? const <int>[]).toSet()
-                : const <int>{};
-            final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
-            if (showTemporaryHead) temporaryHeadPlaced = true;
-            children.add(
-              _ScopeCard(
-                hunk: hunk,
-                scope: scope,
-                ordinal: ordinal++,
-                staged: widget.staged,
-                hunkIndex: hunkIndex,
-                tracker: _tracker,
-                touched: settledTouched,
-                softWrap: widget.softWrap,
-                temporaryLines: temporaryLines,
-                showTemporaryHead: showTemporaryHead,
-                temporaryLabel: temporaryLabel,
-                temporaryHunkCount: temporary.length,
-                onSubmitTemporary: () => _submitTemporary(temporary),
-                superseded: superseded,
-                onStage: () =>
-                    widget.onStageScope(hunkIndex, scope.changedLineIndices),
-                onDiscard: widget.onDiscardScope == null
-                    ? null
-                    : () => widget.onDiscardScope!(
-                        hunkIndex,
-                        scope.changedLineIndices,
-                      ),
-              ),
-            );
+        for (final DiffSegment segment in hunkSegments(
+          hunk,
+          byHunk[hunkIndex] ?? const <DiffScope>[],
+          firstOrdinal: ordinal,
+        )) {
+          switch (segment) {
+            case DiffGapSegment():
+              children.add(
+                _GapBlock(
+                  sourceIndex: sourceIndex,
+                  hunk: hunk,
+                  hunkIndex: hunkIndex,
+                  lineIndices: segment.lineIndices,
+                  staged: source.staged,
+                  tracker: _tracker,
+                  touched: settledTouched,
+                  softWrap: widget.softWrap,
+                ),
+              );
+            case DiffScopeSegment(:final DiffScope scope):
+              final bool superseded =
+                  isTemporarySource &&
+                  (temporaryByHunk[hunkIndex] ?? const <int>[]).any(
+                    scope.changedLineIndices.contains,
+                  );
+              final Set<int> temporaryLines = superseded
+                  ? (temporaryByHunk[hunkIndex] ?? const <int>[]).toSet()
+                  : const <int>{};
+              final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
+              if (showTemporaryHead) temporaryHeadPlaced = true;
+              children.add(
+                _ScopeCard(
+                  sourceIndex: sourceIndex,
+                  hunk: hunk,
+                  scope: scope,
+                  ordinal: ordinal++,
+                  staged: source.staged,
+                  hunkIndex: hunkIndex,
+                  tracker: _tracker,
+                  touched: settledTouched,
+                  softWrap: widget.softWrap,
+                  temporaryLines: temporaryLines,
+                  showTemporaryHead: showTemporaryHead,
+                  temporaryLabel: temporaryLabel,
+                  temporaryHunkCount: temporaryByHunk.length,
+                  onSubmitTemporary: temporary == null
+                      ? _noTemporaryScope
+                      : () => _submitTemporary(temporary),
+                  superseded: superseded,
+                  onStage: () =>
+                      source.onStageScope(hunkIndex, scope.changedLineIndices),
+                  onDiscard: source.onDiscardScope == null
+                      ? null
+                      : () => source.onDiscardScope!(
+                          hunkIndex,
+                          scope.changedLineIndices,
+                        ),
+                ),
+              );
+          }
         }
       }
     }
     return children;
   }
+
+  /// Stands in for the submit callback on a card that has no one-shot scope
+  /// over it. Never reachable: [_ScopeCard] only draws the temporary head
+  /// (the one thing that calls it) when `showTemporaryHead` is true, and
+  /// that requires a scope to exist. A no-op rather than a nullable
+  /// parameter, so the card's own contract stays "there is always something
+  /// to call" and no call site has to null-check what it just gated on.
+  static void _noTemporaryScope() {}
 
   Widget _placeholder(GbmColors colors, String text) => Padding(
     padding: const EdgeInsets.all(GbmSpacing.space4),
@@ -852,6 +1024,7 @@ class _HunkHeading extends StatelessWidget {
 /// would move and which are only there for context.
 class _GapBlock extends StatelessWidget {
   const _GapBlock({
+    required this.sourceIndex,
     required this.hunk,
     required this.hunkIndex,
     required this.lineIndices,
@@ -862,6 +1035,11 @@ class _GapBlock extends StatelessWidget {
   });
 
   final bool softWrap;
+
+  /// Which of the view's sources these rows came from -- the first component
+  /// of every row key, so two sources' identically-numbered rows stay
+  /// distinct ([selectionRowKey]).
+  final int sourceIndex;
   final DiffHunk hunk;
   final int hunkIndex;
   final List<int> lineIndices;
@@ -910,13 +1088,13 @@ class _GapBlock extends StatelessWidget {
                   for (final int index in lineIndices)
                     SelectionTouchRow(
                       tracker: tracker,
-                      rowKey: selectionRowKey(hunkIndex, index),
+                      rowKey: selectionRowKey(sourceIndex, hunkIndex, index),
                       child: DiffLineView(
                         softWrap: softWrap,
                         line: hunk.lines[index],
                         staged: staged,
                         touched: touched.contains(
-                          selectionRowKey(hunkIndex, index),
+                          selectionRowKey(sourceIndex, hunkIndex, index),
                         ),
                       ),
                     ),
@@ -933,6 +1111,7 @@ class _GapBlock extends StatelessWidget {
 /// `.variant-B-card`: one scope, with the button that moves it.
 class _ScopeCard extends StatefulWidget {
   const _ScopeCard({
+    required this.sourceIndex,
     required this.hunk,
     required this.scope,
     required this.ordinal,
@@ -951,6 +1130,9 @@ class _ScopeCard extends StatefulWidget {
     required this.onDiscard,
   });
 
+  /// Which of the view's sources this card came from -- see
+  /// [_GapBlock.sourceIndex].
+  final int sourceIndex;
   final DiffHunk hunk;
   final DiffScope scope;
   final int ordinal;
@@ -1136,7 +1318,7 @@ class _ScopeCardState extends State<_ScopeCard> {
 
   Widget _row(int index) => SelectionTouchRow(
     tracker: widget.tracker,
-    rowKey: selectionRowKey(widget.hunkIndex, index),
+    rowKey: selectionRowKey(widget.sourceIndex, widget.hunkIndex, index),
     child: DiffLineView(
       softWrap: widget.softWrap,
       line: widget.hunk.lines[index],
@@ -1145,7 +1327,7 @@ class _ScopeCardState extends State<_ScopeCard> {
       onStageLine: widget.onStage,
       onDiscardLine: widget.onDiscard,
       touched: widget.touched.contains(
-        selectionRowKey(widget.hunkIndex, index),
+        selectionRowKey(widget.sourceIndex, widget.hunkIndex, index),
       ),
     ),
   );

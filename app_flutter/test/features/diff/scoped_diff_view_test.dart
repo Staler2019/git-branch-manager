@@ -116,17 +116,21 @@ void main() {
           width: width,
           child: ScopedDiffView(
             softWrap: false,
-            title: isStaged ? 'Staged' : 'Unstaged',
-            file: file,
-            staged: isStaged,
-            loading: loading,
-            truncated: truncated,
-            onStageScope: (int h, List<int> l) =>
-                staged.add((hunkIndex: h, lines: l)),
-            onDiscardScope: discardable
-                ? (int h, List<int> l) =>
-                      discarded.add((hunkIndex: h, lines: l))
-                : null,
+            sources: <ScopedDiffSource>[
+              ScopedDiffSource(
+                title: isStaged ? 'Staged' : 'Unstaged',
+                file: file,
+                staged: isStaged,
+                loading: loading,
+                truncated: truncated,
+                onStageScope: (int h, List<int> l) =>
+                    staged.add((hunkIndex: h, lines: l)),
+                onDiscardScope: discardable
+                    ? (int h, List<int> l) =>
+                          discarded.add((hunkIndex: h, lines: l))
+                    : null,
+              ),
+            ],
           ),
         ),
       );
@@ -1351,10 +1355,14 @@ class _HostState extends State<_Host> {
   @override
   Widget build(BuildContext context) => ScopedDiffView(
     softWrap: false,
-    title: 'Unstaged',
-    file: _file,
-    staged: false,
-    onStageScope: widget.onStageScope,
+    sources: <ScopedDiffSource>[
+      ScopedDiffSource(
+        title: 'Unstaged',
+        file: _file,
+        staged: false,
+        onStageScope: widget.onStageScope,
+      ),
+    ],
     onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
   );
 }

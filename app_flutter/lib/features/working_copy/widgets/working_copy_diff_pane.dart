@@ -203,7 +203,13 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     );
   }
 
-  Widget _side({required bool staged}) => ScopedDiffView(
+  /// One direction's diff, as a [ScopedDiffSource].
+  ///
+  /// Every per-side value lives here rather than in the widget that draws
+  /// it, which is what lets `unified` hand *both* directions to one
+  /// [ScopedDiffView] without either side's callbacks having to know how
+  /// many neighbours it has.
+  ScopedDiffSource _source({required bool staged}) => ScopedDiffSource(
     title: staged ? 'Staged' : 'Unstaged',
     file: staged ? widget.stagedFile : widget.unstagedFile,
     staged: staged,
@@ -215,6 +221,10 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     // Discard is a work-tree rewrite, so it exists on the unstaged side
     // only -- there is nothing about a staged line to throw away.
     onDiscardScope: staged ? null : widget.onDiscardScope,
+  );
+
+  Widget _side({required bool staged}) => ScopedDiffView(
+    sources: <ScopedDiffSource>[_source(staged: staged)],
     onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
     softWrap: widget.softWrap,
   );

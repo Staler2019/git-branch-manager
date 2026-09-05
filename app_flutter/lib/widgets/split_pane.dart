@@ -136,6 +136,23 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   /// drag. Unused in flex mode and for a non-drawer extent pane, neither of
   /// which ever starts collapsed.
   double? _reopenExtent;
+
+  /// Where the pointer has dragged the divider to, *before* the extent is
+  /// clamped to `minExtent` -- non-null only while a pointer drag is in
+  /// flight ([_beginDividerDrag] .. [_endDividerDrag]).
+  ///
+  /// Drag-to-close needs this because the clamp is lossy: one frame's delta
+  /// is a handful of pixels, so once the drawer has bottomed out at
+  /// `minExtent` every further step recomputes from that same clamped
+  /// number and the accumulated overshoot is thrown away. Reading
+  /// 「the user has dragged past the bottom」 off `_currentFlexes[0] + delta`
+  /// is therefore impossible however far the pointer travels -- it only
+  /// ever sees one frame of it.
+  ///
+  /// Null for the keyboard path, which keeps its pre-existing behaviour: an
+  /// arrow key is a discrete step against the current extent, and a drawer
+  /// has [GbmSplitPaneController.toggle] for closing.
+  double? _dragRawExtent;
   late List<FocusNode> _dividerFocusNodes;
   late Map<int, Timer> _hoverTimers;
   late Set<int> _hoveredDividers;
@@ -279,6 +296,19 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
         .write(widget.storageId, _currentFlexes);
   }
 
+  /// Opens the drag accumulator at wherever the divider currently sits. Only
+  /// a pointer drag calls this, which is what makes `_dragRawExtent != null`
+  /// mean 「a drag is in flight」 in [_onDividerDelta].
+  void _beginDividerDrag() {
+    if (widget.spec.defaultExtent == null) return;
+    _dragRawExtent = _currentFlexes[0];
+  }
+
+  /// Closes it. Wired to *both* `onDragEnd` and `onDragCancel`: a cancelled
+  /// drag that left this non-null would send the next keyboard step down the
+  /// drag path, against a position the pointer left behind.
+  void _endDividerDrag() => _dragRawExtent = null;
+
   void _onDividerDelta(int dividerIndex, double deltaPixels) {
     if (widget.spec.defaultExtent != null) {
       // Extent mode
@@ -289,10 +319,41 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           widget.fixedPaneEnd == GbmFixedPaneEnd.trailing
           ? -deltaPixels
           : deltaPixels;
-      final double newExtent = (_currentFlexes[0] + adjustedDelta).clamp(
-        minExtent,
-        _availableExtent - minExtent,
-      );
+
+      // Only a `collapsedByDefault` pane may be dragged shut: the flag means
+      // 「starts closed at every launch」, so such a pane necessarily has an
+      // affordance that reopens it (View > Log / Ctrl+Shift+L for the log
+      // drawer). Letting a pane without one be dragged to 0 would hide it
+      // with no way back.
+      final bool canCollapse = widget.spec.collapsedByDefault;
+
+      // While a pointer drag is in flight, track its unclamped travel; see
+      // [_dragRawExtent] for why the clamped extent cannot stand in for it.
+      // The accumulator is itself clamped at each step -- to 0 rather than
+      // `minExtent` when the pane may collapse -- so that dragging 300px
+      // below the bottom does not then need 300px of travel back up before
+      // the divider follows the pointer again.
+      final double rawExtent;
+      if (_dragRawExtent != null) {
+        rawExtent = (_dragRawExtent! + adjustedDelta).clamp(
+          canCollapse ? 0.0 : minExtent,
+          _availableExtent - minExtent,
+        );
+        _dragRawExtent = rawExtent;
+      } else {
+        rawExtent = _currentFlexes[0] + adjustedDelta;
+      }
+
+      // Past halfway to the minimum the drag reads as 「put it away」 rather
+      // than 「make it small」, so it closes instead of sticking at minExtent.
+      // Keyboard steps are excluded (`_dragRawExtent == null`): an arrow key
+      // is a discrete nudge, not a gesture aimed at the bottom edge.
+      final bool draggedShut =
+          canCollapse && _dragRawExtent != null && rawExtent < minExtent / 2;
+
+      final double newExtent = draggedShut
+          ? 0
+          : rawExtent.clamp(minExtent, _availableExtent - minExtent);
 
       setState(() {
         _currentFlexes[0] = newExtent;
@@ -411,9 +472,12 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           onEnter: (_) => _startHoverTimer(dividerIndex),
           onExit: (_) => _cancelHoverTimer(dividerIndex),
           child: GestureDetector(
+            onHorizontalDragStart: (_) => _beginDividerDrag(),
             onHorizontalDragUpdate: (details) {
               _onDividerDelta(dividerIndex, details.delta.dx);
             },
+            onHorizontalDragEnd: (_) => _endDividerDrag(),
+            onHorizontalDragCancel: _endDividerDrag,
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(
@@ -455,9 +519,12 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           onEnter: (_) => _startHoverTimer(dividerIndex),
           onExit: (_) => _cancelHoverTimer(dividerIndex),
           child: GestureDetector(
+            onVerticalDragStart: (_) => _beginDividerDrag(),
             onVerticalDragUpdate: (details) {
               _onDividerDelta(dividerIndex, details.delta.dy);
             },
+            onVerticalDragEnd: (_) => _endDividerDrag(),
+            onVerticalDragCancel: _endDividerDrag,
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(

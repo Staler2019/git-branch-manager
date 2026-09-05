@@ -786,4 +786,183 @@ void main() {
       );
     });
   });
+
+  // 使用者回報:「log可以從視窗下方拖起,卻不能關閉。幫她加上拖到底關閉」-- the
+  // divider's own drag could never reach 0, because _onDividerDelta clamped
+  // every step to `minExtent`, so the drawer bottomed out at 90px and the
+  // only way to close it was the Ctrl+Shift+L toggle.
+  //
+  // The clamp is also why a naive threshold on `_currentFlexes[0] + delta`
+  // cannot work: each frame's delta is a handful of pixels and the previous
+  // frame's overshoot has already been clamped away, so the "raw" position
+  // never drops far below minExtent however far the pointer travels. The fix
+  // accumulates the unclamped pointer travel across the drag, which is what
+  // these tests exercise with many small moveBy steps rather than one large
+  // one -- a single big step exceeds the clamp gap by itself and would pass
+  // even without the accumulator ([TEST-fixture-cannot-disagree]).
+  group('drag-to-close', () {
+    // Vertical trailing drawer + a controller, matching the real log drawer
+    // (main.log). Returns the pane so the test can drive it.
+    Future<void> pumpDrawer(
+      WidgetTester tester, {
+      required GbmSplitterSpec spec,
+      required String storageId,
+      required GbmSplitPaneController controller,
+      Map<String, Object> initialPrefs = const <String, Object>{},
+    }) async {
+      SharedPreferences.setMockInitialValues(initialPrefs);
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Center(
+                child: SizedBox(
+                  width: 600,
+                  height: 400,
+                  child: GbmSplitPane(
+                    axis: Axis.vertical,
+                    spec: spec,
+                    fixedPaneEnd: GbmFixedPaneEnd.trailing,
+                    storageId: storageId,
+                    controller: controller,
+                    children: <Widget>[
+                      Container(
+                        key: const Key('pane-0'),
+                        color: Colors.red,
+                        child: const Text('Pane 0'),
+                      ),
+                      Container(
+                        key: const Key('pane-1'),
+                        color: Colors.blue,
+                        child: const Text('Pane 1'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Many small steps, the way a real pointer drag arrives: one frame's
+    // delta is small and the accumulator is the only thing that remembers
+    // how far past the bottom the pointer has travelled.
+    Future<void> dragDownInSteps(
+      WidgetTester tester, {
+      required int steps,
+      double perStep = 20,
+    }) async {
+      final TestGesture gesture = await tester.startGesture(
+        tester.getCenter(find.byKey(const Key('gbm-split-divider-0'))),
+      );
+      await tester.pump();
+      for (int i = 0; i < steps; i++) {
+        await gesture.moveBy(Offset(0, perStep));
+        await tester.pump();
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a collapsedByDefault drawer dragged past the bottom closes', (
+      tester,
+    ) async {
+      final GbmSplitPaneController controller = GbmSplitPaneController();
+      await pumpDrawer(
+        tester,
+        spec: GbmLayout.splitterMainLog, // default 0, min 90, drawer
+        storageId: 'test.drag.close',
+        controller: controller,
+        // What a previous session that dragged the drawer to 200px left.
+        initialPrefs: <String, Object>{
+          'panelLayout.test.drag.close': '[200.0]',
+        },
+      );
+
+      controller.open();
+      await tester.pump();
+      expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 200);
+
+      // 240px of downward travel from 200 puts the pointer well past the
+      // bottom edge; every step after the drawer bottoms out at minExtent is
+      // overshoot the accumulator has to keep.
+      await dragDownInSteps(tester, steps: 12);
+
+      expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 0);
+    });
+
+    testWidgets('closing by drag keeps a non-zero height to reopen to', (
+      tester,
+    ) async {
+      final GbmSplitPaneController controller = GbmSplitPaneController();
+      await pumpDrawer(
+        tester,
+        spec: GbmLayout.splitterMainLog,
+        storageId: 'test.drag.close.height',
+        controller: controller,
+        initialPrefs: <String, Object>{
+          'panelLayout.test.drag.close.height': '[200.0]',
+        },
+      );
+
+      controller.open();
+      await tester.pump();
+      await dragDownInSteps(tester, steps: 12);
+      expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 0);
+
+      // [FLU-collapsed-drawer-stores-height]: storage holds this drawer's
+      // *height*, never its open/closed state, so the 0 must not be written.
+      // The drag passed through the clamp region on its way down, so the
+      // height it left behind is minExtent rather than the original 200.
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('panelLayout.test.drag.close.height'), '[90.0]');
+
+      // And the drawer is genuinely reopenable -- a drag-close is a close,
+      // not a wedge.
+      controller.open();
+      await tester.pump();
+      expect(
+        tester.getSize(find.byKey(const Key('pane-0'))).height,
+        GbmLayout.splitterMainLog.minExtent,
+      );
+    });
+
+    // The gate: drag-to-close exists because a `collapsedByDefault` pane is
+    // one the user can always toggle back open. A pane with no such
+    // affordance must still floor at minExtent, or dragging it to the bottom
+    // would hide it with no way back.
+    testWidgets('a pane that is not a drawer still floors at minExtent', (
+      tester,
+    ) async {
+      final GbmSplitPaneController controller = GbmSplitPaneController();
+      await pumpDrawer(
+        tester,
+        // Same numbers as splitterMainLog, minus collapsedByDefault.
+        spec: const GbmSplitterSpec.extent(defaultExtent: 200, minExtent: 90),
+        storageId: 'test.drag.close.nondrawer',
+        controller: controller,
+      );
+
+      expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 200);
+
+      await dragDownInSteps(tester, steps: 12);
+
+      expect(
+        tester.getSize(find.byKey(const Key('pane-0'))).height,
+        GbmLayout.splitterMainLog.minExtent,
+      );
+    });
+  });
 }

@@ -28,9 +28,19 @@ void main() {
       expect(GbmLayout.sidebarMinWidth, 180);
     });
 
-    test('working copy left column width matches spec (280)', () {
-      expect(GbmLayout.workingCopyLeftColumnWidth, 280);
-    });
+    // `workingCopyLeftColumnWidth = 280` and this test were deleted in
+    // feat/working-copy-vertical-file-lists. The constant had **no caller
+    // under `lib/` in any revision** -- this assertion of its own value was
+    // its only reader ([CULT-orphan-wiring]) -- and its name stopped being
+    // true the moment the board's two columns were stacked: the Working
+    // Copy's left column is now the file-list stack, whose width is
+    // `splitterWcFiles.defaultExtent` (260), so keeping a second constant
+    // saying 280 would have been a second source of truth for one phrase.
+    // The test's own name claimed 「matches spec (280)」 and there is no
+    // such spec row -- searched the 21-page spec HTML for the literal 280
+    // and got three hits, two inside base64 blobs and one an unrelated
+    // `max-width:280px`. The 280 that *does* have a home is
+    // `splitterPanelList.defaultExtent`, which is untouched.
 
     test('dialog default width and max height match spec (480 / 560)', () {
       expect(GbmLayout.dialogDefaultWidth, 480);

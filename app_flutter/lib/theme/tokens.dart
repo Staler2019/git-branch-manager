@@ -549,8 +549,6 @@ abstract final class GbmLayout {
   static const double sidebarDefaultWidth = 250;
   static const double sidebarMinWidth = 180;
 
-  static const double workingCopyLeftColumnWidth = 280;
-
   static const double dialogDefaultWidth = 480;
   static const double dialogMaxHeight = 560;
 

@@ -106,6 +106,29 @@ void main() {
       },
     );
 
+    // 「右側 pane 再切成左右兩欄，等於把使用者抱怨的『左右擠』原封不動搬
+    // 過去」-- the round that moved this pane to the right-hand half of the
+    // window also made `unified` its default. `2 file` is untouched and one
+    // click away; only the initial value moved.
+    testWidgets('the pane opens in unified mode, one column', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('still editing', added: true),
+        staged: _file('already staged', added: true),
+      );
+
+      final Rect unstaged = tester.getRect(find.text('still editing'));
+      final Rect staged = tester.getRect(find.text('already staged'));
+
+      // One column, unstaged above staged. The `left` equality is what
+      // tells this apart from `2 file`, where the two sit at different x
+      // and the same y -- "above" alone would be satisfied by rounding.
+      expect(unstaged.left, equals(staged.left));
+      expect(unstaged.bottom, lessThanOrEqualTo(staged.top));
+    });
+
     testWidgets('2 file mode shows both sides of the same file at once', (
       WidgetTester tester,
     ) async {
@@ -114,6 +137,13 @@ void main() {
         unstaged: _file('still editing', added: true),
         staged: _file('already staged', added: true),
       );
+      // `unified` is the default now, so this test has to ask for the mode
+      // it is about instead of inheriting it. Both of these used to pump and
+      // assert without touching the switch, which pinned `twoFile` as the
+      // default without ever saying so -- and that implicit pin going red is
+      // exactly what proves the default moved.
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
 
       // Distinct text on each side: identical content would let the two
       // panes be swapped, or one of them be drawn twice, and still pass.
@@ -131,6 +161,10 @@ void main() {
         unstaged: _file('still editing', added: true),
         staged: _file('already staged', added: true),
       );
+      // See the note above: `2 file` is no longer the default, and the dx
+      // comparison below is only a meaningful pin once the mode is on.
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
 
       expect(
         tester.getCenter(find.text('still editing')).dx,
@@ -190,6 +224,11 @@ void main() {
         unstaged: _file('still editing', added: true),
         staged: _file('already staged', added: true),
       );
+
+      // The divider only exists in `2 file` mode, which is no longer the
+      // default -- same implicit pin as the two tests above.
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
 
       final double before = tester.getCenter(find.text('already staged')).dx;
 

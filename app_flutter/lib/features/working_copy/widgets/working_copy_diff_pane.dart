@@ -23,8 +23,17 @@ enum WorkingCopyDiffMode {
   /// broken, and every other two-pane surface in the app resizes.
   twoFile,
 
-  /// One column, unstaged above staged. For a narrow window, where two
-  /// columns of monospace leave nothing readable in either.
+  /// One column, unstaged above staged. **The default**, and it used to say
+  /// "for a narrow window, where two columns of monospace leave nothing
+  /// readable in either" -- true as far as it went, and wrong about which
+  /// windows it applies to.
+  ///
+  /// This pane now occupies the right-hand half of the window rather than
+  /// its lower half, so splitting it again into two columns would spend the
+  /// readable width on exactly the arrangement the round was asked to undo
+  /// (「左右不好看檔案內容」). Narrowness is no longer the trigger: the
+  /// pane is *always* the narrower of the two axes it could be split on.
+  /// [twoFile] is unchanged and one click away.
   unified,
 }
 
@@ -101,7 +110,9 @@ class WorkingCopyDiffPane extends StatefulWidget {
 }
 
 class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
-  WorkingCopyDiffMode _mode = WorkingCopyDiffMode.twoFile;
+  /// `unified`, not `twoFile`. Widget state, deliberately not persisted --
+  /// see [WorkingCopyDiffMode] for why this default moved.
+  WorkingCopyDiffMode _mode = WorkingCopyDiffMode.unified;
   final ScrollController _stagedScroll = ScrollController();
 
   /// Stands in when the caller passed no [WorkingCopyDiffPane.scrollController].

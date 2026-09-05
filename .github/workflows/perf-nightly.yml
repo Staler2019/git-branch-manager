@@ -46,7 +46,14 @@ jobs:
       - name: Configure and build
         run: |
           cmake --preset core-only
-          cmake --build --preset core-only --target gen_history gbm_graph_check
+          # gbm_spawn_cost/gbm_exit_now are the windows-spawn-cost job's
+          # binaries, built here too because `ctest --preset perf` selects by
+          # label and would otherwise ask for a target this job never built.
+          # Their Linux run prints verdict=not-applicable and exits 0 -- which
+          # is the point: the non-Windows arm of that tool is then exercised
+          # nightly instead of assumed to still compile.
+          cmake --build --preset core-only \
+            --target gen_history gbm_graph_check gbm_spawn_cost gbm_exit_now
 
       - name: Measure
         run: |
@@ -116,4 +123,88 @@ jobs:
         with:
           name: perf-log
           path: perf.log
+          if-no-files-found: ignore
+
+  windows-spawn-cost:
+    name: job-object spawn cost
+    # Pinned for the same reason commit-graph-ratio is: a runner image rolling
+    # forward underneath a trend makes the trend unreadable. windows-2022
+    # specifically, because the subject is a Win32 kernel object and its cost
+    # is a property of that image.
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and a pinned CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Report the git version
+        run: git --version
+
+      - name: Configure and build
+        run: |
+          cmake --preset core-only
+          cmake --build --preset core-only --target gbm_spawn_cost gbm_exit_now
+
+      # `-R` rather than the perf preset: the preset's other member builds a
+      # 100k-commit fixture, and doing that on the slowest runner in the fleet
+      # to measure something unrelated to it would be paying twice for nothing.
+      - name: Measure
+        shell: bash
+        run: |
+          set -o pipefail
+          ctest --test-dir build/core-only -L perf -R windows_job_object_spawn_cost \
+            --output-on-failure 2>&1 | tee spawn.log
+
+      - name: Publish measurements
+        if: always()
+        shell: bash
+        run: |
+          line=$(grep -m1 'job-object-ab:' spawn.log || true)
+          if [ -z "$line" ]; then
+            {
+              echo "## job-object spawn cost"
+              echo
+              echo 'No measurement line in `spawn.log` -- the run failed before measuring.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            verdict=$(sed -n 's/.*verdict=\([a-z-]*\).*/\1/p' <<<"$line")
+            {
+              echo "## job-object spawn cost -- $(date -u '+%Y-%m-%d')"
+              echo
+              echo "verdict: **$verdict**"
+              echo
+              # A point estimate is printed only when the tool says it earned
+              # one. Below its own resolution it emits an upper bound instead,
+              # and this summary must not quietly promote that to a number --
+              # doing exactly that is how a previous round published "33%".
+              case "$verdict" in
+                measured)
+                  echo 'The A/A null arm resolved this difference, and the injected-delay control'
+                  echo 'recovered a known delay, so the overhead below is a real measurement.'
+                  ;;
+                below-noise)
+                  echo 'Smaller than what this run could resolve. Only an **upper bound** is'
+                  echo 'reported; there is no point estimate to quote.'
+                  ;;
+                instrument-unreliable)
+                  echo 'The injected-delay control failed: the instrument could not recover a'
+                  echo 'delay it was told the size of. **Do not quote any number from this run.**'
+                  ;;
+              esac
+              echo
+              echo '```'
+              echo "$line"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the full log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spawn-cost-log
+          path: spawn.log
           if-no-files-found: ignore

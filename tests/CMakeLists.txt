@@ -130,6 +130,39 @@ if(GIT_FOUND)
         ENVIRONMENT "GIT_OPTIONAL_LOCKS=0")
 endif()
 
+# --- job-object per-spawn cost (Windows) ------------------------------------
+# The debt from a round that reported "job object costs 33%" off three CI
+# wall-clock runs and had to correct it in place. Both halves are built on
+# every platform on purpose: a Windows-only source that only compiles in one
+# of six CI jobs rots in the other five, and this one exists precisely because
+# a measurement was allowed to go unchecked.
+add_executable(gbm_exit_now fixtures/exit_now.cpp)
+target_link_libraries(gbm_exit_now PRIVATE gbm_warnings)
+
+add_executable(gbm_spawn_cost tools/spawn_cost_win.cpp)
+target_link_libraries(gbm_spawn_cost PRIVATE gbm_core gbm_warnings)
+add_dependencies(gbm_spawn_cost gbm_exit_now)
+
+set(GBM_MAX_JOB_OVERHEAD_FRACTION 0.0 CACHE STRING
+    "Job-object spawn overhead as a fraction of one `git --version`, asserted by the nightly
+     gate. 0 disables the assertion, which is the shipped default: the number this would gate
+     on has not been collected yet, and picking a threshold before the measurement is the exact
+     order of operations this whole tool exists to correct.")
+
+# Registered on every platform; the non-Windows build prints
+# verdict=not-applicable and exits 0. `perf`, so no PR preset asks for it --
+# a shared runner is far too noisy to gate a branch on microseconds, and a
+# non-gating step that can never go red is a step nobody reads
+# ([TEST-fixture-cannot-disagree] applied to CI).
+add_test(NAME windows_job_object_spawn_cost COMMAND gbm_spawn_cost)
+set_tests_properties(windows_job_object_spawn_cost PROPERTIES
+    LABELS "perf"
+    TIMEOUT 600
+    # Every other thing ctest could run in parallel is noise on a measurement
+    # whose whole subject is microseconds.
+    RUN_SERIAL TRUE
+    ENVIRONMENT "GBM_EXIT_NOW_EXE=$<TARGET_FILE:gbm_exit_now>;GIT_OPTIONAL_LOCKS=0")
+
 # --- capi (FFI) tests -------------------------------------------------------
 # Gated on GBM_BUILD_CAPI so it builds under the capi-only preset.
 if(GBM_BUILD_CAPI)

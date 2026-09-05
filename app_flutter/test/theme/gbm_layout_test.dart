@@ -78,6 +78,10 @@ void main() {
       expect(GbmLayout.splitterMainFiles.minExtent, 140);
     });
 
+    // wc.columns and wc.diff are on their way out -- both dividers are being
+    // rotated 90 degrees, a ruled deviation from this very table. Each is
+    // asserted here until the commit that removes its last caller. See the
+    // Working Copy group below for the replacements.
     test('wc.columns: 1:1 flex ratio, 200px min', () {
       expect(GbmLayout.splitterWcColumns.flexRatio, <double>[1, 1]);
       expect(GbmLayout.splitterWcColumns.minExtent, 200);
@@ -105,6 +109,37 @@ void main() {
         expect(GbmLayout.splitterCwPanes.minExtent, 220);
       },
     );
+  });
+
+  // Spec page 09's SPLITTERS table has a row for each of these two dividers,
+  // and both rows are overruled -- `wc.columns` is `dir: '垂直'` there and
+  // `wc.diff` is `dir: '水平'`, where `dir` names the divider itself. Rotating
+  // both is the whole of what the user asked for, so the spec's own numbers
+  // stop deciding these: 200 was a *width* floor for a pair now stacked, and
+  // 46/54 was a *height* ratio now applied across the window's width.
+  // Design: docs/claude-design-demo/working-copy-layout-spec.html, sections
+  // 03 (the width ruling) and 04 (every number's source, or its absence).
+  group('GbmLayout Working Copy splitters (ruled deviation from page 09)', () {
+    test('wc.files: 260px default, 180px min, and it is extent-mode', () {
+      // Extent, not flex, is the ruling itself (option A): a wider window
+      // gives every new pixel to the diff instead of widening a file list
+      // that was already wide enough. Neither number has a spec source --
+      // section 04 of the design page lists both as this round's proposal.
+      expect(GbmLayout.splitterWcFiles.defaultExtent, 260);
+      expect(GbmLayout.splitterWcFiles.minExtent, 180);
+      expect(GbmLayout.splitterWcFiles.flexRatio, isNull);
+    });
+
+    test('wc.stack: 1:1 flex ratio, 96px min', () {
+      // 1 : 1 survives the rotation unchanged -- it is the one value page
+      // 09's `wc.columns` row still decides, because a ratio has no axis.
+      // 96 replaces that row's 200: 78 of it is exact constants (a 26px
+      // header, an 8px hint margin, 18px of padding and borders, and one
+      // 26px file row) and the rest is the hint's own 11px text line, whose
+      // height is a TextPainter fact rather than a token.
+      expect(GbmLayout.splitterWcStack.flexRatio, <double>[1, 1]);
+      expect(GbmLayout.splitterWcStack.minExtent, 96);
+    });
   });
 
   // Not in spec page 09's SPLITTERS table -- that page predates P14/P19 and

@@ -603,16 +603,93 @@ abstract final class GbmLayout {
     minExtent: 140,
   );
 
-  /// Unstaged <-> Staged columns.
+  /// Unstaged <-> Staged columns. **Superseded by [splitterWcStack]**; kept
+  /// only until its last caller moves. See that constant for the ruling.
   static const GbmSplitterSpec splitterWcColumns = GbmSplitterSpec.flex(
     flexRatio: <double>[1, 1],
     minExtent: 200,
   );
 
-  /// File columns <-> diff pane.
+  /// File columns <-> diff pane. **Superseded by [splitterWcFiles]**; kept
+  /// only until its last caller moves. See that constant for the ruling.
   static const GbmSplitterSpec splitterWcDiff = GbmSplitterSpec.flex(
     flexRatio: <double>[46, 54],
     minExtent: 150,
+  );
+
+  /// Working Copy: the stacked file lists <-> the diff pane, **horizontal**.
+  ///
+  /// This replaces [splitterWcDiff], and the change is a **user-ratified
+  /// deviation from spec page 09's `SPLITTERS` table**, not a refactor. That
+  /// table's `wc.diff` row reads `{ where: '檔案區 ↔ Diff', dir: '水平',
+  /// def: '46 / 54', min: '150px' }`, where `dir` names the orientation of
+  /// the *divider*: a horizontal line, with the files above and the diff
+  /// below. The user asked for the opposite —— 「file line view 在右側」 ——
+  /// so the divider is now vertical and the panes sit side by side.
+  ///
+  /// The old 46/54 could not come along. It was a share of the window's
+  /// *height*, and reused as a share of its *width* it would hand nearly
+  /// half the window to a file list, which is the complaint that started the
+  /// round (「左右不好看檔案內容」). Extent mode is the user's own ruling
+  /// (option A of the design page's section 03): a wider window gives every
+  /// new pixel to the diff, and the file column stays the size it needs.
+  ///
+  /// **Neither number has a source.** `defaultExtent: 260` and
+  /// `minExtent: 180` are this round's proposal, carried forward because the
+  /// ruling picked the *mode* and no spec row anywhere gives a pixel default
+  /// for this divider. The nearest precedent is [splitterMainSidebar]'s
+  /// 250 / 180, and 180 happening to equal [sidebarMinWidth] is a
+  /// coincidence of two different dividers, not evidence for this one.
+  /// Design page section 04 lists both as unsourced on purpose.
+  ///
+  /// Its storage id is `wc.files`, deliberately **not** the old `wc.diff`.
+  /// [FLU-splitpane-axis-change] makes re-keying an obligation rather than a
+  /// choice: an extent-mode pane persists a raw pixel number, and a height
+  /// somebody dragged to would be adopted verbatim as a width. The orphaned
+  /// `panelLayout.wc.diff` key now read-misses and falls back to this
+  /// default -- never a wrong number, the same trade-off
+  /// [FLU-storage-id-not-tab-id] records.
+  static const GbmSplitterSpec splitterWcFiles = GbmSplitterSpec.extent(
+    defaultExtent: 260,
+    minExtent: 180,
+  );
+
+  /// Working Copy: Unstaged <-> Staged, **vertical**, Unstaged on top.
+  ///
+  /// This replaces [splitterWcColumns], and is the other half of the same
+  /// ruled deviation. Page 09's `wc.columns` row reads `{ where: 'Unstaged
+  /// ↔ Staged', dir: '垂直', def: '1 : 1', min: '200px' }` -- a vertical
+  /// divider with the two lists side by side. 「改成左側垂直」 rotates it.
+  ///
+  /// `1 : 1` is the one value that survives the rotation, and it survives
+  /// because a ratio has no axis -- so that half of the row still decides
+  /// this constant. `min: '200px'` does not: it was a floor on a column's
+  /// *width*, and as a floor on its *height* it would demand 400px before
+  /// the pair could be drawn at all, on a divider whose whole purpose is to
+  /// let one list give way to the other.
+  ///
+  /// **96 is a measured floor, not a token sum.** 78 of it is exact
+  /// constants -- a [rowHeightCompact] header (26), the drop hint's
+  /// [GbmSpacing.space2] top margin (8), the hint box's own padding and
+  /// borders (8+1 and 1+8), and one 26px file row -- and the remainder is
+  /// the hint's single 11px text line, whose height is a `TextPainter` fact
+  /// with no `height:` on the style, so it cannot be written as a constant.
+  ///
+  /// One asymmetry is deliberate and worth knowing before anyone "fixes" it:
+  /// the drop hint exists **only in the Unstaged column** (`if (!fromStaged)`
+  /// in `working_copy_board.dart`), while `GbmSplitPane`'s `minExtent` is a
+  /// single floor shared by both panes. Staged alone needs about 52px and is
+  /// held to 96 anyway. A per-pane floor is not something `GbmSplitPane`
+  /// offers, and inventing one for this is a larger change than the problem.
+  ///
+  /// Its storage id is `wc.stack`, not the old `wc.columns` -- see
+  /// [splitterWcFiles] for why re-keying is an obligation. Flex mode would
+  /// in principle survive an axis change ([FLU-splitpane-axis-change] says
+  /// only ratio mode does), but the *floor* stored beside it would not, so
+  /// this one is re-keyed too rather than relying on that distinction.
+  static const GbmSplitterSpec splitterWcStack = GbmSplitterSpec.flex(
+    flexRatio: <double>[1, 1],
+    minExtent: 96,
   );
 
   /// Working Copy diff pane: unstaged side <-> staged side, in `2 file`

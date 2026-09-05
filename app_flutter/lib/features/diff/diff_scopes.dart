@@ -197,6 +197,14 @@ DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
 /// Rendering reads this list straight through, so the "which lines are in a
 /// card and which are the code around it" decision stays in one pure place
 /// instead of being re-derived by a widget's build method.
+/// Where a diff row sits on the index, as a two-part coordinate.
+///
+/// [line] is an index line number; [offset] is `0` when the row *is* that
+/// line and `1` when it sits between it and the next one. Two rows from two
+/// different diffs that answer the same pair are adjacent in the index --
+/// see [indexPositionOf] for why the second number cannot be dropped.
+typedef IndexPosition = ({int line, int offset});
+
 /// Where a hunk's line sits on the **index** side.
 ///
 /// The two working-copy diffs share the index as a coordinate system: the
@@ -206,26 +214,54 @@ DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
 /// git call, which is the whole of U1's ruling
 /// (「我要對齊的不是行號，是 git 判斷出的區域變更」).
 ///
+/// The answer is **two** numbers, not one. [IndexPosition.line] is an index
+/// line number; [IndexPosition.offset] says whether the row *is* that line
+/// (`0`) or merely sits after it (`1`).
+///
 /// A line with no index side -- an addition on the unstaged side, a deletion
-/// on the staged one -- reports the position of the last line that had one,
-/// because that is where it lands. Reading its literal `0` would sort every
-/// insertion to the top of the file.
+/// on the staged one -- does not occupy an index line at all: it lands
+/// *between* two. Reading its literal `0` would sort every insertion to the
+/// top of the file, so it takes the last line that did have one and an
+/// offset of 1. **The offset is the load-bearing half.** Collapsing such a
+/// row onto the bare line number -- which is what this returned for one
+/// round -- makes it tie with the index line itself, and then a card from
+/// the *other* diff sitting on that very line cannot be ordered between the
+/// rows inserted before it and the rows inserted after it. Measured on the
+/// reported case, a 5-line untracked file with its middle line staged: all
+/// six rows of the two diffs answered `1`, so the merged list had nothing
+/// to sort by and the staged card could only fall to the end.
+///
+/// A row before the hunk's first index line takes `line: start - 1` with an
+/// offset, for the same reason: it is before that line, not on it.
 ///
 /// Note this is a *position*, not an identity: two regions answering the same
-/// number are adjacent in the index, not the same change. Ordering by it
+/// pair are adjacent in the index, not the same change. Ordering by it
 /// asserts precedence only, which is exactly what 變體 B's own note forbids
 /// hard line alignment for.
-int indexPositionOf(DiffHunk hunk, int lineIndex, {required bool staged}) {
-  int position = staged ? hunk.newStart : hunk.oldStart;
+IndexPosition indexPositionOf(
+  DiffHunk hunk,
+  int lineIndex, {
+  required bool staged,
+}) {
+  int line = (staged ? hunk.newStart : hunk.oldStart) - 1;
+  if (hunk.lines.isEmpty) return (line: line, offset: 1);
   final int last = lineIndex < hunk.lines.length
       ? lineIndex
       : hunk.lines.length - 1;
+  int own = 0;
   for (int i = 0; i <= last; i++) {
-    final DiffLine line = hunk.lines[i];
-    final int number = staged ? line.newLine : line.oldLine;
-    if (number > 0) position = number;
+    final DiffLine element = hunk.lines[i];
+    own = staged ? element.newLine : element.oldLine;
+    if (own > 0) line = own;
   }
-  return position;
+  return (line: line, offset: own > 0 ? 0 : 1);
+}
+
+/// Orders two [IndexPosition]s: by index line first, then by whether the row
+/// is that line or sits after it.
+int compareIndexPositions(IndexPosition a, IndexPosition b) {
+  final int byLine = a.line.compareTo(b.line);
+  return byLine != 0 ? byLine : a.offset.compareTo(b.offset);
 }
 
 sealed class DiffSegment {

@@ -148,7 +148,7 @@ typedef _Block = ({
   int sourceIndex,
   int hunkIndex,
   DiffSegment segment,
-  int position,
+  IndexPosition position,
 });
 
 class _ScopedDiffViewState extends State<ScopedDiffView> {
@@ -809,8 +809,15 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             sourceIndex: sourceIndex,
             hunkIndex: hunkIndex,
             segment: segment,
+            // The empty case is unreachable by construction -- a gap
+            // segment is only emitted for a non-empty run and a scope
+            // always has at least one changed line -- so it only has to be
+            // a total order, not a meaningful position.
             position: segment.lineIndices.isEmpty
-                ? (source.staged ? hunk.newStart : hunk.oldStart)
+                ? (
+                    line: source.staged ? hunk.newStart : hunk.oldStart,
+                    offset: 0,
+                  )
                 : indexPositionOf(
                     hunk,
                     segment.lineIndices.first,
@@ -838,7 +845,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     if (widget.sources.length > 1) {
       final List<int> order = <int>[for (int i = 0; i < blocks.length; i++) i];
       order.sort((int a, int b) {
-        final int byPosition = blocks[a].position.compareTo(blocks[b].position);
+        final int byPosition = compareIndexPositions(
+          blocks[a].position,
+          blocks[b].position,
+        );
         if (byPosition != 0) return byPosition;
         final int bySource = blocks[a].sourceIndex.compareTo(
           blocks[b].sourceIndex,

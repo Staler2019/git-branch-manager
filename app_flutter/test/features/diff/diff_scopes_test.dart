@@ -464,27 +464,32 @@ void main() {
 
     test('reads the old side for an unstaged diff', () {
       final DiffHunk hunk = hunkAt(oldStart: 10, newStart: 90);
-      expect(indexPositionOf(hunk, 0, staged: false), 10);
-      // An added line has no old side at all (oldLine == 0). Its index
-      // position is where it *lands*, i.e. still just after the last line
-      // that does have one -- reading the zero literally would sort every
-      // insertion to the top of the file.
-      expect(indexPositionOf(hunk, 1, staged: false), 10);
-      expect(indexPositionOf(hunk, 2, staged: false), 11);
+      expect(indexPositionOf(hunk, 0, staged: false), (line: 10, offset: 0));
+      // An added line has no old side at all (oldLine == 0), so it does not
+      // *occupy* an index line -- it sits between two. `offset: 1` is what
+      // says so, and it is the whole difference between「是第 10 行」and
+      //「夾在第 10 行後面」. Reading the zero literally would sort every
+      // insertion to the top of the file; collapsing it onto 10 with no
+      // offset (which is what this used to do) makes it tie with the line
+      // itself, so a card from the other diff sitting *on* index line 10
+      // could no longer be ordered between them.
+      expect(indexPositionOf(hunk, 1, staged: false), (line: 10, offset: 1));
+      expect(indexPositionOf(hunk, 2, staged: false), (line: 11, offset: 0));
     });
 
     test('reads the new side for a staged diff', () {
       final DiffHunk hunk = hunkAt(oldStart: 10, newStart: 90);
-      expect(indexPositionOf(hunk, 0, staged: true), 90);
-      expect(indexPositionOf(hunk, 1, staged: true), 91);
+      expect(indexPositionOf(hunk, 0, staged: true), (line: 90, offset: 0));
+      expect(indexPositionOf(hunk, 1, staged: true), (line: 91, offset: 0));
       // Mirror of the case above: a removed line has no new side.
-      expect(indexPositionOf(hunk, 2, staged: true), 91);
+      expect(indexPositionOf(hunk, 2, staged: true), (line: 91, offset: 1));
     });
 
-    test('a hunk whose first line has no number falls back to the start', () {
+    test('a hunk whose first line has no number sits before the start', () {
       // A pure insertion hunk -- `@@ -0,0 +1,2 @@` -- has no old side
-      // anywhere in it, so nothing in the loop can supply a position and the
-      // hunk's own start is the only answer there is.
+      // anywhere in it, so nothing in the loop can supply a line number.
+      // These rows land *before* the hunk's first index line, which is
+      // `oldStart - 1` with an offset, not `oldStart` itself.
       final DiffHunk hunk = DiffHunk(
         oldStart: 7,
         oldCount: 0,
@@ -496,8 +501,83 @@ void main() {
           DiffLine(kind: DiffLineKind.added, oldLine: 0, newLine: 2, text: 'b'),
         ],
       );
-      expect(indexPositionOf(hunk, 0, staged: false), 7);
-      expect(indexPositionOf(hunk, 1, staged: false), 7);
+      expect(indexPositionOf(hunk, 0, staged: false), (line: 6, offset: 1));
+      expect(indexPositionOf(hunk, 1, staged: false), (line: 6, offset: 1));
+    });
+
+    // The reported case, measured in a real repository: a 5-line untracked
+    // file whose middle line is staged. `git diff` answers
+    // `@@ -1 +1,5 @@ +alpha +bravo ' document' +delta +echo`, and
+    // `git diff --cached` answers `@@ -0,0 +1 @@ +document`.
+    //
+    // Every one of those six rows reported the *same* position 1 before this
+    // change, so the sort had nothing to order by and the staged card could
+    // only land wherever source order put it -- last, not between the two
+    // unstaged runs it belongs between.
+    test('an untracked file with its middle line staged orders in three', () {
+      final DiffHunk unstaged = DiffHunk(
+        oldStart: 1,
+        oldCount: 1,
+        newStart: 1,
+        newCount: 5,
+        heading: '',
+        lines: <DiffLine>[
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: 0,
+            newLine: 1,
+            text: 'alpha',
+          ),
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: 0,
+            newLine: 2,
+            text: 'bravo',
+          ),
+          DiffLine(
+            kind: DiffLineKind.context,
+            oldLine: 1,
+            newLine: 3,
+            text: 'document',
+          ),
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: 0,
+            newLine: 4,
+            text: 'delta',
+          ),
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: 0,
+            newLine: 5,
+            text: 'echo',
+          ),
+        ],
+      );
+      final DiffHunk staged = DiffHunk(
+        oldStart: 0,
+        oldCount: 0,
+        newStart: 1,
+        newCount: 1,
+        heading: '',
+        lines: <DiffLine>[
+          DiffLine(
+            kind: DiffLineKind.added,
+            oldLine: 0,
+            newLine: 1,
+            text: 'document',
+          ),
+        ],
+      );
+
+      expect(indexPositionOf(unstaged, 0, staged: false), (line: 0, offset: 1));
+      expect(indexPositionOf(unstaged, 1, staged: false), (line: 0, offset: 1));
+      expect(indexPositionOf(unstaged, 2, staged: false), (line: 1, offset: 0));
+      expect(indexPositionOf(unstaged, 3, staged: false), (line: 1, offset: 1));
+      expect(indexPositionOf(unstaged, 4, staged: false), (line: 1, offset: 1));
+      // The staged card sits *on* index line 1, so it sorts after the two
+      // rows inserted before it and before the two inserted after it.
+      expect(indexPositionOf(staged, 0, staged: true), (line: 1, offset: 0));
     });
   });
 }

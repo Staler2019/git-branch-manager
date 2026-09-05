@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
@@ -311,6 +313,131 @@ void main() {
       ]) {
         expect(tester.getSize(find.text(label)).width, greaterThan(0));
       }
+    });
+
+    // Two of this repo's recorded defect shapes sat in one row, and neither
+    // was caused by this round: the conflicted-file row hand-rolled a bare
+    // `InkWell` ([FLU-hand-rolled-inkwell-hover] -- `ThemeData.hoverColor` is
+    // ~4%, invisible on a real display) whose only callback was `onDoubleTap`,
+    // which is itself an ancestor `DoubleTapGestureRecognizer` over the row's
+    // own three buttons ([FLU-gesture-arena-taxes-double-tap]). Found by the
+    // `InkWell(`/`GestureDetector(` sweep that rule asks for at the end of any
+    // round that touches widgets.
+    group('conflicted row chrome', () {
+      const WorkingCopyEntry conflicted = WorkingCopyEntry(
+        path: 'lib/conflicted.dart',
+        oldPath: '',
+        untracked: false,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.bothModified,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: true,
+      );
+
+      Future<FakeRepoSessionController> pumpConflicted(
+        WidgetTester tester,
+      ) async {
+        final FakeRepoSessionController controller = FakeRepoSessionController(
+          identity,
+          const RepoSessionState(),
+        );
+        await pumpGbmWidget(
+          tester,
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: WorkingCopyView(identity: identity),
+          ),
+          overrides: [
+            repoSessionProvider(identity).overrideWith((ref) => controller),
+            wc
+                .repoWorkingCopyStatusProvider(identity)
+                .overrideWithValue(
+                  const WorkingCopyStatus(entries: [conflicted]),
+                ),
+            wc
+                .repoWorkingCopyDiffsProvider(identity)
+                .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+          ],
+        );
+        return controller;
+      }
+
+      // The row's own background box, identified by the bottom divider it
+      // carries rather than by position in the tree, so the assertion survives
+      // the row being rebuilt around a different hover mechanism.
+      BoxDecoration rowDecoration(WidgetTester tester) =>
+          tester
+                  .widget<Container>(
+                    find
+                        .ancestor(
+                          of: find.text('lib/conflicted.dart'),
+                          matching: find.byWidgetPredicate(
+                            (Widget w) =>
+                                w is Container &&
+                                w.decoration is BoxDecoration &&
+                                (w.decoration! as BoxDecoration).border != null,
+                          ),
+                        )
+                        .first,
+                  )
+                  .decoration!
+              as BoxDecoration;
+
+      // Asserting the token by identity: a hover test that only checks for no
+      // exception proves nothing, which is the whole of the recorded rule.
+      testWidgets('hovering the row paints the surfaceHover token', (
+        tester,
+      ) async {
+        await pumpConflicted(tester);
+        expect(rowDecoration(tester).color, isNull, reason: 'at rest');
+
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: Offset.zero);
+        addTearDown(pointer.removePointer);
+        await pointer.moveTo(
+          tester.getCenter(find.text('lib/conflicted.dart')),
+        );
+        await tester.pump();
+
+        expect(
+          rowDecoration(tester).color,
+          tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+        );
+      });
+
+      // One `pump()` and no elapsed duration: if an ancestor is holding the
+      // gesture arena open for a double tap, the press does not reach the
+      // button until `kDoubleTapTimeout` (~300ms) has passed, and this sees
+      // nothing. That delay is what the rule calls the tax.
+      testWidgets('a button fires on the frame it is pressed, not a '
+          'double-tap timeout later', (tester) async {
+        final FakeRepoSessionController controller = await pumpConflicted(
+          tester,
+        );
+
+        await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+        await tester.pump();
+
+        expect(controller.resolveConflictCalls.length, 1);
+        expect(
+          controller.resolveConflictCalls.single.path,
+          'lib/conflicted.dart',
+        );
+      });
     });
 
     testWidgets('commit message box is visible', (tester) async {

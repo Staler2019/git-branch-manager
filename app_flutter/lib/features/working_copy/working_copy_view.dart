@@ -289,79 +289,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     BuildContext context, {
     required WorkingCopyEntry entry,
     required String repoId,
-  }) {
-    final GbmColors colors = context.gbmColors;
-    final RepoSessionController notifier = ref.read(
-      repoSessionProvider(widget.identity).notifier,
-    );
-
-    return Container(
-      height: GbmSpacing.rowHeightCompact,
-      decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
-      ),
-      child: InkWell(
-        onDoubleTap: () {
-          context.go(RoutePaths.conflictsFor(repoId));
-        },
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-          child: Row(
-            children: <Widget>[
-              Expanded(
-                child: Text(
-                  entry.path,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    color: colors.textPrimary,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: GbmSpacing.space2),
-              GbmButton(
-                kind: GbmButtonKind.secondary,
-                size: GbmButtonSize.sm,
-                label: 'Take Ours',
-                onPressed: () {
-                  notifier.resolveConflict(
-                    entry.path,
-                    ConflictResolution.takeOurs,
-                    oursBlobMissing: entry.oursBlob.isEmpty,
-                  );
-                },
-              ),
-              const SizedBox(width: GbmSpacing.space1),
-              GbmButton(
-                kind: GbmButtonKind.secondary,
-                size: GbmButtonSize.sm,
-                label: 'Take Theirs',
-                onPressed: () {
-                  notifier.resolveConflict(
-                    entry.path,
-                    ConflictResolution.takeTheirs,
-                    theirsBlobMissing: entry.theirsBlob.isEmpty,
-                  );
-                },
-              ),
-              const SizedBox(width: GbmSpacing.space1),
-              GbmButton(
-                kind: GbmButtonKind.secondary,
-                size: GbmButtonSize.sm,
-                label: 'Mark Resolved',
-                onPressed: () {
-                  notifier.resolveConflict(
-                    entry.path,
-                    ConflictResolution.markResolved,
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  }) => _ConflictedFileRow(
+    entry: entry,
+    onOpenConflicts: () => context.go(RoutePaths.conflictsFor(repoId)),
+    notifier: ref.read(repoSessionProvider(widget.identity).notifier),
+  );
 
   /// Builds the file board (two-column staged/unstaged).
   Widget _buildFileBoard(
@@ -882,6 +814,134 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         path: _selectedPath!,
         hunkIndex: hunkIndex,
         lineIndices: lineIndices,
+      ),
+    );
+  }
+}
+
+/// One row of the conflicted-files banner: the path, then the three
+/// one-press resolutions.
+///
+/// **Stateful for its hover, and that is not a style choice.** This row was a
+/// `Container` wrapping a bare `InkWell` whose only callback was
+/// `onDoubleTap`, which put it in two of this repo's recorded traps at once:
+///
+/// - a hand-rolled `InkWell` inherits `ThemeData.hoverColor` (about four per
+///   cent black/white), invisible on a real display --
+///   [FLU-hand-rolled-inkwell-hover];
+/// - that `onDoubleTap` is a `DoubleTapGestureRecognizer` on the **ancestor**
+///   path of the row's own three buttons, and it holds the gesture arena open
+///   until `kDoubleTapTimeout` (~300ms) --
+///   [FLU-gesture-arena-taxes-double-tap]. Measured here rather than assumed:
+///   with the old shape, tapping `Take Ours` and pumping a single frame
+///   dispatched **nothing at all**.
+///
+/// `GbmRow` cannot answer both. It has no `onDoubleTap`, and an `InkWell`
+/// with no callback is not `isWidgetEnabled`, so routing through it would not
+/// hover either -- the row would need a single-click action it does not have,
+/// and inventing one is a UX decision rather than a repair. So the hover is
+/// an explicit [MouseRegion] painting the same `surfaceHover` token `GbmRow`
+/// would, and the double tap moves down onto the path itself.
+///
+/// **The one behaviour that narrows**: a double click on the button strip no
+/// longer opens the conflict window. `Expanded` gives the path everything up
+/// to the first button, so the only region lost is the buttons themselves,
+/// where a double click was ambiguous anyway.
+class _ConflictedFileRow extends StatefulWidget {
+  const _ConflictedFileRow({
+    required this.entry,
+    required this.onOpenConflicts,
+    required this.notifier,
+  });
+
+  final WorkingCopyEntry entry;
+  final VoidCallback onOpenConflicts;
+  final RepoSessionController notifier;
+
+  @override
+  State<_ConflictedFileRow> createState() => _ConflictedFileRowState();
+}
+
+class _ConflictedFileRowState extends State<_ConflictedFileRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final WorkingCopyEntry entry = widget.entry;
+    final RepoSessionController notifier = widget.notifier;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Container(
+        height: GbmSpacing.rowHeightCompact,
+        decoration: BoxDecoration(
+          color: _hovered ? colors.surfaceHover : null,
+          border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                // Opaque rather than the default `deferToChild`: the path is
+                // one text run and the row is wider than it, so deferring
+                // leaves the gap beside a short filename dead to the click.
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onDoubleTap: widget.onOpenConflicts,
+                  child: Text(
+                    entry.path,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      color: colors.textPrimary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
+                label: 'Take Ours',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeOurs,
+                    oursBlobMissing: entry.oursBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
+                label: 'Take Theirs',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.takeTheirs,
+                    theirsBlobMissing: entry.theirsBlob.isEmpty,
+                  );
+                },
+              ),
+              const SizedBox(width: GbmSpacing.space1),
+              GbmButton(
+                kind: GbmButtonKind.secondary,
+                size: GbmButtonSize.sm,
+                label: 'Mark Resolved',
+                onPressed: () {
+                  notifier.resolveConflict(
+                    entry.path,
+                    ConflictResolution.markResolved,
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

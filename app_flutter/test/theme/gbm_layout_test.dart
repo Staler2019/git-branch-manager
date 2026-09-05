@@ -87,11 +87,6 @@ void main() {
       expect(GbmLayout.splitterWcColumns.minExtent, 200);
     });
 
-    test('wc.diff: 46/54 flex ratio, 150px min', () {
-      expect(GbmLayout.splitterWcDiff.flexRatio, <double>[46, 54]);
-      expect(GbmLayout.splitterWcDiff.minExtent, 150);
-    });
-
     test('main.log: collapsed by default, 90px min', () {
       expect(GbmLayout.splitterMainLog.collapsedByDefault, isTrue);
       expect(GbmLayout.splitterMainLog.minExtent, 90);

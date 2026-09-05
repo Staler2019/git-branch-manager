@@ -610,16 +610,10 @@ abstract final class GbmLayout {
     minExtent: 200,
   );
 
-  /// File columns <-> diff pane. **Superseded by [splitterWcFiles]**; kept
-  /// only until its last caller moves. See that constant for the ruling.
-  static const GbmSplitterSpec splitterWcDiff = GbmSplitterSpec.flex(
-    flexRatio: <double>[46, 54],
-    minExtent: 150,
-  );
-
   /// Working Copy: the stacked file lists <-> the diff pane, **horizontal**.
   ///
-  /// This replaces [splitterWcDiff], and the change is a **user-ratified
+  /// This replaces the deleted `splitterWcDiff`, and the change is a
+  /// **user-ratified
   /// deviation from spec page 09's `SPLITTERS` table**, not a refactor. That
   /// table's `wc.diff` row reads `{ where: '檔案區 ↔ Diff', dir: '水平',
   /// def: '46 / 54', min: '150px' }`, where `dir` names the orientation of
@@ -696,10 +690,19 @@ abstract final class GbmLayout {
   /// mode. Not in spec page 09's SPLITTERS table -- that table predates the
   /// ratified 變體 B, whose diff pane shows both sides of one file at once
   /// where the original P03 showed a single column -- so these numbers
-  /// follow [splitterWcColumns], the other 1:1 two-column split in the same
-  /// view, rather than inventing a different feel. The lower `minExtent` is
-  /// deliberate: this pane is nested inside [splitterWcDiff]'s 54% share,
-  /// so it starts from roughly half the width the board columns get.
+  /// follow the 1:1 feel of the board's own two-column split rather than
+  /// inventing a different one.
+  ///
+  /// **The `minExtent` no longer has the rationale it was given.** It used
+  /// to read "this pane is nested inside `splitterWcDiff`'s 54% share, so
+  /// it starts from roughly half the width the board columns get" -- true
+  /// while the board sat *above* the diff and the two shared the window's
+  /// full width. Now the board is a fixed 260px column on the left
+  /// ([splitterWcFiles]) and this pane gets everything to its right, which
+  /// is *more* width than the old 54%, not less. 140 is kept because
+  /// nothing has shown it to be wrong, but it is now an unexplained
+  /// number rather than a derived one; deriving it again would need a
+  /// measurement nobody has taken.
   static const GbmSplitterSpec splitterWcDiffSides = GbmSplitterSpec.flex(
     flexRatio: <double>[1, 1],
     minExtent: 140,

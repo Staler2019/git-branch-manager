@@ -11,6 +11,9 @@ import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
     as wc;
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 
 import '../../support/fake_repo_session.dart';
 import '../../support/pump_app.dart';
@@ -95,6 +98,75 @@ void main() {
       expect(find.textContaining('Staged \u00b7'), findsOneWidget);
       expect(find.text('lib/main.dart'), findsOneWidget);
       expect(find.text('pubspec.yaml'), findsOneWidget);
+    });
+
+    // 「file line view 在右側」「commit message 位置不變」. Every assertion
+    // here compares one rect against a *neighbour's* rect and never against a
+    // pixel constant -- a finder proves existence, not position, and a
+    // constant would re-pin the divider's default width rather than the
+    // arrangement the user asked for. Widths measured under the test font are
+    // not comparable to the real one either, so no number is read out.
+    testWidgets('the file board is left of the diff pane, commit box below', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                WorkingCopyStatus(entries: [stagedEntry, unstagedEntry]),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      // Select a file so the right pane draws the real diff widget rather
+      // than its "Select a file" placeholder -- the placeholder is centred,
+      // so asserting on it would measure a text run's centre instead of the
+      // pane the round actually moves.
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+
+      final Rect board = tester.getRect(find.byType(WorkingCopyBoard));
+      final Rect diff = tester.getRect(find.byType(WorkingCopyDiffPane));
+      final Rect commitBox = tester.getRect(find.byType(CommitMessageBox));
+
+      // Side by side, not stacked: the board ends at or before the diff
+      // begins, and the two occupy the same horizontal band. The second half
+      // is what makes the first half mean "left of" rather than "above".
+      expect(
+        board.right,
+        lessThanOrEqualTo(diff.left),
+        reason: 'the file board must end before the diff pane begins',
+      );
+      expect(board.top, equals(diff.top));
+      expect(board.bottom, equals(diff.bottom));
+
+      // The commit box did not move: still below both panes, and still
+      // *crossing* the divider rather than sitting under one of them.
+      //
+      // Crossing is the assertion rather than "spans the full width"
+      // because CommitMessageBox is the inner widget -- it is inset by the
+      // commit area's own `EdgeInsets.all(space3)` and shares its Row with a
+      // fixed-width button column, so its rect legitimately reaches neither
+      // window edge. Crossing still fails in both directions that matter:
+      // nested in the left column its right edge would not reach the diff,
+      // and nested in the right one its left edge would not reach the board.
+      expect(commitBox.top, greaterThanOrEqualTo(board.bottom));
+      expect(commitBox.left, lessThan(board.right));
+      expect(commitBox.right, greaterThan(diff.left));
     });
 
     testWidgets('renders the conflicted section without a layout exception', (

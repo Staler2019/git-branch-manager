@@ -169,13 +169,22 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         // Conflicted section (only if there are conflicted files)
         if (status.conflicted.isNotEmpty)
           _buildConflictedSection(context, status: status, session: session),
-        // File board + diff pane (top)
+        // File board (left) + diff pane (right)
         Expanded(
           flex: 5,
           child: GbmSplitPane(
-            axis: Axis.vertical,
-            spec: GbmLayout.splitterWcDiff,
-            storageId: 'wc.diff',
+            // Horizontal, and it used to be vertical -- 「file line view 在
+            // 右側」. The complaint this answers is that the diff's readable
+            // width was being spent on two file columns; stacking those on
+            // the left and giving the diff the rest of the window is the
+            // whole change. Page 09's SPLITTERS row for `wc.diff` says
+            // `dir: '水平'`, so this is a ruled deviation, not a fix.
+            axis: Axis.horizontal,
+            // Pane 0 (the board) is the fixed-width one and sits at the
+            // leading edge, which is `fixedPaneEnd`'s default -- so a wider
+            // window gives every new pixel to the diff.
+            spec: GbmLayout.splitterWcFiles,
+            storageId: 'wc.files',
             children: <Widget>[
               // File board (staged/unstaged columns)
               _buildFileBoard(

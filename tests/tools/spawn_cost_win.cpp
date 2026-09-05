@@ -66,6 +66,7 @@
 #include "core/git/GitCommand.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/IProcessRunner.h"
+#include "tools/spawn_cost_verdict.h"
 
 #include <windows.h>
 
@@ -74,8 +75,6 @@ namespace {
 constexpr int kDefaultIterations = 51;  // Odd: the median is a real sample.
 constexpr int kWarmupIterations = 5;    // Discarded; pays for page faults and JIT-free warm caches.
 constexpr long long kInjectedDelayUs = 300;
-constexpr double kInjectedRecoveryTolerance = 0.5;
-constexpr long long kMinSamplesForVerdict = 11;
 
 int gFailures = 0;
 
@@ -417,24 +416,14 @@ int main(int argc, char** argv) {
     // job-object pair below -- neither arm may publish an impossible number.
     const bool watchdogResolved = gitUs > 0 && watchdogDeltaUs > prodResolutionUs;
 
-    const char* verdict = "measured";
-    if (static_cast<long long>(rawJob.samples.size()) < kMinSamplesForVerdict) {
-        verdict = "too-few-samples";
-    } else if (recoveryError > kInjectedRecoveryTolerance) {
-        // The instrument could not find a delay it was told the size of, so
-        // nothing it says about a delay nobody told it about is usable.
-        verdict = "instrument-unreliable";
-    } else if (jobDeltaUs <= resolutionUs) {
-        // Signed on purpose. Creating and assigning a job object cannot make a
-        // spawn *faster*, so a delta at or below the resolution -- negative
-        // ones very much included -- is noise, not a cost. Left as `llabs`,
-        // a noisy night publishes `verdict=measured job_overhead_us=-50`,
-        // an impossible claim that the Step Summary would promote unattended
-        // and that the `fraction <= gate` check would pass trivially. This is
-        // the watchdog pair's -72us reading generalised to both arms before it
-        // can happen a second time.
-        verdict = "below-noise";
-    }
+    // The classification lives in `tools/spawn_cost_verdict.h` so a
+    // cross-platform unit test can reach it; this file is Windows-only and
+    // runs on one nightly job, which is no tier at all.
+    const char* verdict = gbm::spawncost::verdictName(
+        gbm::spawncost::classifyVerdict(static_cast<long long>(rawJob.samples.size()),
+                                        recoveryError,
+                                        jobDeltaUs,
+                                        resolutionUs));
 
     std::fprintf(stderr,
                  "job-object spawn cost (%d iterations, %d discarded warm-up):\n"

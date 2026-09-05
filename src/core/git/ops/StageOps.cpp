@@ -90,6 +90,77 @@ private:
     StageFilesRequest request_;
 };
 
+/// True when `selected` covers every *changed* line of a file the index
+/// reports as Added -- i.e. unstaging this selection would leave the index
+/// holding nothing at all for the path.
+///
+/// The three clauses are not equally load-bearing, and saying which is which
+/// is the point of this comment.
+///
+/// "Every changed line" is the one a test can disagree with: a *partial*
+/// unstage of an added file is already correct today -- it leaves a shorter
+/// `A`, which is what the user asked for -- and answering that one with
+/// `restore --staged` would throw away the part of the stage they kept.
+/// Dropping this clause reddens UnstagingOneLineOfAnUntrackedFileKeepsTheRest-
+/// Staged, and nothing else.
+///
+/// `kind == Added` and `hunks.size() == 1` are **deliberate narrowings, not
+/// pinned invariants** -- dropping the kind check leaves the whole suite
+/// green, which was measured rather than assumed. The reason is that every
+/// other kind reachable here converges on the same end state under both
+/// paths: a Modified or Deleted file's index entry is *restored to its HEAD
+/// content* by either the reverse patch or `restore --staged`, rather than
+/// emptied, so there is no orphan for this rule to clean up. A rename is not
+/// a counter-example either -- workingTreeDiff is called with a single-path
+/// pathspec, so git cannot pair the two halves and reports the new side as
+/// Added anyway.
+///
+/// They stay because a narrowing that costs one `&&` is worth more than the
+/// generality: this special case exists for exactly one measured shape, and
+/// widening it silently would mean the next kind that *does* diverge gets
+/// routed through `restore --staged` with no test noticing. Written down here
+/// rather than left implied, because a future reader running the same
+/// mutation will find it green and needs to know that is expected
+/// ([CULT-scrutinise-the-comment] -- the comment is the thing to check).
+///
+/// An added file's diff has no context lines, so in practice every line here
+/// is Added; the kind filter in the loop is written out anyway so the
+/// predicate keeps meaning "every changed line" if that ever stops being true.
+bool selectionCoversWholeAddedFile(const DiffFile& file,
+                                   const DiffHunk& hunk,
+                                   const std::vector<bool>& selected) {
+    if (file.kind != FileChangeKind::Added || file.hunks.size() != 1) {
+        return false;
+    }
+    for (std::size_t i = 0; i < hunk.lines.size(); ++i) {
+        const DiffLineKind kind = hunk.lines[i].kind;
+        if (kind != DiffLineKind::Added && kind != DiffLineKind::Removed) {
+            continue;
+        }
+        if (i >= selected.size() || !selected[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// `git restore --staged -- <path>`, the one end state a whole-file unstage
+/// lands on. Shared so that UnstageFilesOperation and the whole-file case of
+/// PartialStageOperation cannot drift into two different answers for the same
+/// user-visible action ([CULT-single-source-of-truth]).
+GitResult<ProcessResult> restoreStaged(IProcessRunner& runner,
+                                       const RepoPaths& paths,
+                                       const std::vector<std::string>& targets,
+                                       CancellationToken token) {
+    std::vector<std::string> args{"restore", "--staged", "--"};
+    for (const std::string& path : targets) {
+        args.push_back(path);
+    }
+    GitCommand command(paths.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+    return runner.run(command, token);
+}
+
 class UnstageFilesOperation final : public Operation {
 public:
     explicit UnstageFilesOperation(UnstageFilesRequest request) : request_(std::move(request)) {}
@@ -110,15 +181,7 @@ public:
             return outcome;
         }
 
-        std::vector<std::string> args{"restore", "--staged", "--"};
-        for (const std::string& path : request_.paths) {
-            args.push_back(path);
-        }
-
-        GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::seconds(120);
-
-        auto result = runner.run(command, token);
+        auto result = restoreStaged(runner, paths, request_.paths, token);
         if (!result) {
             outcome.error = std::move(result).error();
             outcome.summary = outcome.error->message;
@@ -206,17 +269,43 @@ public:
         }
         const DiffHunk& hunk = file.hunks[request_.hunkIndex];
 
-        std::string patch;
-        if (request_.lineIndices.empty()) {
-            patch = UnifiedDiffParser::buildHunkPatch(
-                file, hunk, /*reverse=*/false, /*unstaging=*/request_.staged);
-        } else {
-            std::vector<bool> selected(hunk.lines.size(), false);
+        // An empty lineIndices means "the whole hunk", so every line in it is
+        // selected -- built explicitly rather than special-cased below, so the
+        // Added-file check reads the same selection the patch would.
+        std::vector<bool> selected(hunk.lines.size(), request_.lineIndices.empty());
+        if (!request_.lineIndices.empty()) {
             for (const std::size_t index : request_.lineIndices) {
                 if (index < selected.size()) {
                     selected[index] = true;
                 }
             }
+        }
+
+        // Unstaging every changed line of an added file cannot go through a
+        // reverse patch: measured on git 2.55.0, `git apply --cached --reverse`
+        // exits 0 and leaves the index entry in place holding the empty blob
+        // e69de29, so porcelain still reports `A`/`AM` -- the file stays in the
+        // Staged column reading +0 while also appearing under Unstaged.
+        // `git rm --cached` was measured to be refused (exit 1) from that
+        // state; `restore --staged` works and is what the whole-file unstage
+        // path already runs, so both paths converge on one end state.
+        if (request_.staged && selectionCoversWholeAddedFile(file, hunk, selected)) {
+            auto restored = restoreStaged(runner, paths, {request_.path}, token);
+            if (!restored) {
+                outcome.error = std::move(restored).error();
+                outcome.summary = outcome.error->message;
+                return outcome;
+            }
+            outcome.succeeded = true;
+            outcome.summary = describe();
+            return outcome;
+        }
+
+        std::string patch;
+        if (request_.lineIndices.empty()) {
+            patch = UnifiedDiffParser::buildHunkPatch(
+                file, hunk, /*reverse=*/false, /*unstaging=*/request_.staged);
+        } else {
             patch = UnifiedDiffParser::buildLineSelectionPatch(
                 file, hunk, selected, /*unstaging=*/request_.staged);
         }

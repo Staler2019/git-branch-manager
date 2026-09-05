@@ -154,6 +154,17 @@ bool _renameEnabled(WidgetTester tester) {
   return tester.widget<InkWell>(button.first).onTap != null;
 }
 
+/// The message [gbmFieldError] draws under the field, identified by its
+/// `danger` colour rather than by its text -- so the finder cannot pass by
+/// matching some other line that happens to say the same thing.
+String? _errorLine(WidgetTester tester) {
+  final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+  for (final Text text in tester.widgetList<Text>(find.byType(Text))) {
+    if (text.style?.color == colors.danger) return text.data;
+  }
+  return null;
+}
+
 void main() {
   final List<RefInfo> branches = <RefInfo>[
     _branch(
@@ -181,6 +192,11 @@ void main() {
       await _pumpDialog(tester, initialState: _sessionWith(branches));
 
       expect(_renameEnabled(tester), isFalse);
+      // The message is an external Text under the box, not the
+      // decoration's subtext -- see gbm_input_decoration.dart. Asserting
+      // the painted widget rather than `decoration.errorText`, which is a
+      // proxy for the render tree ([TEST-fixture-cannot-disagree] row 14).
+      expect(_errorLine(tester), isNull);
       final TextField field = tester.widget<TextField>(find.byType(TextField));
       expect(field.decoration!.errorText, isNull);
     });
@@ -192,8 +208,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'main');
       await tester.pumpAndSettle();
 
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration!.errorText, contains('main'));
+      expect(_errorLine(tester), contains('main'));
       expect(_renameEnabled(tester), isFalse);
     });
 
@@ -204,8 +219,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'has space');
       await tester.pumpAndSettle();
 
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration!.errorText, isNotNull);
+      expect(_errorLine(tester), isNotNull);
       expect(_renameEnabled(tester), isFalse);
     });
 

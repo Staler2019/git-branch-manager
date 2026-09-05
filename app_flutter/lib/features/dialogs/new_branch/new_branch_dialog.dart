@@ -241,10 +241,11 @@ class _NewBranchDialogContentState
                 },
                 decoration: gbmInputDecoration(
                   colors: colors,
-                  errorText: error,
+                  hasError: error != null,
                 ),
               ),
             ),
+            gbmFieldError(colors: colors, error: error),
             const SizedBox(height: GbmSpacing.space3),
             // P6 field-label treatment (spec's G3) -- see
             // add_worktree_dialog.dart's identical comment on '分支'.

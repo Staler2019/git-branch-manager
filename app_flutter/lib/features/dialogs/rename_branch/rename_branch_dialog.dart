@@ -231,7 +231,7 @@ class _RenameBranchDialogContentState
                 decoration: gbmInputDecoration(
                   colors: colors,
                   hintText: '新的分支名稱',
-                  errorText: error,
+                  hasError: error != null,
                 ),
                 // Spec page 13: validation is live, "即時，不等到按 Rename".
                 onChanged: (_) => setState(() {}),
@@ -249,6 +249,7 @@ class _RenameBranchDialogContentState
                 },
               ),
             ),
+            gbmFieldError(colors: colors, error: error),
             if (canRename) ...<Widget>[
               const SizedBox(height: GbmSpacing.space1),
               Row(

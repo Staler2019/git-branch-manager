@@ -308,6 +308,41 @@ void main() {
     });
   });
 
+  group('位置 row', () {
+    // 使用者回報:「隔壁的瀏覽button畫面與瀏覽textbox高度不同，所以spec你沒
+    // 有照做」-- measured on a real macOS screenshot at 23px against the
+    // button's 30.
+    //
+    // Asserted against the button rather than against the constant, because
+    // 「一樣高」is the claim; and measured on the *painted* box, because the
+    // TextField's own rect was 30 throughout the defect
+    // ([TEST-fixture-cannot-disagree] row 14, and see the same group in
+    // gbm_input_decoration_test.dart).
+    testWidgets('the box and 瀏覽… are the same height, and aligned', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final Finder field = find.byKey(const Key('add-worktree-path-field'));
+      final Rect box = tester.getRect(
+        find
+            .descendant(
+              of: find.descendant(
+                of: field,
+                matching: find.byType(InputDecorator),
+              ),
+              matching: find.byType(CustomPaint),
+            )
+            .first,
+      );
+      final Rect button = tester.getRect(find.widgetWithText(GbmButton, '瀏覽…'));
+
+      expect(box.height, GbmSpacing.inputHeight);
+      expect(box.height, button.height);
+      expect(box.top, button.top);
+    });
+  });
+
   group('位置 is gated on having a branch to derive it from', () {
     // 使用者裁定:「我沒選分支之前，應該把選位置那邊鎖起來，我剛剛一直以為
     // 可以直接選位置用了」-- the field sat enabled and permanently empty

@@ -368,5 +368,52 @@ void main() {
         ),
       );
     });
+
+    // gbmInputDecoration is non-dense so that the box it paints fills its
+    // wrapper exactly; with no wrapper the same field renders at Material's
+    // 48px interactive minimum instead. This was the one single-line caller
+    // in the app without one. Measured on the painted box, not the widget
+    // ([TEST-fixture-cannot-disagree] row 14).
+    testWidgets('the search box is 30px, like every other .gbm-input', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final Rect box = tester.getRect(
+        find
+            .descendant(
+              of: find.byType(InputDecorator),
+              matching: find.byType(CustomPaint),
+            )
+            .first,
+      );
+      expect(box.height, GbmSpacing.inputHeight);
+    });
+  });
+
+  // spec `.box--list`: `background: var(--gbm-surface-sunken)`. The list
+  // drew onto whatever was behind it -- in a dialog, the shell's own
+  // `surface-panel-raised`, so it read as flush instead of sunken.
+  group('GbmRefPicker list ground', () {
+    testWidgets('the list sits in a surface-sunken well with r6', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final GbmColors colors = tester.element(find.byType(TextField)).gbmColors;
+      final Iterable<Container> wells = tester
+          .widgetList<Container>(find.byType(Container))
+          .where(
+            (Container c) =>
+                c.decoration is BoxDecoration &&
+                (c.decoration! as BoxDecoration).color == colors.surfaceSunken,
+          );
+
+      expect(wells, isNotEmpty);
+      expect(
+        (wells.first.decoration! as BoxDecoration).borderRadius,
+        BorderRadius.circular(GbmSpacing.radiusMd),
+      );
+    });
   });
 }

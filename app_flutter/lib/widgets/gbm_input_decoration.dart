@@ -26,30 +26,83 @@ import '../theme/tokens.dart';
 /// '位置'/'分支'/'來源', spec's `fld__label` -- see the spec's own "Proposed"
 /// markup at worktree-dialogs-spec.html:613/618, which draws exactly this
 /// shape for '新分支名稱'/'目標路徑'), never `InputDecoration.labelText`.
+///
+/// It has **no `errorText` parameter either**, for the same reason one step
+/// further on. Material lays the error message out as *subtext below the
+/// box*, and the fixed-height wrapper bounds the box and its subtext
+/// together -- so an errored field spent the height on the message and
+/// painted its outline at **10px** (measured). Callers pass `hasError` to
+/// recolour the outline and draw the message themselves, in an external
+/// `Text` under the box; that is the spec's own `.fld__hint` shape, and it
+/// is the same external-element decision the label above already made.
 InputDecoration gbmInputDecoration({
   required GbmColors colors,
   String? hintText,
-  String? errorText,
+  bool hasError = false,
   String? suffixText,
   Widget? prefixIcon,
 }) {
-  final OutlineInputBorder border = OutlineInputBorder(
+  OutlineInputBorder outline(Color color) => OutlineInputBorder(
     borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+    borderSide: BorderSide(color: color),
   );
+  // A bare `OutlineInputBorder()` carries a bare `BorderSide()`, which is
+  // **black, width 1** -- not the theme's border colour. Every state is
+  // named explicitly because the resting state of a field is now whichever
+  // one its screen leaves it in: Add Worktree's 位置 rests *disabled*.
+  final Color resting = hasError ? colors.danger : colors.borderDefault;
   return InputDecoration(
     hintText: hintText,
-    errorText: errorText,
     suffixText: suffixText,
     prefixIcon: prefixIcon,
-    isDense: true,
+    // spec `.box`: `background: var(--gbm-surface-panel)`. Unfilled, the box
+    // showed the shell's `surface-panel-raised` straight through, so a field
+    // read as flush with the dialog instead of sunken into it.
+    filled: true,
+    fillColor: colors.surfacePanel,
+    // **Not `isDense: true`** -- and the difference is the whole of the
+    // painted height. `_RenderDecoration` sizes the box it paints as
+    // `min(max(contentHeight, minContainerHeight), maxContainerHeight)`,
+    // and `isDense` sets `minContainerHeight` to the text's own height.
+    // The `SizedBox` only supplies `maxContainerHeight`, so a dense field
+    // painted its natural ~23px outline inside a 30px widget and the box
+    // came out visibly shorter than the `GbmButton` beside it (measured on
+    // a real macOS screenshot: 23 against the button's 30). Non-dense sets
+    // that floor to `kMinInteractiveDimension` (48), so the `min` lands on
+    // the wrapper's 30 exactly, for any font -- which is why this is the
+    // font-independent fix and tuning `contentPadding` was not.
+    //
+    // It depends on the `SizedBox` above actually being there: with no
+    // upper bound the same expression yields 48. Every caller wraps.
+    isDense: false,
     contentPadding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
-    border: border,
-    enabledBorder: border,
+    border: outline(resting),
+    enabledBorder: outline(resting),
+    disabledBorder: outline(resting),
     // The spec's `focus` field kind (G8): an accent-coloured outline on
     // focus, which nothing in the app drew before this -- every TextField
-    // relied on Material's own default focus ring instead.
-    focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colors.accent, width: 1.5),
+    // relied on Material's own default focus ring instead. spec
+    // `.box--focus { border-color: var(--gbm-accent); }` changes the colour
+    // and nothing else, so the width stays at 1.
+    focusedBorder: outline(hasError ? colors.danger : colors.accent),
+  );
+}
+
+/// The message half of an errored field, drawn *under* the box instead of
+/// inside the decoration -- see [gbmInputDecoration]'s comment for why the
+/// decoration cannot carry it. Shape is the spec's `.fld__hint` line
+/// (11px, under the control), in `danger` rather than `text-tertiary`.
+///
+/// Returns [SizedBox.shrink] rather than null so a caller can drop it into
+/// a `Column` unconditionally; the leading gap is inside the same widget so
+/// nothing is spent when there is no message.
+Widget gbmFieldError({required GbmColors colors, String? error}) {
+  if (error == null || error.isEmpty) return const SizedBox.shrink();
+  return Padding(
+    padding: const EdgeInsets.only(top: GbmSpacing.space1),
+    child: Text(
+      error,
+      style: TextStyle(fontSize: GbmTypography.textXs, color: colors.danger),
     ),
   );
 }
@@ -64,20 +117,27 @@ InputDecoration gbmMultilineInputDecoration({
   required GbmColors colors,
   String? hintText,
 }) {
-  final OutlineInputBorder border = OutlineInputBorder(
+  OutlineInputBorder outline(Color color) => OutlineInputBorder(
     borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+    borderSide: BorderSide(color: color),
   );
   return InputDecoration(
     hintText: hintText,
+    filled: true,
+    fillColor: colors.surfacePanel,
+    // Dense **here**, unlike the single-line helper: this box has no
+    // fixed-height wrapper to bound it, so the non-dense floor of 48 would
+    // become a real minimum rather than something the `min` clamps away.
+    // Its natural content-driven height is already what a multiline box
+    // wants.
     isDense: true,
     contentPadding: const EdgeInsets.symmetric(
       horizontal: GbmSpacing.space3,
       vertical: GbmSpacing.space2,
     ),
-    border: border,
-    enabledBorder: border,
-    focusedBorder: border.copyWith(
-      borderSide: BorderSide(color: colors.accent, width: 1.5),
-    ),
+    border: outline(colors.borderDefault),
+    enabledBorder: outline(colors.borderDefault),
+    disabledBorder: outline(colors.borderDefault),
+    focusedBorder: outline(colors.accent),
   );
 }

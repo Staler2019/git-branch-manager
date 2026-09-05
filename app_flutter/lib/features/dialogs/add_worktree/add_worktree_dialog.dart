@@ -445,10 +445,11 @@ class _AddWorktreeDialogContentState
                 decoration: gbmInputDecoration(
                   colors: colors,
                   hintText: 'feature/x',
-                  errorText: nameError,
+                  hasError: nameError != null,
                 ),
               ),
             ),
+            gbmFieldError(colors: colors, error: nameError),
             const SizedBox(height: GbmSpacing.space3),
             Text(
               '位置',

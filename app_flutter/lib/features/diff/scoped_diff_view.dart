@@ -579,14 +579,27 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// Built imperatively rather than as one nested collection-for, because
   /// the loop carries a running scope ordinal across hunks.
   ///
-  /// **The temporary card holds a fixed slot at the top and is a
-  /// [SizedBox.shrink] when there is no selection**, rather than being
-  /// inserted in front of the first card it supersedes. Inline insertion
-  /// shifts every row below it by one, and the rows carry [GlobalKey]s, so
-  /// the shift reparents their [SelectionListener]s -- which perturbs the
-  /// very selection delegates whose report decided the card should exist.
-  /// The observed result was a card that flapped in and out on idle frames.
-  /// A constant-length children list has no such loop.
+  /// **There is no temporary card here at all.** This list emits exactly
+  /// three kinds of child -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
+  /// and a one-shot selection is rendered *inside* the cards it covers:
+  /// [_ScopeCard] wraps the covered run of its own rows in a
+  /// [_TemporaryBlock] in place, and the head plus its button go on the
+  /// first card the selection reaches (`showTemporaryHead` below). That is
+  /// the style demo's own structure -- `.variant-B-temp` is nested inside
+  /// `.variant-B-card`, which goes `.variant-B-card-muted` with its button
+  /// `.variant-B-btn-off` ([SPEC-demo-dom-is-the-spec]).
+  ///
+  /// **Corrected in place**: this comment used to say the temporary card
+  /// 「holds a fixed slot at the top and is a [SizedBox.shrink] when there
+  /// is no selection」, and justified it by the reparenting hazard -- an
+  /// inline insertion shifts every row below it, and the rows carry
+  /// [SelectionListener]s whose reports are what decided the card should
+  /// exist. Both halves outlived what they described. The slot shipped,
+  /// the user pointed at it, and it was replaced by the nested form; the
+  /// hazard is answered by the rows' own [GlobalKey]s, which make Flutter
+  /// *move* an element into its new parent rather than rebuild it. A
+  /// recorded hazard is a reason to solve the problem, not a licence to
+  /// change the design ([FLU-selectionarea-gives-a-string]).
   List<Widget> _wellChildren(
     DiffFile diffFile,
     Map<int, List<DiffScope>> byHunk,

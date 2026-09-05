@@ -626,11 +626,64 @@ public:
             });
         }
 
+        // The deadline watchdog.
+        //
+        // stdout is read on *this* thread with a synchronous `ReadFile`, and the
+        // loop below can only test its deadline *between* two reads -- so a
+        // child that writes nothing and never exits leaves this thread blocked
+        // in a read no deadline can reach, and `command.timeout` never fires at
+        // all. That is the same blocked-synchronous-read problem
+        // `cancelBlockedIoAndJoin` solves for the helper threads, and it is
+        // solved the same way. The only difference is that a thread cannot
+        // cancel its own blocked I/O, so the cancel has to arrive from a second
+        // thread rather than from after the loop.
+        //
+        // Armed only when a deadline exists: network commands contractually
+        // pass timeout 0 and rely on cancellation, so they pay for no thread.
+        // If either handle cannot be made, no watchdog is started and the
+        // behaviour degrades to what it was -- same fallback discipline as a
+        // spawn that could not get a job object.
+        HANDLE pumpDone = nullptr;
+        HANDLE pumpThread = nullptr;
+        std::thread deadlineThread;
+        if (timeout.count() > 0) {
+            pumpDone = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            // `GetCurrentThread()` is a pseudo-handle meaning "whichever thread
+            // is asking", so it is useless to another thread and has to be
+            // duplicated into a real one.
+            if (::DuplicateHandle(::GetCurrentProcess(),
+                                  ::GetCurrentThread(),
+                                  ::GetCurrentProcess(),
+                                  &pumpThread,
+                                  0,
+                                  FALSE,
+                                  DUPLICATE_SAME_ACCESS) == 0) {
+                pumpThread = nullptr;
+            }
+            if (pumpDone != nullptr && pumpThread != nullptr) {
+                deadlineThread = std::thread([this, pumpDone, pumpThread, timeout] {
+                    if (::WaitForSingleObject(pumpDone, static_cast<DWORD>(timeout.count())) !=
+                        WAIT_TIMEOUT) {
+                        return;  // The pump finished first; nothing to do.
+                    }
+                    timedOut_.store(true);
+                    terminate();
+                    // Retried for the reason cancelBlockedIoAndJoin retries
+                    // it: `CancelSynchronousIo` answers ERROR_NOT_FOUND when
+                    // the target is not inside an I/O call *yet*. Bounded by
+                    // the event, which the pump sets on its way out.
+                    while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
+                        ::CancelSynchronousIo(pumpThread);
+                    }
+                });
+            }
+        }
+
         std::vector<char> buffer(kReadBufferSize);
         const auto deadline = Clock::now() + timeout;
         for (;;) {
             if (timeout.count() > 0 && Clock::now() > deadline) {
-                *timedOut = true;
+                timedOut_.store(true);
                 terminate();
                 break;
             }
@@ -653,6 +706,34 @@ public:
 
         cancelBlockedIoAndJoin(stderrThread);
         cancelBlockedIoAndJoin(stdinThread);
+
+        // Every exit from the loop above is a `break`, so this runs on all
+        // three of them -- EOF, a sink that stopped, and its own deadline check
+        // alike. The watchdog must not outlive this frame: it calls
+        // `terminate()` on this object and writes `timedOut_`, which is the
+        // use-after-free the `detach()` note on cancelBlockedIoAndJoin
+        // describes. Handles are closed only after the join, because the thread
+        // is still using both.
+        if (pumpDone != nullptr) {
+            ::SetEvent(pumpDone);
+        }
+        if (deadlineThread.joinable()) {
+            deadlineThread.join();
+        }
+        if (pumpThread != nullptr) {
+            ::CloseHandle(pumpThread);
+        }
+        if (pumpDone != nullptr) {
+            ::CloseHandle(pumpDone);
+        }
+
+        // Published here rather than by either writer: the loop above and the
+        // watchdog can both conclude the deadline passed, and `timedOut` is a
+        // plain `bool*`. After the join there is exactly one thread left, so
+        // the caller's bool is never written by two at once.
+        if (timedOut_.load()) {
+            *timedOut = true;
+        }
     }
 
     int wait() {
@@ -670,6 +751,11 @@ public:
         // descendants holding the pipe write ends the helper threads are
         // blocked on. `TerminateProcess` stays as the fallback for a spawn that
         // could not get a job, and is harmless on a process already gone.
+        //
+        // Reachable from three threads now -- the pump, the deadline watchdog,
+        // and an external cancel through the token -- and idempotent for all
+        // three: both kills are no-ops on a process already gone, and
+        // `terminated_` only ever goes false -> true.
         terminated_.store(true);
         if (job_ != nullptr) {
             ::TerminateJobObject(job_, 1);
@@ -772,6 +858,7 @@ private:
     HANDLE stderrHandle_ = nullptr;
     HANDLE stdinHandle_ = nullptr;
     std::atomic_bool terminated_{false};
+    std::atomic_bool timedOut_{false};
     std::mutex stderrMutex_;
 };
 

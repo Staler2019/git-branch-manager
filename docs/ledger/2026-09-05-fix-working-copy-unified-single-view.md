@@ -281,12 +281,27 @@ source 順序（`[CULT-nothing-silently-dropped]`）。
 | `stage_lines_flow_test`（第一次，已中止） | 約 5 分鐘沒有進展，主執行緒停在 event loop（不是在空轉），手動中止 |
 | `stage_lines_flow_test`（重跑） | **7/7，1m46s** —— 逐測試的秒數與上一輪全綠那次幾乎一致 |
 | `untracked_unstage_flow_test` | **1/1，23s** |
+| 對照組 `fb3e547`（這一段開工前那一顆），整份 | 6/7 —— 第 1 個測試 `a scope card button stages only that card's lines` 在 **16m54s** 之後 `[E]`，全檔 18m29s |
+| 對照組 `fb3e547`，`--plain-name` 只跑那一個測試 | **1/1，15s** |
 
-**誠實的結論是「沒有重現」，不是原因。** 兩次之間有兩個變數同時動了：清掉了殘留
-的 `gbm_flutter` 行程，以及上面那個每幀少排序一次的改動。沒有隔離，所以不能說是
-哪一個 —— `[TEST-hang-is-not-yet-a-defect]` 講的就是這個。第一次之所以看不出跑到
-哪裡，是因為指令尾巴接了 `| tail`，它會把整份輸出buffer 到結束；重跑改成串流，這
-才看得到逐測試的進度。**下次裝置層一律不要接 `tail`。**
+**誠實的結論是「沒有重現」，不是原因**，而對照組把它收得更緊了一點。
+
+同一個測試在**兩顆不同的 commit** 上各卡過一次，兩次都在重跑時綠掉。`fb3e547`
+那一組尤其有話講：紅的那次與綠的那次之間，**程式碼一個 byte 都沒有動**，動的只有
+行程狀態（重跑前 `pkill`）。所以「這一段的改動造成了 hang」被排除，而「這一段的改
+動修好了 hang」同樣被排除 —— 父 commit 沒有這段改動也自己好了。剩下的解釋落在環境
+那一側，`[TEST-hang-is-not-yet-a-defect]` 講的就是這個。
+
+不過那不是一次乾淨的 A/B：紅的那次跑整份七個測試，綠的那次用 `--plain-name` 只跑
+一個，累積的行程狀態不一樣。所以它是**一個反例**，不是一個對照實驗。
+
+**那個 `[E]` 的錯誤本文我沒有留下來，這是我自己弄丟的。** 第一次對照組的指令接了
+`grep -E '^[0-9]{2}:[0-9]{2} \+|All tests passed|Some tests failed'`，只留下進度
+列，把錯誤本體整段濾掉了 —— 跟下面那個 `| tail` 是同一種錯，`[TEST-device-runs-one-file]`
+的「不要把裝置層輸出縮成 `tail -1`」講的也是同一件事。重跑時錯誤沒有再出現，所以
+這份紅到現在**只有時間與測試名，沒有本文**。第一次之所以看不出跑到哪裡，是因為指
+令尾巴接了 `| tail`，它會把整份輸出 buffer 到結束；重跑改成串流，這才看得到逐測試
+的進度。**下次裝置層一律不要接 `tail`，也不要接只留進度列的 `grep`。**
 
 第 6 個測試 `Shift+Down builds a range the button then stages` 是這次改到的第二個
 讀者（`_extendByRow`），它綠了。
@@ -296,6 +311,22 @@ source 順序（`[CULT-nothing-silently-dropped]`）。
 **沒有寫出來的驗收不是還沒驗，是沒有驗。** 六個裝置層檔案全綠、2875 個測試全
 綠，都不會替一條不存在的斷言說話。驗收清單本身要逐條對回測試檔，才算走完 —— 這
 一條現在也寫進 §12 了。
+
+### 收尾時，在分支頂端重跑一次的數字
+
+追加這一段又動了 `lib/`（`6a5634e`、`e7ee1c9`、`d5e095a`），所以上面 188 行那組
+數字只代表當時那顆 commit。分支頂端重跑：
+
+| 檢查 | 結果 |
+|---|---|
+| `flutter analyze` | 0 issue |
+| `dart format --set-exit-if-changed .` | 533 檔，0 改動 |
+| `flutter test` | **2876 綠 / 1 skipped** |
+| `scripts/check-rule-pins.py` | 187 條規則、115 個交叉引用、懸空 0 |
+
+`ctest` 沒有重跑：這一段五顆 commit 動到的八個檔案全在 `app_flutter/` 與 `docs/`
+底下，`src/` 一個字都沒有碰（`git diff --name-only fb3e547..HEAD | grep '^src/'`
+是空的），所以 188 行那組 **667 綠 / 2 skipped** 仍然是當前 `src/` 的數字。
 
 ## 沒做的
 

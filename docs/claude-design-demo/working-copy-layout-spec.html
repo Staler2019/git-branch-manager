@@ -527,6 +527,7 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · drop hint 用 C1</span>
       <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
       <span class="pill is-ratified">使用者裁定 · scope 卡片照建議（§06）</span>
+      <span class="pill is-ratified">使用者裁定 · 對齊單位是 scope，不是行號（U1）</span>
       <span class="pill is-open">待裁定 · unified 合成單一清單（§10）</span>
       <span class="pill is-open">待裁定 · 未追蹤 unstage 的終態（§11）</span>
     </div>
@@ -1539,22 +1540,41 @@ footer.colophon {
         So <code>unified</code> in the design means <b>one column, widened</b> — same cards, same
         heads, same button positions, nothing to relearn. <b>The stacked two-section pane that ships
         today matches neither the demo nor the report.</b> It was invented, by the code and then by
-        §02 of this page, and this is the first time anyone has read block 2. Which of the three
-        readings wins is a ruling (U1 below), not something to average.
+        §02 of this page, and this is the first time anyone has read block 2. None of the three
+        readings won: <b>U1 was ruled on a fourth</b> — order by change region, and never merge two
+        directions into one scope. It keeps block 1's warning intact instead of trading it away,
+        which is why it beat the option I recommended.
       </p>
     </div>
 
     <div class="callout is-warn">
-      <div class="callout__title">if an interleave is ruled in, this is what makes it computable</div>
+      <div class="callout__title">what makes region ordering computable</div>
       <p style="margin:0">
         The two diffs look incomparable and are not: they <b>share the index as a coordinate
-        space</b>. The unstaged diff is index&nbsp;→&nbsp;work tree, so its <code>oldStart</code>
-        is an index line number; the staged diff is HEAD&nbsp;→&nbsp;index, so its
-        <code>newStart</code> is an index line number
-        (<code>parsed_diff.dart:68,70</code>). One ruler, both sides, <b>no new git call</b>.
-        The exception is an untracked file, whose unstaged diff is
-        <code>--no-index /dev/null → file</code> and has no index side at all — but an untracked
-        file has no staged side to interleave with until it is staged, so the case never arises.
+        space</b>. The unstaged diff is index&nbsp;→&nbsp;work tree, so <em>its old side is the
+        index</em>; the staged diff is HEAD&nbsp;→&nbsp;index, so <em>its new side is the index</em>.
+        One ruler, both sides, <b>and no new git call</b>.
+      </p>
+      <p style="margin:.7rem 0 0">
+        A region's place on that ruler is read <b>per line, not per hunk</b> — every
+        <code>DiffLine</code> already carries <code>oldLine</code> and <code>newLine</code>
+        (<code>parsed_diff.dart:39,40</code>), so a scope's index range is the min and max of the
+        index-side number over the lines it spans: <code>oldLine</code> for an unstaged scope,
+        <code>newLine</code> for a staged one. <code>oldStart</code>/<code>newStart</code> would
+        only locate the <em>hunk</em>, and the ruling's unit is the region inside it.
+      </p>
+      <p style="margin:.7rem 0 0">
+        <b>Two things this deliberately does not do.</b> It never claims two rows are the same row —
+        only that one region precedes another, which is what keeps block 1's warning honoured. And
+        it never merges: two regions that land on the same index lines stay two scopes, adjacent,
+        one per direction.
+      </p>
+      <p style="margin:.7rem 0 0">
+        The one gap: a scope made entirely of lines absent from the index side (a pure insertion in
+        the work tree) has no index number of its own, and has to be anchored to the nearest line
+        that does. And an <b>untracked</b> file's unstaged diff is
+        <code>--no-index /dev/null → file</code>, which has no index side at all — but such a file
+        has no staged side to order against until it is staged, so the case never arises.
       </p>
     </div>
 
@@ -1612,18 +1632,18 @@ footer.colophon {
               <div class="dv__body" style="padding:0 6px">
                 <div class="sc">
                   <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card staged">
+                    <div class="sc__head"><span class="sc-col__dot staged"></span><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn unstage">Unstage 2 lines</span></div>
+                    <div><div class="dl del"><span class="g">38</span>-  int allocate(Commit c) {</div><div class="dl add"><span class="g">38</span>+  int allocate(Commit commit) {</div></div>
+                  </div>
                   <div class="sc__card">
-                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
                     <div><div class="dl del"><span class="g">40</span>-    if (lane.free) return lane…</div><div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed…</div></div>
                   </div>
+                  <div class="sc__hunk"><span>@@ -61,6 +63,7 @@</span><span class="sc__rule"></span></div>
                   <div class="sc__card">
-                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
-                    <div><div class="dl add"><span class="g">46</span>+    log('no free lane');</div></div>
-                  </div>
-                  <div class="sc__hunk"><span>@@ -3,4 +3,4 @@</span><span class="sc__rule"></span></div>
-                  <div class="sc__card staged">
-                    <div class="sc__head"><span class="sc-col__dot staged"></span><span class="sc__tag">變更 3</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn unstage">Unstage 2 lines</span></div>
-                    <div><div class="dl del"><span class="g">3</span>-import 'dart:math' as m;</div><div class="dl add"><span class="g">3</span>+import 'dart:math' show min;</div></div>
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 3</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
+                    <div><div class="dl add"><span class="g">63</span>+    log('no free lane');</div></div>
                   </div>
                 </div>
               </div>
@@ -1631,10 +1651,11 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          One list, no column heads. Unstaged cards first, then staged — U1(a). The last card's rail is
-          <code>--gbm-success</code>, its dot matches, and its button is the demo's
-          <code>variant-B-btn-unstage</code> style, which the app does not draw today (U8). Everything
-          else is unchanged from what already ships.
+          One list, no column heads, ordered by change region. <b>變更 1 and 變更 2 sit in the same
+          region</b> — one already staged, one not — and that is the case the ruling is about: they are
+          two scopes, adjacent, never one card. The staged card's rail is <code>--gbm-success</code>,
+          its dot matches, and its button uses the demo's <code>variant-B-btn-unstage</code> style,
+          which the app does not draw today (U8).
         </p>
       </div>
     </div>
@@ -1657,12 +1678,31 @@ footer.colophon {
     <div class="tablewrap"><table>
       <thead><tr><th style="width:5%">#</th><th style="width:26%">Question</th><th>Recommendation, and why</th></tr></thead>
       <tbody>
-        <tr><td class="num">U1</td><td><b>What one list means</b> — three readings, and the design source backs the one I did not propose</td>
+        <tr><td class="num">U1</td><td><b>What one list is ordered by</b> — <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td>
-              <b>(a) Grouped, no heads</b> — unstaged cards, then staged cards, one continuous list, no column heads, direction carried by each card's rail colour and button verb. <b>Recommended.</b><br>
-              <b>(b) Interleaved on the index ruler</b> — <code>oldStart</code> for unstaged, <code>newStart</code> for staged. I proposed this first; <span class="zh">變體 B</span> block 1's note argues against it in as many words — <span class="zh">「兩側是不同的 diff，硬對齊會製造「同一行」的錯覺。改用顏色對應」</span>. Putting two different diffs' hunks in one line-number sequence <em>is</em> a positional correspondence, which is the illusion that sentence exists to prevent. Reversing my own recommendation on the source's authority, not on taste.<br>
-              <b>(c) Unstaged only</b> — <span class="zh">變體 B</span> block 2 literally. Rejected as drawn: a file with a staged half would have nowhere to show it, and the Working Copy has to.<br>
-              <b>Why (a) still answers the report:</b> what the user asked for is one view with both directions' scopes and buttons in it. (a) delivers that; what it drops is the two section heads and the rule, which is exactly what made it read as <span class="zh">「拆成上下」</span>.
+              <span class="zh">「我要對齊的不是行號，是 git 判斷出的區域變更，每個區塊會是一個 scope，然後 unstage, stage 必定是不同 scope」</span>
+              <br><br>
+              <b>The alignment unit is the change region, not the line.</b> git already decides where a
+              change region begins and ends, and <code>splitHunkIntoScopes()</code> already turns each
+              one into exactly one <code>DiffScope</code> — so the unit the ruling names is a unit the
+              code already has. The list is a sequence of regions in file order; each region is one
+              card; each card is one direction.
+              <br><br>
+              <b>And a region is never mixed.</b> A staged scope and an unstaged scope are always two
+              scopes, never merged into one card — which is what makes the button on every card
+              answerable: one press, one direction, one thing git can actually do.
+              <br><br>
+              <b>This settles the contradiction rather than picking a side of it.</b>
+              <span class="zh">變體 B</span> block 1 forbids <span class="zh">硬對齊</span> because
+              lining two different diffs' <em>rows</em> up asserts they are the same line. Ordering
+              <em>regions</em> asserts only that one region sits before another in the file, which is
+              true in the index coordinate both diffs already share. So (b)'s illusion is avoided
+              without falling back to (a)'s grouping, which would have separated two edits to the same
+              few lines by the entire length of the file.
+              <br><br>
+              <s>(a) Grouped: all unstaged cards, then all staged cards. <b>Recommended.</b></s>
+              &nbsp;<s>(b) Interleaved on the index ruler, line by line.</s>
+              &nbsp;<s>(c) Unstaged only, per block 2 literally.</s> — all three superseded by the ruling above.
             </td></tr>
         <tr><td class="num">U2</td><td>How a card says which way it goes</td>
             <td><b>The button verb, plus the left rail colour already specified</b> — <code>--gbm-accent</code> for <span class="zh">Stage</span>, <code>--gbm-success</code> for <span class="zh">Unstage</span> (<code>.sc__card.staged</code>, §06) — plus the 6px dot from the old column head moved onto the card head. No text label: <span class="zh">「Unstage 2 lines」</span> already says it, and a second word saying the same thing is the redundancy dimension&nbsp;D of <code>[UX-rubric]</code> penalises.</td></tr>
@@ -1675,7 +1715,7 @@ footer.colophon {
         <tr><td class="num">U6</td><td><code>2 file</code> mode</td>
             <td><b>Not one line changed.</b> Left unstaged, right staged, its own splitter, its own two column heads. It is the mode whose whole point is two files side by side, and it is the escape hatch for anyone who wants today's behaviour back.</td></tr>
         <tr><td class="num">U7</td><td>A line changed twice — once HEAD→index, once index→work tree</td>
-            <td><b>It appears twice, once in each direction, and is not deduplicated.</b> Those are two different changes to two different pairs of content; collapsing them would draw one card whose button could only do half of what it says.</td></tr>
+            <td><b>It appears twice, once in each direction, and is not deduplicated.</b> Those are two different changes to two different pairs of content; collapsing them would draw one card whose button could only do half of what it says. <b>U1's ruling already settles this</b> — <span class="zh">「unstage, stage 必定是不同 scope」</span> — so this row is now a consequence rather than a question.</td></tr>
         <tr><td class="num">U8</td><td>The Unstage button's own style — <b>a conformance gap found by this audit</b></td>
             <td><span class="zh">變體 B</span> defines <b>two</b> button styles: <code>variant-B-btn-stage</code> (accent fill) and <code>variant-B-btn-unstage</code> (<code>surface-panel-raised</code> ground, <code>border-strong</code> edge, <code>text-primary</code> label). The app implements only the accent one — <code>.sc__btn</code> — so every button on both sides is drawn identically today and only the verb differs. <b>Recommend adopting it</b>, and it matters more in a merged list than it did in two columns: two identically-styled buttons sitting inches apart doing opposite things is the one thing grouping cannot fix. Nothing under <code>docs/</code> had recorded this gap.</td></tr>
         <tr><td class="num">U9</td><td>The mode switch itself</td>
@@ -1823,7 +1863,7 @@ footer.colophon {
         <tr><td class="num">X2</td><td><span class="pill is-open">open</span></td><td><code>ScopedDiffView</code> takes a list of sources</td><td class="num">2</td>
             <td><b>Pure refactor, no pixel moves.</b> <code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> collapse into a <code>ScopedDiffSource</code> list; <code>_wellChildren</code> walks sources → hunks → segments. <code>_ScopeCard</code>/<code>_GapBlock</code> need no change — they already take <code>staged</code> each. Row <code>GlobalKey</code>s re-key on <code>(source, hunk, line)</code> or two sources' same-numbered rows collide, which is <code>[FLU-selectionarea-gives-a-string]</code> trap 1 by construction. Acceptance is that every existing test stays green untouched.</td></tr>
         <tr><td class="num">X3</td><td><span class="pill is-open">open</span></td><td><code>unified</code> becomes one merged list</td><td class="num">1 + tests</td>
-            <td>U1–U9 as ruled. Order, per-card rail and dot, title-bar count chip, the one-shot direction rule, and — if U8 is adopted — a second <code>GbmButton</code> treatment for the Unstage direction, which is a shared-widget change rather than a <code>scoped_diff_view.dart</code> one. <code>2 file</code> untouched (U6).</td></tr>
+            <td>U1–U9 as ruled. Region ordering (U1, already ruled), per-card rail and dot, title-bar count chip, the one-shot direction rule, and — if U8 is adopted — a second <code>GbmButton</code> treatment for the Unstage direction, which is a shared-widget change rather than a <code>scoped_diff_view.dart</code> one. <code>2 file</code> untouched (U6).</td></tr>
         <tr><td class="num">X4</td><td><span class="pill is-open">open</span></td><td>Records</td><td class="num">4</td>
             <td><code>[STRUCT-two-column-switches]</code>'s Working Copy row says <span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>, which stops being true of <code>unified</code>; <code>[STRUCT-working-copy]</code>'s diff paragraph likewise. X1's finding is <code>GIT-</code> pin material and belongs beside <code>[GIT-new-file-patch-needs-dev-null]</code>, whose <span class="zh">「不要改 unstage 方向」</span> sentence is <em>correct</em> and now has a measured boundary. New ledger file plus its <code>INDEX.md</code> line.</td></tr>
       </tbody>

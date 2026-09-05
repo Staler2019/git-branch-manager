@@ -47,6 +47,23 @@ struct OperationOutcome {
     /// operation that does not override kind() -- JsonCodec omits the "kind"
     /// key entirely in that case rather than emitting an empty string.
     std::string kind;
+    /// "This failed, and refs changed anyway." Set only by an operation that
+    /// has *measured* the change rather than assumed it: `git branch -d a b`
+    /// is per-name, so it can delete one branch, refuse the next and still
+    /// exit 1 (CLAUDE.md's [GIT-branch-d-partially-succeeds]), leaving a
+    /// failed outcome on top of a repository that really did move.
+    ///
+    /// Session::submitOperation reads this alongside `succeeded` to decide
+    /// whether to re-read refs; without it a partial delete left every refs
+    /// consumer -- the sidebar most visibly -- drawing branches git had
+    /// already removed until the next F5 or window focus.
+    ///
+    /// **Deliberately not serialized.** The decision it feeds is taken inside
+    /// Session's own completion callback, before toJson(outcome); no Dart
+    /// reader exists, and adding one to the wire would be a field crossing
+    /// the FFI boundary with nothing on the far side
+    /// (CLAUDE.md's [CULT-orphan-wiring]).
+    bool mutatedRefs = false;
 };
 
 /// A single mutating git operation.

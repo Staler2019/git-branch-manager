@@ -154,6 +154,40 @@ protected:
         });
     }
 
+    /// Waits for the GBM_EVENT_REFS_UPDATED produced by an explicit
+    /// gbm_history_refresh(). `gbm_session_open` does **not** refresh on its
+    /// own -- the app's Dart layer asks for the first one -- so a test that
+    /// wants a refs event already in the log has to ask for it.
+    bool waitForInitialRefsUpdated() {
+        return log_.waitFor([](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_REFS_UPDATED) return true;
+            }
+            return false;
+        });
+    }
+
+    /// Waits for a GBM_EVENT_REFS_UPDATED that arrives *after* the last
+    /// GBM_EVENT_OPERATION_FINISHED.
+    ///
+    /// Ordering is what makes this able to disagree with the code: the test
+    /// puts a refs event in the log before dispatching (the app does the same
+    /// thing on open), so "any refs event at all" is already true before the
+    /// operation runs and would stay green however the refresh gate is wired.
+    bool waitForRefsUpdatedAfterOperationFinished() {
+        return log_.waitFor([](const auto& events) {
+            std::size_t operationIndex = events.size();
+            for (std::size_t i = 0; i < events.size(); ++i) {
+                if (events[i].first == GBM_EVENT_OPERATION_FINISHED) operationIndex = i;
+            }
+            if (operationIndex == events.size()) return false;
+            for (std::size_t i = operationIndex + 1; i < events.size(); ++i) {
+                if (events[i].first == GBM_EVENT_REFS_UPDATED) return true;
+            }
+            return false;
+        });
+    }
+
     /// The most recent GBM_EVENT_OPERATION_FINISHED payload, or empty if none
     /// arrived. Used to assert on the OperationOutcome JSON's "kind" field.
     std::string lastOperationFinishedPayload() {
@@ -296,6 +330,46 @@ TEST_F(BranchApiTest, DeleteBranchAcceptsMultipleNamesInOneCall) {
     const auto branches = localBranches();
     EXPECT_EQ(std::find(branches.begin(), branches.end(), "multi-1"), branches.end());
     EXPECT_EQ(std::find(branches.begin(), branches.end(), "multi-2"), branches.end());
+}
+
+// `git branch -d a b` is per-name: it deletes what it can and still exits 1
+// for the rest (measured -- see CLAUDE.md's [GIT-branch-d-partially-succeeds]).
+// The outcome is therefore a *failure* that has already changed refs/heads,
+// and the session's own refresh used to be gated on `succeeded` alone, so
+// nothing re-read the refs -- the sidebar went on drawing a branch git had
+// already removed until the user pressed F5 or refocused the window.
+//
+// This is the multi-select delete's case and only its case: a single-branch
+// delete is all-or-nothing, which is why the two sidebar paths behaved
+// differently for the same operation.
+TEST_F(BranchApiTest, APartiallySuccessfulDeleteStillRefreshesRefs) {
+    ASSERT_EQ(runGit({"branch", "merged-branch"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "unmerged-branch"}), 0);
+    std::ofstream(repo_ / "unmerged.txt") << "v1\n";
+    ASSERT_EQ(runGit({"add", "unmerged.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Work that is not merged anywhere"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+
+    // A refs event has to already be in the log before dispatching, so the
+    // ordering assertion below is measuring this operation's refresh and not
+    // simply the first one this session ever produced. It also matches what
+    // the app does: RepoSessionController refreshes as soon as it opens.
+    gbm_history_refresh(session_);
+    ASSERT_TRUE(waitForInitialRefsUpdated());
+
+    const char* names[] = {"merged-branch", "unmerged-branch"};
+    gbm_branch_delete(session_, names, 2, /*force=*/0, /*isRemote=*/0, "");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    // The premise: half of it went, and the outcome still reports failure.
+    // Without both halves this test would be about something else entirely.
+    EXPECT_NE(lastOperationFinishedPayload().find("\"succeeded\":false"), std::string::npos)
+        << lastOperationFinishedPayload();
+    const auto branches = localBranches();
+    EXPECT_EQ(std::find(branches.begin(), branches.end(), "merged-branch"), branches.end());
+    EXPECT_NE(std::find(branches.begin(), branches.end(), "unmerged-branch"), branches.end());
+
+    EXPECT_TRUE(waitForRefsUpdatedAfterOperationFinished());
 }
 
 }  // namespace

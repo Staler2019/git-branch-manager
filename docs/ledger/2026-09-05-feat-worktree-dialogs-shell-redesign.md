@@ -391,4 +391,26 @@ picker 清單底色改成 `surfacePanel` → `-1`；picker 搜尋框外殼 30 �
 
 裝置層：`integration_test/` 底下只有 `worktree_pending_counts_test.dart` 命中
 （照 [TEST-grep-misses-intent-driven-device-tests] 用 `GbmActionId`、面板名稱、
-`GbmRefPicker`、`gbmInputDecoration` 一起 grep，不只 grep 改動到的字串）。
+`GbmRefPicker`、`gbmInputDecoration` 一起 grep，不只 grep 改動到的字串）。跑過，**1/1，4 秒**。`Failed to foreground app; open returned 1` 照樣印出來，但後面
+接著測試結果行——[TEST-foreground-line-is-not-a-failure] 說的就是這件事。
+
+### 實機驗證（這次是真的做了，而且量了像素）
+
+`flutter run -d macos --release`，`pkill` 過確定沒有 stale process
+（[TEST-stale-process-blocks-tier]），並且用**跑起來的那個 build 自己的 History
+畫面**確認它帶著這三個 commit——比對 mtime 不可靠，看它畫出來的東西才可靠。
+`screencapture -R` 只截該視窗。
+
+截圖轉 BMP 逐像素掃邊界（`sips` + 自寫的 BMP parser，沒有 PIL），量「位置」那一列：
+
+| | 修之前（上一輪的截圖） | 修之後（鎖住） | 修之後（解鎖） |
+|---|---|---|---|
+| 輸入框高度 | 23 | **30.0** | **30.0** |
+| 瀏覽鈕高度 | 30 | **30.0** | **30.0** |
+| 上下緣 | 不齊 | **完全對齊** | **完全對齊** |
+| 邊框色 | `(0,0,0)` 純黑 | **`(48,54,61)` = #30363D** | 同左 |
+| 框內底色 | 無（透出 #161B22） | **`(13,17,23)` = #0D1117** | 同左 |
+
+對話框自己的底 `(22,27,34)` = #161B22 = `surface-panel-raised`，本來就對，spec 也是
+這個——所以「底色不對」指的是**欄位沒有底色**，不是殼的底色錯。這點值得寫下來：
+回報說「底色不對」的時候，錯的可能是缺一層，而不是那一層畫錯。

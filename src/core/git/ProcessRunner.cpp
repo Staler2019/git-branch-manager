@@ -209,11 +209,18 @@ public:
               const ProgressSink& onProgress,
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
+              std::chrono::milliseconds idleTimeout,
               bool* timedOut,
               bool* sinkStopped) {
         std::vector<char> buffer(kReadBufferSize);
         std::size_t stdinOffset = 0;
         const auto deadline = Clock::now() + timeout;
+
+        // The idle deadline slides: every byte that moves in either direction
+        // resets it. `timeout` above asks how long this has run in total; this
+        // asks whether it is still alive, which is the only question that has a
+        // safe answer for a transfer whose legitimate duration is unbounded.
+        auto lastProgress = Clock::now();
 
         while (stdoutFd_ >= 0 || stderrFd_ >= 0 || stdinFd_ >= 0) {
             struct pollfd fds[3];
@@ -247,6 +254,17 @@ public:
                 }
                 waitMs = static_cast<int>(std::min<std::int64_t>(waitMs, remaining));
             }
+            if (idleTimeout.count() > 0) {
+                const auto idleRemaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                               lastProgress + idleTimeout - Clock::now())
+                                               .count();
+                if (idleRemaining <= 0) {
+                    *timedOut = true;
+                    terminate();
+                    break;
+                }
+                waitMs = static_cast<int>(std::min<std::int64_t>(waitMs, idleRemaining));
+            }
 
             const int ready = ::poll(fds, static_cast<nfds_t>(count), waitMs);
             if (ready < 0) {
@@ -265,6 +283,7 @@ public:
             if (stdoutIndex >= 0 && (fds[stdoutIndex].revents & (POLLIN | POLLHUP)) != 0) {
                 const ssize_t n = ::read(stdoutFd_, buffer.data(), buffer.size());
                 if (n > 0) {
+                    lastProgress = Clock::now();
                     if (!stdoutSplitter.feed(
                             std::string_view(buffer.data(), static_cast<std::size_t>(n)))) {
                         *sinkStopped = true;
@@ -280,6 +299,7 @@ public:
             if (stderrIndex >= 0 && (fds[stderrIndex].revents & (POLLIN | POLLHUP)) != 0) {
                 const ssize_t n = ::read(stderrFd_, buffer.data(), buffer.size());
                 if (n > 0) {
+                    lastProgress = Clock::now();
                     const std::string_view chunk(buffer.data(), static_cast<std::size_t>(n));
                     if (stderrText != nullptr) {
                         stderrText->append(chunk);
@@ -301,6 +321,9 @@ public:
                     const ssize_t n = ::write(
                         stdinFd_, stdinData->data() + stdinOffset, stdinData->size() - stdinOffset);
                     if (n > 0) {
+                        // A child steadily eating the patch we are feeding it is
+                        // alive, even before it answers a single byte.
+                        lastProgress = Clock::now();
                         stdinOffset += static_cast<std::size_t>(n);
                     } else if (n < 0 && errno != EINTR && errno != EAGAIN) {
                         ::close(stdinFd_);
@@ -575,6 +598,7 @@ public:
               const ProgressSink& onProgress,
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
+              std::chrono::milliseconds idleTimeout,
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
@@ -591,6 +615,7 @@ public:
                         read == 0) {
                         return;
                     }
+                    lastProgress_.store(nowMs());
                     const std::string_view chunk(buffer.data(), read);
                     std::lock_guard<std::mutex> lock(stderrMutex_);
                     if (stderrText != nullptr) {
@@ -618,6 +643,7 @@ public:
                             written == 0) {
                             break;
                         }
+                        lastProgress_.store(nowMs());
                         offset += written;
                     }
                 }
@@ -646,7 +672,8 @@ public:
         HANDLE pumpDone = nullptr;
         HANDLE pumpThread = nullptr;
         std::thread deadlineThread;
-        if (timeout.count() > 0) {
+        lastProgress_.store(nowMs());
+        if (timeout.count() > 0 || idleTimeout.count() > 0) {
             pumpDone = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
             // `GetCurrentThread()` is a pseudo-handle meaning "whichever thread
             // is asking", so it is useless to another thread and has to be
@@ -661,10 +688,41 @@ public:
                 pumpThread = nullptr;
             }
             if (pumpDone != nullptr && pumpThread != nullptr) {
-                deadlineThread = std::thread([this, pumpDone, pumpThread, timeout] {
-                    if (::WaitForSingleObject(pumpDone, static_cast<DWORD>(timeout.count())) !=
-                        WAIT_TIMEOUT) {
-                        return;  // The pump finished first; nothing to do.
+                deadlineThread = std::thread([this, pumpDone, pumpThread, timeout, idleTimeout] {
+                    // Waits in slices rather than one long wait, because the idle
+                    // deadline moves: every byte the pump reads pushes it out. A
+                    // slice ends either at the total deadline or at the earliest
+                    // moment the idle one *could* expire, so a quiet child is
+                    // noticed within one slice and a busy one is never disturbed.
+                    //
+                    // The pump publishes progress by storing a timestamp, not by
+                    // signalling an event: a per-read `SetEvent` would put a
+                    // syscall in the hot read path, and bulk output is exactly
+                    // where that would be paid the most. Polling costs nothing
+                    // there -- this thread does the work instead.
+                    const auto started = nowMs();
+                    for (;;) {
+                        std::int64_t sliceMs = 50;
+                        if (timeout.count() > 0) {
+                            const std::int64_t left = timeout.count() - (nowMs() - started);
+                            if (left <= 0) {
+                                break;
+                            }
+                            sliceMs = std::min<std::int64_t>(sliceMs, left);
+                        }
+                        if (idleTimeout.count() > 0) {
+                            const std::int64_t left =
+                                idleTimeout.count() - (nowMs() - lastProgress_.load());
+                            if (left <= 0) {
+                                break;
+                            }
+                            sliceMs = std::min<std::int64_t>(sliceMs, left);
+                        }
+                        if (::WaitForSingleObject(
+                                pumpDone, static_cast<DWORD>(std::max<std::int64_t>(sliceMs, 1))) !=
+                            WAIT_TIMEOUT) {
+                            return;  // The pump finished first; nothing to do.
+                        }
                     }
                     timedOut_.store(true);
                     terminate();
@@ -696,6 +754,7 @@ public:
                 read == 0) {
                 break;
             }
+            lastProgress_.store(nowMs());
             if (!stdoutSplitter.feed(std::string_view(buffer.data(), read))) {
                 *sinkStopped = true;
                 terminate();
@@ -857,8 +916,19 @@ private:
     HANDLE stdoutHandle_ = nullptr;
     HANDLE stderrHandle_ = nullptr;
     HANDLE stdinHandle_ = nullptr;
+
+    /// Monotonic milliseconds, only ever compared with itself. A plain atomic
+    /// rather than a `time_point` so the readers can publish progress with one
+    /// relaxed store and no lock.
+    static std::int64_t nowMs() {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
+    }
+
     std::atomic_bool terminated_{false};
     std::atomic_bool timedOut_{false};
+    std::atomic<std::int64_t> lastProgress_{0};
     std::mutex stderrMutex_;
 };
 
@@ -959,6 +1029,7 @@ private:
                     onProgress,
                     command.stdinData ? &*command.stdinData : nullptr,
                     command.timeout,
+                    command.idleTimeout,
                     &result.timedOut,
                     &sinkStopped);
 

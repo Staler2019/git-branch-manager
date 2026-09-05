@@ -14,6 +14,7 @@ import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dashed.dart';
 
 import '../../support/pump_app.dart';
 
@@ -1034,6 +1035,132 @@ void main() {
             'the tracker keys are positions, so a carried-over selection '
             'would point at whatever now sits at those indices',
       );
+    });
+
+    // 變體 B's own CSS, quoted, for the four properties this group pins:
+    //
+    //   .variant-B-temp     { border: 1px dashed var(--accent); }
+    //   .variant-B-temphead { border-bottom: 1px dashed var(--accent); }
+    //   .variant-B-gap      { padding-left: 2px;
+    //                         border-left: 1px dashed var(--border-default); }
+    //   .variant-B-cardhead { border-bottom: 1px solid var(--border-default); }
+    //   .variant-B-card     { margin: var(--space-2) 0; }
+    //
+    // 使用者裁定「照建議」on section 06 of
+    // docs/claude-design-demo/working-copy-layout-spec.html, items S3, S4
+    // (its border and muted ground only, not its 30px height), S9 and S10.
+    group('-- 變體 B card chrome', () {
+      testWidgets('the one-shot block is outlined in dashed accent, and its '
+          'head is underlined in the same dash', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        // The dash is the whole point: it is what separates the one-shot
+        // block from the solid-edged cards that persist. Both were solid
+        // before, differing only in colour.
+        final GbmDashedBorder outline = tester.widget<GbmDashedBorder>(
+          find.byKey(const ValueKey<String>('temporary-scope-card')),
+        );
+        expect(outline.color.toARGB32(), colors.accent.toARGB32());
+
+        final GbmDashedLine rule = tester.widget<GbmDashedLine>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+            matching: find.byType(GbmDashedLine),
+          ),
+        );
+        expect(rule.axis, Axis.horizontal);
+        expect(rule.color.toARGB32(), colors.accent.toARGB32());
+      });
+
+      testWidgets('a context gap is marked by a dashed rule, not a solid one '
+          'plus dimming', (WidgetTester tester) async {
+        // Two changes far enough apart to leave a gap between them.
+        await pump(tester, _file(<String>['+.....+']));
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        final GbmDashedLine rule = tester
+            .widgetList<GbmDashedLine>(find.byType(GbmDashedLine))
+            .first;
+        expect(rule.axis, Axis.vertical);
+        expect(rule.color.toARGB32(), colors.borderDefault.toARGB32());
+
+        // 變體 B dims nothing anywhere -- grepped, the word `opacity` appears
+        // only under `.variant-A-*` and `.variant-C-*`. The dashed rule is
+        // what marks context; the built version marked it twice, once with a
+        // 2px solid rule and again by fading the code itself.
+        expect(find.byType(Opacity), findsNothing);
+      });
+
+      testWidgets('the card head is separated from the code by a rule, and a '
+          'superseded head sits on sunken ground', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        Container headOf(String cardKey) => tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey<String>(cardKey)),
+                matching: find.byWidgetPredicate(
+                  (Widget w) =>
+                      w is Container &&
+                      w.decoration is BoxDecoration &&
+                      (w.decoration! as BoxDecoration).border is Border &&
+                      ((w.decoration! as BoxDecoration).border! as Border)
+                              .bottom
+                              .width >
+                          0 &&
+                      ((w.decoration! as BoxDecoration).border! as Border)
+                              .left
+                              .width ==
+                          0,
+                ),
+              )
+              .first,
+        );
+
+        final BoxDecoration live =
+            headOf('scope-card-1').decoration! as BoxDecoration;
+        expect(
+          (live.border! as Border).bottom.color.toARGB32(),
+          colors.borderDefault.toARGB32(),
+        );
+        expect(live.color!.toARGB32(), colors.surfacePanelRaised.toARGB32());
+
+        // Now supersede it and read the same head again.
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final BoxDecoration muted =
+            headOf('scope-card-1').decoration! as BoxDecoration;
+        expect(muted.color!.toARGB32(), colors.surfaceSunken.toARGB32());
+      });
+
+      testWidgets('a hunk heading is followed by a rule, and a card is spaced '
+          'by space2', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+.']));
+
+        // S9: the heading is mono text plus a 1px rule filling the rest of
+        // the row. Without it the `@@ …` line reads as another code line.
+        expect(
+          find.byKey(const ValueKey<String>('hunk-heading-rule-0')),
+          findsOneWidget,
+        );
+
+        // S10: space2 (8), not space1 (4). Read off the widget rather than
+        // measured, because the margin collapses against nothing here and a
+        // rect comparison would only see the sum of two neighbours' margins.
+        final Container card = tester.widget<Container>(
+          find.byKey(const ValueKey<String>('scope-card-1')),
+        );
+        expect(
+          card.margin,
+          const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
+        );
+      });
     });
   });
 }

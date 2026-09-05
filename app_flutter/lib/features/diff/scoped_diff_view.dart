@@ -6,6 +6,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_dashed.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_scopes.dart';
@@ -613,7 +614,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
       final DiffHunk hunk = diffFile.hunks[hunkIndex];
       children.add(
-        _HunkHeading(hunk: hunk, onTap: () => _selectHunk(diffFile, hunkIndex)),
+        _HunkHeading(
+          hunk: hunk,
+          hunkIndex: hunkIndex,
+          onTap: () => _selectHunk(diffFile, hunkIndex),
+        ),
       );
 
       for (final DiffSegment segment in hunkSegments(
@@ -760,9 +765,14 @@ class _ColumnHead extends StatelessWidget {
 /// invisible on a real display) -- the defect the sidebar and the tree-mode
 /// folder rows both shipped with.
 class _HunkHeading extends StatelessWidget {
-  const _HunkHeading({required this.hunk, required this.onTap});
+  const _HunkHeading({
+    required this.hunk,
+    required this.hunkIndex,
+    required this.onTap,
+  });
 
   final DiffHunk hunk;
+  final int hunkIndex;
   final VoidCallback onTap;
 
   @override
@@ -775,18 +785,32 @@ class _HunkHeading extends StatelessWidget {
       // every diff in the app.
       height: 22,
       padding: EdgeInsets.zero,
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          '@@ -${hunk.oldStart},${hunk.oldCount} '
-          '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontFamily: GbmTypography.fontMono,
-            fontSize: GbmTypography.textXs,
-            color: colors.textTertiary,
+      child: Row(
+        children: <Widget>[
+          Flexible(
+            child: Text(
+              '@@ -${hunk.oldStart},${hunk.oldCount} '
+              '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+            ),
           ),
-        ),
+          // 變體 B follows the heading with a 1px rule filling the rest of
+          // the row. Without it the `@@ …` line reads as one more line of
+          // code in the same mono face rather than as a divider.
+          const SizedBox(width: GbmSpacing.space2),
+          Expanded(
+            child: Container(
+              key: ValueKey<String>('hunk-heading-rule-$hunkIndex'),
+              height: 1,
+              color: colors.borderSubtle,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -822,32 +846,52 @@ class _GapBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    // `.variant-B-gap { padding-left: 2px;
+    //                   border-left: 1px dashed var(--border-default) }`.
+    //
+    // It shipped as a 2px solid `border-subtle` rule *plus* `Opacity(0.6)`
+    // over the rows -- marking context twice, once with a rule and again by
+    // fading the code. 變體 B fades nothing anywhere (the word `opacity`
+    // appears in its stylesheet only under `.variant-A-*` and
+    // `.variant-C-*`), and the dashed rule is what carries the distinction.
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 2),
-      decoration: BoxDecoration(
-        border: Border(left: BorderSide(color: colors.borderSubtle, width: 2)),
-      ),
-      child: Opacity(
-        opacity: 0.6,
-        child: Column(
+      // IntrinsicHeight because the rule beside the rows is a vertical
+      // GbmDashedLine, which needs a bounded height to draw into, and a
+      // `Column` hands its non-flex children `maxHeight: infinity` whatever
+      // its own bound is -- [FLU-column-nonflex-unbounded-height] /
+      // [FLU-row-stretch-needs-intrinsic-height], hit again here.
+      child: IntrinsicHeight(
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            // Context rows are tracked too, even though none of them can
-            // move: the button's primary number is how many lines the drag
-            // framed, and counting only the changed ones would understate
-            // what the user actually selected.
-            for (final int index in lineIndices)
-              SelectionTouchRow(
-                tracker: tracker,
-                rowKey: selectionRowKey(hunkIndex, index),
-                child: DiffLineView(
-                  softWrap: softWrap,
-                  line: hunk.lines[index],
-                  staged: staged,
-                  touched: touched.contains(selectionRowKey(hunkIndex, index)),
-                ),
+            GbmDashedLine(color: colors.borderDefault, axis: Axis.vertical),
+            const SizedBox(width: 2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  // Context rows are tracked too, even though none of them
+                  // can move: the button's primary number is how many lines
+                  // the drag framed, and counting only the changed ones
+                  // would understate what the user actually selected.
+                  for (final int index in lineIndices)
+                    SelectionTouchRow(
+                      tracker: tracker,
+                      rowKey: selectionRowKey(hunkIndex, index),
+                      child: DiffLineView(
+                        softWrap: softWrap,
+                        line: hunk.lines[index],
+                        staged: staged,
+                        touched: touched.contains(
+                          selectionRowKey(hunkIndex, index),
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -929,7 +973,10 @@ class _ScopeCard extends StatelessWidget {
     // clips the corners) and the four border sides on the inner one.
     return Container(
       key: ValueKey<String>('scope-card-$ordinal'),
-      margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+      // `.variant-B-card { margin: var(--space-2) 0 }`. It shipped at
+      // space1, which read as one block of code with hairlines in it rather
+      // than as separate cards.
+      margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
       decoration: BoxDecoration(
         color: colors.surfacePanel,
         borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
@@ -1073,8 +1120,20 @@ class _CardHead extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
 
+    // `.variant-B-cardhead { background: var(--surface-panel-raised);
+    //                         border-bottom: 1px solid var(--border-default) }`,
+    // and `.variant-B-card-muted`'s head goes `--surface-sunken`.
+    //
+    // The rule is what makes the head read as a head; without it the tag and
+    // the button float over the code. **The design's `height: 30px` is
+    // deliberately not adopted** -- this is a `Wrap`, and in a narrow pane it
+    // has to be free to take a second line, which a fixed height would clip.
+    // That matters more now that the pane is a right-hand column.
     return Container(
-      color: colors.surfacePanelRaised,
+      decoration: BoxDecoration(
+        color: superseded ? colors.surfaceSunken : colors.surfacePanelRaised,
+        border: Border(bottom: BorderSide(color: colors.borderDefault)),
+      ),
       padding: const EdgeInsets.symmetric(
         horizontal: GbmSpacing.space2,
         vertical: 3,
@@ -1200,65 +1259,80 @@ class _TemporaryBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
 
-    return Container(
+    // `.variant-B-temp { border: 1px dashed var(--accent) }` and
+    // `.variant-B-temphead { border-bottom: 1px dashed var(--accent) }`.
+    //
+    // Dashed is the distinction, not decoration: it is what separates this
+    // block -- which disappears the moment it is spent -- from the
+    // solid-edged cards that persist. Both were solid before and differed
+    // only in colour, which is a weaker signal than the label 一次性 beside
+    // it is making. Flutter has no dashed `BorderSide`, hence
+    // [GbmDashedBorder] / [GbmDashedLine].
+    return GbmDashedBorder(
       key: showHead ? const ValueKey<String>('temporary-scope-card') : null,
-      margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.accent),
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          if (showHead)
-            Container(
-              color: colors.accentSubtle,
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space2,
-                vertical: 3,
-              ),
-              // A Wrap for the same reason [_CardHead] is one: in `2 file`
-              // mode this sits inside a card inside half a diff pane, and a
-              // Row there does not shrink, it overflows.
-              child: Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: GbmSpacing.space2,
-                runSpacing: 4,
-                children: <Widget>[
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      Flexible(
-                        child: Text(
-                          hunkCount > 1 ? '臨時選取 · 跨 $hunkCount 個 hunk' : '臨時選取',
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: GbmTypography.textXs,
-                            fontWeight: FontWeight.bold,
-                            color: colors.textSecondary,
+      color: colors.accent,
+      radius: GbmSpacing.radiusSm,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space1),
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            if (showHead)
+              Container(
+                color: colors.accentSubtle,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: GbmSpacing.space2,
+                  vertical: 3,
+                ),
+                // A Wrap for the same reason [_CardHead] is one: in `2 file`
+                // mode this sits inside a card inside half a diff pane, and a
+                // Row there does not shrink, it overflows.
+                child: Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: GbmSpacing.space2,
+                  runSpacing: 4,
+                  children: <Widget>[
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Flexible(
+                          child: Text(
+                            hunkCount > 1
+                                ? '臨時選取 · 跨 $hunkCount 個 hunk'
+                                : '臨時選取',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: GbmTypography.textXs,
+                              fontWeight: FontWeight.bold,
+                              color: colors.textSecondary,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: GbmSpacing.space2),
-                      const GbmBadge(label: '一次性'),
-                    ],
-                  ),
-                  GbmButton(
-                    label: label,
-                    onPressed: onStage,
-                    size: GbmButtonSize.sm,
-                    kind: staged
-                        ? GbmButtonKind.secondary
-                        : GbmButtonKind.primary,
-                  ),
-                ],
+                        const SizedBox(width: GbmSpacing.space2),
+                        const GbmBadge(label: '一次性'),
+                      ],
+                    ),
+                    GbmButton(
+                      label: label,
+                      onPressed: onStage,
+                      size: GbmButtonSize.sm,
+                      kind: staged
+                          ? GbmButtonKind.secondary
+                          : GbmButtonKind.primary,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ...children,
-        ],
+            if (showHead) GbmDashedLine(color: colors.accent),
+            ...children,
+          ],
+        ),
       ),
     );
   }

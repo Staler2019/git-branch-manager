@@ -175,9 +175,15 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   砍整棵樹把 pipe 的寫入端關掉。這是刻意的殘留，寫出來而不是暗示。
 - **Note**: macOS/Linux 上那個測試**永遠是綠的**，兩邊 pump 結構不同——這條 rule 只有 Windows CI
   能反駁（[TEST-fixture-cannot-disagree]）。
-- **Note**: job object 有**量到的代價**，落在每一次 spawn 上：同一棵樹的前 326 個測試，會 spawn git
-  的 151 個從 133.71s 變成 177.67s（**1.33×**），不 spawn 的 175 個只從 5.97s 變成 6.78s（1.14×）
-  ——後者是同兩份 log 的對照組，所以差的那 17 個百分點不是 runner 快慢。省法有兩個，兩個都要拿
-  正確性去換（共用一個 job 會讓 `TerminateJobObject` 殺掉並行的其他 git；拿掉 `CREATE_SUSPENDED`
-  會把「孫子在 assign 之前就生出來」的競態放回去），所以不省。Windows job 11m47s 對 25 分鐘上限。
+- **Note**: **job object 的成本沒有量到，而且第一次宣稱量到是錯的**（就地更正）。三次 Windows 跑，
+  會 spawn git 的同 151 個測試：無 job object 133.71s、有 job object 177.67s（1.33×）、
+  有 job object 再加一條 watchdog 執行緒 **136.38s（1.02×）**——同一個 job object 在第三次跑回到
+  1.02×，所以那 44 秒是 runner 快慢。**當時的「對照組」是不 spawn 的 175 個測試，平均 34ms 一個，
+  對機器快慢根本不敏感**（它自己第三次跑是 1.58×），拿它校正 1 秒級的測試等於用沒有刻度的尺。
+  每個組態 n=1，runner 跑間變異比效應大；要量得同一顆 job 內 A/B。
+- **Do**: 一個對照組要先證明**它對你要排除的變因有反應**，否則它只是另一個數字——
+  [TEST-fixture-cannot-disagree] 換到量測上的同一件事。
+- **Note**: 就算真的有成本也不省，兩個省法都要拿正確性換：共用一個 job 會讓 `TerminateJobObject`
+  殺掉並行的其他 git；拿掉 `CREATE_SUSPENDED` 會把「孫子在 assign 之前就生出來」的競態放回去。
+  Windows job 11m09s 對 25 分鐘上限，沒有人在等它。
 - **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

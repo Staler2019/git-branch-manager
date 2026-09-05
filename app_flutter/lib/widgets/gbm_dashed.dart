@@ -4,14 +4,15 @@ import 'package:flutter/material.dart';
 
 /// How long one dash is, and how long the gap after it, in logical pixels.
 ///
-/// **Unsourced, and deliberately recorded as such.** 變體 B writes
-/// `1px dashed var(--accent)` and CSS does not name a pattern -- each engine
-/// picks its own, and Flutter has no dashed border at all, so a number had to
-/// be chosen rather than read. 3/3 is what a 1px CSS dash looks closest to in
-/// Chrome at this scale. Every other value in these widgets comes from the
-/// design; these two do not.
+/// **Not from the design, and not invented here either.** CSS's `dashed`
+/// keyword names no pattern -- each engine picks its own -- and Flutter has
+/// no dashed border at all, so 變體 B's `1px dashed var(--accent)` cannot
+/// hand these over. 3/2 is what `gbm_tag_chip.dart`'s dashed remote-branch
+/// chip has been drawing since it shipped, and matching it is the point: two
+/// dashed outlines with different rhythms on one screen read as two
+/// different kinds of line.
 const double kGbmDashLength = 3;
-const double kGbmDashGap = 3;
+const double kGbmDashGap = 2;
 
 /// A dashed straight line, one logical pixel thick along its cross axis.
 ///

@@ -1,11 +1,10 @@
-import 'dart:ui' show PathMetric;
-
 import 'package:flutter/material.dart';
 
 import '../data/models/ref_snapshot.dart';
 import '../theme/gbm_theme.dart';
 import '../theme/ref_chip_colors.dart';
 import '../theme/tokens.dart';
+import 'gbm_dashed.dart';
 import 'lucide_icon.dart';
 
 /// `.gbm-tag`/`.gbm-tag-branch`/`.gbm-tag-branch.current`/`.gbm-tag-tag`
@@ -69,8 +68,9 @@ class GbmTagChip extends StatelessWidget {
       // Flutter's Border has no dashed style, so the dashed outline is
       // painted separately over a border-less fill instead of going through
       // BoxDecoration.border like the solid case below.
-      return CustomPaint(
-        painter: _DashedRRectPainter(radius: radius, color: chip.border),
+      return GbmDashedBorder(
+        color: chip.border,
+        radius: GbmSpacing.radiusFull,
         child: DecoratedBox(
           decoration: BoxDecoration(color: chip.fill, borderRadius: radius),
           child: content,
@@ -101,46 +101,4 @@ class GbmTagChip extends StatelessWidget {
       child: content,
     );
   }
-}
-
-/// Paints a dashed rounded-rect outline, since [Border] has no built-in
-/// dashed style. Kept private and narrowly scoped to [GbmTagChip]'s dashed
-/// variant rather than a general-purpose dashed-border widget -- no other
-/// caller needs one yet (YAGNI).
-class _DashedRRectPainter extends CustomPainter {
-  const _DashedRRectPainter({required this.radius, required this.color});
-
-  final BorderRadius radius;
-  final Color color;
-
-  static const double _dashWidth = 3;
-  static const double _dashGap = 2;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Deflate by half the stroke width so the 1px stroke draws inside the
-    // chip's bounds instead of getting clipped at the edge.
-    final RRect rrect = radius.toRRect(Offset.zero & size).deflate(0.5);
-    final Path path = Path()..addRRect(rrect);
-    final Paint paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1;
-
-    for (final PathMetric metric in path.computeMetrics()) {
-      double distance = 0;
-      while (distance < metric.length) {
-        final double next = distance + _dashWidth;
-        canvas.drawPath(
-          metric.extractPath(distance, next.clamp(0, metric.length)),
-          paint,
-        );
-        distance = next + _dashGap;
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _DashedRRectPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.radius != radius;
 }

@@ -129,6 +129,13 @@ class GbmSplitPaneController {
 
 class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   late List<double> _currentFlexes;
+
+  /// The height a `collapsedByDefault` drawer reopens to, carried across a
+  /// collapse -- which [_currentFlexes] cannot, because collapsing sets it
+  /// to 0. Null until a height is either read from storage or reached by a
+  /// drag. Unused in flex mode and for a non-drawer extent pane, neither of
+  /// which ever starts collapsed.
+  double? _reopenExtent;
   late List<FocusNode> _dividerFocusNodes;
   late Map<int, Timer> _hoverTimers;
   late Set<int> _hoveredDividers;
@@ -149,30 +156,43 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
         .read(widget.storageId);
 
     if (widget.spec.defaultExtent != null) {
-      // Extent mode: stored should be [extentPx] or null
-      if (stored != null && stored.length == 1) {
-        // Clamp a stored extent up to the spec's current minimum. Raising a
-        // minExtent otherwise does nothing for the users it is for: a drag
-        // clamps to the minimum in force *at the time*, so a value persisted
-        // under the old, lower minimum survives every restart untouched.
-        //
-        // This belongs here and not in [_clampedFixedExtent], which runs on
-        // every build: clamping there would force a `collapsedByDefault`
-        // drawer back open to minExtent on every frame. The `> 0` guard is
-        // the same distinction -- an explicit collapse is a user decision,
-        // not a value below the minimum to be repaired, and 0 is the only
-        // sub-minimum value any other path can produce.
-        _currentFlexes = stored[0] > 0
-            ? <double>[math.max(stored[0], widget.spec.minExtent)]
-            : stored;
+      // Extent mode: stored should be [extentPx] or null.
+      //
+      // Clamp a stored extent up to the spec's current minimum. Raising a
+      // minExtent otherwise does nothing for the users it is for: a drag
+      // clamps to the minimum in force *at the time*, so a value persisted
+      // under the old, lower minimum survives every restart untouched.
+      //
+      // This belongs here and not in [_clampedFixedExtent], which runs on
+      // every build: clamping there would force a collapsed drawer back
+      // open to minExtent on every frame.
+      final double? storedExtent =
+          (stored != null && stored.length == 1 && stored[0] > 0)
+          ? math.max(stored[0], widget.spec.minExtent)
+          : null;
+
+      // For a `collapsedByDefault` pane, storage holds the *height* and
+      // never the open/closed state: the state is 「collapsed」 by
+      // definition at every launch (使用者裁定「log不預設打開，使用者
+      // toggle才開」), so a stored extent is a height to reopen *to*, not
+      // a reason to start open. This used to read `stored == null &&
+      // collapsedByDefault`, which meant the flag only held on a virgin
+      // profile -- one previous open persists an extent, and the drawer
+      // then came back open on every launch afterwards, forever.
+      // [_persistFlexes] upholds the other half by never writing this
+      // pane's 0.
+      _reopenExtent = storedExtent;
+
+      if (widget.spec.collapsedByDefault) {
+        _currentFlexes = <double>[0];
       } else {
-        // collapsedByDefault: if no stored value and collapsedByDefault is true,
-        // start with extent 0; otherwise use defaultExtent
-        final double initialExtent =
-            (stored == null && widget.spec.collapsedByDefault)
-            ? 0.0
-            : widget.spec.defaultExtent!;
-        _currentFlexes = <double>[initialExtent];
+        // A stored 0 stays 0 for a pane that is not a drawer: nothing but
+        // [_collapse] can produce one (a drag clamps to minExtent), so it
+        // is a deliberate collapse rather than a sub-minimum value to be
+        // repaired.
+        _currentFlexes = (stored != null && stored.length == 1)
+            ? <double>[storedExtent ?? stored[0]]
+            : <double>[widget.spec.defaultExtent!];
       }
     } else {
       // Flex mode: stored should match flexRatio length or null
@@ -218,15 +238,22 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   bool get _isExtentPaneOpen =>
       widget.spec.defaultExtent != null && _currentFlexes[0] > 0;
 
-  /// See [GbmSplitPaneController.open].
-  void _openToMinimum() =>
-      _setExtent(math.max(_currentFlexes[0], widget.spec.minExtent));
+  /// See [GbmSplitPaneController.open]. Reopens to [_reopenExtent] -- the
+  /// height this drawer was last at, which survives the collapse that set
+  /// [_currentFlexes] to 0 -- so the user gets back the size they dragged
+  /// to rather than a reset to `minExtent`.
+  void _openToMinimum() => _setExtent(
+    math.max(
+      math.max(_currentFlexes[0], _reopenExtent ?? 0),
+      widget.spec.minExtent,
+    ),
+  );
 
-  /// See [GbmSplitPaneController.close]. Zero, not `minExtent` -- the
-  /// stored 0 is exactly what `collapsedByDefault` means, so a closed
-  /// drawer persists as one and comes back closed
-  /// ([FLU-splitpane-stored-extent-ignores-min] deliberately guards its own
-  /// clamp on `stored[0] > 0` for this).
+  /// See [GbmSplitPaneController.close]. Zero, not `minExtent` -- but note
+  /// [_persistFlexes] deliberately does **not** write that 0 for a
+  /// `collapsedByDefault` pane: such a pane starts collapsed on every
+  /// launch regardless of storage, so the stored number is a height and
+  /// overwriting it with 0 would lose it.
   void _collapse() => _setExtent(0);
 
   void _setExtent(double target) {
@@ -238,6 +265,15 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   }
 
   Future<void> _persistFlexes() async {
+    if (widget.spec.defaultExtent != null && widget.spec.collapsedByDefault) {
+      // Storage holds this drawer's *height*, never its open/closed state
+      // -- see [initState]. So the 0 that [_collapse] produces is not
+      // written at all (it would erase the height the user dragged to, and
+      // the next open would land on `minExtent` instead), and every
+      // non-zero extent updates the height to come back to.
+      if (_currentFlexes[0] == 0) return;
+      _reopenExtent = _currentFlexes[0];
+    }
     await ref
         .read(panelLayoutRepositoryProvider)
         .write(widget.storageId, _currentFlexes);
@@ -458,6 +494,10 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   /// writing the defaults back would make "never resized" indistinguishable
   /// from "resized to exactly the default" on the next start.
   void _resetToSpecDefault() {
+    // The remembered reopen height goes with the stored one, or a drawer
+    // reopened later in this same session would come back at a size the
+    // reset was supposed to have forgotten.
+    _reopenExtent = null;
     setState(() => _currentFlexes = _specDefaultFlexes());
     widget.onFlexChanged?.call(_currentFlexes);
   }

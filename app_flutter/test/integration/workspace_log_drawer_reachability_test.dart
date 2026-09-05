@@ -19,6 +19,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/repositories/panel_layout_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/log_drawer/log_drawer.dart';
@@ -109,6 +110,46 @@ void main() {
       expect(
         tester.getSize(find.byType(LogDrawer)).height,
         greaterThanOrEqualTo(90),
+      );
+    });
+
+    // 使用者裁定:「log不預設打開，使用者toggle才開」-- and the reason the first
+    // test above could not see the defect is that it pumps a *virgin*
+    // profile. `collapsedByDefault` only reached its `initialExtent = 0`
+    // branch when nothing was stored, so a single previous open (which
+    // persists an extent) made the drawer come back open on every launch
+    // afterwards, forever. Seeding the stored extent is the whole of what
+    // makes this test able to disagree with the code.
+    testWidgets('a stored extent does not reopen the drawer at startup', (
+      tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        // What a previous session that dragged the drawer to 200px left.
+        initialPrefs: <String, Object>{'panelLayout.main.log': '[200.0]'},
+        initialState: RepoSessionState(
+          isOpen: true,
+          operationLog: <OperationRecord>[_record('git status --porcelain')],
+        ),
+      );
+
+      expect(tester.getSize(find.byType(LogDrawer)).height, 0);
+
+      // ...and the height is *remembered*, not discarded: the toggle brings
+      // back the 200 the user dragged to, not a reset to minExtent (90).
+      await _pressCtrlShiftL(tester);
+      expect(tester.getSize(find.byType(LogDrawer)).height, 200);
+
+      // Closing must not overwrite that remembered height with 0, or the
+      // next launch reopens at minExtent instead. For a collapsedByDefault
+      // pane, storage holds the height and never the open/closed state --
+      // the state is 「collapsed」 by definition at every startup.
+      await _pressCtrlShiftL(tester);
+      expect(tester.getSize(find.byType(LogDrawer)).height, 0);
+      expect(
+        pumped.container.read(panelLayoutRepositoryProvider).read('main.log'),
+        <double>[200.0],
       );
     });
 

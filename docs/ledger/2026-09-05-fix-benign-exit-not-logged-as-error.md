@@ -900,3 +900,35 @@ prod_resolution_us=49 parent_in_job=1 iterations=51
 
 比值 gate 仍然關著：兩個樣本仍然不足以挑門檻，而 nightly 排程本來就會繼續累積，不需要任何
 人再 dispatch。
+
+### 追加七的尾巴：抽 header 這件事自己踩了一次 CI
+
+`54a1987` 推上去之後 Windows 紅了：
+
+```
+tests\tools\spawn_cost_win.cpp(69): fatal error C1083:
+Cannot open include file: 'tools/spawn_cost_verdict.h'
+```
+
+`gbm_spawn_cost` 連的是 `gbm_core gbm_warnings`，而把 `tests/` 設成 PUBLIC include dir
+的是 `gbm_test_support`——單元測試連了它所以 include 得到，這支工具沒連。
+
+**本機兩層防護都在，兩層都沒擋住，而且兩層都是我自己弄鈍的：**
+
+1. **stub probe 是我手餵 `-I tests` 跑的。** 那個旗標不是真的 target 有的東西，所以
+   probe 驗的是**程式碼**，不是 **build 接線**。這支 probe 正是追加五為了避免
+   round-trip 才建的，而我用一個會遮住問題的旗標去跑它。
+2. **本機 `cmake --build` 也看不到。** 那個 `#include` 在 `#ifdef _WIN32` 裡面，macOS
+   從頭到尾沒有讀過那一行——[CI-platform-guarded-block-uncompiled] 在同一輪裡咬了第二次，
+   而且就咬在我寫下它的隔壁。
+
+修法是給 target 自己的 `target_include_directories`，而不是去連 `gbm_test_support`
+（為了一個 header 把 gtest 整包拉進一支量測工具）。
+
+**驗證方式換掉了，因為舊的那種本來就不可能抓到它。** 改成從
+`compile_commands.json` 讀那顆 object 的 `-I` 清單（`-DCMAKE_EXPORT_COMPILE_COMMANDS=ON`）：
+跨平台可驗，而且不在乎守衛區塊本機有沒有被編。突變檢查：把那行刪掉，`tests/` 就從清單
+裡消失——所以它是承重的。
+
+一句話的教訓，已經寫進 rule：**一個 probe 的 `-I` 是手餵的，所以它證明不了 build 接線；
+要證明那個，去看 build system 自己產出的編譯命令。**

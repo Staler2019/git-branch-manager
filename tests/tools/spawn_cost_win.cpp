@@ -62,6 +62,7 @@
 
 #ifdef _WIN32
 
+#include "core/base/CancellationToken.h"
 #include "core/git/GitCommand.h"
 #include "core/git/GitExecutable.h"
 #include "core/git/IProcessRunner.h"
@@ -361,7 +362,7 @@ int main(int argc, char** argv) {
                                                : std::chrono::milliseconds(0);
                 command.idleTimeout = std::chrono::milliseconds(0);
                 const long long start = qpcNow();
-                const auto result = runner->run(command);
+                const auto result = runner->run(command, gbm::CancellationToken{});
                 const long long elapsed = qpcNow() - start;
                 check(static_cast<bool>(result),
                       "`git --version` failed while measuring the denominator");
@@ -433,13 +434,18 @@ int main(int argc, char** argv) {
     // than a looser one: a point estimate only when the run could resolve it,
     // an upper bound otherwise. Two arms measured by one instrument must not
     // be held to two standards.
+    //
+    // Two calls with literal formats rather than one with a ternary: MSVC's
+    // C4774 ("format string expected in argument N is not a string literal")
+    // is a /W4 warning, and this build is /WX.
     char watchdogField[128];
-    std::snprintf(watchdogField,
-                  sizeof(watchdogField),
-                  watchdogResolved ? "watchdog_delta_us=%lld"
-                                   : "watchdog_delta_upper_bound_us=%lld",
-                  watchdogResolved ? watchdogDeltaUs
-                                   : std::max<long long>(std::llabs(watchdogDeltaUs), resolutionUs));
+    if (watchdogResolved) {
+        std::snprintf(watchdogField, sizeof(watchdogField), "watchdog_delta_us=%lld",
+                      watchdogDeltaUs);
+    } else {
+        std::snprintf(watchdogField, sizeof(watchdogField), "watchdog_delta_upper_bound_us=%lld",
+                      std::max<long long>(std::llabs(watchdogDeltaUs), resolutionUs));
+    }
 
     // One machine-readable line for the nightly Step Summary. Below the
     // instrument's resolution it carries an upper bound and **no point

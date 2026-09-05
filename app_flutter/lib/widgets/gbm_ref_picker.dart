@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/gbm_theme.dart';
 import '../theme/tokens.dart';
+import 'gbm_input_decoration.dart';
 import 'gbm_row.dart';
 import 'lucide_icon.dart';
 
@@ -169,55 +170,82 @@ class _GbmRefPickerState extends State<GbmRefPicker> {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        TextField(
-          controller: _searchController,
-          autofocus: widget.autofocus,
-          onChanged: (String value) => setState(() => _query = value),
-          decoration: InputDecoration(
-            hintText: widget.hintText,
-            isDense: true,
-            border: const OutlineInputBorder(),
-            prefixIcon: const Icon(Icons.search, size: 16),
+        // The `SizedBox` is not decoration: gbmInputDecoration() is
+        // non-dense so that its painted box fills exactly this wrapper, and
+        // with no upper bound the same field would render at Material's
+        // 48px interactive minimum instead of the spec's 30. This was the
+        // one single-line caller in the app without one.
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            controller: _searchController,
+            autofocus: widget.autofocus,
+            onChanged: (String value) => setState(() => _query = value),
+            // G8: the last un-migrated `focus` field-kind site -- ref picker
+            // predates G4's batch, so its search box was the one TextField in
+            // the app still on Material's bare default focus ring. Reusing
+            // gbmInputDecoration() rather than hand-copying its focusedBorder
+            // keeps the accent-outline definition single-sourced
+            // ([CULT-single-source-of-truth]).
+            decoration: gbmInputDecoration(
+              colors: colors,
+              hintText: widget.hintText,
+              prefixIcon: const Icon(Icons.search, size: 16),
+            ),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: widget.maxListHeight),
-          child: visible.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(
-                    vertical: GbmSpacing.space4,
-                  ),
-                  child: Text(
-                    _query.isEmpty
-                        ? widget.emptyMessage
-                        : 'No branch, tag or commit matches "$_query".',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.textTertiary,
+        // spec `.box--list`: `background: var(--gbm-surface-sunken)`, r6,
+        // `padding: 7px 9px`. The list drew straight onto the dialog's own
+        // `surface-panel-raised` before this -- part of 使用者回報「dialog
+        // 內的畫面底色也不對」, alongside the fields' missing fill.
+        Container(
+          decoration: BoxDecoration(
+            color: colors.surfaceSunken,
+            borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+          ),
+          padding: const EdgeInsets.symmetric(
+            horizontal: GbmSpacing.space2,
+            vertical: GbmSpacing.space2,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: widget.maxListHeight),
+            child: visible.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: GbmSpacing.space4,
                     ),
+                    child: Text(
+                      _query.isEmpty
+                          ? widget.emptyMessage
+                          : 'No branch, tag or commit matches "$_query".',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textSm,
+                        color: colors.textTertiary,
+                      ),
+                    ),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: visible.length,
+                    itemBuilder: (BuildContext context, int index) {
+                      // Recomputed per build: itemBuilder is not guaranteed to
+                      // run in order, so the heading is derived from the
+                      // previous entry rather than from mutable state.
+                      final bool isFirstOfGroup =
+                          index == 0 ||
+                          visible[index - 1].kind != visible[index].kind;
+                      return _EntryRow(
+                        entry: visible[index],
+                        heading: isFirstOfGroup
+                            ? visible[index].kind.groupLabel.toUpperCase()
+                            : null,
+                        selected: widget.selected == visible[index].name,
+                        onTap: widget.onSelected,
+                      );
+                    },
                   ),
-                )
-              : ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: visible.length,
-                  itemBuilder: (BuildContext context, int index) {
-                    // Recomputed per build: itemBuilder is not guaranteed to
-                    // run in order, so the heading is derived from the
-                    // previous entry rather than from mutable state.
-                    final bool isFirstOfGroup =
-                        index == 0 ||
-                        visible[index - 1].kind != visible[index].kind;
-                    return _EntryRow(
-                      entry: visible[index],
-                      heading: isFirstOfGroup
-                          ? visible[index].kind.groupLabel.toUpperCase()
-                          : null,
-                      selected: widget.selected == visible[index].name,
-                      onTap: widget.onSelected,
-                    );
-                  },
-                ),
+          ),
         ),
       ],
     );

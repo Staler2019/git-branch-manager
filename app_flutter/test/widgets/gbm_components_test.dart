@@ -192,4 +192,67 @@ void main() {
       });
     });
   }
+
+  // G7: worktree-dialogs-spec.html's "Buttons" row wants both buttons in a
+  // dialog's action row to be `.gbm-btn-sm` -- rather than touching all ~34
+  // call sites' button constructors, GbmDialogShell wraps its action row in
+  // a GbmButtonSizeScope so an unspecified GbmButton.size resolves through
+  // it. An explicit size: still wins, so a caller that genuinely wants
+  // normal-sized buttons inside a dialog is not overridden.
+  group('GbmButtonSizeScope', () {
+    testWidgets('an unspecified size resolves through the scope', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        variant: GbmThemeVariant.darkTechnical,
+        child: Center(
+          child: GbmButtonSizeScope(
+            size: GbmButtonSize.sm,
+            child: GbmButton(label: 'Cancel', onPressed: () {}),
+          ),
+        ),
+      );
+
+      final Size size = tester.getSize(find.byType(GbmButton));
+      expect(size.height, 24);
+    });
+
+    testWidgets('an explicit size still wins over an enclosing scope', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        variant: GbmThemeVariant.darkTechnical,
+        child: Center(
+          child: GbmButtonSizeScope(
+            size: GbmButtonSize.sm,
+            child: GbmButton(
+              label: 'Cancel',
+              size: GbmButtonSize.normal,
+              onPressed: () {},
+            ),
+          ),
+        ),
+      );
+
+      final Size size = tester.getSize(find.byType(GbmButton));
+      expect(size.height, 30);
+    });
+
+    testWidgets('with no enclosing scope, the default stays normal (30)', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        variant: GbmThemeVariant.darkTechnical,
+        child: Center(
+          child: GbmButton(label: 'Cancel', onPressed: () {}),
+        ),
+      );
+
+      final Size size = tester.getSize(find.byType(GbmButton));
+      expect(size.height, 30);
+    });
+  });
 }

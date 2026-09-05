@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 
@@ -72,18 +74,35 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
     ];
   }
 
-  void _submit() {
+  /// True only for a remote pick with **no** local branch of the same name.
+  /// `remote-only` is the load-bearing half: measured on git 2.55, a
+  /// `git checkout -b feat/x origin/feat/x` with a local `feat/x` already
+  /// present is `fatal: a branch named 'feat/x' already exists`, while a
+  /// plain `git checkout feat/x` switches to it and reports it tracking the
+  /// remote. The code said `_selectedIsRemote` alone, so picking a branch
+  /// you already have locally from the remote side of the list was a hard
+  /// failure -- the same defect 使用者回報 against Add Worktree.
+  bool _createsLocalBranch(RepoSessionState session) {
+    final String? target = _selected;
+    if (target == null || !_selectedIsRemote) return false;
+    final String local = _localNameFor(target);
+    return !session.refs.localBranches.any((RefInfo b) => b.shortName == local);
+  }
+
+  void _submit(RepoSessionState session) {
     final String? target = _selected;
     if (target == null) return;
+    final bool createsLocal = _createsLocalBranch(session);
+    // A remote pick always ends up on the local branch of the same name --
+    // either one this creates, or one that was already there.
+    final String resolved = _selectedIsRemote ? _localNameFor(target) : target;
     ref
         .read(repoSessionProvider(widget.identity).notifier)
         .checkout(
-          target: target,
+          target: createsLocal ? target : resolved,
           stashFirst: _stashFirst,
-          // A remote-only branch has no local counterpart to switch to, so
-          // check it out as a new local branch of the same short name.
-          createBranch: _selectedIsRemote,
-          newBranchName: _selectedIsRemote ? _localNameFor(target) : '',
+          createBranch: createsLocal,
+          newBranchName: createsLocal ? _localNameFor(target) : '',
         );
     context.pop();
   }
@@ -109,13 +128,13 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
 
     return GbmDialogShell(
       title: 'Checkout',
+      actionId: GbmActionId.branchCheckout,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Checkout',
           kind: GbmButtonKind.primary,
-          onPressed: _selected == null ? null : _submit,
+          onPressed: _selected == null ? null : () => _submit(session),
         ),
       ],
       // Scrollable, like New branch's: the 目前 row plus the radio pair can
@@ -138,7 +157,7 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
                 _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
               }),
             ),
-            if (_selectedIsRemote && _selected != null) ...<Widget>[
+            if (_createsLocalBranch(session)) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
               Text(
                 '建立本地分支「${_localNameFor(_selected!)}」，追蹤 $_selected。',
@@ -150,12 +169,12 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
             ],
             const SizedBox(height: GbmSpacing.space2),
             // DLGS's `ro` field, 「目前」/`main · 有25 項未提交變更` -- quoted
-            // verbatim including its punctuation (no space after 有).
-            Text(
-              isDirty ? '目前 $head · 有$pendingCount 項未提交變更' : '目前 $head',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
+            // verbatim including its punctuation (no space after 有). G8b:
+            // wrapped in GbmDialogReadOnlyField's surface-sunken box -- this
+            // line is its own content, so no separate `label:`.
+            GbmDialogReadOnlyField(
+              child: Text(
+                isDirty ? '目前 $head · 有$pendingCount 項未提交變更' : '目前 $head',
               ),
             ),
             if (isDirty) ...<Widget>[

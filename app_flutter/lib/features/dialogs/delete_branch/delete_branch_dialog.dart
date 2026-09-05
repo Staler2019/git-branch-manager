@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/remote_counterpart.dart';
 import '../../../data/models/remote_prune_preview_entry.dart';
@@ -11,7 +12,9 @@ import '../../sidebar/gone_marking.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The remote name and the branch name *as the remote knows it* for
 /// [branch], or two empty strings when it has no remote side. Empty is what
@@ -156,9 +159,9 @@ class _DeleteBranchDialogContentState
 
     return GbmDialogShell(
       title: 'Delete Branch',
+      actionId: GbmActionId.branchDeleteBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Delete branch',
           kind: GbmButtonKind.danger,
@@ -185,25 +188,27 @@ class _DeleteBranchDialogContentState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (widget.branchName == null) ...<Widget>[
-            DropdownButtonFormField<String>(
-              initialValue: _selected,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                hintText: '要刪除的分支',
-                isDense: true,
-                border: OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: _selected,
+                isExpanded: true,
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: '要刪除的分支',
+                ),
+                items: <DropdownMenuItem<String>>[
+                  for (final RefInfo b in candidates)
+                    DropdownMenuItem<String>(
+                      value: b.shortName,
+                      child: Text(b.shortName),
+                    ),
+                ],
+                onChanged: (String? value) => setState(() {
+                  _selected = value;
+                  _alsoDeleteRemote = false;
+                }),
               ),
-              items: <DropdownMenuItem<String>>[
-                for (final RefInfo b in candidates)
-                  DropdownMenuItem<String>(
-                    value: b.shortName,
-                    child: Text(b.shortName),
-                  ),
-              ],
-              onChanged: (String? value) => setState(() {
-                _selected = value;
-                _alsoDeleteRemote = false;
-              }),
             ),
             const SizedBox(height: GbmSpacing.space3),
           ],
@@ -232,26 +237,27 @@ class _DeleteBranchDialogContentState
             // is reported as exactly that rather than dressed up as a
             // merge-base count this layer has not computed. Spec page 02
             // item 11's "永遠顯示實際數字" applies here too.
+            // G8b: the two genuinely-warning branches (unpushed commits,
+            // no upstream at all) use GbmDialogWarnField rather than bare
+            // colors.warning-styled text. The "fully pushed" branch is
+            // deliberately left as plain textSecondary Text -- it is
+            // informational, not a warning, and wrapping it in the same
+            // warn box would misrepresent it as one.
             if (branch.hasTrackingInfo)
-              Text(
-                branch.ahead > 0
-                    ? '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。'
-                    : '已完整推到 ${branch.upstream}。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: branch.ahead > 0
-                      ? colors.warning
-                      : colors.textSecondary,
-                ),
-              )
+              branch.ahead > 0
+                  ? GbmDialogWarnField(
+                      message:
+                          '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。',
+                    )
+                  : Text(
+                      '已完整推到 ${branch.upstream}。',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textSecondary,
+                      ),
+                    )
             else
-              Text(
-                '這個分支沒有 upstream，只存在於這台機器上。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.warning,
-                ),
-              ),
+              const GbmDialogWarnField(message: '這個分支沒有 upstream，只存在於這台機器上。'),
             const SizedBox(height: GbmSpacing.space1),
             Text(
               '如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。',

@@ -13,9 +13,10 @@ import '../../../routing/app_router.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
-import '../../../widgets/gbm_banner.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 import '../branch_name_validation.dart';
 
@@ -181,8 +182,23 @@ class _AddWorktreeDialogContentState
               ? '已在 ${occupied[b.shortName]}'
               : (!gateOnOccupancy && b.shortName == head ? '目前分支' : ''),
         ),
+      // A remote row resolves to the *local* branch of the same name -- so
+      // it collides with an occupied worktree exactly as its local
+      // counterpart does, and has to carry the same gate. Without this the
+      // local row for a checked-out branch was greyed while
+      // `origin/<same branch>` sat there selectable, and picking it reached
+      // git as `fatal: a branch named '…' already exists` (使用者回報).
       for (final RefInfo b in session.refs.remoteBranches)
-        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+        () {
+          final String local = _localNameFor(b.shortName);
+          final bool taken = gateOnOccupancy && occupied.containsKey(local);
+          return GbmRefPickerEntry(
+            name: b.shortName,
+            kind: GbmRefKind.remoteBranch,
+            enabled: !taken,
+            annotation: taken ? '已在 ${occupied[local]}' : '',
+          );
+        }(),
       for (final RefInfo t in session.refs.tags)
         GbmRefPickerEntry(name: t.shortName, kind: GbmRefKind.tag),
     ];
@@ -254,18 +270,41 @@ class _AddWorktreeDialogContentState
         final GbmRefPickerEntry? entry = _picked;
         if (entry == null) return;
         if (entry.kind == GbmRefKind.remoteBranch) {
+          // Which of the two forms is correct depends on whether the local
+          // branch already exists, and it is not a preference -- measured
+          // on git 2.55, scratch repo:
+          //
+          //   local feat/x   | `add -b feat/x <p> origin/feat/x`  | `add <p> feat/x`
+          //   ---------------|------------------------------------|----------------
+          //   absent         | creates a tracking branch, exit 0   | n/a
+          //   exists, free   | fatal: a branch named … already ex. | exit 0
+          //   exists, in use | same fatal                          | fatal: already used
+          //
+          // The dialog sent `-b` for every remote pick, so the middle row
+          // was a hard failure on the commonest case there is: a branch you
+          // already have locally, picked from the remote side of the list.
+          // The bottom row is what 使用者回報 -- and it is gated in the
+          // picker now, so this branch only has to get the top two right.
+          //
           // Explicit, not relied-on DWIM: `git worktree add <path>
-          // <remote-branch-short-name>` auto-creates a tracking local
-          // branch on its own (measured), but naming both the start point
-          // and the new branch is what Checkout's own dialog already does
-          // for the identical case, and one rule beats two that happen to
-          // agree today.
-          controller.addWorktree(
-            path,
-            branch: entry.name,
-            createBranch: true,
-            newBranchName: _localNameFor(entry.name),
+          // origin/feat/x` creates the tracking branch only while no local
+          // `feat/x` exists; once one does, the same command **detaches**
+          // instead (measured). An earlier comment here recorded only the
+          // first half of that and read as if it held generally.
+          final String local = _localNameFor(entry.name);
+          final bool localExists = session.refs.localBranches.any(
+            (RefInfo b) => b.shortName == local,
           );
+          if (localExists) {
+            controller.addWorktree(path, branch: local);
+          } else {
+            controller.addWorktree(
+              path,
+              branch: entry.name,
+              createBranch: true,
+              newBranchName: local,
+            );
+          }
         } else {
           // A tag or a bare commit here detaches on its own (measured: `git
           // worktree add <path> <tag>` reports "Preparing worktree
@@ -314,9 +353,19 @@ class _AddWorktreeDialogContentState
       }
     }
 
+    // The path is named after the branch the worktree will actually hold,
+    // and for a remote pick that is the local counterpart -- both arms of
+    // _submit's remote case end up on `feat/x`, never on `origin/feat/x`.
+    // It proposed `…/worktrees/gbm/origin-feat-x` before this, for a
+    // worktree whose branch is `feat/x`.
     final String effectiveBranchName =
         _source == WorktreeSource.checkoutExisting
-        ? (_picked?.name ?? '')
+        ? switch (_picked) {
+            null => '',
+            final GbmRefPickerEntry e when e.kind == GbmRefKind.remoteBranch =>
+              _localNameFor(e.name),
+            final GbmRefPickerEntry e => e.name,
+          }
         : _newBranchNameController.text.trim();
     if (!_pathManuallyEdited) {
       final String? computed = _computeDefaultPath(
@@ -327,6 +376,8 @@ class _AddWorktreeDialogContentState
         _pathController.text = computed;
       }
     }
+
+    final bool pathEnabled = effectiveBranchName.isNotEmpty;
 
     final String path = _pathController.text.trim();
     final bool pathTaken = _pathExistsAndNonEmpty(path);
@@ -355,7 +406,6 @@ class _AddWorktreeDialogContentState
       title: 'Add Worktree',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Add worktree',
           kind: GbmButtonKind.primary,
@@ -367,6 +417,17 @@ class _AddWorktreeDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            // spec's G2: the radios were the only field with no group
+            // label. Same P6 treatment as '分支' below (spec's G3) --
+            // 使用者裁定：加「來源」標籤.
+            Text(
+              '來源',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             RadioGroup<WorktreeSource>(
               groupValue: _source,
               onChanged: _setSource,
@@ -388,13 +449,15 @@ class _AddWorktreeDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
+            // P6 field-label treatment (spec's G3): 11px / textSecondary /
+            // sentence case -- not the pane-header style (semibold,
+            // letter-spaced, textTertiary) this used to share with
+            // Preferences' section headings.
             Text(
               '分支',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),
@@ -406,34 +469,63 @@ class _AddWorktreeDialogContentState
                   setState(() => _picked = entry),
             ),
             const SizedBox(height: GbmSpacing.space3),
-            TextField(
-              controller: _newBranchNameController,
-              // Dimmed, not hidden, while unused -- 比照 Create tag 的
-              // 「訊息」欄, and generally [FLU-menu-enabled-is-visual-only]'s
-              // rule against a control that silently does nothing.
-              enabled: _source == WorktreeSource.createNew,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                labelText: '新分支名',
-                hintText: 'feature/x',
-                errorText: nameError,
-                isDense: true,
-                border: const OutlineInputBorder(),
+            // P6 field-label treatment (spec's G3), same as '分支'/'來源'
+            // above -- see gbm_input_decoration.dart's doc comment for why
+            // this is an external Text and not InputDecoration.labelText.
+            Text(
+              '新分支名',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
               ),
             ),
+            const SizedBox(height: GbmSpacing.space1),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                key: const Key('add-worktree-new-branch-name-field'),
+                controller: _newBranchNameController,
+                // Dimmed, not hidden, while unused -- 比照 Create tag 的
+                // 「訊息」欄, and generally [FLU-menu-enabled-is-visual-only]'s
+                // rule against a control that silently does nothing.
+                enabled: _source == WorktreeSource.createNew,
+                onChanged: (_) => setState(() {}),
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: 'feature/x',
+                  hasError: nameError != null,
+                ),
+              ),
+            ),
+            gbmFieldError(colors: colors, error: nameError),
             const SizedBox(height: GbmSpacing.space3),
+            Text(
+              '位置',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Expanded(
-                  child: TextField(
-                    controller: _pathController,
-                    onChanged: (_) =>
-                        setState(() => _pathManuallyEdited = true),
-                    decoration: const InputDecoration(
-                      labelText: '位置',
-                      isDense: true,
-                      border: OutlineInputBorder(),
+                  child: SizedBox(
+                    height: GbmSpacing.inputHeight,
+                    child: TextField(
+                      key: const Key('add-worktree-path-field'),
+                      controller: _pathController,
+                      // Gated on the same condition _computeDefaultPath
+                      // nulls on: with no branch there is nothing to derive
+                      // a path from, so the box could only ever sit empty.
+                      // 使用者裁定 -- they reached for 瀏覽… first, so the
+                      // button is gated with it rather than left live over
+                      // a locked box.
+                      enabled: pathEnabled,
+                      onChanged: (_) =>
+                          setState(() => _pathManuallyEdited = true),
+                      decoration: gbmInputDecoration(colors: colors),
                     ),
                   ),
                 ),
@@ -442,7 +534,7 @@ class _AddWorktreeDialogContentState
                   label: '瀏覽…',
                   kind: GbmButtonKind.secondary,
                   icon: const Icon(Icons.folder_open_outlined),
-                  onPressed: _browsePath,
+                  onPressed: pathEnabled ? _browsePath : null,
                 ),
               ],
             ),
@@ -464,7 +556,9 @@ class _AddWorktreeDialogContentState
             ),
             if (pathTaken) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
-              GbmWarningBanner(message: '$path 已存在且不是空的，git 會拒絕。'),
+              // G8b: dialog-internal warnings use GbmDialogWarnField, not
+              // GbmWarningBanner (screen-level only).
+              GbmDialogWarnField(message: '$path 已存在且不是空的，git 會拒絕。'),
             ],
           ],
         ),

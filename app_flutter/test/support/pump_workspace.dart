@@ -92,13 +92,21 @@ Future<PumpedWorkspace> pumpWorkspace(
   /// round trip), rather than the bare empty [Scaffold] most tests get.
   Widget Function(BuildContext, GoRouterState)? historyBuilder,
   ui.Size surfaceSize = const ui.Size(1400, 900),
+
+  /// Seeds `SharedPreferences` before the tree is pumped, for a test whose
+  /// subject is what a *previous* run left behind -- a splitter extent, a
+  /// view mode. Keys are the real ones (`panelLayout.main.log`, ...) and
+  /// values their real encodings, because the point is to exercise the
+  /// production read path rather than a stand-in. Empty by default, which
+  /// is the virgin-profile state every other test wants.
+  Map<String, Object> initialPrefs = const <String, Object>{},
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.resetPhysicalSize);
   addTearDown(tester.view.resetDevicePixelRatio);
 
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+  SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
   final FakeRepoSessionController controller = FakeRepoSessionController(

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -9,6 +10,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `MergeDialog` (src/app/dialogs/MergeDialog.cpp).
 /// Routed as `/repo/:repoId/dialogs/merge`.
@@ -52,9 +54,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
 
     return GbmDialogShell(
       title: 'Merge Branch',
+      actionId: GbmActionId.branchMergeIntoCurrent,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Merge',
           kind: GbmButtonKind.primary,
@@ -95,22 +97,24 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),
-            DropdownButtonFormField<String>(
-              initialValue: _target,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                hintText: '來源分支',
-                isDense: true,
-                border: OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: _target,
+                isExpanded: true,
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: '來源分支',
+                ),
+                items: <DropdownMenuItem<String>>[
+                  for (final branch in candidates)
+                    DropdownMenuItem(
+                      value: branch.shortName,
+                      child: Text(branch.shortName),
+                    ),
+                ],
+                onChanged: (value) => setState(() => _target = value),
               ),
-              items: <DropdownMenuItem<String>>[
-                for (final branch in candidates)
-                  DropdownMenuItem(
-                    value: branch.shortName,
-                    child: Text(branch.shortName),
-                  ),
-              ],
-              onChanged: (value) => setState(() => _target = value),
             ),
             const SizedBox(height: GbmSpacing.space3),
             RadioGroup<MergeMode>(
@@ -147,10 +151,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
               controller: _messageController,
               enabled: _mode != MergeMode.squash,
               maxLines: 2,
-              decoration: const InputDecoration(
+              decoration: gbmMultilineInputDecoration(
+                colors: colors,
                 hintText: 'Commit 訊息（可留空）',
-                isDense: true,
-                border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),

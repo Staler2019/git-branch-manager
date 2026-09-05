@@ -869,13 +869,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           setState(() => _sidebarVisible = !_sidebarVisible),
       GbmActionId.viewStatusBar: () =>
           ref.read(chromeVisibilityProvider.notifier).toggleStatusBar(),
-      // Same un-collapse-then-reveal as the status bar's own log button, so
-      // the menu item and the status bar agree on what "open the log" means.
+      // A view toggle, like View → Status bar beside it -- 使用者回報:
+      // 「log沒辦法隱藏，view>log那個沒有作用，沒有toggle的效果」. It called
+      // `open()`, which is a no-op once the drawer is already open, so every
+      // press after the first did nothing at all.
+      //
+      // The status bar's own badge deliberately keeps plain `open()`: it
+      // means 「show me the log」, and closing the drawer someone is reading
+      // would be the opposite of what the badge says. (It is also a
+      // one-shot in practice -- the badge is drawn only while
+      // `hasUnreadLog`, which opening clears.)
       GbmActionId.viewLog: () {
-        setState(() {
-          _lastSeenOperationLogIndex = session.operationLog.length;
-        });
-        _logDrawerController.open();
+        // Marked seen only on the opening half: closing reveals nothing, so
+        // it must not clear a badge for records the user never saw.
+        if (!_logDrawerController.isOpen) {
+          setState(() {
+            _lastSeenOperationLogIndex = session.operationLog.length;
+          });
+        }
+        _logDrawerController.toggle();
       },
       GbmActionId.viewResetPanelSizes: () async {
         await ref.read(panelLayoutRepositoryProvider).clear();

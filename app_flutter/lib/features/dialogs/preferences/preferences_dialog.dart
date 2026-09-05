@@ -18,6 +18,8 @@ import '../../../theme/theme_mode_provider.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_kbd_chip.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
 import '../../update/auto_update_check.dart';
 
@@ -71,6 +73,7 @@ class _PreferencesDialogContentState
 
     return GbmDialogShell(
       title: 'Preferences',
+      actionId: GbmActionId.filePreferences,
       width: 720,
       actions: <Widget>[
         GbmButton(
@@ -268,24 +271,39 @@ class _NumberFieldState extends State<_NumberField> {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: 200,
-      child: TextField(
-        controller: _controller,
-        keyboardType: TextInputType.number,
-        decoration: InputDecoration(
-          labelText: widget.label,
-          suffixText: widget.suffix.isEmpty ? null : widget.suffix,
-          isDense: true,
-          border: const OutlineInputBorder(),
+    final GbmColors colors = context.gbmColors;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          widget.label,
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
         ),
-        // Only a parseable positive value is committed -- a half-typed field
-        // must not momentarily persist 0 and change behaviour mid-keystroke.
-        onChanged: (String text) {
-          final int? parsed = int.tryParse(text.trim());
-          if (parsed != null && parsed > 0) widget.onChanged(parsed);
-        },
-      ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          width: 200,
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: gbmInputDecoration(
+              colors: colors,
+              suffixText: widget.suffix.isEmpty ? null : widget.suffix,
+            ),
+            // Only a parseable positive value is committed -- a half-typed
+            // field must not momentarily persist 0 and change behaviour
+            // mid-keystroke.
+            onChanged: (String text) {
+              final int? parsed = int.tryParse(text.trim());
+              if (parsed != null && parsed > 0) widget.onChanged(parsed);
+            },
+          ),
+        ),
+      ],
     );
   }
 }
@@ -526,18 +544,20 @@ class _RepositorySourcesSectionState
         Row(
           children: <Widget>[
             Expanded(
-              child: TextField(
-                controller: _pathController,
-                style: TextStyle(
-                  fontSize: GbmTypography.textSm,
-                  color: colors.textPrimary,
+              child: SizedBox(
+                height: GbmSpacing.inputHeight,
+                child: TextField(
+                  controller: _pathController,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                  decoration: gbmInputDecoration(
+                    colors: colors,
+                    hintText: '要掃描的資料夾，例如 /home/you/code',
+                  ),
+                  onSubmitted: (_) => _addAndScan(),
                 ),
-                decoration: const InputDecoration(
-                  hintText: '要掃描的資料夾，例如 /home/you/code',
-                  isDense: true,
-                  border: OutlineInputBorder(),
-                ),
-                onSubmitted: (_) => _addAndScan(),
               ),
             ),
             const SizedBox(width: GbmSpacing.space2),
@@ -917,16 +937,33 @@ class _GitignorePathFieldState extends State<_GitignorePathField> {
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: _controller,
-      onChanged: widget.onChanged,
-      style: const TextStyle(fontFamily: GbmTypography.fontMono),
-      decoration: const InputDecoration(
-        labelText: '全域 gitignore 檔案路徑',
-        hintText: '~/.config/git/ignore',
-        isDense: true,
-        border: OutlineInputBorder(),
-      ),
+    final GbmColors colors = context.gbmColors;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          '全域 gitignore 檔案路徑',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            key: const Key('preferences-gitignore-path-field'),
+            controller: _controller,
+            onChanged: widget.onChanged,
+            style: const TextStyle(fontFamily: GbmTypography.fontMono),
+            decoration: gbmInputDecoration(
+              colors: colors,
+              hintText: '~/.config/git/ignore',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1043,14 +1080,7 @@ class _ShortcutsSection extends StatelessWidget {
                         ),
                       ),
                     ),
-                    Text(
-                      shortcut.displayLabel,
-                      style: TextStyle(
-                        fontFamily: GbmTypography.fontMono,
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
-                      ),
-                    ),
+                    GbmKbdChip(label: shortcut.displayLabel),
                   ],
                 ),
               ),

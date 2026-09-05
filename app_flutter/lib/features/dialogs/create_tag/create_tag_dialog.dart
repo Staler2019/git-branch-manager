@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `CreateTagDialog` (src/app/dialogs/
 /// CreateTagDialog.cpp). Routed as `/repo/:repoId/dialogs/create-tag`.
@@ -45,7 +46,6 @@ class _CreateTagDialogContentState
       title: 'Create Tag',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Create',
           kind: GbmButtonKind.primary,
@@ -76,13 +76,15 @@ class _CreateTagDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),
-          TextField(
-            controller: _nameController,
-            onChanged: (_) => setState(() {}),
-            decoration: const InputDecoration(
-              hintText: 'v1.0.0',
-              isDense: true,
-              border: OutlineInputBorder(),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: _nameController,
+              onChanged: (_) => setState(() {}),
+              decoration: gbmInputDecoration(
+                colors: colors,
+                hintText: 'v1.0.0',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
@@ -94,12 +96,14 @@ class _CreateTagDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),
-          TextField(
-            controller: _targetController,
-            decoration: const InputDecoration(
-              hintText: '留空表示 HEAD',
-              isDense: true,
-              border: OutlineInputBorder(),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: _targetController,
+              decoration: gbmInputDecoration(
+                colors: colors,
+                hintText: '留空表示 HEAD',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
@@ -114,10 +118,9 @@ class _CreateTagDialogContentState
           TextField(
             controller: _messageController,
             maxLines: 2,
-            decoration: const InputDecoration(
+            decoration: gbmMultilineInputDecoration(
+              colors: colors,
               hintText: '留空則建立 lightweight tag',
-              isDense: true,
-              border: OutlineInputBorder(),
             ),
           ),
           const SizedBox(height: GbmSpacing.space2),

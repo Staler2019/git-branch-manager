@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -9,6 +10,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
 import '../branch_name_validation.dart';
 
@@ -201,9 +203,9 @@ class _NewBranchDialogContentState
 
     return GbmDialogShell(
       title: 'New Branch',
+      actionId: GbmActionId.branchNewBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Create branch',
           kind: GbmButtonKind.primary,
@@ -219,28 +221,39 @@ class _NewBranchDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (canCreate) _submit();
-              },
-              decoration: InputDecoration(
-                labelText: '名稱',
-                errorText: error,
-                isDense: true,
-                border: const OutlineInputBorder(),
+            Text(
+              '名稱',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
               ),
             ),
+            const SizedBox(height: GbmSpacing.space1),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                key: const Key('new-branch-name-field'),
+                controller: _nameController,
+                autofocus: true,
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (canCreate) _submit();
+                },
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hasError: error != null,
+                ),
+              ),
+            ),
+            gbmFieldError(colors: colors, error: error),
             const SizedBox(height: GbmSpacing.space3),
+            // P6 field-label treatment (spec's G3) -- see
+            // add_worktree_dialog.dart's identical comment on '分支'.
             Text(
               '從哪裡分出',
               style: TextStyle(
                 fontSize: GbmTypography.textXs,
-                fontWeight: GbmTypography.weightSemibold,
-                color: colors.textTertiary,
-                letterSpacing: 0.5,
+                color: colors.textSecondary,
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),

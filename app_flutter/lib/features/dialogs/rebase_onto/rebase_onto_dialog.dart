@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/remote_counterpart.dart';
 import '../../../data/repositories/repo_identity.dart';
@@ -9,7 +10,9 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// Branch → Rebase onto… (Ctrl/Cmd+Shift+R), and context menu 05-B's
 /// "Rebase current onto here".
@@ -135,9 +138,9 @@ class _RebaseOntoDialogContentState
 
     return GbmDialogShell(
       title: 'Rebase',
+      actionId: GbmActionId.branchRebaseOnto,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Start rebase',
           kind: GbmButtonKind.primary,
@@ -172,16 +175,15 @@ class _RebaseOntoDialogContentState
               ),
             ),
             const SizedBox(height: GbmSpacing.space1),
-            DropdownButtonFormField<String>(
-              initialValue: _target,
-              isExpanded: true,
-              decoration: const InputDecoration(
-                hintText: '基於',
-                isDense: true,
-                border: OutlineInputBorder(),
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: DropdownButtonFormField<String>(
+                initialValue: _target,
+                isExpanded: true,
+                decoration: gbmInputDecoration(colors: colors, hintText: '基於'),
+                items: _candidateItems(candidates),
+                onChanged: (String? value) => setState(() => _target = value),
               ),
-              items: _candidateItems(candidates),
-              onChanged: (String? value) => setState(() => _target = value),
             ),
             const SizedBox(height: GbmSpacing.space2),
             Text(
@@ -227,13 +229,10 @@ class _RebaseOntoDialogContentState
             ),
             if (hasRemoteCounterpart) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
-              Text(
-                '此分支已 push。rebase 後需 force push，共作者需重新對齊。',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.warning,
-                  height: GbmTypography.leadingNormal,
-                ),
+              // G8b: dialog-internal warnings use GbmDialogWarnField, not a
+              // bare colors.warning-styled Text.
+              const GbmDialogWarnField(
+                message: '此分支已 push。rebase 後需 force push，共作者需重新對齊。',
               ),
             ],
             if (isDirty) ...<Widget>[

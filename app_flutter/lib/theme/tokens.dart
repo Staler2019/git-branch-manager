@@ -417,6 +417,13 @@ abstract final class GbmTypography {
   static const double textXl = 22;
   static const double text2xl = 28;
 
+  /// worktree-dialogs-spec.html G6's `.mkbar` title-bar row: literal 13px
+  /// (使用者裁定 -- 照 spec 字面用，不就近取整成 [textBase]'s 13.5). Deliberately
+  /// not [textMd]: that constant already means a different, pre-existing
+  /// 15px slot ([gbm_theme.dart]'s `bodyLarge` and `undo_last_dialog.dart`'s
+  /// title), so reusing its name here would have silently shrunk both.
+  static const double dialogTitleText = 13;
+
   static const double leadingTight = 1.25;
   static const double leadingNormal = 1.5;
   static const double leadingRelaxed = 1.65;
@@ -442,6 +449,12 @@ abstract final class GbmSpacing {
 
   static const double rowHeightCompact = 26;
   static const double rowHeightComfortable = 34;
+
+  /// `.gbm-input`'s fixed height (docs/design/tokens-reference.md:111).
+  /// Pair with [gbmInputDecoration] via `SizedBox(height: inputHeight,
+  /// child: TextField(...))` -- see that function's doc comment for why the
+  /// height comes from the `SizedBox`, not from `contentPadding`.
+  static const double inputHeight = 30;
 
   static const double radiusSm = 4;
   static const double radiusMd = 6;

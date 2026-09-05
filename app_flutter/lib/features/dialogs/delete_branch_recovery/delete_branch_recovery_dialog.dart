@@ -89,7 +89,6 @@ class _DeleteBranchRecoveryDialogContentState
         for (final choice in choices.where(
           (c) => c.kind != OperationChoiceKind.abort,
         )) ...<Widget>[
-          const SizedBox(width: GbmSpacing.space2),
           GbmButton(
             label: recoveryChoiceLabel(choice.kind, forDeleteBranch: true),
             kind: choice.destructive

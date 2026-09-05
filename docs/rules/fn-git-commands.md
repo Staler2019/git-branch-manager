@@ -283,3 +283,34 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   with **no way to act on it at all** ([ACT-recovery-choice-wire] records the sibling `Retry`
   choice's identical dead-button shape and how both were wired in the same round).
 - **Evidence**: [ledger: OperationChoice wire 精簡](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+
+## [GIT-remote-pick-b-only-when-absent] Picking a remote branch means the local branch of the same name, and `-b` is correct only while that local branch does not exist
+
+- **Rule**: measured on git 2.55, for both `git worktree add` and `git checkout`:
+
+  | local `feat/x` | `-b feat/x … origin/feat/x` | plain `… feat/x` |
+  |---|---|---|
+  | absent | creates a tracking branch, exit 0 | n/a |
+  | exists, free | `fatal: a branch named 'feat/x' already exists` | exit 0, reports it tracking the remote |
+  | exists, checked out elsewhere | the same `fatal` | `fatal: 'feat/x' is already used by worktree at …` |
+
+- **Consequence**: `createBranch: <the pick is remote>` is wrong in two of the three rows,
+  and the failing one is the **commonest**: a branch you already have locally, picked from
+  the remote half of the list. Add Worktree and Checkout each shipped exactly that
+  expression; the worktree one was 使用者回報 with the `exit 255` transcript.
+- **Do**: gate on 「is there a local branch of this name」, and send the *local* name when
+  there is. Anything downstream that names the branch — a default worktree path, a
+  「建立本地分支「X」」 line — must read the same resolution, or it describes an operation
+  that will not happen.
+- **Do**: **a remote row is occupied exactly when its local counterpart is.** Add Worktree
+  greyed the local row for a checked-out branch and left `origin/<same name>` selectable —
+  one branch drawn two ways, and the selectable one reached git as the `fatal` above.
+- **Do not** rely on `git worktree add <path> origin/feat/x`'s DWIM as a general fact. It
+  creates the tracking branch **only while no local `feat/x` exists**; once one does, the
+  same command *detaches* instead (measured). A comment here recorded the first half alone
+  and read as a general rule ([CULT-scrutinise-the-comment]).
+- **Do**: a fixture with one remote row cannot tell the three cases apart, and if that row's
+  local counterpart happens to exist it pins the bug. The Add Worktree test asserting `-b`
+  was named 「remote-only」 while its fixture had a local `release/0.5`
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 追加三](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

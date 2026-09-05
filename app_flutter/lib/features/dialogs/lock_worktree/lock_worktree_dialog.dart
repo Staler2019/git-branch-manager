@@ -9,6 +9,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// Worktrees panel's `Lock…` (D3). `lockWorktree(path, {String reason = ''})`
 /// has accepted a reason since it was written, and the detail pane already
@@ -83,7 +84,6 @@ class _LockWorktreeDialogContentState
       title: 'Lock Worktree',
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Lock',
           onPressed: () {
@@ -120,14 +120,24 @@ class _LockWorktreeDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          TextField(
-            controller: _reasonController,
-            autofocus: true,
-            decoration: const InputDecoration(
-              labelText: '原因',
-              hintText: '外接碟，平常不掛載',
-              isDense: true,
-              border: OutlineInputBorder(),
+          Text(
+            '原因',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: GbmSpacing.space1),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              key: const Key('lock-worktree-reason-field'),
+              controller: _reasonController,
+              autofocus: true,
+              decoration: gbmInputDecoration(
+                colors: colors,
+                hintText: '外接碟，平常不掛載',
+              ),
             ),
           ),
           const SizedBox(height: GbmSpacing.space1),

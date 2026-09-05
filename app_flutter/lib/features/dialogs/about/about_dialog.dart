@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/app_version.dart';
 import '../../../data/repositories/build_version_repository.dart';
 import '../../../routing/route_paths.dart';
@@ -28,6 +29,7 @@ class AboutDialogContent extends ConsumerWidget {
     final AppVersion? version = ref.watch(buildVersionProvider);
     return GbmDialogShell(
       title: 'About git-branch-manager',
+      actionId: GbmActionId.helpAbout,
       actions: <Widget>[
         // The only route to the update check with no repository open --
         // `WelcomeScreen` builds no menu bar, so Help → Check for updates…

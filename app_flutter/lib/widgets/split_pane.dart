@@ -110,10 +110,49 @@ class GbmSplitPaneController {
   /// if it is currently collapsed/smaller than that. No-op in flex mode, if
   /// already open, or if not currently attached to a mounted [GbmSplitPane].
   void open() => _state?._openToMinimum();
+
+  /// Collapses an extent-mode pane 0 back to zero. No-op in flex mode, if
+  /// already collapsed, or if not attached.
+  void close() => _state?._collapse();
+
+  /// Whether extent-mode pane 0 currently has any extent. False when not
+  /// attached, so [toggle] on a detached controller opens rather than
+  /// silently doing nothing.
+  bool get isOpen => _state?._isExtentPaneOpen ?? false;
+
+  /// The pairing [open] alone could not express. `View → Log` is a view
+  /// toggle like `View → Status bar`, and it only ever called [open] --
+  /// so the drawer was a one-way door and the menu item did nothing on
+  /// every press after the first (使用者回報).
+  void toggle() => isOpen ? close() : open();
 }
 
 class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   late List<double> _currentFlexes;
+
+  /// The height a `collapsedByDefault` drawer reopens to, carried across a
+  /// collapse -- which [_currentFlexes] cannot, because collapsing sets it
+  /// to 0. Null until a height is either read from storage or reached by a
+  /// drag. Unused in flex mode and for a non-drawer extent pane, neither of
+  /// which ever starts collapsed.
+  double? _reopenExtent;
+
+  /// Where the pointer has dragged the divider to, *before* the extent is
+  /// clamped to `minExtent` -- non-null only while a pointer drag is in
+  /// flight ([_beginDividerDrag] .. [_endDividerDrag]).
+  ///
+  /// Drag-to-close needs this because the clamp is lossy: one frame's delta
+  /// is a handful of pixels, so once the drawer has bottomed out at
+  /// `minExtent` every further step recomputes from that same clamped
+  /// number and the accumulated overshoot is thrown away. Reading
+  /// 「the user has dragged past the bottom」 off `_currentFlexes[0] + delta`
+  /// is therefore impossible however far the pointer travels -- it only
+  /// ever sees one frame of it.
+  ///
+  /// Null for the keyboard path, which keeps its pre-existing behaviour: an
+  /// arrow key is a discrete step against the current extent, and a drawer
+  /// has [GbmSplitPaneController.toggle] for closing.
+  double? _dragRawExtent;
   late List<FocusNode> _dividerFocusNodes;
   late Map<int, Timer> _hoverTimers;
   late Set<int> _hoveredDividers;
@@ -134,30 +173,43 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
         .read(widget.storageId);
 
     if (widget.spec.defaultExtent != null) {
-      // Extent mode: stored should be [extentPx] or null
-      if (stored != null && stored.length == 1) {
-        // Clamp a stored extent up to the spec's current minimum. Raising a
-        // minExtent otherwise does nothing for the users it is for: a drag
-        // clamps to the minimum in force *at the time*, so a value persisted
-        // under the old, lower minimum survives every restart untouched.
-        //
-        // This belongs here and not in [_clampedFixedExtent], which runs on
-        // every build: clamping there would force a `collapsedByDefault`
-        // drawer back open to minExtent on every frame. The `> 0` guard is
-        // the same distinction -- an explicit collapse is a user decision,
-        // not a value below the minimum to be repaired, and 0 is the only
-        // sub-minimum value any other path can produce.
-        _currentFlexes = stored[0] > 0
-            ? <double>[math.max(stored[0], widget.spec.minExtent)]
-            : stored;
+      // Extent mode: stored should be [extentPx] or null.
+      //
+      // Clamp a stored extent up to the spec's current minimum. Raising a
+      // minExtent otherwise does nothing for the users it is for: a drag
+      // clamps to the minimum in force *at the time*, so a value persisted
+      // under the old, lower minimum survives every restart untouched.
+      //
+      // This belongs here and not in [_clampedFixedExtent], which runs on
+      // every build: clamping there would force a collapsed drawer back
+      // open to minExtent on every frame.
+      final double? storedExtent =
+          (stored != null && stored.length == 1 && stored[0] > 0)
+          ? math.max(stored[0], widget.spec.minExtent)
+          : null;
+
+      // For a `collapsedByDefault` pane, storage holds the *height* and
+      // never the open/closed state: the state is 「collapsed」 by
+      // definition at every launch (使用者裁定「log不預設打開，使用者
+      // toggle才開」), so a stored extent is a height to reopen *to*, not
+      // a reason to start open. This used to read `stored == null &&
+      // collapsedByDefault`, which meant the flag only held on a virgin
+      // profile -- one previous open persists an extent, and the drawer
+      // then came back open on every launch afterwards, forever.
+      // [_persistFlexes] upholds the other half by never writing this
+      // pane's 0.
+      _reopenExtent = storedExtent;
+
+      if (widget.spec.collapsedByDefault) {
+        _currentFlexes = <double>[0];
       } else {
-        // collapsedByDefault: if no stored value and collapsedByDefault is true,
-        // start with extent 0; otherwise use defaultExtent
-        final double initialExtent =
-            (stored == null && widget.spec.collapsedByDefault)
-            ? 0.0
-            : widget.spec.defaultExtent!;
-        _currentFlexes = <double>[initialExtent];
+        // A stored 0 stays 0 for a pane that is not a drawer: nothing but
+        // [_collapse] can produce one (a drag clamps to minExtent), so it
+        // is a deliberate collapse rather than a sub-minimum value to be
+        // repaired.
+        _currentFlexes = (stored != null && stored.length == 1)
+            ? <double>[storedExtent ?? stored[0]]
+            : <double>[widget.spec.defaultExtent!];
       }
     } else {
       // Flex mode: stored should match flexRatio length or null
@@ -199,10 +251,30 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
     super.dispose();
   }
 
-  /// See [GbmSplitPaneController.open].
-  void _openToMinimum() {
+  /// See [GbmSplitPaneController.isOpen].
+  bool get _isExtentPaneOpen =>
+      widget.spec.defaultExtent != null && _currentFlexes[0] > 0;
+
+  /// See [GbmSplitPaneController.open]. Reopens to [_reopenExtent] -- the
+  /// height this drawer was last at, which survives the collapse that set
+  /// [_currentFlexes] to 0 -- so the user gets back the size they dragged
+  /// to rather than a reset to `minExtent`.
+  void _openToMinimum() => _setExtent(
+    math.max(
+      math.max(_currentFlexes[0], _reopenExtent ?? 0),
+      widget.spec.minExtent,
+    ),
+  );
+
+  /// See [GbmSplitPaneController.close]. Zero, not `minExtent` -- but note
+  /// [_persistFlexes] deliberately does **not** write that 0 for a
+  /// `collapsedByDefault` pane: such a pane starts collapsed on every
+  /// launch regardless of storage, so the stored number is a height and
+  /// overwriting it with 0 would lose it.
+  void _collapse() => _setExtent(0);
+
+  void _setExtent(double target) {
     if (widget.spec.defaultExtent == null) return;
-    final double target = math.max(_currentFlexes[0], widget.spec.minExtent);
     if (target == _currentFlexes[0]) return;
     setState(() => _currentFlexes[0] = target);
     widget.onFlexChanged?.call(_currentFlexes);
@@ -210,10 +282,32 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   }
 
   Future<void> _persistFlexes() async {
+    if (widget.spec.defaultExtent != null && widget.spec.collapsedByDefault) {
+      // Storage holds this drawer's *height*, never its open/closed state
+      // -- see [initState]. So the 0 that [_collapse] produces is not
+      // written at all (it would erase the height the user dragged to, and
+      // the next open would land on `minExtent` instead), and every
+      // non-zero extent updates the height to come back to.
+      if (_currentFlexes[0] == 0) return;
+      _reopenExtent = _currentFlexes[0];
+    }
     await ref
         .read(panelLayoutRepositoryProvider)
         .write(widget.storageId, _currentFlexes);
   }
+
+  /// Opens the drag accumulator at wherever the divider currently sits. Only
+  /// a pointer drag calls this, which is what makes `_dragRawExtent != null`
+  /// mean 「a drag is in flight」 in [_onDividerDelta].
+  void _beginDividerDrag() {
+    if (widget.spec.defaultExtent == null) return;
+    _dragRawExtent = _currentFlexes[0];
+  }
+
+  /// Closes it. Wired to *both* `onDragEnd` and `onDragCancel`: a cancelled
+  /// drag that left this non-null would send the next keyboard step down the
+  /// drag path, against a position the pointer left behind.
+  void _endDividerDrag() => _dragRawExtent = null;
 
   void _onDividerDelta(int dividerIndex, double deltaPixels) {
     if (widget.spec.defaultExtent != null) {
@@ -225,10 +319,41 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           widget.fixedPaneEnd == GbmFixedPaneEnd.trailing
           ? -deltaPixels
           : deltaPixels;
-      final double newExtent = (_currentFlexes[0] + adjustedDelta).clamp(
-        minExtent,
-        _availableExtent - minExtent,
-      );
+
+      // Only a `collapsedByDefault` pane may be dragged shut: the flag means
+      // 「starts closed at every launch」, so such a pane necessarily has an
+      // affordance that reopens it (View > Log / Ctrl+Shift+L for the log
+      // drawer). Letting a pane without one be dragged to 0 would hide it
+      // with no way back.
+      final bool canCollapse = widget.spec.collapsedByDefault;
+
+      // While a pointer drag is in flight, track its unclamped travel; see
+      // [_dragRawExtent] for why the clamped extent cannot stand in for it.
+      // The accumulator is itself clamped at each step -- to 0 rather than
+      // `minExtent` when the pane may collapse -- so that dragging 300px
+      // below the bottom does not then need 300px of travel back up before
+      // the divider follows the pointer again.
+      final double rawExtent;
+      if (_dragRawExtent != null) {
+        rawExtent = (_dragRawExtent! + adjustedDelta).clamp(
+          canCollapse ? 0.0 : minExtent,
+          _availableExtent - minExtent,
+        );
+        _dragRawExtent = rawExtent;
+      } else {
+        rawExtent = _currentFlexes[0] + adjustedDelta;
+      }
+
+      // Past halfway to the minimum the drag reads as 「put it away」 rather
+      // than 「make it small」, so it closes instead of sticking at minExtent.
+      // Keyboard steps are excluded (`_dragRawExtent == null`): an arrow key
+      // is a discrete nudge, not a gesture aimed at the bottom edge.
+      final bool draggedShut =
+          canCollapse && _dragRawExtent != null && rawExtent < minExtent / 2;
+
+      final double newExtent = draggedShut
+          ? 0
+          : rawExtent.clamp(minExtent, _availableExtent - minExtent);
 
       setState(() {
         _currentFlexes[0] = newExtent;
@@ -347,9 +472,12 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           onEnter: (_) => _startHoverTimer(dividerIndex),
           onExit: (_) => _cancelHoverTimer(dividerIndex),
           child: GestureDetector(
+            onHorizontalDragStart: (_) => _beginDividerDrag(),
             onHorizontalDragUpdate: (details) {
               _onDividerDelta(dividerIndex, details.delta.dx);
             },
+            onHorizontalDragEnd: (_) => _endDividerDrag(),
+            onHorizontalDragCancel: _endDividerDrag,
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(
@@ -391,9 +519,12 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           onEnter: (_) => _startHoverTimer(dividerIndex),
           onExit: (_) => _cancelHoverTimer(dividerIndex),
           child: GestureDetector(
+            onVerticalDragStart: (_) => _beginDividerDrag(),
             onVerticalDragUpdate: (details) {
               _onDividerDelta(dividerIndex, details.delta.dy);
             },
+            onVerticalDragEnd: (_) => _endDividerDrag(),
+            onVerticalDragCancel: _endDividerDrag,
             onDoubleTap: _resetToDefault,
             behavior: HitTestBehavior.opaque,
             child: Container(
@@ -430,6 +561,10 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   /// writing the defaults back would make "never resized" indistinguishable
   /// from "resized to exactly the default" on the next start.
   void _resetToSpecDefault() {
+    // The remembered reopen height goes with the stored one, or a drawer
+    // reopened later in this same session would come back at a size the
+    // reset was supposed to have forgotten.
+    _reopenExtent = null;
     setState(() => _currentFlexes = _specDefaultFlexes());
     widget.onFlexChanged?.call(_currentFlexes);
   }

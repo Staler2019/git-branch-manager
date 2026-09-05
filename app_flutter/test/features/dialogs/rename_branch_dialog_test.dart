@@ -154,6 +154,17 @@ bool _renameEnabled(WidgetTester tester) {
   return tester.widget<InkWell>(button.first).onTap != null;
 }
 
+/// The message [gbmFieldError] draws under the field, identified by its
+/// `danger` colour rather than by its text -- so the finder cannot pass by
+/// matching some other line that happens to say the same thing.
+String? _errorLine(WidgetTester tester) {
+  final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+  for (final Text text in tester.widgetList<Text>(find.byType(Text))) {
+    if (text.style?.color == colors.danger) return text.data;
+  }
+  return null;
+}
+
 void main() {
   final List<RefInfo> branches = <RefInfo>[
     _branch(
@@ -181,6 +192,11 @@ void main() {
       await _pumpDialog(tester, initialState: _sessionWith(branches));
 
       expect(_renameEnabled(tester), isFalse);
+      // The message is an external Text under the box, not the
+      // decoration's subtext -- see gbm_input_decoration.dart. Asserting
+      // the painted widget rather than `decoration.errorText`, which is a
+      // proxy for the render tree ([TEST-fixture-cannot-disagree] row 14).
+      expect(_errorLine(tester), isNull);
       final TextField field = tester.widget<TextField>(find.byType(TextField));
       expect(field.decoration!.errorText, isNull);
     });
@@ -192,8 +208,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'main');
       await tester.pumpAndSettle();
 
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration!.errorText, contains('main'));
+      expect(_errorLine(tester), contains('main'));
       expect(_renameEnabled(tester), isFalse);
     });
 
@@ -204,8 +219,7 @@ void main() {
       await tester.enterText(find.byType(TextField), 'has space');
       await tester.pumpAndSettle();
 
-      final TextField field = tester.widget<TextField>(find.byType(TextField));
-      expect(field.decoration!.errorText, isNotNull);
+      expect(_errorLine(tester), isNotNull);
       expect(_renameEnabled(tester), isFalse);
     });
 
@@ -370,5 +384,46 @@ void main() {
       expect(find.text('Close'), findsOneWidget);
       expect(controller.commandLog, isEmpty);
     });
+  });
+
+  group('input height and radius (G4)', () {
+    testWidgets('the new-name field is 30px tall with a r6 border', (
+      tester,
+    ) async {
+      await _pumpDialog(tester, initialState: _sessionWith(branches));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+  });
+
+  group('field label style (G3 correction)', () {
+    testWidgets(
+      // The private _Label widget was missed by G3's original sweep -- it
+      // has no letterSpacing, so it did not match the grep that found the
+      // other four sites. It IS a field label (sits above one control, not
+      // a group of rows), and it needs the same fix: drop weightSemibold.
+      // colors.textSecondary was already correct here.
+      '目前名稱／新名稱／遠端連帶處理 use the P6 field-label treatment, '
+      'not semibold',
+      (tester) async {
+        await _pumpDialog(tester, initialState: _sessionWith(branches));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        for (final String label in <String>['目前名稱', '新名稱', '遠端連帶處理']) {
+          final Text text = tester.widget<Text>(find.text(label));
+          expect(text.style?.color, colors.textSecondary, reason: label);
+          expect(
+            text.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+            reason: label,
+          );
+        }
+      },
+    );
   });
 }

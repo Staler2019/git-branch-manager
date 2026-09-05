@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -9,6 +10,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../branch_name_validation.dart';
 
 /// Which of spec page 13's two "遠端連帶處理" options is selected.
@@ -88,6 +90,7 @@ class _RenameBranchDialogContentState
     if (session.conflictActive) {
       return GbmDialogShell(
         title: 'Rename Branch',
+        actionId: GbmActionId.branchRenameCurrentBranch,
         actions: <Widget>[
           GbmButton(label: 'Close', onPressed: () => context.pop()),
         ],
@@ -112,6 +115,7 @@ class _RenameBranchDialogContentState
     if (target == null) {
       return GbmDialogShell(
         title: 'Rename Branch',
+        actionId: GbmActionId.branchRenameCurrentBranch,
         actions: <Widget>[
           GbmButton(label: 'Close', onPressed: () => context.pop()),
         ],
@@ -164,9 +168,9 @@ class _RenameBranchDialogContentState
 
     return GbmDialogShell(
       title: 'Rename Branch',
+      actionId: GbmActionId.branchRenameCurrentBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Rename',
           kind: GbmButtonKind.primary,
@@ -219,30 +223,33 @@ class _RenameBranchDialogContentState
             const SizedBox(height: GbmSpacing.space3),
             _Label(text: '新名稱'),
             const SizedBox(height: GbmSpacing.space1),
-            TextField(
-              controller: _nameController,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: '新的分支名稱',
-                isDense: true,
-                border: const OutlineInputBorder(),
-                errorText: error,
+            SizedBox(
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                controller: _nameController,
+                autofocus: true,
+                decoration: gbmInputDecoration(
+                  colors: colors,
+                  hintText: '新的分支名稱',
+                  hasError: error != null,
+                ),
+                // Spec page 13: validation is live, "即時，不等到按 Rename".
+                onChanged: (_) => setState(() {}),
+                onSubmitted: (_) {
+                  if (!canRename) return;
+                  ref
+                      .read(repoSessionProvider(widget.identity).notifier)
+                      .renameBranch(
+                        from: branch.shortName,
+                        to: typed,
+                        renameRemote: renameRemote,
+                        remoteName: renameRemote ? remote : '',
+                      );
+                  context.pop();
+                },
               ),
-              // Spec page 13: validation is live, "即時，不等到按 Rename".
-              onChanged: (_) => setState(() {}),
-              onSubmitted: (_) {
-                if (!canRename) return;
-                ref
-                    .read(repoSessionProvider(widget.identity).notifier)
-                    .renameBranch(
-                      from: branch.shortName,
-                      to: typed,
-                      renameRemote: renameRemote,
-                      remoteName: renameRemote ? remote : '',
-                    );
-                context.pop();
-              },
             ),
+            gbmFieldError(colors: colors, error: error),
             if (canRename) ...<Widget>[
               const SizedBox(height: GbmSpacing.space1),
               Row(
@@ -315,6 +322,11 @@ class _RenameBranchDialogContentState
       : '此分支目前沒有未 push 的 commit。';
 }
 
+/// P6 field-label treatment (worktree-dialogs-spec.html's G3): 11px /
+/// textSecondary / sentence case. Missed by G3's original sweep across the
+/// other three dialogs -- this class has no `letterSpacing`, so it did not
+/// match the grep that found those -- but it is the same shape (a label
+/// sitting directly above one control), so it gets the same fix.
 class _Label extends StatelessWidget {
   const _Label({required this.text});
 
@@ -326,7 +338,6 @@ class _Label extends StatelessWidget {
       text,
       style: TextStyle(
         fontSize: GbmTypography.textXs,
-        fontWeight: GbmTypography.weightSemibold,
         color: context.gbmColors.textSecondary,
       ),
     );

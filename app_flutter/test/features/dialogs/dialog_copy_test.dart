@@ -41,6 +41,7 @@ import 'package:gbm_flutter/features/dialogs/about/about_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/discard_changes/discard_changes_request.dart';
 import 'package:gbm_flutter/features/dialogs/force_push/force_push_dialog.dart';
+import 'package:gbm_flutter/features/dialogs/keyboard_shortcuts/keyboard_shortcuts_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/new_branch/new_branch_dialog.dart';
@@ -56,6 +57,8 @@ import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
+import 'package:gbm_flutter/widgets/gbm_kbd_chip.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -478,6 +481,40 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'the source-branch dropdown is 30px tall with a r6 border, and the '
+      'message field keeps the r6 border without being pinned to 30px (G4)',
+      (tester) async {
+        await _pump(tester, const MergeDialogContent(identity: _identity));
+
+        final Finder dropdownFinder = find.byType(
+          DropdownButtonFormField<String>,
+        );
+        expect(tester.getSize(dropdownFinder).height, GbmSpacing.inputHeight);
+        final DropdownButtonFormField<String> dropdown = tester
+            .widget<DropdownButtonFormField<String>>(dropdownFinder);
+        final OutlineInputBorder dropdownBorder =
+            dropdown.decoration.border! as OutlineInputBorder;
+        expect(
+          dropdownBorder.borderRadius,
+          BorderRadius.circular(GbmSpacing.radiusMd),
+        );
+
+        final Finder fieldFinder = find.byType(TextField);
+        final TextField field = tester.widget<TextField>(fieldFinder);
+        final OutlineInputBorder fieldBorder =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(
+          fieldBorder.borderRadius,
+          BorderRadius.circular(GbmSpacing.radiusMd),
+        );
+        expect(
+          tester.getSize(fieldFinder).height,
+          greaterThan(GbmSpacing.inputHeight),
+        );
+      },
+    );
   });
 
   group('Checkout', () {
@@ -537,6 +574,15 @@ void main() {
         expect(find.text('目前 main · 有1 項未提交變更'), findsOneWidget);
       },
     );
+
+    // G8b: the 目前 row now draws inside GbmDialogReadOnlyField's
+    // surface-sunken box, closing the last styling gap in this row.
+    testWidgets('the current-branch row is a GbmDialogReadOnlyField (G8b)', (
+      tester,
+    ) async {
+      await _pump(tester, const CheckoutDialogContent(identity: _identity));
+      expect(find.byType(GbmDialogReadOnlyField), findsOneWidget);
+    });
 
     testWidgets('the stash-choice radios are absent on a clean tree', (
       tester,
@@ -679,6 +725,19 @@ void main() {
       },
     );
 
+    // G8b: the already-pushed warning now draws inside GbmDialogWarnField,
+    // not bare colors.warning-styled text.
+    testWidgets('the already-pushed warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RebaseOntoDialogContent(identity: _identity),
+        overrideState: _rebaseOntoStateWithRemote,
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
+    });
+
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(
         tester,
@@ -694,6 +753,20 @@ void main() {
         ),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the target dropdown is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(DropdownButtonFormField<String>);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final DropdownButtonFormField<String> dropdown = tester
+          .widget<DropdownButtonFormField<String>>(finder);
+      final OutlineInputBorder border =
+          dropdown.decoration.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
     });
   });
 
@@ -761,6 +834,24 @@ void main() {
       expect(find.textContaining('Delete the local branch'), findsNothing);
     });
 
+    // G8b: the no-upstream warning now draws inside GbmDialogWarnField, not
+    // bare colors.warning-styled text. The "fully pushed" case deliberately
+    // stays plain Text -- see delete_branch_dialog.dart's own comment --
+    // so this asserts the no-upstream branch specifically (the default
+    // state this group's other tests already pump).
+    testWidgets('the no-upstream warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchDialogContent(
+          identity: _identity,
+          branchName: 'feature/lane-allocator',
+        ),
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
+    });
+
     testWidgets('the also-delete-remote checkbox is Chinese', (tester) async {
       await _pump(
         tester,
@@ -781,6 +872,19 @@ void main() {
       expect(find.text('要刪除的分支'), findsOneWidget);
       expect(find.text('選擇要刪除的分支。'), findsOneWidget);
       expect(find.text('Branch to delete'), findsNothing);
+    });
+
+    testWidgets('the branch picker dropdown is 30px tall with a r6 border '
+        '(G4)', (tester) async {
+      await _pump(tester, const DeleteBranchDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(DropdownButtonFormField<String>);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final DropdownButtonFormField<String> dropdown = tester
+          .widget<DropdownButtonFormField<String>>(finder);
+      final OutlineInputBorder border =
+          dropdown.decoration.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
     });
 
     testWidgets('does not overflow the shell', (tester) async {
@@ -859,6 +963,21 @@ void main() {
         '先 stash 未提交的變更',
       ]);
     });
+
+    testWidgets('the commits field keeps its r6 border without being pinned to '
+        '30px (G4)', (tester) async {
+      await _pump(tester, const CherryPickDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      expect(
+        tester.getSize(finder).height,
+        greaterThan(GbmSpacing.inputHeight),
+      );
+    });
   });
 
   group('Create Tag', () {
@@ -887,6 +1006,44 @@ void main() {
       await _pump(tester, const CreateTagDialogContent(identity: _identity));
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets(
+      'the name and target fields are 30px tall with a r6 border, and the '
+      'multiline message field keeps the r6 border without being pinned to '
+      '30px (G4)',
+      (tester) async {
+        await _pump(tester, const CreateTagDialogContent(identity: _identity));
+
+        final List<TextField> fields = tester
+            .widgetList<TextField>(find.byType(TextField))
+            .toList();
+        expect(fields.length, 3);
+        for (final TextField field in fields) {
+          final OutlineInputBorder border =
+              field.decoration!.border! as OutlineInputBorder;
+          expect(
+            border.borderRadius,
+            BorderRadius.circular(GbmSpacing.radiusMd),
+          );
+        }
+
+        // Name and target are single-line -- pinned to the shared height.
+        expect(
+          tester.getSize(find.byType(TextField).at(0)).height,
+          GbmSpacing.inputHeight,
+        );
+        expect(
+          tester.getSize(find.byType(TextField).at(1)).height,
+          GbmSpacing.inputHeight,
+        );
+        // Message is `maxLines: 2` -- it must be free to grow past 30px,
+        // not squeezed into the single-line height.
+        expect(
+          tester.getSize(find.byType(TextField).at(2)).height,
+          greaterThan(GbmSpacing.inputHeight),
+        );
+      },
+    );
   });
 
   group('Clean Untracked Files', () {
@@ -920,6 +1077,18 @@ void main() {
         const CleanUntrackedDialogContent(identity: _identity),
       );
       expect(tester.takeException(), isNull);
+    });
+
+    // G8b: the spec warning now draws inside GbmDialogWarnField, not a
+    // bare GbmWarningBanner call.
+    testWidgets('the spec warning is a GbmDialogWarnField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const CleanUntrackedDialogContent(identity: _identity),
+      );
+      expect(find.byType(GbmDialogWarnField), findsOneWidget);
     });
   });
 
@@ -955,6 +1124,19 @@ void main() {
     testWidgets('does not overflow the shell', (tester) async {
       await _pump(tester, const ResetBranchDialogContent(identity: _identity));
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the target field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const ResetBranchDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
     });
   });
 
@@ -1049,6 +1231,19 @@ void main() {
       // Not obscured with no prompt, so this is the account field.
       _expectAll(<String>['帳號']);
       expect(find.text('Username'), findsNothing);
+    });
+
+    testWidgets('the secret field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const CredentialDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
     });
   });
 
@@ -1203,6 +1398,19 @@ void main() {
         reason: '「(optional)」 moved into the hint, it did not stay',
       );
     });
+
+    testWidgets('the message field is 30px tall with a r6 border (G4)', (
+      tester,
+    ) async {
+      await _pump(tester, const StashChangesDialogContent(identity: _identity));
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
   });
 
   group('Discard Changes', () {
@@ -1348,6 +1556,51 @@ void main() {
       expect(find.text('還原成'), findsOneWidget);
       expect(find.text('RESTORE FROM'), findsNothing);
     });
+
+    // G8b: both ro rows' values now sit in GbmDialogReadOnlyField's
+    // surface-sunken box.
+    testWidgets('both ro rows are GbmDialogReadOnlyField (G8b)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const RestoreFileDialogContent(
+          identity: _identity,
+          path: 'lib/graph/lane_allocator.dart',
+          oid: _restoreFileOid,
+        ),
+        overrideState: _restoreFileState,
+      );
+      expect(find.byType(GbmDialogReadOnlyField), findsNWidgets(2));
+    });
+
+    testWidgets(
+      'the two ro labels use the P6 field-label treatment (G3), not the '
+      'old pane-header one',
+      (tester) async {
+        await _pump(
+          tester,
+          const RestoreFileDialogContent(
+            identity: _identity,
+            path: 'lib/graph/lane_allocator.dart',
+            oid: _restoreFileOid,
+          ),
+          overrideState: _restoreFileState,
+        );
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        for (final String label in <String>['檔案', '還原成']) {
+          final Text text = tester.widget<Text>(find.text(label));
+          expect(text.style?.color, colors.textSecondary, reason: label);
+          expect(text.style?.fontSize, GbmTypography.textXs, reason: label);
+          expect(
+            text.style?.fontWeight,
+            isNot(GbmTypography.weightSemibold),
+            reason: label,
+          );
+          expect(text.style?.letterSpacing, isNot(0.5), reason: label);
+        }
+      },
+    );
 
     testWidgets('the working-copy line is Chinese and matches the boolean '
         'this dialog actually has, on a clean file', (tester) async {
@@ -1632,6 +1885,33 @@ void main() {
       expect(find.text('Name (this repository only)'), findsNothing);
     });
 
+    testWidgets(
+      'the Identity tab\'s name and email fields are 30px tall with a r6 '
+      'border (G4)',
+      (tester) async {
+        await _pump(
+          tester,
+          const RepositorySettingsDialogContent(identity: _identity),
+        );
+        await tester.tap(find.text('Identity'));
+        await tester.pumpAndSettle();
+
+        for (final Finder finder in <Finder>[
+          find.byType(TextField).at(0),
+          find.byType(TextField).at(1),
+        ]) {
+          expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+          final TextField field = tester.widget<TextField>(finder);
+          final OutlineInputBorder border =
+              field.decoration!.border! as OutlineInputBorder;
+          expect(
+            border.borderRadius,
+            BorderRadius.circular(GbmSpacing.radiusMd),
+          );
+        }
+      },
+    );
+
     testWidgets('the Performance tab is Chinese, with commit-graph kept '
         'untranslated as a git term', (tester) async {
       await _pump(
@@ -1688,6 +1968,23 @@ void main() {
       expect(find.text('Check for updates at startup'), findsNothing);
     });
 
+    testWidgets(
+      'the auto-fetch interval field (_NumberField) is 30px tall with a '
+      'r6 border (G4)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('在背景 fetch 目前開啟的 repository'));
+        await tester.pumpAndSettle();
+
+        final Finder finder = find.byType(TextField);
+        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+        final TextField field = tester.widget<TextField>(finder);
+        final OutlineInputBorder border =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      },
+    );
+
     testWidgets('the Repository sources section is Chinese, old English gone', (
       tester,
     ) async {
@@ -1712,6 +2009,20 @@ void main() {
       expect(find.text('Nothing recorded yet.'), findsNothing);
     });
 
+    testWidgets('the base-folder path field is 30px tall with a r6 border '
+        '(G4)', (tester) async {
+      await _pumpPreferences(tester);
+      await tester.tap(find.text('Repository sources'));
+      await tester.pumpAndSettle();
+
+      final Finder finder = find.byType(TextField);
+      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+      final TextField field = tester.widget<TextField>(finder);
+      final OutlineInputBorder border =
+          field.decoration!.border! as OutlineInputBorder;
+      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+    });
+
     testWidgets('the Git section is Chinese, old English gone', (tester) async {
       await _pumpPreferences(tester);
       await tester.tap(find.text('Git'));
@@ -1727,6 +2038,24 @@ void main() {
       expect(find.text('GLOBAL GITIGNORE'), findsNothing);
       expect(find.text('COMMIT MESSAGES'), findsNothing);
     });
+
+    testWidgets(
+      'the global gitignore path field is 30px tall with a r6 border (G4)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Git'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('使用全域 gitignore 檔案'));
+        await tester.pumpAndSettle();
+
+        final Finder finder = find.byType(TextField);
+        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
+        final TextField field = tester.widget<TextField>(finder);
+        final OutlineInputBorder border =
+            field.decoration!.border! as OutlineInputBorder;
+        expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      },
+    );
 
     testWidgets(
       'the Appearance section is Chinese, old English gone -- theme names '
@@ -1755,6 +2084,21 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('KEYBOARD SHORTCUTS'), findsOneWidget);
+      },
+    );
+
+    // G5b: _ShortcutsSection used to draw the shortcut label as a bare Text
+    // with no box at all -- a second, disagreeing rendering of the same
+    // chip keyboard_shortcuts_dialog.dart already drew inside a styled
+    // Container ([CULT-single-source-of-truth]). Both now build GbmKbdChip.
+    testWidgets(
+      'the Shortcuts section draws each shortcut as a GbmKbdChip (G5b)',
+      (tester) async {
+        await _pumpPreferences(tester);
+        await tester.tap(find.text('Shortcuts'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(GbmKbdChip), findsWidgets);
       },
     );
 
@@ -1798,6 +2142,25 @@ void main() {
         find.text('A fast Git client for very large repositories.'),
         findsNothing,
       );
+    });
+  });
+
+  // G5b: keyboard_shortcuts_dialog.dart's own inline chip Container is now
+  // GbmKbdChip -- see the "Preferences" group's matching assertion for the
+  // second (previously plain-Text) call site this same widget replaced.
+  group('Keyboard Shortcuts', () {
+    testWidgets('each bound shortcut is drawn as a GbmKbdChip (G5b)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: const Scaffold(body: KeyboardShortcutsDialogContent()),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(GbmKbdChip), findsWidgets);
     });
   });
 

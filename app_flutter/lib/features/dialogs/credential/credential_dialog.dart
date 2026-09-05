@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// The Dart analog of `CredentialDialog` (src/app/dialogs/
 /// CredentialDialog.cpp), the askpass UI half of gbm_capi's credential
@@ -85,7 +86,6 @@ class _CredentialDialogContentState
             context.pop();
           },
         ),
-        const SizedBox(width: GbmSpacing.space2),
         GbmButton(
           label: 'Submit',
           kind: GbmButtonKind.primary,
@@ -113,21 +113,29 @@ class _CredentialDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space2),
-          TextField(
-            controller: _secretController,
-            obscureText: obscure,
-            autofocus: true,
-            onSubmitted: (_) {
-              _resolved = true;
-              ref
-                  .read(repoSessionProvider(widget.identity).notifier)
-                  .provideCredential(_secretController.text);
-              context.pop();
-            },
-            decoration: InputDecoration(
-              isDense: true,
-              border: const OutlineInputBorder(),
-              labelText: obscure ? 'Token / 密碼' : '帳號',
+          Text(
+            obscure ? 'Token / 密碼' : '帳號',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: GbmSpacing.space1),
+          SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              key: const Key('credential-secret-field'),
+              controller: _secretController,
+              obscureText: obscure,
+              autofocus: true,
+              onSubmitted: (_) {
+                _resolved = true;
+                ref
+                    .read(repoSessionProvider(widget.identity).notifier)
+                    .provideCredential(_secretController.text);
+                context.pop();
+              },
+              decoration: gbmInputDecoration(colors: colors),
             ),
           ),
         ],

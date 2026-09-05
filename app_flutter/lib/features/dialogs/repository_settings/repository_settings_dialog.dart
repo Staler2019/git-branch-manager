@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/git_identity.dart';
 import '../../../data/models/remote_info.dart';
 import '../../../data/repositories/panel_tabs_repository.dart';
@@ -12,6 +13,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 import '../../workspace/workspace_screen.dart' show repoIdForRoute;
 
 /// Repository → Settings…
@@ -92,6 +94,7 @@ class _RepositorySettingsDialogContentState
 
     return GbmDialogShell(
       title: 'Repository Settings',
+      actionId: GbmActionId.repositorySettings,
       width: 600,
       actions: <Widget>[
         GbmButton(
@@ -413,23 +416,39 @@ class _IdentityTab extends StatelessWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        TextField(
-          controller: nameController,
-          onChanged: (_) => onEdited(),
-          decoration: const InputDecoration(
-            labelText: '名稱（僅限此 repository）',
-            isDense: true,
-            border: OutlineInputBorder(),
+        Text(
+          '名稱（僅限此 repository）',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            key: const Key('repository-settings-identity-name-field'),
+            controller: nameController,
+            onChanged: (_) => onEdited(),
+            decoration: gbmInputDecoration(colors: colors),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),
-        TextField(
-          controller: emailController,
-          onChanged: (_) => onEdited(),
-          decoration: const InputDecoration(
-            labelText: 'Email（僅限此 repository）',
-            isDense: true,
-            border: OutlineInputBorder(),
+        Text(
+          'Email（僅限此 repository）',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textSecondary,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space1),
+        SizedBox(
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            key: const Key('repository-settings-identity-email-field'),
+            controller: emailController,
+            onChanged: (_) => onEdited(),
+            decoration: gbmInputDecoration(colors: colors),
           ),
         ),
         const SizedBox(height: GbmSpacing.space2),

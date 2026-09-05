@@ -197,6 +197,106 @@ loading / refused / binary 逐來源就地畫一個 `_Notice`（帶自己的圓�
 「`Failed to foreground app; open returned 1`」六次都出現，六次後面都跟著計數 ——
 `[TEST-foreground-line-is-not-a-failure]`。
 
+## 追加：沒寫出來的那條驗收，蓋著一個真缺陷
+
+`flutter test` 2875 綠、六個裝置層檔案全綠、每一條 pin 都對得上之後，這一輪本來
+要收掉。把 §12 的驗收清單逐條對回程式碼時，發現其中一條**從頭到尾沒有被寫成測
+試**：
+
+> 一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性
+> scope，斷言在產生出來的按鈕自己的標籤上。
+
+補寫它，它就紅了。
+
+### 缺陷
+
+X3 讓 `_wellChildren` 依 index 區域排序才畫，`_rowsInRenderOrder` 卻仍然照
+source → hunk → line 走。兩份順序只要區域交錯就不一致 —— 而交錯正是排序存在的
+唯一理由：
+
+```
+    畫面（_wellChildren，排序後）        _rowsInRenderOrder（source 順序）
+    ┌──────────────────────────┐        1) 0:0:*   unstaged  ← 永遠先被走到
+    │ ● staged  @@ 10  ← 先畫  │        2) 1:0:*   staged
+    ├──────────────────────────┤
+    │ ● unstaged @@ 100        │
+    └──────────────────────────┘
+```
+
+`resolveTemporaryScope` 的契約是「取第一個碰到的**變更**列」，而它走的是右邊那
+份。所以一個從 staged 卡片往下拖到 unstaged 卡片的選取，方向會判成 stage ——
+U5 的裁定被實作成了它的反面。同一份清單還有第二個讀者：`_extendByRow` 與
+`_adoptRangeFromTouched`，也就是 Shift+↑/↓，它跨的是螢幕上不存在的順序，正是
+`[SPEC-range-follows-paint-order]` 記過的形狀，只是這次換一個顯示模式復發。
+
+`_rowsInRenderOrder` 自己的註解寫著「由**同一份**版面清單回答，而不是第二次走
+訪」。那句話在寫下的當下就不成立 —— 它自己就是那第二次走訪
+（`[CULT-scrutinise-the-comment]`）。
+
+### 修法
+
+把區塊的建立與排序抽成 `_orderedBlocks`，兩個讀者都從它推導。不是「讓第二份順
+序也排序一次」——那只是把同一個分岔往後推一格；是讓順序只有一個來源
+（`[CULT-single-source-of-truth]`）。
+
+### fixture 為什麼要不對稱
+
+staged 側落在 index 10、unstaged 側落在 100，排序因此把 **staged 畫在上面**。
+兩側位置相同的 fixture 分不出 source 順序與畫面順序，會對兩種實作都給綠
+（`[TEST-fixture-cannot-disagree]`）。另加一條守門測試斷言畫面順序真的是反過來
+的 —— 少了它，主測試可能因為排序根本沒生效而通過。
+
+mutation 2 條，紅 1 與 3 條（進度列的 `-N` 親眼讀的）：
+
+| mutation | 紅 |
+|---|---|
+| `_rowsInRenderOrder` 改回 source 順序 | **-1**，只有 U5 那條 |
+| 區域排序整段停用 | **-3**，U5 兩條 ＋ 既有的 `unified` 排序那條 |
+
+### 順帶清掉的孤兒
+
+X3 之後 `hunkSegments` 的 `firstOrdinal` 與 `DiffScopeSegment.ordinal` 在 `lib/`
+下沒有任何呼叫者或讀者（`[CULT-orphan-wiring]`，兩個方向都 grep 過）。處置是
+**刪除而不是接回去**，因為那個承諾已經無法兌現：合併清單會先排序再畫，而
+`hunkSegments` 一次只看一個 hunk，它在排序前發出的號碼會被排序打散。號碼必須
+在排序之後才給，也就是 `_wellChildren` 自己的計數器。同一條 pin 的第十二個案例
+也是這樣判的 —— 問「這個讀者做得到它承諾的事嗎」。
+
+被刪掉的單元測試所主張的「號碼跨 hunk 連號」沒有消失，搬到它現在發生的地方：
+U5 那條測試斷言 staged 卡片是 `scope-card-1`、unstaged 是 `2`，也就是反過來的
+source 順序（`[CULT-nothing-silently-dropped]`）。
+
+### 順帶：每一幀少排序一次
+
+抽出 `_orderedBlocks` 之後 `build()` 走了它兩次 —— 一次經 `_rowsInRenderOrder()`，
+一次在 `_wellChildren` 裡。`hunkSegments` 沒有像 scope 切割那樣被快取，而這條路
+徑在拖曳時每一幀都會跑（`[CULT-measure-before-caching]` 記過同一個面上 197µs/幀
+的前例）。改成 `build()` 算一次交給兩邊，鍵盤處理維持自己排序 —— 它們是事件，
+沒有幀可以共用。順序仍然只有一個來源。
+
+### 裝置層，以及一次沒有重現的 hang
+
+| 檔案 | 結果 |
+|---|---|
+| `stage_lines_flow_test`（第一次，已中止） | 約 5 分鐘沒有進展，主執行緒停在 event loop（不是在空轉），手動中止 |
+| `stage_lines_flow_test`（重跑） | **7/7，1m46s** —— 逐測試的秒數與上一輪全綠那次幾乎一致 |
+| `untracked_unstage_flow_test` | **1/1，23s** |
+
+**誠實的結論是「沒有重現」，不是原因。** 兩次之間有兩個變數同時動了：清掉了殘留
+的 `gbm_flutter` 行程，以及上面那個每幀少排序一次的改動。沒有隔離，所以不能說是
+哪一個 —— `[TEST-hang-is-not-yet-a-defect]` 講的就是這個。第一次之所以看不出跑到
+哪裡，是因為指令尾巴接了 `| tail`，它會把整份輸出buffer 到結束；重跑改成串流，這
+才看得到逐測試的進度。**下次裝置層一律不要接 `tail`。**
+
+第 6 個測試 `Shift+Down builds a range the button then stages` 是這次改到的第二個
+讀者（`_extendByRow`），它綠了。
+
+### 這一輪的教訓
+
+**沒有寫出來的驗收不是還沒驗，是沒有驗。** 六個裝置層檔案全綠、2875 個測試全
+綠，都不會替一條不存在的斷言說話。驗收清單本身要逐條對回測試檔，才算走完 —— 這
+一條現在也寫進 §12 了。
+
 ## 沒做的
 
 - U9（模式切換器的 `檢視方式` 標籤與兩個 11px SVG 圖示）—— 使用者裁定「不應動，照既有模

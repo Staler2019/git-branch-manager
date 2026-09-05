@@ -25,6 +25,8 @@
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/CompareOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
@@ -4878,6 +4880,350 @@ TEST_F(RealRepoTest, ImportAbortUnwindsCleanly) {
     auto head = run({"rev-parse", "HEAD"});
     ASSERT_TRUE(head);
     EXPECT_EQ(head->out, beforeImport->out);
+}
+
+// --- Benign exit codes in the operation log ----------------------------------
+//
+// A git invocation whose non-zero exit is a *normal answer* rather than a
+// refusal. The caller declares which codes those are on the GitCommand, and
+// ProcessRunner::recordOperation() carries the verdict into the OperationRecord
+// so the operation-log panel can render it as INFO -- see the field's own doc
+// comment in core/base/Logging.h.
+//
+// Every case below arranges the condition out of *real* git state rather than
+// probing an invented key: the claim being tested is what git does for an unset
+// key, so a synthetic key that nobody would ever set would keep passing if git
+// ever changed that. Each case therefore asserts the exit code it arranged for
+// before asserting anything about benignExit -- otherwise a later edit to
+// SetUp(), which does configure user.name, would leave these green and vacuous.
+
+/// Captures whole OperationRecords, unlike CommandSpy above which counts the
+/// invocations carrying one flag. A sibling rather than a widening: CommandSpy
+/// has three users that all assert on count(), and there is no reason to
+/// disturb a working instrument.
+class RecordSpy {
+public:
+    RecordSpy() {
+        Log::instance().setOperationSink([this](const OperationRecord& record) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            records_.push_back(record);
+        });
+    }
+
+    ~RecordSpy() { Log::instance().setOperationSink(nullptr); }
+
+    RecordSpy(const RecordSpy&) = delete;
+    RecordSpy& operator=(const RecordSpy&) = delete;
+
+    /// The last record whose argv ends with `tail`, or nullopt. Matching on the
+    /// tail rather than the whole argv keeps the fixture out of the assertion:
+    /// globalFlags() and `-C <tempdir>` sit in front of every invocation.
+    std::optional<OperationRecord> lastEndingWith(const std::vector<std::string>& tail) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
+            if (it->argv.size() < tail.size()) continue;
+            if (std::equal(tail.rbegin(), tail.rend(), it->argv.rbegin())) return *it;
+        }
+        return std::nullopt;
+    }
+
+private:
+    mutable std::mutex mutex_;
+    std::vector<OperationRecord> records_;
+};
+
+TEST_F(RealRepoTest, DeclaredBenignExitCodeIsRecordedAsBenign) {
+    // SetUp() configures user.name into --local scope, so the reported
+    // condition -- the key genuinely unset -- has to be arranged first.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    command.benignExitCodes = {1};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1) << "the arrangement no longer produces the unset-key exit";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, AnUndeclaredExitCodeIsNotRecordedAsBenign) {
+    // The control for the case above: without it, that one passes with
+    // benignExit hardwired true.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_FALSE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, BenignExitCodesAreMatchedPerCodeNotAsABoolean) {
+    // `git config --local --unset` on a key that was never set exits 5, so a
+    // caller may legitimately declare {5} while this command exits 1. Without
+    // this case an implementation reading `!benignExitCodes.empty()` passes
+    // everything above, and "a set of codes, not a flag" is an untested claim.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.name"});
+    command.benignExitCodes = {5};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_FALSE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, ACleanExitIsNeverRecordedAsBenign) {
+    // user.email is deliberately left as SetUp() wrote it, which does two
+    // things at once: it pins that a successful command is not "benign" (the
+    // flag means "this non-zero code was an answer", not "this went fine"),
+    // and it shows the arrangement above really did unset one key rather than
+    // damaging the config file the other three cases read.
+    ASSERT_TRUE(run({"config", "--local", "--unset", "user.name"}));
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"config", "--local", "--get", "user.email"});
+    command.benignExitCodes = {1};
+    runner_->run(command, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"--get", "user.email"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 0);
+    EXPECT_FALSE(record->benignExit);
+}
+
+// The other three call sites that already read a specific non-zero exit as
+// data. Each arranges its condition out of real git state; the exit code is
+// asserted alongside the verdict so a changed git, or a changed arrangement,
+// reddens instead of passing vacuously.
+
+TEST_F(RealRepoTest, ClearingAnIdentityThatWasNeverSetIsRecordedAsBenign) {
+    // `git config --unset` on a key that was never set exits 5, not 1 -- which
+    // is the whole reason GitCommand carries a set of codes rather than a
+    // "tolerate failure" flag. Running the operation twice is what produces
+    // the never-set case honestly: the first run clears what SetUp() wrote.
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeClearLocalIdentityOperation()).succeeded);
+
+    RecordSpy spy;
+    EXPECT_TRUE(submitAndWait(operations, makeClearLocalIdentityOperation()).succeeded);
+
+    const auto record = spy.lastEndingWith({"--unset", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 5) << "git no longer answers a never-set --unset with 5";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, TheUntrackedFileDiffsOwnExitOneIsRecordedAsBenign) {
+    // `--no-index` implies `--exit-code`, so it exits 1 whenever it finds the
+    // differences it was asked to find -- i.e. on every untracked file the
+    // Working Copy shows ([GIT-no-index-sees-untracked]).
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    RecordSpy spy;
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"new.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u) << "the --no-index fallback did not run";
+
+    const auto record = spy.lastEndingWith({"/dev/null", "new.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, MergeBaseOfUnrelatedHistoriesIsRecordedAsBenign) {
+    // `git merge-base` exits 1 when there is no common ancestor, which an
+    // orphan branch produces for real -- 128 would mean a bad ref, and stays
+    // an error.
+    commitFile("a.txt", "a\n", "c1");
+    ASSERT_TRUE(run({"checkout", "--quiet", "--orphan", "unrelated"}));
+    ASSERT_TRUE(run({"rm", "--quiet", "--cached", "a.txt"}));
+    std::filesystem::remove(repo_ / "a.txt");
+    commitFile("b.txt", "b\n", "c2");
+
+    RecordSpy spy;
+    CompareStore compare(*runner_, paths_);
+    CompareRequest request;
+    request.leftRef = "main";
+    request.rightRef = "unrelated";
+    compare.compare(request, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"merge-base", "main", "unrelated"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1) << "the two histories are not actually unrelated";
+    EXPECT_TRUE(record->benignExit);
+}
+
+// The second producer of a non-zero exit that is not a failure, and the only
+// one the runner knows about by itself: a LineSink returning false kills the
+// child, so execute() returns *success* while recordOperation() has already
+// written whatever code the kill left behind. Its live producer is
+// HistoryProvider's row cap, which fires only on a repository big enough to
+// reach it -- which is why this went unnoticed.
+//
+// sinkStopped shares benignExit with the caller-declared codes because it
+// shares the meaning: both say "this invocation did what was needed". It reads
+// like `cancelled` and means the opposite -- cancelled is work that was
+// abandoned, this is work that finished early on purpose.
+
+TEST_F(RealRepoTest, ASinkThatStopsEarlyIsRecordedAsBenign) {
+    // The output has to exceed the pipe buffer, or the child writes everything
+    // and exits 0 before the sink's first refusal can kill it -- and then this
+    // test would be asserting the ordinary success path under a misleading
+    // name. ~50k lines is comfortably past it on every platform.
+    std::string big;
+    for (int i = 0; i < 50000; ++i) {
+        big += "line " + std::to_string(i) + "\n";
+    }
+    commitFile("big.txt", big, "big");
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"show", "HEAD:big.txt"});
+    command.timeout = std::chrono::seconds(120);
+    int lines = 0;
+    auto result = runner_->stream(
+        command, [&lines](std::string_view) { ++lines; return false; }, nullptr,
+        CancellationToken{});
+
+    EXPECT_TRUE(result) << "a sink stopping early is success, not failure";
+    EXPECT_EQ(lines, 1);
+
+    const auto record = spy.lastEndingWith({"show", "HEAD:big.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_NE(record->exitCode, 0) << "the child finished before the sink could stop it";
+    EXPECT_FALSE(record->cancelled) << "nobody cancelled this; it finished early on purpose";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, ASinkThatReadsEverythingIsNotRecordedAsBenign) {
+    // The control. Without it the case above passes for a runner that marks
+    // every stream benign.
+    commitFile("small.txt", "a\nb\nc\n", "small");
+
+    RecordSpy spy;
+    GitCommand command(repo_, {"show", "HEAD:small.txt"});
+    command.timeout = std::chrono::seconds(120);
+    auto result = runner_->stream(
+        command, [](std::string_view) { return true; }, nullptr, CancellationToken{});
+
+    EXPECT_TRUE(result);
+
+    const auto record = spy.lastEndingWith({"show", "HEAD:small.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 0);
+    EXPECT_FALSE(record->benignExit);
+}
+
+// `GitCommand::timeout` had no test at all before this one, on either platform:
+// every `.timeout` in the suite is a 30-120 second value chosen to *not* fire.
+// That is why the Windows half of it could be broken for as long as it has been.
+//
+// The subject is a child that writes nothing and never exits (see
+// `fixtures/hang_forever.cpp`). Windows reads stdout with a synchronous
+// `ReadFile` on this very thread and tests the deadline only *between* two
+// reads, so with the pipe permanently empty the deadline is never reached and
+// the call never returns. POSIX polls all three fds with a bounded wait, so it
+// has never had this defect.
+//
+// [TEST-fixture-cannot-disagree]: this test is therefore **always green on
+// macOS and Linux**, and only Windows CI can refute what it claims -- the same
+// asymmetry [CPP-windows-terminate-hangs-join] already records. Its red is a
+// hang rather than a failed assertion, which is what the ctest deadline from
+// [CI-no-ctest-timeout] turns into a named `***Timeout` instead of a job that
+// runs until somebody notices.
+TEST(ProcessRunnerTimeout, AChildThatNeverWritesIsStillTimedOut) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    RecordSpy spy;
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(500);
+
+    // Returning at all is most of the claim: the child cannot exit on its own,
+    // so the only way out of this call is the deadline firing.
+    auto result = runner->run(command, CancellationToken{});
+
+    ASSERT_FALSE(result) << "a timeout is a failure, not a silent empty result";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    const auto record = spy.lastEndingWith({"--gbm-hang-forever"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(record->timedOut);
+    // The control on the assertion above: `cancelled` is the other way a record
+    // can be non-benign and non-zero, and nobody cancelled anything here.
+    EXPECT_FALSE(record->cancelled);
+}
+
+// The idle deadline: "nothing has arrived for N" rather than "this has run for
+// N". Same subject as the test above, but reached through `idleTimeout` with
+// `timeout` left at 0 -- which is the shape the ~24 network and sequencer
+// commands use, and the shape that had no deadline of any kind before this.
+TEST(ProcessRunnerTimeout, ASilentChildHitsTheIdleDeadline) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    RecordSpy spy;
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(0);  // no total deadline at all
+    command.idleTimeout = std::chrono::milliseconds(500);
+
+    auto result = runner->run(command, CancellationToken{});
+
+    ASSERT_FALSE(result) << "a child that never speaks must not run forever";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    const auto record = spy.lastEndingWith({"--gbm-hang-forever"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_TRUE(record->timedOut);
+    EXPECT_FALSE(record->cancelled);
+}
+
+// **The discriminating one.** Everything above is satisfied by implementing the
+// idle deadline as an ordinary total-duration deadline; this is not.
+//
+// The child drips a line every 200ms for kDripLines lines, then falls silent.
+// With a 500ms idle deadline and no total deadline, it must survive the whole
+// dripping phase -- a total-duration deadline of any value small enough to be
+// useful would cut it off partway -- and only then time out.
+//
+// Asserting the elapsed *floor* is what pins that: it is the half that a
+// total-duration implementation cannot satisfy.
+TEST(ProcessRunnerTimeout, AChildStillDrippingOutputOutlivesTheIdleDeadline) {
+    constexpr int kDripLines = 6;
+    constexpr auto kDripInterval = std::chrono::milliseconds(200);
+    constexpr auto kIdle = std::chrono::milliseconds(500);
+
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    GitCommand command({}, {"--gbm-hang-forever", "--drip", std::to_string(kDripLines)});
+    command.timeout = std::chrono::milliseconds(0);
+    command.idleTimeout = kIdle;
+
+    int lines = 0;
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->stream(
+        command, [&lines](std::string_view) { ++lines; return true; }, nullptr,
+        CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result) << "it still goes silent in the end, so it still times out";
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+
+    // The claim a total-duration deadline fails: it was NOT killed while it was
+    // still producing. Every drip is 200ms apart and every gap is under the
+    // 500ms idle deadline, so all of them must arrive.
+    EXPECT_EQ(lines, kDripLines) << "the idle deadline cut off a child that was still talking";
+    EXPECT_GE(elapsed, kDripInterval * kDripLines)
+        << "returned too early to have waited out the whole dripping phase";
 }
 
 }  // namespace

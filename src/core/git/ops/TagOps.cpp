@@ -86,6 +86,7 @@ public:
         GitCommand remote(paths.commandDir(),
                           {"push", request_.remoteName, "--delete", "refs/tags/" + request_.name});
         remote.timeout = std::chrono::milliseconds(0);
+        remote.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(remote, request_.askpassDir);
         auto remoteResult = runner.run(remote, token);
         if (!remoteResult) {
@@ -125,6 +126,7 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);

@@ -110,7 +110,8 @@ public:
             args.push_back(request_.remoteName);
         }
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);  // downloads objects; can be slow.
+        command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;  // downloads objects; can be slow.
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);
@@ -144,6 +145,7 @@ public:
         }
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::milliseconds(0);
+        command.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);

@@ -14,6 +14,11 @@ jobs:
   conventional-commits:
     name: Commit messages
     runs-on: ubuntu-latest
+    # Same 25 as every ci.yml job, and for the same reason: a hung step
+    # otherwise runs to GitHub's 6-hour cap. These four finish in 1-2
+    # minutes, so this was never the exposure -- it is here so the guard
+    # is not half-applied. See [CI-no-ctest-timeout].
+    timeout-minutes: 25
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
@@ -43,6 +48,7 @@ jobs:
   lint:
     name: Format and layering
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -139,6 +145,7 @@ jobs:
   powershell-parse:
     name: PowerShell syntax
     runs-on: windows-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -164,6 +171,7 @@ jobs:
   dart-format:
     name: Dart format
     runs-on: ubuntu-22.04
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 

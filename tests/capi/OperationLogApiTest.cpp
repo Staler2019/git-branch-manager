@@ -142,12 +142,60 @@ TEST_F(OperationLogApiTest, HistoryRefreshEmitsOperationLogRecordsForItsGitInvoc
         EXPECT_NE(record.find("\"repoDir\":\"" + jsonNeedle(repo_) + "\""), std::string::npos) << record;
         EXPECT_NE(record.find("\"argv\":["), std::string::npos) << record;
         EXPECT_NE(record.find("\"commandLine\":"), std::string::npos) << record;
+        // benignExit crosses the FFI as its own key rather than being inferred
+        // from argv on the Dart side -- only the caller knows which exit codes
+        // are answers for the question it asked (GitCommand::benignExitCodes).
+        // `false` for every record here is the assertion, not an accident: a
+        // history refresh declares no benign code, so a serializer that
+        // hardcoded `true` would be caught by this loop rather than by the
+        // Dart tests that only ever see decoded values.
+        EXPECT_NE(record.find("\"benignExit\":false"), std::string::npos) << record;
     }
     // At least one of them should be the `git` invocation that reads refs.
     const bool sawGitInvocation = std::any_of(records.begin(), records.end(), [](const std::string& record) {
         return record.find("\"argv\":[\"") != std::string::npos;
     });
     EXPECT_TRUE(sawGitInvocation);
+}
+
+// The reported defect, end to end across the FFI: reading a repository's local
+// git identity when none is configured wrote two red ERROR rows into the
+// operation log on every single refresh.
+//
+// The arrangement is done here rather than in SetUp(), which configures
+// user.name/user.email into --local scope for the fixture's own initial commit
+// and must keep doing so -- the existing test above depends on that commit
+// existing. Unsetting them afterwards leaves exactly the state the reporter's
+// repository is in.
+//
+// gbm_local_identity_refresh(), not gbm_history_refresh(): the latter never
+// reads identity config at all (src/capi/History.cpp), so driving it here
+// would assert against an invocation that does not happen.
+TEST_F(OperationLogApiTest, ReadingAnUnsetLocalIdentityIsRecordedAsBenign) {
+    ASSERT_EQ(runGit({"config", "--local", "--unset", "user.name"}), 0);
+    ASSERT_EQ(runGit({"config", "--local", "--unset", "user.email"}), 0);
+
+    gbm_local_identity_refresh(session_);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_LOCAL_IDENTITY_UPDATED) return true;
+        }
+        return false;
+    }));
+
+    const std::vector<std::string> records = log_.payloadsOfType(GBM_EVENT_OPERATION_LOG_RECORD);
+    const auto isTheIdentityRead = [](const std::string& record) {
+        return record.find("\"--get\",\"user.name\"") != std::string::npos;
+    };
+    const auto identityRead = std::find_if(records.begin(), records.end(), isTheIdentityRead);
+    ASSERT_NE(identityRead, records.end()) << "no `config --local --get user.name` was recorded";
+
+    // The exit code is asserted before the verdict: if a future git stops
+    // answering an unset key with 1, or the arrangement above stops taking
+    // effect, this must go red rather than pass for the wrong reason.
+    EXPECT_NE(identityRead->find("\"exitCode\":1"), std::string::npos) << *identityRead;
+    EXPECT_NE(identityRead->find("\"benignExit\":true"), std::string::npos) << *identityRead;
 }
 
 }  // namespace

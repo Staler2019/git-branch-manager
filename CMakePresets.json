@@ -59,7 +59,7 @@
       "name": "tbase",
       "hidden": true,
       "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+      "execution": { "noTestsAction": "error", "stopOnFailure": false, "timeout": 300 }
     },
     {
       "name": "core-only",

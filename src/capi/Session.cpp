@@ -657,41 +657,87 @@ void Session::commitChanges(CommitRequest request) {
     });
 }
 
+std::size_t Session::cancelOperations(std::uint64_t id) {
+    // Copied out under the lock and tripped outside it: `cancel()` runs the
+    // token's callbacks inline, and one of those reaches into ProcessRunner to
+    // kill a live git process -- not work to do while holding a mutex the
+    // completion callback also takes.
+    std::vector<CancellationSource> targets;
+    {
+        std::lock_guard<std::mutex> lock(inFlightMutex_);
+        for (auto& [key, source] : inFlight_) {
+            if (id == 0 || key == id) {
+                targets.push_back(source);
+            }
+        }
+    }
+    for (auto& source : targets) {
+        source.cancel();
+    }
+    return targets.size();
+}
+
 void Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
                               std::function<void()> onSuccess,
                               std::function<void()> onAlways) {
-    operations_->submit(std::move(operation),
-                        [this,
-                         refreshHistoryOnSuccess,
-                         onSuccess = std::move(onSuccess),
-                         onAlways = std::move(onAlways)](OperationOutcome outcome) {
-                            const bool succeeded = outcome.succeeded;
-                            // "Failed" and "changed nothing" are not the same
-                            // claim. `git branch -d a b` deletes what it can
-                            // and still exits 1 for the rest, so a refused
-                            // multi-branch delete routinely lands here having
-                            // already moved refs/heads -- and refs read only
-                            // on `succeeded` left the sidebar drawing branches
-                            // that no longer existed. Only an operation that
-                            // measured the change sets this (see
-                            // OperationOutcome::mutatedRefs); the AND with
-                            // refreshHistoryOnSuccess is kept, so no operation
-                            // starts refreshing that was not already going to.
-                            const bool changedRefs = succeeded || outcome.mutatedRefs;
-                            refreshUndoJournalCache();
-                            callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
-                            refreshWorkingCopy();
-                            if (onAlways) {
-                                onAlways();
-                            }
-                            if (changedRefs && refreshHistoryOnSuccess) {
-                                refreshHistory();
-                            }
-                            if (succeeded && onSuccess) {
-                                onSuccess();
-                            }
-                        });
+    // The `Handle` submit() returns has been discarded at every one of these
+    // call sites since the runner was written -- which is why every
+    // `timeout = 0` command's "cancel is the control the user needs, not a
+    // timeout" comment named a control nothing could actually reach. Keeping
+    // it here is the whole of what gbm_cancel_operation() needs.
+    //
+    // `idSlot` exists because the id is only known *after* submit() returns,
+    // while the callback that must erase it is built before. **The lock is
+    // held across submit() deliberately**: the callback's own first act is to
+    // take inFlightMutex_, so a fast operation cannot complete and try to
+    // erase an entry this side has not inserted yet. That orders the two by
+    // construction instead of leaving a window to reason about -- and the
+    // window is not one a test could force, so reasoning is all there would
+    // have been. submit() only pushes onto a queue and notifies; it never
+    // waits on the worker, so holding a second mutex across it cannot
+    // deadlock.
+    auto idSlot = std::make_shared<std::uint64_t>(0);
+    std::lock_guard<std::mutex> registration(inFlightMutex_);
+
+    const auto handle =
+        operations_->submit(std::move(operation),
+                            [this,
+                             idSlot,
+                             refreshHistoryOnSuccess,
+                             onSuccess = std::move(onSuccess),
+                             onAlways = std::move(onAlways)](OperationOutcome outcome) {
+                                {
+                                    std::lock_guard<std::mutex> lock(inFlightMutex_);
+                                    inFlight_.erase(*idSlot);
+                                }
+                                const bool succeeded = outcome.succeeded;
+                                // "Failed" and "changed nothing" are not the same claim. `git
+                                // branch -d a b` deletes what it can and still exits 1 for the
+                                // rest, so a refused multi-branch delete routinely lands here
+                                // having already moved refs/heads -- and refs read only on
+                                // `succeeded` left the sidebar drawing branches that no longer
+                                // existed. Only an operation that measured the change sets this
+                                // (see OperationOutcome::mutatedRefs); the AND with
+                                // refreshHistoryOnSuccess is kept, so no operation starts
+                                // refreshing that was not already going to.
+                                const bool changedRefs = succeeded || outcome.mutatedRefs;
+                                refreshUndoJournalCache();
+                                callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
+                                refreshWorkingCopy();
+                                if (onAlways) {
+                                    onAlways();
+                                }
+                                if (changedRefs && refreshHistoryOnSuccess) {
+                                    refreshHistory();
+                                }
+                                if (succeeded && onSuccess) {
+                                    onSuccess();
+                                }
+                            });
+
+    *idSlot = handle.id;
+    inFlight_.emplace(handle.id, handle.cancel);
 }
 
 void Session::mergeBranch(MergeRequest request) {

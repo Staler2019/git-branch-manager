@@ -219,12 +219,35 @@ historical the moment they are written.
   SHORTCUTS'` stays English; `dialog_copy_test.dart`'s 'Preferences' group asserts it directly);
   ledger: [G1i](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
 
+## [DRIFT-cancel-capi-unwired] `gbm_cancel_operation` exists with no Dart caller, by decision
+
+- **Rule**: the capi entry point and its C++ registration landed together; **Dart and UI were
+  deliberately not wired** (使用者裁定:「開 capi cancellation token 然後先不接線」). It is a
+  recorded orphan, not a missing one — see [CPP-cancel-is-registered-not-returned].
+- **Consequence**: the 28 commands that run with `timeout = 0` now have a floor
+  ([CPP-idle-not-total]'s `kHangCeiling`) but still **no user-reachable way to stop one that is
+  still making progress** — which is the case those commands' own comments say cancel is for.
+- **Do**: closing it needs a `CancelOperationDart` typedef, an in-flight id on the Dart side (or
+  a ruling that only `id == 0` 「cancel everything」 is supported — `GBM_EVENT_OPERATION_FINISHED`
+  carries no id today), a UI entry point, and a decision that a user-initiated cancel is **not**
+  drawn as an error (P10's `LOGRULES` reserves error for actions actually refused).
+- **Do**: [TEST-ffi-matches-symbol-only] applies with full force — `lookupFunction` matches by
+  symbol name only, so a wrong `uint64_t` on the Dart side compiles, analyzes and unit-tests
+  clean, then breaks at runtime. **Only a device-tier test crosses that seam**, and
+  `integration_test/` has nothing that reaches operation cancellation at all.
+- **Note**: distinct from **#102**, and the pair is the worked example of
+  [CULT-orphan-wiring]'s 「grep both directions」: #102 is a Dart *setting* with no consumer,
+  this is a C++ *capability* with no reader. Asking 「who calls this」 finds the first and misses
+  the second.
+- **Evidence**: **#139**;
+  [ledger: 追加四](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**
   (Tier 6 spec blockers), **#92**–**#95** (capi with no spec entry point), **#99**,
   **#101**, **#102**, **#109**, **#119** (side-by-side pins neither gutter — awaiting a
-  real-hardware check by the user).
+  real-hardware check by the user), **#139**.
 - **Closed**: **#74** (fix/branch-prune-and-gone-marking — its text was corrected first,
   the same function had two further defects the issue never mentioned, per
   [CULT-correct-the-record]); **#75** (all four 260820 `REVISIONS` shortcut gaps landed in

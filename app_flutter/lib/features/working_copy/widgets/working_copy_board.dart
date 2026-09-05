@@ -311,7 +311,20 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
     );
   }
 
-  /// 「拖曳檔案到右欄 = stage」 -- spec page 03's dashed panel.
+  /// 「拖曳檔案到下欄 = stage」 -- spec page 03's dashed panel,
+  /// with one word changed.
+  ///
+  /// The spec writes this string exactly once and writes it as
+  /// 「拖曳檔案到右欄 = stage」, which was true while Staged sat to the
+  /// right. Stacked, 「右欄」 names a column that is not there, and a hint
+  /// pointing the wrong way is worse than no hint at all -- the same shape
+  /// [UX-ellipsis-promises-a-dialog] records for a control that promises
+  /// what it cannot do.
+  ///
+  /// 使用者裁定 (candidate C1). The spec has no wording for a stacked
+  /// board anywhere in its 21 pages, so every replacement was unsourced
+  /// and this was a ruling rather than a judgement call; 下欄 is the
+  /// minimal edit that keeps the rest of the sentence the spec's own.
   Widget _dropHint(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return Padding(
@@ -328,7 +341,7 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
           borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
         ),
         child: Text(
-          '\u62d6\u66f3\u6a94\u6848\u5230\u53f3\u6b04 = stage',
+          '\u62d6\u66f3\u6a94\u6848\u5230\u4e0b\u6b04 = stage',
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: GbmTypography.textXs,

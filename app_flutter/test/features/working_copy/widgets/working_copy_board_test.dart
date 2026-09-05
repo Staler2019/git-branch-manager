@@ -379,7 +379,7 @@ void main() {
       );
 
       expect(
-        find.text('\u62d6\u66f3\u6a94\u6848\u5230\u53f3\u6b04 = stage'),
+        find.text('\u62d6\u66f3\u6a94\u6848\u5230\u4e0b\u6b04 = stage'),
         findsOneWidget,
       );
     });

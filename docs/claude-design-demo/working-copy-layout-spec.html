@@ -226,27 +226,27 @@ td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-nu
   --gbm-surface-selected:#eaf1fe;
   --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
   --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
-  --gbm-accent:#2f81f7; --gbm-warning:#c97a17;
-  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37;
-  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#c97a17; --gbm-success:#1a8a4a;
+  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37; --gbm-diff-add-strong:#bfe9cd;
+  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e; --gbm-diff-del-strong:#f3c8c8;
 }
 [data-app-theme="dark-technical"] {
   --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
   --gbm-surface-selected:#0d2a4d;
   --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
   --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
-  --gbm-accent:#2f81f7; --gbm-warning:#d29922;
-  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8;
-  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#0d2a4d; --gbm-warning:#d29922; --gbm-success:#3fb950;
+  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8; --gbm-diff-add-strong:#173e24;
+  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93; --gbm-diff-del-strong:#4d1c1c;
 }
 [data-app-theme="light-ide"] {
   --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
   --gbm-surface-selected:#e4edfd;
   --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
   --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
-  --gbm-accent:#2f81f7; --gbm-warning:#9a6700;   /* corrected: the sibling page carries #bf8700, which is not what _lightIde.warning holds */
-  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329;
-  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#9a6700; --gbm-success:#1a7f37;   /* warning corrected: the sibling page carries #bf8700, which is not what _lightIde.warning holds */
+  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329; --gbm-diff-add-strong:#c9f0d4;
+  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f; --gbm-diff-del-strong:#ffc9c2;
 }
 
 /* ============================================================
@@ -371,6 +371,85 @@ td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-nu
 }
 .btn.primary { background: var(--gbm-accent); border-color: var(--gbm-accent); color: var(--gbm-text-on-accent); }
 
+/* ============================================================
+   SCOPE CARDS (section 06)
+   A fourth tag joins the three above:
+     [B]  quoted from the "Diff Scope Studies" artifact's 變體 B —
+          the design source for this whole surface. Its token names
+          map 1:1 onto the app's (--space-1..4 = 4/8/12/16,
+          --radius-sm/md = 4/6, --text-xs/sm = 11/12.5,
+          --row-h-compact = 26), so every value below is comparable
+          to a real constant without conversion.
+   `.sc` alone draws 變體 B as designed. `.sc.is-built` overrides
+   only the properties the shipped code actually differs on, so the
+   two specimens differ in exactly the rows section 06's table lists
+   and in nothing else.
+   ============================================================ */
+.sc { padding: 8px; background: var(--gbm-surface-sunken);              /* [B] .variant-B-well */
+  border: 1px solid var(--gbm-border-subtle); border-radius: 6px; }
+.sc__hunk { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px;  /* [B] .variant-B-hunk */
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--gbm-text-tertiary); }
+.sc__rule { flex: 1 1 auto; height: 1px; background: var(--gbm-border-subtle); }  /* [B] .variant-B-hunkrule */
+.sc__card { margin: 8px 0; background: var(--gbm-surface-panel);        /* [B] .variant-B-card */
+  border: 1px solid var(--gbm-border-default); border-left: 3px solid var(--gbm-accent);
+  border-radius: 6px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.sc__card.staged { border-left-color: var(--gbm-success); }             /* [B] .variant-B-card-staged */
+.sc__card.muted  { border-left-color: var(--gbm-border-strong); box-shadow: none; }  /* [B] .variant-B-card-muted */
+.sc__head { display: flex; align-items: center; gap: 8px;               /* [B] .variant-B-cardhead */
+  height: 30px; padding: 0 8px 0 12px;
+  background: var(--gbm-surface-panel-raised); border-bottom: 1px solid var(--gbm-border-default); }
+.sc__card.muted .sc__head { background: var(--gbm-surface-sunken); }    /* [B] */
+.sc__tag { font-size: 11px; font-weight: 600; color: var(--gbm-text-secondary); white-space: nowrap; }  /* [B] .variant-B-tag */
+.sc__stat { display: inline-flex; gap: 8px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }  /* [B] .variant-B-stat */
+.sc__stat .p { color: var(--gbm-diff-add-strong); }   /* [B] .variant-B-plus  -- yes, the *-strong tint, as written */
+.sc__stat .m { color: var(--gbm-diff-del-strong); }   /* [B] .variant-B-minus -- see S6's note on what that costs */
+.sc__grow { flex: 1 1 auto; min-width: 8px; }
+.sc__btn { display: inline-flex; align-items: center;                   /* [B] .variant-B-btn + -btn-stage */
+  height: 24px; padding: 0 12px; border-radius: 6px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--gbm-accent); background: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+.sc__btn.off { background: var(--gbm-surface-sunken);                   /* [B] .variant-B-btn-off */
+  border-color: var(--gbm-border-subtle); color: var(--gbm-text-tertiary); text-decoration: line-through; }
+.sc__temp { margin: 4px 0; background: var(--gbm-surface-panel);        /* [B] .variant-B-temp */
+  border: 1px dashed var(--gbm-accent); border-radius: 4px; }
+.sc__temphead { display: flex; align-items: center; gap: 8px;           /* [B] .variant-B-temphead */
+  height: 28px; padding: 0 4px 0 8px;
+  background: var(--gbm-accent-subtle); border-bottom: 1px dashed var(--gbm-accent); }
+.sc__once { padding: 0 8px; border: 1px solid var(--gbm-warning); border-radius: 999px;  /* [B] .variant-B-once */
+  font-size: 11px; font-weight: 600; color: var(--gbm-warning); white-space: nowrap; }
+.sc__gap { padding-left: 2px; border-left: 1px dashed var(--gbm-border-default); }  /* [B] .variant-B-gap */
+
+/* ---- what the shipped code actually draws, overriding only the deltas ---- */
+.is-built .sc__rule { display: none; }                                     /* no rule beside the hunk heading */
+.is-built .sc__hunk { height: 22px; padding: 0; }                             /* [TOK] GbmRow height 22, EdgeInsets.zero */
+.is-built .sc__card { margin: 4px 0; }                                     /* [TOK] space1, not space2 */
+.is-built .sc__head { height: auto; padding: 3px 8px; border-bottom: none; }
+.is-built .sc__card.muted .sc__head { background: var(--gbm-surface-panel-raised); }
+.is-built .sc__tag { font-weight: 700; }                                   /* [TOK] weightBold */
+.is-built .sc__stat span { font-size: 10.5px; padding: 0 5px; border-radius: 999px; line-height: 15px; }  /* [TOK] GbmBadge */
+.is-built .sc__stat .p { color: var(--gbm-diff-add-text); background: var(--gbm-diff-add-bg); }   /* [TOK] GbmBadge added */
+.is-built .sc__stat .m { color: var(--gbm-diff-del-text); background: var(--gbm-diff-del-bg); }   /* [TOK] GbmBadge removed */
+.is-built .sc__btn { padding: 0 8px; font-weight: 500; }                   /* [TOK] GbmButton sm: space2, weightMedium */
+.is-built .sc__temp { border-style: solid; }
+.is-built .sc__temphead { height: auto; padding: 3px 8px; border-bottom: none; }
+.is-built .sc__once { border: none; padding: 0 5px; border-radius: 999px;  /* [TOK] GbmBadge, neutral kind */
+  background: var(--gbm-surface-sunken); color: var(--gbm-text-secondary);
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; }
+.is-built .sc__gap { padding-left: 2px; border-left: 2px solid var(--gbm-border-subtle); opacity: .6; }
+
+/* column head above the well */
+.sc-col { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px; }  /* [B] .variant-B-colhead, [TOK] rowHeightCompact */
+.sc-col__dot { width: 8px; height: 8px; border-radius: 999px; background: var(--gbm-accent); flex: 0 0 auto; }  /* [B] .variant-B-dot */
+.sc-col__dot.staged { background: var(--gbm-success); }
+.sc-col__t { font-size: 12.5px; font-weight: 600; color: var(--gbm-text-primary); }  /* [B] .variant-B-coltitle */
+.sc-col__chip { padding: 1px 8px; background: var(--gbm-surface-panel-raised);       /* [B] .variant-B-chip */
+  border: 1px solid var(--gbm-border-subtle); border-radius: 999px;
+  font-size: 11px; color: var(--gbm-text-tertiary); white-space: nowrap; }
+.is-built .sc-col { height: auto; padding: 4px 8px; }                          /* [TOK] space1 / space2 */
+.is-built .sc-col__dot { width: 6px; height: 6px; }                            /* [TOK] _ColumnHead's own Container(width: 6, height: 6) */
+.is-built .sc-col__t { font-size: 11px; font-weight: 700; color: var(--gbm-text-secondary); }
+.is-built .sc-col__chip { padding: 0; background: none; border: none; }
+
 /* ---------- proportion diagram (scaled, not true size) ---------- */
 .prop { width: 100%; }
 .prop__win {
@@ -441,10 +520,10 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · diff 在右側</span>
       <span class="pill is-ratified">使用者裁定 · commit box 位置不變</span>
       <span class="pill is-ratified">使用者裁定 · diff 預設改 unified</span>
-      <span class="pill is-open">左欄寬度待裁定</span>
-      <span class="pill is-open">drop hint 文案待裁定</span>
-      <span class="pill is-open">tree 模式葉節點文字待裁定</span>
-      <span class="pill is-open">spec 通過才開工</span>
+      <span class="pill is-ratified">使用者裁定 · 左欄固定寬（方案 A）</span>
+      <span class="pill is-ratified">使用者裁定 · drop hint 用 C1</span>
+      <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
+      <span class="pill is-open">scope 卡片樣式待裁定（§06）</span>
     </div>
   </header>
 
@@ -691,19 +770,16 @@ footer.colophon {
       </div>
     </div>
 
-    <div class="callout is-ask">
-      <div class="callout__title">Needs a ruling — third one</div>
+    <div class="callout">
+      <div class="callout__title">Ruled — <span class="zh">「tree 一起修」</span></div>
       <p>
         This is <b>not</b> caused by the relayout; it is true in the current app today, at any
-        width. Fixing it is therefore <b>scope this round did not ask for</b>, and that is your
-        call, not mine.
+        width — so fixing it was scope this round did not originally ask for. The user brought it
+        into scope explicitly. It ships as <b>W10</b>, its own revertible commit.
       </p>
       <p style="margin-bottom:0">
-        <b>Recommendation: fix it in this round</b>, as its own commit. Tree mode in a 260px column
-        is the first place it stops being cosmetic, and shipping the relayout without it means
-        tree mode arrives visibly broken on a screen this round is supposed to have improved.
-        <b>List mode is unaffected either way</b> — a flat list has no parent to strip, so the full
-        path stays, which is correct there.
+        <b>List mode is unaffected</b> — a flat list has no parent folder to strip, so the full
+        path stays there, which is correct.
       </p>
     </div>
 
@@ -808,20 +884,18 @@ footer.colophon {
       </div>
     </div>
 
-    <div class="callout is-ask">
-      <div class="callout__title">Needs a ruling</div>
+    <div class="callout">
+      <div class="callout__title">Ruled — <span class="zh">方案 A</span>, fixed width</div>
       <p>
-        <b>Recommendation: Option A.</b> The complaint is that file content has no width; A is the
-        only one of the two where widening the window is a cure. A 500px-wide column of file paths
-        at 1920 is space spent on strings that are ~30 characters long. Concretely, at 1920 the
-        diff gets <b>1408</b> under A and <b>1168</b> under B — 240px, or about 20 more columns
-        of code, for a file list nobody asked to be wider.
+        <code>GbmSplitterSpec.extent</code>, with <code>GbmFixedPaneEnd.leading</code>. Every pixel
+        the window gains goes to the diff: at 1920 that is <b>1408</b> for code against B's 1168 —
+        240px, about 20 more columns.
       </p>
       <p style="margin-bottom:0">
-        The counter-argument for B is honest and worth stating: it is nearer the spec's own row
-        (a ratio), and it needs no invented pixel default — <b>A's 260 and 180 have no source at
-        all</b> (section 04). If you pick A, those two numbers are yours to set; the ones drawn
-        above are a proposal.
+        <b>The two numbers still have no source</b> (section 04): <code>defaultExtent 260</code>
+        and <code>minExtent 180</code> are this page's proposal, carried forward because the ruling
+        picked the mode and did not name figures. They are the ones implemented unless you say
+        otherwise; <code>splitterMainSidebar</code>'s own 250 / 180 is the nearest precedent.
       </p>
     </div>
 
@@ -968,18 +1042,312 @@ footer.colophon {
             <td>Says both directions, which the current hint never did — the Staged pane has no hint of its own and unstaging is undiscoverable. Honest, and the biggest departure: new information, not a corrected word.</td></tr>
       </tbody>
     </table></div>
-    <div class="callout is-ask">
-      <div class="callout__title">Needs a ruling</div>
+    <div class="callout">
+      <div class="callout__title">Ruled — <span class="zh">C1</span></div>
       <p style="margin-bottom:0">
-        C1 unless you want the unstage direction spelled out, in which case C3. The mockups in
-        section 02 and 03 are drawn with <b>C1</b>.
+        <span class="zh">「拖曳檔案到下欄 = stage」</span>. One character moves,
+        <span class="zh">右</span> → <span class="zh">下</span>; the sentence shape, the
+        <code>=</code> and the noun <span class="zh">欄</span> all stay the spec's. The mockups in
+        sections 02 and 03 already draw it. <b>The Staged pane still has no hint of its own</b> —
+        C3 was the candidate that would have added one, and it was not the one chosen, so
+        unstaging stays as discoverable (or not) as it is today.
       </p>
     </div>
   </section>
 
   <!-- ============================ 6 ============================ -->
+  <section id="scopes">
+    <div class="sec-head"><span class="sec-num">06</span><h2>The stage/unstage scope cards, which were never written down</h2></div>
+    <p class="lede">
+      <span class="zh">「這部分之前只有 code 修改，沒有設計在 spec 上」</span> — correct, and worse
+      than it sounds. The design exists and is yours; what does not exist is any page under
+      <code>docs/</code> that records it. The only trace in this repository is a set of CSS class
+      names in Dart doc comments.
+    </p>
+    <p>
+      The source is <b>Diff Scope Studies</b>, <span class="zh">變體 B</span> —
+      <code>claude.ai/code/artifact/bd3d9fdf-18a4-473a-95b3-27aa34966361</code>. It is cited in
+      <code>docs/rules/ops-spec-reading.md</code> as <code>[SPEC-demo-dom-is-the-spec]</code>, with
+      the URL truncated to <code>bd3d9fdf-…</code>, so the rule that says <em>read the DOM</em>
+      could not be obeyed from the repo alone. Both its CSS and its DOM were fetched back for this
+      section. <b>Its token names map 1:1 onto the app's</b> — <code>--space-1..4</code> are
+      4/8/12/16, <code>--radius-sm/md</code> 4/6, <code>--text-xs/sm</code> 11/12.5,
+      <code>--row-h-compact</code> 26 — so every number below compares directly against a real
+      constant, with no conversion in between.
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after"><span class="zh">變體 B</span>, as designed</span>
+          <span class="specimen-note">quoted CSS + DOM</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div style="width:100%; max-width:470px">
+            <div class="sc-col">
+              <span class="sc-col__dot"></span>
+              <span class="sc-col__t">Unstaged</span>
+              <span class="sc__grow"></span>
+              <span class="sc-col__chip">2 個 scope</span>
+            </div>
+            <div class="sc">
+              <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">38</span>  int allocate(Commit c) {</div>
+                <div class="dl"><span class="g">39</span>    for (final lane in lanes) {</div>
+              </div>
+              <div class="sc__card">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 1</span>
+                  <span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn">Stage 3 lines</span>
+                </div>
+                <div>
+                  <div class="dl del"><span class="g">40</span>-    if (lane.free) return lane.index;</div>
+                  <div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed != c) return …</div>
+                  <div class="dl"><span class="g">41</span>    }</div>
+                </div>
+              </div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">44</span>  }</div>
+              </div>
+              <div class="sc__card muted">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 2</span>
+                  <span class="sc__stat"><span class="p">+1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn off">Stage 1 line</span>
+                </div>
+                <div class="sc__temp">
+                  <div class="sc__temphead">
+                    <span class="sc__tag">臨時選取</span>
+                    <span class="sc__once">一次性</span>
+                    <span class="sc__grow"></span>
+                    <span class="sc__btn">Stage 2 lines</span>
+                  </div>
+                  <div>
+                    <div class="dl add"><span class="g">46</span>+    log('no free lane; growing');</div>
+                    <div class="dl"><span class="g">47</span>    return grow();</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          The one-shot block sits <b>inside</b> the card it overlaps, splitting its body, and the
+          card it supersedes goes grey-edged with its own button struck through and inert.
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">What ships today</span>
+          <span class="specimen-note">read off <code>scoped_diff_view.dart</code></span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px">
+            <div class="sc-col">
+              <span class="sc-col__dot"></span>
+              <span class="sc-col__t">Unstaged</span>
+              <span class="sc__grow"></span>
+              <span class="sc-col__chip">2 個 scope</span>
+            </div>
+            <div class="sc">
+              <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">38</span>  int allocate(Commit c) {</div>
+                <div class="dl"><span class="g">39</span>    for (final lane in lanes) {</div>
+              </div>
+              <div class="sc__card">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 1</span>
+                  <span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn">Stage 3 lines (2 changed)</span>
+                </div>
+                <div>
+                  <div class="dl del"><span class="g">40</span>-    if (lane.free) return lane.index;</div>
+                  <div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed != c) return …</div>
+                  <div class="dl"><span class="g">41</span>    }</div>
+                </div>
+              </div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">44</span>  }</div>
+              </div>
+              <div class="sc__card muted">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 2</span>
+                  <span class="sc__stat"><span class="p">+1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn off">Stage 1 line</span>
+                </div>
+                <div class="sc__temp">
+                  <div class="sc__temphead">
+                    <span class="sc__tag">臨時選取</span>
+                    <span class="sc__once">一次性</span>
+                    <span class="sc__grow"></span>
+                    <span class="sc__btn">Stage 2 lines</span>
+                  </div>
+                  <div>
+                    <div class="dl add"><span class="g">46</span>+    log('no free lane; growing');</div>
+                    <div class="dl"><span class="g">47</span>    return grow();</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          Every structural decision survived. What drifted is the surface: no rule beside the hunk
+          heading, no line under either head, solid where the design is dashed, badges where the
+          design has plain figures, a smaller and heavier column title, and a neutral
+          <span class="zh">一次性</span> chip where the design outlines it in
+          <code>--warning</code>.
+        </p>
+      </div>
+    </div>
+    <p class="specimen-note" style="margin-top:1rem">
+      Both drawn at 470px for this page's two-up grid. The real pane is 768px wide at a 1280 window
+      (section 03) — nothing in this section is width-dependent, which is why the comparison can be
+      made at either.
+    </p>
+
+    <h3>Every difference, and what kind of difference it is</h3>
+    <p>
+      Grouped by the decision they belong to rather than listed one per property, because they are
+      not fifteen independent choices — they are six.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:6%">#</th><th style="width:24%">What</th><th style="width:22%"><span class="zh">變體 B</span></th><th style="width:22%">Today</th><th style="width:14%">Kind</th></tr></thead>
+      <tbody>
+        <tr><td class="num">S1</td><td>Card: stripe, radius, shadow, fill; muted's grey edge and dropped shadow; <code>-btn-off</code>'s line-through and inertness; the well behind them</td>
+            <td colspan="2">Identical. The card is two nested <code>Container</code>s only because Flutter refuses a <code>borderRadius</code> on a border whose sides differ in colour (<code>[FLU-border-uniform-color-required]</code>).</td>
+            <td class="verdict ok">符合</td></tr>
+        <tr><td class="num">S2</td><td><span class="zh">臨時選取</span>'s placement</td>
+            <td>nested <em>inside</em> the card, splitting its body</td>
+            <td>the same</td>
+            <td class="verdict ok">符合 · but see below</td></tr>
+        <tr><td class="num">S3</td><td><b>Dashed vs solid</b>, three places: the temp block's border, the line under its head, the gap's left rule</td>
+            <td><code>1px dashed</code> accent · <code>1px dashed</code> accent · <code>1px dashed border-default</code></td>
+            <td>solid accent · none at all · <code>2px</code> solid <code>border-subtle</code> plus <code>Opacity(0.6)</code></td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S4</td><td><b>Card head's box</b></td>
+            <td>height <code>30</code>, padding <code>0 space2 0 space3</code>, <code>border-bottom 1px border-default</code>; muted's head goes <code>surface-sunken</code></td>
+            <td>no fixed height (3px vertical padding), symmetric <code>space2</code>, no bottom border; head is always <code>surfacePanelRaised</code></td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S5</td><td><b>Column head</b></td>
+            <td>height <code>row-h-compact</code>, padding <code>0 space1</code>; dot <b>8×8</b>; title <code>text-sm</code> semibold <code>text-primary</code>; count is a <code>radius-full</code> chip on <code>panel-raised</code> with a <code>border-subtle</code> ring</td>
+            <td>padding <code>space2 / space1</code>, no fixed height; dot <b>6×6</b>; title <code>textXs</code> bold <code>textSecondary</code>; count is plain tertiary text</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S6</td><td><b><code>+N −M</code> in the card head</b></td>
+            <td>plain mono figures, <code>text-xs</code>, coloured <code>--diff-add-strong</code> / <code>--diff-del-strong</code> — <b>the pale background tints</b>, used here as a text colour</td>
+            <td><code>GbmBadge</code> pills, kind <code>added</code>/<code>removed</code>: <code>diffAddText</code> on <code>diffAddBg</code>, 10.5px</td>
+            <td class="verdict none">待裁定<br>(implementer's judgement, documented)</td></tr>
+        <tr><td class="num">S7</td><td><b>Button label</b></td>
+            <td><code>Stage 3 lines</code></td>
+            <td><code>Stage 3 lines (2 changed)</code> when the span and the changed count differ</td>
+            <td class="verdict none">待裁定<br>(implementer's judgement, documented)</td></tr>
+        <tr><td class="num">S8</td><td><span class="zh">一次性</span> chip</td>
+            <td><code>radius-full</code>, transparent, <b>outlined and lettered in <code>--warning</code></b>, <code>text-xs</code> semibold</td>
+            <td><code>GbmBadge</code> at its default <code>neutral</code> kind: <code>surfaceSunken</code> ground, <code>textSecondary</code> letters, 10.5px mono</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S9</td><td>Hunk heading</td>
+            <td>mono <code>text-xs</code> tertiary, followed by a <b>1px rule filling the rest of the row</b></td>
+            <td>the same type, no rule; a <code>GbmRow</code> of height 22 with an <code>onTap</code> — which the design does not draw and <code>SCOPES</code> row 6 requires</td>
+            <td class="verdict none">待裁定<br>(the rule only)</td></tr>
+        <tr><td class="num">S10</td><td>Card's vertical margin</td>
+            <td><code>space2</code> (8)</td><td><code>space1</code> (4)</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S11</td><td>Card hover</td>
+            <td><code>border-strong</code>, <code>accent-hover</code> stripe, <code>shadow-md</code></td>
+            <td>no hover state</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S12</td><td>Per-card horizontal scroll (<code>.variant-B-scroll</code>, 6px thumb on hover)</td>
+            <td>each card body scrolls on its own</td>
+            <td><code>GbmCodeHScroll</code> + <code>GbmPinnedGutter</code>, one scroller per surface, under the app-wide soft-wrap preference</td>
+            <td class="verdict ok">已被裁定取代<br><code>[STRUCT-soft-wrap-preference]</code></td></tr>
+        <tr><td class="num">S13</td><td>Button metrics: height 24 and <code>text-xs</code> match; padding <code>space3</code> vs <code>space2</code> and weight semibold vs medium do not</td>
+            <td colspan="2">Both mismatches are <code>GbmButton</code>'s own <code>sm</code> sizing, shared by every small button in the app. Changing them here is not a scope-card change.</td>
+            <td class="verdict ok">共用元件<br>out of scope</td></tr>
+        <tr><td class="num">S14</td><td>The code rows themselves — gutters, sign column, selection tint</td>
+            <td colspan="2"><code>DiffLineView</code>, shared with History, Compare, the panels and the conflict window. Same reasoning as S13.</td>
+            <td class="verdict ok">共用元件<br>out of scope</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>
+      <b>This section was audited before you saw it</b>, both columns at once: every
+      <span class="zh">變體 B</span> value against the artifact's own CSS and DOM, every
+      <em>Today</em> value against the Dart. 58 values, 52 clean, and <b>four corrections applied
+      to this page</b> — the dot's 8px (drawn at the code's 6 and passed off as the design's), the
+      <code>+N −M</code> colour token (a substitution I had made silently, which is how the S6
+      legibility problem came to light at all), a hunk-heading padding that contradicted its own
+      comment, and one 6px that matched nothing and is now deleted rather than tagged.
+    </p>
+
+    <div class="callout is-warn">
+      <div class="callout__title">A rule this comparison proved stale</div>
+      <p style="margin-bottom:0">
+        <code>[STRUCT-working-copy]</code> says the one-shot scope is
+        <span class="zh">「rendered in a fixed slot at the top」</span>. It is not, and has not been
+        since the round that nested it — the DOM above and
+        <code>scoped_diff_view.dart</code>'s own doc comment agree with each other and not with the
+        rule. Corrected in place as part of W9 rather than filed as work, because there is nothing
+        to build: the code is already right and only the record is wrong.
+      </p>
+    </div>
+
+    <div class="callout is-ask">
+      <div class="callout__title">Needs a ruling — six of them, and a default for each</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><b>S3 dashed lines</b> — <em>recommend adopting</em>. The dash is not decoration: it is
+          what separates <span class="zh">臨時選取</span>'s <span class="zh">一次性</span> block
+          from the solid-edged cards that persist. Today both are solid and only the colour
+          differs.</li>
+        <li><b>S4 card head</b> — <em>recommend adopting the bottom border</em> (the head reads as
+          part of the code without it) <em>and the muted head's sunken ground</em>; the fixed 30px
+          height <em>recommend leaving as it is</em>, because the head is a <code>Wrap</code> that
+          is allowed to take a second line in a narrow pane, and a fixed height would clip it —
+          which matters more now that the pane is a right-hand column.</li>
+        <li><b>S5 column head</b> — <em>recommend adopting the chip and the 8px dot</em>, and
+          <em>leaving the title</em> at <code>textXs</code>/bold/secondary, which is what every
+          other pane header in this app uses; matching the design here would make this one header
+          unlike its neighbours.</li>
+        <li><b>S6 <code>+N −M</code></b> — <em>recommend keeping the badges</em>, and this is the
+          one place a difference is recommended <b>against</b> the design on its own merits rather
+          than on consistency. <span class="zh">變體 B</span> writes
+          <code>.variant-B-plus { color: var(--diff-add-strong) }</code>, and
+          <code>--diff-add-strong</code> is the <em>pale background tint</em> — <code>#bfe9cd</code>
+          light, <code>#173e24</code> dark. As a text colour on the head's own
+          <code>panel-raised</code> ground that is <code>#173e24</code> on <code>#161b22</code> in
+          the theme this app ships in: all but unreadable. The specimen above draws it as written,
+          which is why the left-hand figures look absent. Consistency points the same way — the two
+          file lists beside this pane draw the identical fact as a <code>GbmBadge</code>.</li>
+        <li><b>S7 <code>(N changed)</code></b> — <em>recommend keeping it</em>.
+          <span class="zh">匡選行數</span> and <span class="zh">實際變動行數</span> are different
+          numbers and the button moves the first; the design's shorter label is only unambiguous
+          when they are equal, which is exactly when the code omits the parenthetical anyway.</li>
+        <li><b>S8 <span class="zh">一次性</span> chip</b> — <em>recommend adopting the warning
+          outline</em>. It is the one thing on screen that says <span class="zh">「這個按下去就
+          沒了」</span>, and a neutral pill is the same shape as the count badges beside it.</li>
+        <li><b>S9 hunk rule · S10 margin · S11 hover</b> — <em>recommend adopting all three</em>;
+          each is one property, and hover is the one dimension-D signal the card currently has
+          none of.</li>
+      </ul>
+    </div>
+    <p style="margin-top:1.25rem">
+      Taking every recommendation above is <b>W11–W13</b> in section 08, three commits. Rejecting
+      any of them removes lines from those commits and adds nothing;
+      <code>scoped_diff_view.dart</code> is not touched at all until this section is ruled on, so
+      the rest of the round can proceed in the meantime.
+    </p>
+  </section>
+
+  <!-- ============================ 7 ============================ -->
   <section id="deviation">
-    <div class="sec-head"><span class="sec-num">06</span><h2>What this overrules, quoted</h2></div>
+    <div class="sec-head"><span class="sec-num">07</span><h2>What this overrules, quoted</h2></div>
     <p class="lede">
       Two rows of spec page 09's <code>SPLITTERS</code> table, both of which today's code matches
       exactly. <code>dir</code> names the <em>divider line's</em> own orientation.
@@ -1012,6 +1380,7 @@ footer.colophon {
       <ul class="plain" style="margin-bottom:0">
         <li><code>docs/reports/spec-conformance-matrix.md</code> — both rows currently read <span class="zh">符合</span>. Struck and rewritten <b>in place</b> as a ratified deviation, or the next audit repairs this layout back to the old one.</li>
         <li><code>[STRUCT-working-copy]</code> — <span class="zh">「Below the columns, the diff area…」</span> stops being true.</li>
+        <li><code>[STRUCT-working-copy]</code>, second line — <span class="zh">「rendered in a fixed slot at the top」</span> was <b>already</b> untrue before this round; the one-shot block nests inside its card (§06). Corrected on the same pass, marked as a pre-existing error rather than as something this round changed.</li>
         <li><code>[STRUCT-two-column-switches]</code> — the Working Copy row's default flips to <code>unified</code>.</li>
         <li><code>splitterWcDiffSides</code>'s doc comment — <span class="zh">「nested inside <code>splitterWcDiff</code>'s 54% share」</span> stops being true.</li>
       </ul>
@@ -1020,16 +1389,17 @@ footer.colophon {
 
   <!-- ============================ 7 ============================ -->
   <section id="worklist">
-    <div class="sec-head"><span class="sec-num">07</span><h2>Work list</h2></div>
+    <div class="sec-head"><span class="sec-num">08</span><h2>Work list</h2></div>
     <p class="lede">
-      Each is its own commit so each can be reverted alone. W1 and W6 are blocked until sections
-      03 and 05 are ruled on.
+      Each is its own commit so each can be reverted alone. <b>W1–W10 are unblocked</b> — sections
+      02, 03 and 05 are all ruled. <b>W11–W13 wait on section 06</b>, and nothing else waits on
+      them: they touch one file no other item does.
     </p>
     <div class="tablewrap"><table>
       <thead><tr><th style="width:6%">#</th><th style="width:28%">Item</th><th style="width:10%">Sites</th><th>What it is</th></tr></thead>
       <tbody>
         <tr><td class="num">W1</td><td>Two new <code>GbmSplitterSpec</code>s, two deleted</td><td class="num">1 file<br>+6 tests</td>
-            <td><b>Blocked on §03.</b> <code>splitterWcColumns</code> and <code>splitterWcDiff</code> go; their replacements carry new storage ids. Old keys orphan by design.</td></tr>
+            <td><code>splitterWcColumns</code> and <code>splitterWcDiff</code> go; their replacements carry new storage ids. Old keys orphan by design. Per §03's ruling the files↔diff one is <code>extent(260, min 180)</code>, the stacked one keeps <code>1 : 1</code> with the new floor from W5.</td></tr>
         <tr><td class="num">W2</td><td>Outer pane &rarr; horizontal</td><td class="num">1</td>
             <td><code>working_copy_view.dart</code>'s middle <code>GbmSplitPane</code>. Children keep their order, so board is left and diff is right. The commit box's <code>Container</code> is not touched.</td></tr>
         <tr><td class="num">W3</td><td>Inner board &rarr; vertical</td><td class="num">1</td>
@@ -1039,15 +1409,21 @@ footer.colophon {
         <tr><td class="num">W5</td><td>Narrow-column overflow guard</td><td class="num">1 + test</td>
             <td>The stacked pane's floor, per §03's arithmetic. <code>RenderFlex</code> lays non-flex children out first, so the header and the hint decide this, not the list.</td></tr>
         <tr><td class="num">W6</td><td>Drop hint text</td><td class="num">1 + tests</td>
-            <td><b>Blocked on §05.</b></td></tr>
+            <td><span class="zh">右</span> → <span class="zh">下</span> per §05's C1 ruling. One string, and the tests that assert it.</td></tr>
         <tr><td class="num">W7</td><td>Layout tests</td><td class="num">4 files</td>
             <td>Unstaged above Staged; files column left of diff; commit box last and full width. Asserted against a <b>neighbour's</b> rect, never a pixel constant. Drag-gesture coordinates rotate from horizontal to vertical.</td></tr>
         <tr><td class="num">W8</td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
             <td><code>stage_lines_flow</code>, <code>working_copy_line_counts</code>, <code>commit_flow</code>, <code>commit_file_counts</code>, <code>conflict_flow</code>. Grepped by <code>GbmActionId</code> as well as by widget name.</td></tr>
         <tr><td class="num">W10</td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
-            <td><b>Blocked on §02's third ruling.</b> Strip the parent folder's <code>displayPath</code> prefix from the leaf, keeping any collapsed segment. List mode untouched. Pre-existing defect, not caused by the relayout.</td></tr>
-        <tr><td class="num">W9</td><td>Correct the four records in §06</td><td class="num">4</td>
-            <td>In place, struck and rewritten — not silently re-numbered.</td></tr>
+            <td>Strip the parent folder's <code>displayPath</code> prefix from the leaf, keeping any collapsed segment. List mode untouched. Pre-existing defect, brought into scope by the user; not caused by the relayout.</td></tr>
+        <tr><td class="num">W11</td><td>Scope card: the lines the design draws and the code does not</td><td class="num">1 + tests</td>
+            <td><b>Blocked on §06.</b> S3's three dashed rules, S4's head border and muted ground, S9's hunk rule, S10's margin. All of it inside <code>scoped_diff_view.dart</code>; no logic, no <code>selection_touch.dart</code>, no <code>diff_scopes.dart</code>.</td></tr>
+        <tr><td class="num">W12</td><td><span class="zh">一次性</span> chip and the column-head chip</td><td class="num">1–2 + tests</td>
+            <td><b>Blocked on §06.</b> S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds — so either a fourth kind or a local widget, and that choice is part of the ruling's cost. S5's scope-count chip is a plain container.</td></tr>
+        <tr><td class="num">W13</td><td>Scope card hover</td><td class="num">1 + test</td>
+            <td><b>Blocked on §06.</b> S11. Assert the token by identity — <code>[FLU-hand-rolled-inkwell-hover]</code>: a hover test that only checks for no exception proves nothing, and <code>ThemeData.hoverColor</code> is invisible on a real display.</td></tr>
+        <tr><td class="num">W9</td><td>Correct the records in §07</td><td class="num">5</td>
+            <td>In place, struck and rewritten — not silently re-numbered. Five now, not four: <code>[STRUCT-working-copy]</code>'s <span class="zh">「fixed slot at the top」</span> was already wrong before this round started (§06).</td></tr>
       </tbody>
     </table></div>
 
@@ -1064,13 +1440,15 @@ footer.colophon {
 
   <!-- ============================ 8 ============================ -->
   <section id="acceptance">
-    <div class="sec-head"><span class="sec-num">08</span><h2>Acceptance</h2></div>
+    <div class="sec-head"><span class="sec-num">09</span><h2>Acceptance</h2></div>
     <ul class="plain">
       <li>A layout test asserts <b>Unstaged's rect is above Staged's</b> and <b>the files column's right edge is at or before the diff's left edge</b> — both against the neighbour, so the test cannot pass by matching a constant that also moved.</li>
       <li>A test asserts the commit box is still the <b>last</b> child and still spans the full width. This is the only mechanical statement of <span class="zh">「位置不變」</span>.</li>
       <li>The stacked column at its <code>minExtent</code> throws no overflow. <code>RenderFlex</code> reports main-axis overflow only, so this test is on the vertical axis by construction.</li>
       <li>Pumping the diff pane with no interaction shows <b>one</b> column. Tapping <code>2 file</code> shows two, left unstaged and right staged — the existing dx assertion, kept, now behind a tap.</li>
       <li>Dragging a row from Unstaged <b>downward</b> onto Staged stages it, and upward unstages — with the empty-column placeholder still inside the <code>DragTarget</code>'s builder, so a first-ever file can still be dropped on.</li>
+      <li>Tree mode's leaf row paints <b>the segment below its parent folder</b>, not the full path — asserted by pumping the board in tree mode and reading what was painted, the same way the defect was found. List mode still paints the full path, asserted in the same test so a fix that hits both fails.</li>
+      <li><b>If §06 is ruled:</b> each adopted property asserted by identity, never by absence of exception — the border's <code>BorderSide.style</code>, the chip's colour against <code>colors.warning</code>, the hover tint against its token. A card-hover test that only checks the tree still builds is the failure <code>[FLU-hand-rolled-inkwell-hover]</code> records.</li>
       <li><code>flutter analyze</code> at zero and <code>dart format</code> clean; the five device-tier candidates run one at a time, each with a control run on the parent commit.</li>
     </ul>
   </section>

@@ -1257,31 +1257,33 @@ void main() {
 
         Border borderOf() =>
             (tester
-                        .widget<Container>(
-                          find
-                              .descendant(
-                                of: find.byKey(
-                                  const ValueKey<String>('scope-card-1'),
-                                ),
-                                matching: find.byWidgetPredicate(
-                                  (Widget w) =>
-                                      w is Container &&
-                                      w.decoration is BoxDecoration &&
-                                      (w.decoration! as BoxDecoration).border
-                                          is Border &&
-                                      ((w.decoration! as BoxDecoration).border!
-                                                  as Border)
-                                              .left
-                                              .width ==
-                                          3,
-                                ),
-                              )
-                              .first,
-                        )
-                        .decoration!
-                    as BoxDecoration)
-                .border!
-            as Border;
+                            .widget<Container>(
+                              find
+                                  .descendant(
+                                    of: find.byKey(
+                                      const ValueKey<String>('scope-card-1'),
+                                    ),
+                                    matching: find.byWidgetPredicate(
+                                      (Widget w) =>
+                                          w is Container &&
+                                          w.decoration is BoxDecoration &&
+                                          (w.decoration! as BoxDecoration)
+                                                  .border
+                                              is Border &&
+                                          ((w.decoration! as BoxDecoration)
+                                                          .border!
+                                                      as Border)
+                                                  .left
+                                                  .width ==
+                                              3,
+                                    ),
+                                  )
+                                  .first,
+                            )
+                            .decoration!
+                        as BoxDecoration)
+                    .border!
+                as Border;
 
         BoxDecoration outerOf() =>
             tester
@@ -1291,7 +1293,10 @@ void main() {
                     .decoration!
                 as BoxDecoration;
 
-        expect(borderOf().top.color.toARGB32(), colors.borderDefault.toARGB32());
+        expect(
+          borderOf().top.color.toARGB32(),
+          colors.borderDefault.toARGB32(),
+        );
         expect(borderOf().left.color.toARGB32(), colors.accent.toARGB32());
         final List<BoxShadow> resting = outerOf().boxShadow!;
 

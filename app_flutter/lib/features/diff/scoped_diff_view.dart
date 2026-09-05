@@ -362,6 +362,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final GbmColors colors = context.gbmColors;
     final List<ScopedDiffSource> sources = widget.sources;
     final List<Map<int, List<DiffScope>>> scopesBySource = _scopesBySource();
+    // Once per frame, for both readers. `_orderedBlocks` runs `hunkSegments`
+    // over every hunk of every source, which is not cached the way the scope
+    // split is -- and this runs on every frame of a drag.
+    final List<_Block> blocks = _orderedBlocks(scopesBySource);
 
     // One read of the touched set, gated once: everything derived from it --
     // the one-shot block, the row tint, the submitter published to
@@ -381,7 +385,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         },
     ];
     final TemporaryScope? temporary = resolveTemporaryScope(
-      rowsInRenderOrder: _rowsInRenderOrder(),
+      rowsInRenderOrder: _rowsFrom(blocks),
       touched: settledTouched,
       changedBySource: changedBySource,
     );
@@ -545,7 +549,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         mainAxisSize: MainAxisSize.min,
                         children: _wellChildren(
-                          scopesBySource,
+                          blocks,
                           temporary,
                           settledTouched,
                         ),
@@ -660,8 +664,16 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// sorted, so the two disagreed exactly when the regions interleaved.
   /// Both now read [_orderedBlocks]; the derivation below is deliberately
   /// the only body here, so there is nothing left to drift.
-  List<String> _rowsInRenderOrder() => <String>[
-    for (final _Block block in _orderedBlocks(_scopesBySource()))
+  List<String> _rowsInRenderOrder() =>
+      _rowsFrom(_orderedBlocks(_scopesBySource()));
+
+  /// The row keys of [blocks], in the order they are painted.
+  ///
+  /// Separate from [_rowsInRenderOrder] only so `build` can hand over blocks
+  /// it has already ordered; the keyboard handlers have no frame to share
+  /// with and order their own.
+  static List<String> _rowsFrom(List<_Block> blocks) => <String>[
+    for (final _Block block in blocks)
       for (final int lineIndex in block.segment.lineIndices)
         selectionRowKey(block.sourceIndex, block.hunkIndex, lineIndex),
   ];
@@ -872,7 +884,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// recorded hazard is a reason to solve the problem, not a licence to
   /// change the design ([FLU-selectionarea-gives-a-string]).
   List<Widget> _wellChildren(
-    List<Map<int, List<DiffScope>>> scopesBySource,
+    List<_Block> blocks,
     TemporaryScope? temporary,
     Set<String> settledTouched,
   ) {
@@ -909,8 +921,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // touched tint, so the extent stays visible without a second button
     // claiming to be a second action.
     bool temporaryHeadPlaced = false;
-
-    final List<_Block> blocks = _orderedBlocks(scopesBySource);
 
     final List<Widget> children = <Widget>[];
     int ordinal = 1;

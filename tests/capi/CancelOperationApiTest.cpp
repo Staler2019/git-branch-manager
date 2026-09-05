@@ -56,9 +56,28 @@ struct EventLog {
         return cv.wait_for(lock, timeout, [&] { return pred(events); });
     }
 
-    /// Called after each event is recorded, on the emitting thread. Set before
-    /// anything is submitted; never reassigned while an operation is running.
+    /// Called after each event is recorded, on the emitting thread.
+    ///
+    /// Guarded by `mutex`, and that is not belt-and-braces: `gbm_session_open`
+    /// kicks off refreshes whose graph/refs/status events are emitted from
+    /// pool threads, so a test assigning this hook after open really does race
+    /// a concurrent reader. Concurrent read/assign of a `std::function` is UB,
+    /// not merely a stale read. Use `setHook()`/`takeHook()` rather than
+    /// touching it directly.
     std::function<void(int32_t)> onEvent;
+
+    void setHook(std::function<void(int32_t)> hook) {
+        std::lock_guard<std::mutex> lock(mutex);
+        onEvent = std::move(hook);
+    }
+
+    /// Copied out under the lock and invoked by the caller *outside* it: the
+    /// hook reaches back into the capi, and anything it triggers that emits an
+    /// event would re-enter `add()` and deadlock on this same mutex.
+    std::function<void(int32_t)> takeHook() {
+        std::lock_guard<std::mutex> lock(mutex);
+        return onEvent;
+    }
 };
 
 void logCallback(GbmSessionHandle,
@@ -76,8 +95,8 @@ void logCallback(GbmSessionHandle,
     // Runs on whichever thread emitted -- for GBM_EVENT_OPERATION_FINISHED
     // that is OperationRunner's serial worker, inside its onDone call, which
     // is what the third test needs (see there).
-    if (log->onEvent) {
-        log->onEvent(eventType);
+    if (auto hook = log->takeHook()) {
+        hook(eventType);
     }
 }
 
@@ -180,14 +199,14 @@ TEST_F(CancelOperationApiTest, OperationsStillQueuedAreRegisteredAndCancellable)
     std::atomic<int> trippedOnFirstFinish{-1};
     std::atomic<int> finishes{0};
 
-    log_.onEvent = [&](int32_t eventType) {
+    log_.setHook([&](int32_t eventType) {
         if (eventType != GBM_EVENT_OPERATION_FINISHED) {
             return;
         }
         if (finishes.fetch_add(1) == 0) {
             trippedOnFirstFinish.store(gbm_cancel_operation(session_, 0));
         }
-    };
+    });
 
     for (int i = 0; i < kOperations; ++i) {
         gbm_reset_to(session_, "HEAD", /*mode=*/1);

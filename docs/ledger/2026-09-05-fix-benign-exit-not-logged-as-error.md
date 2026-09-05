@@ -843,3 +843,60 @@ spawn 變快」）對 job object 一字不改地成立**，只是當時只拿它
 
 **比值 gate 仍然關著。** 一個樣本不足以挑門檻，而在量測之前先挑門檻正是這整支工具存在
 要更正的那個順序。
+
+---
+
+## 追加七：修好的儀器第二次跑，以及「修掉了還是只寫了 doc」
+
+使用者問了一句很短的話：「負數當然小於門檻這件事修掉還是寫 doc 而已」。
+
+答案是修掉了——`6f8cf17` 改的是判斷式本身（`llabs(jobDeltaUs) <= resolutionUs` 換成有號的
+`jobDeltaUs <= resolutionUs`），而 gate 那個 `check(fraction <= gate, ...)` 只活在
+`verdict == "measured"` 那一支裡，所以負數走 `else`、gate 根本執行不到。
+
+**但這個問題逼出了一個我沒講的洞：那個修正沒有任何測試。** 工具整個 body 是一個
+`#ifdef _WIN32`，只在一顆排程 job 上跑，而負數只在吵的 runner 上才出現——所以那條分支
+在任何平台上都沒有被執行過一次。用這一輪自己的話講，就是
+[TEST-fixture-cannot-disagree] 套到儀器身上：一條沒有任何一層能反駁的正確性規則。
+
+修法是把判斷抽成 `tests/tools/spawn_cost_verdict.h`（純算術、四個純量、不帶平台守衛），
+工具改成呼叫它，然後 `tests/unit/SpawnCostVerdictTest.cpp` 跨平台測五個情況。
+
+**Mutation check：跑了 2 個突變，紅了 2 顆測試**（兩個數字分開記）：
+
+| 突變 | 紅掉 | 哪一顆 |
+|---|---|---|
+| 有號比較改回 `llabs` | 1 | `ANegativeDeltaIsNoiseAndNeverAMeasurement` |
+| `<=` 改成 `<`（邊界） | 1 | `ADeltaAtOrUnderTheResolutionIsBelowNoise` |
+
+還原後 5/5 綠。
+
+**中間犯了一次這條 rule 自己記載的錯，寫下來。** 第二個突變第一次跑的時候，我的 grep 是
+`"FAILED \]|PASSED \]"`——一個空格，而 gtest 印的是兩個。它什麼都沒對到，我差一點把
+「沒有輸出」讀成「綠的」。[TEST-mutation-check-every-test] 講的就是這件事：紅的數字要用
+自己的眼睛從進度行讀，不要透過自己寫的 grep／helper。重跑並直接看原始輸出才拿到上表。
+
+### 第二次量測
+
+`f970c93` 上跑的 perf-nightly（run `33972812912`）：
+
+```
+job-object-ab: verdict=measured job_overhead_us=82 resolution_us=20
+git_spawn_us=30157 overhead_fraction_of_git=0.0027 watchdog_delta_us=64
+prod_resolution_us=49 parent_in_job=1 iterations=51
+```
+
+**watchdog 終於有數字，而且是正的：+64µs，對自己那對的 49µs 解析度算 resolved。** 這就是
+修正買到的東西——上一次同一條手臂印的是不可能的 `−72µs (resolved)`，這次用校準在它自己
+那對上的尺，印出一個物理允許的方向。
+
+**餘裕要一起讀**：64 對 49 是 1.3 倍，不是 job object 那種 4 倍；而且這一次注入對照的回收
+誤差是 **40%**（上一次 3%），在 50% 容忍內所以工具判它可用，但每一個指標都說這是比較吵的
+一晚。誠實的讀法是「約 60µs」，不是精確的 64。
+
+**job object 重現了，而且重現的是比值。** 82µs 對上一次的 71µs——微秒數不同，但這台 runner
+的 git spawn 也比較慢（30157 對 26501），所以**比值兩次都是 0.0027**。兩台不同 runner 獨立
+跑出兩位有效數字相同的比值，比任何單一數字都有分量，而且真要寫 gate 也是寫比值不是寫微秒。
+
+比值 gate 仍然關著：兩個樣本仍然不足以挑門檻，而 nightly 排程本來就會繼續累積，不需要任何
+人再 dispatch。

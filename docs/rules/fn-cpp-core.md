@@ -194,7 +194,18 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   `watchdog delta = -72us (resolved)`，而 watchdog 不可能讓 spawn 變快。那 18µs 是在 ~16ms 的
   trivial child 上量的，卻拿去判 ~26ms 的 git 行程——**拿 A 的尺量 B**，和 33% 被更正的
   理由是同一個，只是低一層。已改成給 `prod_*` 那一對自己的 A/A null 手臂；在那之後才有的
-  `prod_resolution_us` 才是判準。
+  `prod_resolution_us` 才是判準。**修好之後第二次跑有數字了**（就地更正）：watchdog
+  **每次 spawn +64µs**，對自己那對的 49µs 解析度是 resolved，而且是正的——物理允許的方向。
+  但**只有 1.3 倍的餘裕**，且那一次的注入對照回收誤差是 **40%**（第一次是 3%），所以讀成
+  「約 60µs，和 job object 同一個數量級」而不是精確的 64。同一次的 job object 是 **82µs／
+  0.27%**：微秒數和第一次的 71µs 不同，**比值卻同樣是 0.0027**——兩台不同 runner 上獨立
+  重現到兩位有效數字，比任何單一數字都有分量，而且 gate 要寫也是寫比值。
+- **Do**: **「不可能的數字」的防護要套在每一對手臂上，不是只套在出事的那一對。** 判斷式用
+  **有號**比較（`delta > resolution` 才算量到），不要用 `llabs`——後者會讓一個吵的夜裡印出
+  `verdict=measured job_overhead_us=-50`，而那個負數還會輕鬆通過 `fraction <= gate`。顯著的
+  負值是「解析度被低估」的證據，不是「成本是負的」的證據。這條規則抽在
+  `tests/tools/spawn_cost_verdict.h`，由 `SpawnCostVerdictTest.cpp` 跨平台測——工具本身是
+  Windows-only 又只在一顆排程 job 上跑，那不構成任何一層測得到它（[TEST-fixture-cannot-disagree]）。
 - **Do**: 那支工具的形狀就是上一條 Do 的實作，照抄即可：**A/A null 手臂**量出這一次執行的
   解析度（差值小於它就只印上界、絕不印點估計），**注入一個已知延遲**當作儀器自我檢查
   （回收不到 50% 以內就印 `verdict=instrument-unreliable`，那一次的數字不准引用），

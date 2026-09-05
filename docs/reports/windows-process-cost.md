@@ -340,7 +340,49 @@ Read it as one run. The gate (`GBM_MAX_JOB_OVERHEAD_FRACTION`) stays at 0.0 —
 disabled — until the nightly has a trend, because picking a threshold off a
 single sample is the same shape of error this whole document exists to record.
 
-### The watchdog number from that run is *not* usable, and why
+### Second run (2026-09-05, `f970c93`, the corrected tool)
+
+Dispatched after the tool was given a per-pair A/A null arm. Same job,
+`windows-2022`, MSVC, 51 iterations.
+
+| Arm | Median |
+|---|---|
+| `raw_nojob` | 18730 µs |
+| `raw_job` | 18812 µs |
+| `raw_nojob_aa` (A/A null) | 18750 µs → **resolution 20 µs** |
+| injected 300 µs control | recovered 420 µs (**error 40%**) |
+| `prod_notimeout` (`git --version`) | 30157 µs |
+| `prod_timeout` (watchdog armed) | 30221 µs |
+| `prod_nojob_aa` (prod A/A null) | 30206 µs → **prod resolution 49 µs** |
+
+```
+job-object-ab: verdict=measured job_overhead_us=82 resolution_us=20
+git_spawn_us=30157 overhead_fraction_of_git=0.0027 watchdog_delta_us=64
+prod_resolution_us=49 parent_in_job=1 iterations=51
+```
+
+**The job object figure replicates.** 82 µs here against 71 µs before — and
+because the git spawn was slower on this runner too (30157 µs against
+26501 µs), the *fraction* lands on **0.0027 both times**. Two independent runs
+on different runners agreeing to two significant figures is worth more than
+either number alone, and it is the fraction, not the microseconds, that the
+gate would ever be written against.
+
+**The watchdog now has a number, and it is `+64 µs`** — resolved against the
+prod pair's own 49 µs, and positive, which is the direction physics allows.
+That is the whole of what the corrected tool bought: the same arm that
+published an impossible `−72 µs (resolved)` a run earlier now publishes a
+possible one, judged by a ruler calibrated on the pair it is judging.
+
+**Read it with the margin in mind.** 64 against 49 is 1.3×, not the 4× the job
+object cleared, and this run's injected-delay control came back at **40% error**
+against the previous run's 3% — inside the 50% tolerance, so the tool called it
+usable, but it was a noisier night by every available indicator. The honest
+reading is 「大約 60 µs，和 job object 同一個數量級」, not a firm 64. A third
+run would tighten it; the nightly schedule will supply one without anybody
+dispatching anything.
+
+### The watchdog number from the *first* run is *not* usable, and why
 
 The same run printed `watchdog delta = -72us (resolved)`. A watchdog thread
 cannot make spawning faster, so that label was wrong — and the flaw was in the
@@ -349,6 +391,10 @@ tool, not the runner. `resolution_us=18` was measured by an A/A arm on the
 (a ~26 ms git process). Run-to-run spread scales with what is being run, so
 that is a ruler calibrated on A being used to measure B — the identical error,
 one level down, that the 33% claim was corrected for.
+
+**Superseded by the run above**, which is what the corrected tool produced.
+This subsection stays as the record of how the flaw was found, per the standing
+rule about correcting a record in place rather than deleting it.
 
 Fixed by giving the `prod_*` pair its own A/A null arm; `prod_resolution_us` is
 now reported beside the delta and is what decides whether it is resolved. **No

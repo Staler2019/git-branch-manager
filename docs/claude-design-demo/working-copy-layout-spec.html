@@ -288,15 +288,25 @@ td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-nu
 .frow {
   height: 26px; padding: 0 8px;                       /* [TOK] rowHeightCompact, space2 */
   display: flex; align-items: center; gap: 8px;
-  font-size: 11px; color: var(--gbm-text-primary);    /* [TOK] textXs */
+  font-size: 12.5px; color: var(--gbm-text-primary);  /* [TOK] textSm */
   white-space: nowrap;
 }
 .frow.is-sel { background: var(--gbm-surface-selected); }
 .frow .path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   font-family: "JetBrains Mono", ui-monospace, monospace; }
-.frow .cnt { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; }  /* [SPEC] */
-.frow .cnt .a { color: var(--gbm-diff-add-text); }
-.frow .cnt .d { color: var(--gbm-diff-del-text); }
+/* line-count badges: [TOK] GbmBadge — 10.5px, padding 0 5, radiusFull */
+.frow .cnt { display: flex; gap: 4px; flex: 0 0 auto; }
+.frow .cnt span {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px;
+  padding: 0 5px; border-radius: 999px; line-height: 15px;
+}
+.frow .cnt .a { color: var(--gbm-diff-add-text); background: var(--gbm-diff-add-bg); }
+.frow .cnt .d { color: var(--gbm-diff-del-text); background: var(--gbm-diff-del-bg); }
+
+/* tree mode: [TOK] FileTreeList indents level*16; FileTreeFolderRow is
+   chevron 16 + node.name at textSm, with GbmRow's padding dropped to zero */
+.frow .ind  { flex: 0 0 auto; }
+.frow .chev { flex: 0 0 16px; font-size: 11px; color: var(--gbm-text-tertiary); text-align: center; }
 
 /* drop hint: [TOK] space2 padding + margin, radiusMd 6, textXs 11 */
 .hint {
@@ -433,6 +443,7 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · diff 預設改 unified</span>
       <span class="pill is-open">左欄寬度待裁定</span>
       <span class="pill is-open">drop hint 文案待裁定</span>
+      <span class="pill is-open">tree 模式葉節點文字待裁定</span>
       <span class="pill is-open">spec 通過才開工</span>
     </div>
   </header>
@@ -613,6 +624,89 @@ footer.colophon {
 
     </div>
 
+    <h3>Tree mode survives — and gets a problem it already had, but worse</h3>
+    <p>
+      The list/tree switch stays exactly where it is, on the Unstaged header, still driving the
+      app-wide <code>fileListViewModeProvider</code> that History, Compare and the conflict window
+      share. Nothing about it changes. But the narrow column makes an existing defect impossible
+      to live with, so it has to be decided now rather than discovered later.
+    </p>
+    <p>
+      <b>Tree mode draws short names on folder rows and full paths on file rows.</b> Verified by
+      pumping the real <code>WorkingCopyBoard</code> in tree mode and dumping every
+      <code>Text</code> it painted — not read off the source:
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">Today, at 260px</span>
+          <span class="specimen-note">measured output</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc" style="width:260px">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 3</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="chev">▾</span><span class="path" style="font-family:inherit">lib</span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">lib/graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">lib/theme/tokens.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+8</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          Every leaf repeats what the folder row above it already said, then gets indented on top
+          of that — so the one thing you are looking for, the file name, is the part that gets
+          clipped. Note the folder row says <code>lib</code> while the leaf says
+          <code>lib/graph/…</code>: the <code>graph/</code> segment appears in neither place as a
+          folder, because <code>FileTree</code> collapses single-child folders.
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-note">leaf shows its path below its parent</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc" style="width:260px">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 3</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="chev">▾</span><span class="path" style="font-family:inherit">lib</span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">theme/tokens.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          The leaf drops the prefix its parent folder already carries, and keeps the collapsed
+          <code>graph/</code> — which is the only place that segment can appear at all. The file
+          name now fits, and both line-count badges fit beside it.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout is-ask">
+      <div class="callout__title">Needs a ruling — third one</div>
+      <p>
+        This is <b>not</b> caused by the relayout; it is true in the current app today, at any
+        width. Fixing it is therefore <b>scope this round did not ask for</b>, and that is your
+        call, not mine.
+      </p>
+      <p style="margin-bottom:0">
+        <b>Recommendation: fix it in this round</b>, as its own commit. Tree mode in a 260px column
+        is the first place it stops being cosmetic, and shipping the relayout without it means
+        tree mode arrives visibly broken on a screen this round is supposed to have improved.
+        <b>List mode is unaffected either way</b> — a flat list has no parent to strip, so the full
+        path stays, which is correct there.
+      </p>
+    </div>
+
     <h3>What deliberately did not move</h3>
     <ul class="plain">
       <li>The <b>commit box</b> — still the bottom strip, full width, same 200px, same fields and
@@ -622,6 +716,9 @@ footer.colophon {
         direction changed, from sideways to downward.</li>
       <li>The <code>2 file</code> / <code>unified</code> switch, and the divider inside
         <code>2 file</code> mode. Only which one is <em>preselected</em> changes.</li>
+      <li>The <b>list / tree switch</b> — same place (the Unstaged header, once for the pair),
+        same app-wide preference shared with History, Compare and the conflict window. Only the
+        leaf row's <em>text</em> is in question, and only in tree mode.</li>
     </ul>
   </section>
 
@@ -812,6 +909,16 @@ footer.colophon {
           <td class="verdict none">無出處</td>
         </tr>
         <tr>
+          <td>Tree indent / chevron / row text</td><td class="num">16 · 16 · 12.5</td>
+          <td><code>EdgeInsets.only(left: level * 16.0)</code> (<code>file_tree_list.dart</code>); <code>Icon(Icons.arrow_right, size: 16)</code> and <code>fontSize: GbmTypography.textSm</code> (<code>file_tree_folder_row.dart</code>). File rows are <code>textSm</code> too — <b>an earlier draft of this page drew them at <code>textXs</code></b> and was corrected against a live pump.</td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td>Tree leaf text, today</td><td class="num">full path</td>
+          <td>Measured, not read: pumping <code>WorkingCopyBoard</code> in tree mode paints <code>lib</code>, then <code>lib/graph/lane_allocator.dart</code>, then <code>lib/theme/tokens.dart</code>. <code>_buildFileRow</code> renders <code>entry.path</code> in both modes, while <code>FileTreeFolderRow</code> renders <code>node.name</code>.</td>
+          <td class="verdict bad">defect</td>
+        </tr>
+        <tr>
           <td>Specimen filler: <code>gap:6px</code>, <code>10px</code> captions, <code>.dl</code> 17px, gutter 22px, <code>.seg</code> padding</td>
           <td class="num">tagged <code>[SPEC]</code></td>
           <td>Nothing — chosen to make this drawing legible. Confined to the diff rows and the segmented control, none of which any decision on this page rests on. Everything the layout <em>does</em> rest on (26 / 11 / 8 / 12 / 6 / 30 / 132 / 200 / 1) is a real constant.</td>
@@ -937,6 +1044,8 @@ footer.colophon {
             <td>Unstaged above Staged; files column left of diff; commit box last and full width. Asserted against a <b>neighbour's</b> rect, never a pixel constant. Drag-gesture coordinates rotate from horizontal to vertical.</td></tr>
         <tr><td class="num">W8</td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
             <td><code>stage_lines_flow</code>, <code>working_copy_line_counts</code>, <code>commit_flow</code>, <code>commit_file_counts</code>, <code>conflict_flow</code>. Grepped by <code>GbmActionId</code> as well as by widget name.</td></tr>
+        <tr><td class="num">W10</td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
+            <td><b>Blocked on §02's third ruling.</b> Strip the parent folder's <code>displayPath</code> prefix from the leaf, keeping any collapsed segment. List mode untouched. Pre-existing defect, not caused by the relayout.</td></tr>
         <tr><td class="num">W9</td><td>Correct the four records in §06</td><td class="num">4</td>
             <td>In place, struck and rewritten — not silently re-numbered.</td></tr>
       </tbody>

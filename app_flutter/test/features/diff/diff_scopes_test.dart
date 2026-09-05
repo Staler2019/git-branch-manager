@@ -611,6 +611,144 @@ void main() {
     });
   });
 
+  group('DiffBarrierMemo', () {
+    /// A file whose one hunk changes exactly the index lines in [indexLines].
+    ///
+    /// `staged` picks which side carries them, so the two sides of a pair
+    /// can be built from the same helper and still disagree about what a
+    /// barrier is.
+    DiffFile at(List<int> indexLines, {required bool staged}) => _file(
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 1,
+          oldCount: indexLines.length,
+          newStart: 1,
+          newCount: indexLines.length,
+          heading: '',
+          lines: <DiffLine>[
+            for (final int line in indexLines)
+              DiffLine(
+                // Staged is HEAD -> index, so an *added* line is what puts
+                // one into the index; unstaged is index -> worktree, so a
+                // *removed* one is what takes an index line away. Either
+                // way the index-side number is `line`.
+                kind: staged ? DiffLineKind.added : DiffLineKind.removed,
+                oldLine: staged ? 0 : line,
+                newLine: staged ? line : 0,
+                text: 'x',
+              ),
+          ],
+        ),
+      ],
+    );
+
+    test('each side gets the other side\'s changed index lines', () {
+      final DiffBarrierMemo memo = DiffBarrierMemo();
+      final List<Set<int>> barriers = memo.barriersFor(<DiffSide>[
+        (file: at(<int>[3], staged: false), staged: false),
+        (file: at(<int>[7], staged: true), staged: true),
+      ]);
+
+      // Not its own: a side never blocks itself, or every change would end
+      // its own scope.
+      expect(barriers[0], <int>{7});
+      expect(barriers[1], <int>{3});
+    });
+
+    test('the same files hand back the same set instances', () {
+      final DiffBarrierMemo memo = DiffBarrierMemo();
+      final DiffFile unstaged = at(<int>[3], staged: false);
+      final DiffFile staged = at(<int>[7], staged: true);
+      List<DiffSide> sides() => <DiffSide>[
+        (file: unstaged, staged: false),
+        (file: staged, staged: true),
+      ];
+
+      final List<Set<int>> first = memo.barriersFor(sides());
+      final List<Set<int>> second = memo.barriersFor(sides());
+
+      // Identity, not equality: DiffScopeCache keys on `identical`, so an
+      // equal-but-new set re-splits every frame and this memo buys nothing.
+      expect(identical(first[0], second[0]), isTrue);
+      expect(identical(first[1], second[1]), isTrue);
+    });
+
+    test('a new file on either side recomputes', () {
+      final DiffBarrierMemo memo = DiffBarrierMemo();
+      final DiffFile unstaged = at(<int>[3], staged: false);
+
+      final List<Set<int>> first = memo.barriersFor(<DiffSide>[
+        (file: unstaged, staged: false),
+        (file: at(<int>[7], staged: true), staged: true),
+      ]);
+      final List<Set<int>> second = memo.barriersFor(<DiffSide>[
+        (file: unstaged, staged: false),
+        (file: at(<int>[8], staged: true), staged: true),
+      ]);
+
+      expect(first[0], <int>{7});
+      expect(second[0], <int>{8});
+    });
+
+    test('a flipped staged flag recomputes, on the same file', () {
+      // The same DiffFile read as the other direction reports different
+      // index lines, so identity of the file alone is not the whole key.
+      final DiffBarrierMemo memo = DiffBarrierMemo();
+      final DiffFile both = _file(
+        hunks: <DiffHunk>[
+          DiffHunk(
+            oldStart: 1,
+            oldCount: 2,
+            newStart: 1,
+            newCount: 2,
+            heading: '',
+            lines: <DiffLine>[
+              DiffLine(
+                kind: DiffLineKind.added,
+                oldLine: 0,
+                newLine: 5,
+                text: 'x',
+              ),
+              DiffLine(
+                kind: DiffLineKind.removed,
+                oldLine: 9,
+                newLine: 0,
+                text: 'y',
+              ),
+            ],
+          ),
+        ],
+      );
+
+      expect(
+        memo.barriersFor(<DiffSide>[
+          (file: null, staged: false),
+          (file: both, staged: true),
+        ])[0],
+        <int>{5},
+      );
+      expect(
+        memo.barriersFor(<DiffSide>[
+          (file: null, staged: false),
+          (file: both, staged: false),
+        ])[0],
+        <int>{9},
+      );
+    });
+
+    test('a lone side gets the const empty set, not a fresh one', () {
+      final DiffBarrierMemo memo = DiffBarrierMemo();
+      final DiffFile only = at(<int>[3], staged: false);
+
+      final List<Set<int>> first = memo.barriersFor(<DiffSide>[
+        (file: only, staged: false),
+      ]);
+      // A fresh `<int>{}` would be equal and not identical, so the cache
+      // below it would miss on every build -- the `2 file` mode's own case.
+      expect(identical(first[0], const <int>{}), isTrue);
+    });
+  });
+
   group('splitDiffFileIntoScopes -- barriers', () {
     // The reported case: the unstaged hunk of an untracked file whose middle
     // line is staged. `document` is a context line here and index line 1, so

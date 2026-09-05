@@ -140,6 +140,77 @@ Set<int> barrierLineIndices(
   return found;
 }
 
+/// One diff of a file, as the barrier rule sees it: its content and which
+/// side of it is the index.
+typedef DiffSide = ({DiffFile? file, bool staged});
+
+/// The index lines the *other* sides change, per side -- memoised.
+///
+/// A merged list draws two diffs of the same file at once, and the gap rule
+/// must not fold one side's scope across a line the other one draws as a
+/// change of its own ([changedIndexLines]). Every surface that splits such a
+/// list owes the same answer: the cards themselves, and anything that counts
+/// them. Two of them deriving it separately is how the count and the list
+/// come to disagree ([CULT-single-source-of-truth]) -- which is exactly what
+/// shipped, the title bar saying 「1 未暫存」 over two Stage cards.
+///
+/// **Key: the sides' [DiffFile] identities and [DiffSide.staged] flags,
+/// element by element.** The barrier sets are a pure function of both, and
+/// walking every line of every hunk to rebuild them is the same order as the
+/// split [DiffScopeCache] exists to avoid -- so recomputing per frame would
+/// undo that memo during a selection drag. Identity is the honest key for the
+/// reason that cache already gives: these are immutable DTOs parsed fresh out
+/// of each `workingCopyDiffReady` payload.
+///
+/// **Invalidated by**: a different [DiffFile] instance, or a flipped
+/// [DiffSide.staged], arriving in any side. There is nothing to unsubscribe
+/// from.
+///
+/// **Symptom if invalidation were missed**: the cards of one side would be
+/// split at the *previous* diff's boundaries -- so after staging one more
+/// line, a card would keep a seam where nothing is any more, or lose one
+/// where something now is.
+class DiffBarrierMemo {
+  List<Set<int>> _barriers = const <Set<int>>[];
+  List<DiffSide> _key = const <DiffSide>[];
+
+  /// The barrier index lines for each of [sides], in the same order.
+  ///
+  /// The returned sets are the *same instances* across a hit, which is what
+  /// lets [DiffScopeCache]'s own identity check hit in turn -- a fresh set
+  /// per build would re-split every frame however good this memo was.
+  List<Set<int>> barriersFor(List<DiffSide> sides) {
+    if (sides.length == _key.length) {
+      bool same = true;
+      for (int i = 0; i < sides.length; i++) {
+        if (!identical(sides[i].file, _key[i].file) ||
+            sides[i].staged != _key[i].staged) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return _barriers;
+    }
+
+    final List<Set<int>> barriers = <Set<int>>[];
+    for (int i = 0; i < sides.length; i++) {
+      final Set<int> other = <int>{};
+      for (int j = 0; j < sides.length; j++) {
+        if (j == i) continue;
+        other.addAll(changedIndexLines(sides[j].file, staged: sides[j].staged));
+      }
+      // `const` so a lone side hands the cache the *same* empty set on every
+      // build -- a fresh `<int>{}` would miss on identity and re-split every
+      // frame, which is what this memo is for.
+      barriers.add(other.isEmpty ? const <int>{} : other);
+    }
+
+    _key = List<DiffSide>.unmodifiable(sides);
+    _barriers = List<Set<int>>.unmodifiable(barriers);
+    return _barriers;
+  }
+}
+
 /// Every scope of every hunk in [file], keyed by hunk index.
 ///
 /// Keyed rather than flattened because **a scope may never cross a hunk**:

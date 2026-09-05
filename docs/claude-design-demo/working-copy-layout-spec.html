@@ -114,6 +114,7 @@ h1 {
 }
 .pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
 .pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+.pill.is-done     { border-color: var(--pg-good); color: var(--pg-good); }
 
 /* ---------- sections ---------- */
 section { padding-top: 3.5rem; }
@@ -1395,42 +1396,45 @@ footer.colophon {
   <section id="worklist">
     <div class="sec-head"><span class="sec-num">08</span><h2>Work list</h2></div>
     <p class="lede">
-      Each is its own commit so each can be reverted alone. <b>Nothing is blocked</b> — sections
-      02, 03, 05 and 06 are all ruled. The order is W1–W7, then W10, then W11–W13, then W8, then
-      W9: <b>the device tier goes last</b>, because W11–W13 restyle the very surface
-      <code>stage_lines_flow_test</code> drives, and a device green taken before them attests a
-      tree that then changes — the same reason <code>[TEST-device-runs-one-file]</code> forbids
-      editing <code>lib/</code> while a device run is in flight.
+      Each is its own commit so each can be reverted alone. The planned order held:
+      W1–W7, then W10, then W11–W13, then W8, then W9 — <b>the device tier last</b>, because
+      W11–W13 restyle the very surface <code>stage_lines_flow_test</code> drives, and a device
+      green taken before them attests a tree that then changes, the same reason
+      <code>[TEST-device-runs-one-file]</code> forbids editing <code>lib/</code> while a device
+      run is in flight. <b>All of it shipped.</b> Three things came out differently from the
+      plan, and each is noted on its own row: W7 has no commit of its own (its tests landed
+      inside the commits they pin, red first), W8 found a real red, and W10 turned out to be a
+      defect in a <em>shared</em> widget rather than in this page.
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:6%">#</th><th style="width:28%">Item</th><th style="width:10%">Sites</th><th>What it is</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:13%">Status</th><th style="width:23%">Item</th><th style="width:9%">Sites</th><th>What it is</th></tr></thead>
       <tbody>
-        <tr><td class="num">W1</td><td>Two new <code>GbmSplitterSpec</code>s, two deleted</td><td class="num">1 file<br>+6 tests</td>
+        <tr><td class="num">W1</td><td><span class="pill is-done">done</span><br><code>a4818b4</code></td><td>Two new <code>GbmSplitterSpec</code>s, two deleted</td><td class="num">1 file<br>+6 tests</td>
             <td><code>splitterWcColumns</code> and <code>splitterWcDiff</code> go; their replacements carry new storage ids. Old keys orphan by design. Per §03's ruling the files↔diff one is <code>extent(260, min 180)</code>, the stacked one keeps <code>1 : 1</code> with the new floor from W5.</td></tr>
-        <tr><td class="num">W2</td><td>Outer pane &rarr; horizontal</td><td class="num">1</td>
+        <tr><td class="num">W2</td><td><span class="pill is-done">done</span><br><code>f16ce70</code></td><td>Outer pane &rarr; horizontal</td><td class="num">1</td>
             <td><code>working_copy_view.dart</code>'s middle <code>GbmSplitPane</code>. Children keep their order, so board is left and diff is right. The commit box's <code>Container</code> is not touched.</td></tr>
-        <tr><td class="num">W3</td><td>Inner board &rarr; vertical</td><td class="num">1</td>
+        <tr><td class="num">W3</td><td><span class="pill is-done">done</span><br><code>d342fd6</code></td><td>Inner board &rarr; vertical</td><td class="num">1</td>
             <td><code>working_copy_board.dart</code>. Unstaged stays first, so it is on top.</td></tr>
-        <tr><td class="num">W4</td><td>Diff default &rarr; <code>unified</code></td><td class="num">1</td>
+        <tr><td class="num">W4</td><td><span class="pill is-done">done</span><br><code>dff5c95</code></td><td>Diff default &rarr; <code>unified</code></td><td class="num">1</td>
             <td>One initialiser. The switch, both enum values and <code>wc.diffSides</code> all stay. The enum's <span class="zh">「For a narrow window」</span> comment is corrected in the same commit.</td></tr>
-        <tr><td class="num">W5</td><td>Narrow-column overflow guard</td><td class="num">1 + test</td>
+        <tr><td class="num">W5</td><td><span class="pill is-done">done</span><br><code>9221762</code></td><td>Narrow-column overflow guard</td><td class="num">1 + test</td>
             <td>The stacked pane's floor, per §03's arithmetic. <code>RenderFlex</code> lays non-flex children out first, so the header and the hint decide this, not the list.</td></tr>
-        <tr><td class="num">W6</td><td>Drop hint text</td><td class="num">1 + tests</td>
+        <tr><td class="num">W6</td><td><span class="pill is-done">done</span><br><code>03dfa15</code></td><td>Drop hint text</td><td class="num">1 + tests</td>
             <td><span class="zh">右</span> → <span class="zh">下</span> per §05's C1 ruling. One string, and the tests that assert it.</td></tr>
-        <tr><td class="num">W7</td><td>Layout tests</td><td class="num">4 files</td>
+        <tr><td class="num">W7</td><td><span class="pill is-done">done</span><br>folded into<br>W2/W3/W5/W6</td><td>Layout tests</td><td class="num">4 files</td>
             <td>Unstaged above Staged; files column left of diff; commit box last and full width. Asserted against a <b>neighbour's</b> rect, never a pixel constant. Drag-gesture coordinates rotate from horizontal to vertical.</td></tr>
-        <tr><td class="num">W8</td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
-            <td><code>stage_lines_flow</code>, <code>working_copy_line_counts</code>, <code>commit_flow</code>, <code>commit_file_counts</code>, <code>conflict_flow</code>. Grepped by <code>GbmActionId</code> as well as by widget name.</td></tr>
-        <tr><td class="num">W10</td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
-            <td>Strip the parent folder's <code>displayPath</code> prefix from the leaf, keeping any collapsed segment. List mode untouched. Pre-existing defect, brought into scope by the user; not caused by the relayout.</td></tr>
-        <tr><td class="num">W11</td><td>Scope card: the lines the design draws and the code does not</td><td class="num">1 + tests</td>
+        <tr><td class="num">W8</td><td><span class="pill is-done">done</span><br><code>f43a025</code></td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
+            <td>Ran <b>six</b>, not five — the grep also turned up <code>context_menu_flows</code>, and the plan's own list held two the grep missed, so the union was run: <code>stage_lines_flow</code> 7/7, <code>working_copy_line_counts</code> 1/1, <code>commit_flow</code> <b>0/1 → 1/1</b>, <code>commit_file_counts</code> 2/2, <code>conflict_flow</code> 1/1, <code>context_menu_flows</code> 5/5. The red was this test's drop point, <code>board.right - board.width * 0.25</code> — «the other column is to the right» written as arithmetic, which after the rotation lands back inside Unstaged. Nothing below the device tier could see it: the widget-tier drags aim at another <em>row</em>, which is axis-agnostic. Control run of <code>stage_lines_flow</code> on the parent commit first, 7/7, per <code>[TEST-foreground-line-is-not-a-failure]</code>.</td></tr>
+        <tr><td class="num">W10</td><td><span class="pill is-done">done</span><br><code>7f37f55<br>a4bcfd1</code></td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
+            <td>Pre-existing defect, brought into scope by the user; not caused by the relayout — and <b>not in this page</b>. The leaf label is decided by the shared <code>FileListModeSwitcher</code>, whose <code>leafBuilder</code> took no label, so all <b>six</b> surfaces drew the item's full path in both modes: Working Copy's two columns, History's Changed files, Compare's Files, the Conflict window, <code>panel_file_diff_detail</code>. Fixed at the contract (<code>leafBuilder(context, item, label)</code>) rather than at one call site. A <b>second</b> defect sat in the same clause: <code>FileTree._collapseIfSingleChild</code> did <code>split('/').last</code> when a collapsed chain ended in a <em>file</em>, discarding exactly the prefix P03-10's own <code>lib/app/views</code> example is about. Two commits: W10a the tree, W10b the switcher.</td></tr>
+        <tr><td class="num">W11</td><td><span class="pill is-done">done</span><br><code>571b595<br>9973ce2</code></td><td>Scope card: the lines the design draws and the code does not</td><td class="num">1 + tests</td>
             <td>S3's three dashed rules, S4's head border and muted ground, S9's hunk rule, S10's margin. All of it inside <code>scoped_diff_view.dart</code>; no logic, no <code>selection_touch.dart</code>, no <code>diff_scopes.dart</code>.</td></tr>
-        <tr><td class="num">W12</td><td><span class="zh">一次性</span> chip and the column-head chip</td><td class="num">1–2 + tests</td>
-            <td>S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds — so either a fourth kind or a local widget, and that choice is part of the ruling's cost. S5's scope-count chip is a plain container.</td></tr>
-        <tr><td class="num">W13</td><td>Scope card hover</td><td class="num">1 + test</td>
+        <tr><td class="num">W12</td><td><span class="pill is-done">done</span><br><code>0eca40b</code></td><td><span class="zh">一次性</span> chip and the column-head chip</td><td class="num">1–2 + tests</td>
+            <td>S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds. Resolved as a <b>shared public widget</b>, <code>GbmOutlinedPill</code>, not a fourth badge kind and not a private class — a private one is invisible to tests, which leaves only <code>BoxDecoration</code>-walking assertions. S5's scope-count chip is the same widget with different tokens, and had to become <code>Flexible</code>: it is a non-flex child, so <code>Expanded(title)</code> could not rescue the 11px overflow it caused (<code>[FLU-renderflex-non-flex-first]</code>), visible only because W3 had narrowed that test's canvas from 200 to 140.</td></tr>
+        <tr><td class="num">W13</td><td><span class="pill is-done">done</span><br><code>ecd29af</code></td><td>Scope card hover</td><td class="num">1 + test</td>
             <td>S11. Assert the token by identity — <code>[FLU-hand-rolled-inkwell-hover]</code>: a hover test that only checks for no exception proves nothing, and <code>ThemeData.hoverColor</code> is invisible on a real display.</td></tr>
-        <tr><td class="num">W9</td><td>Correct the records in §07</td><td class="num">5</td>
-            <td>In place, struck and rewritten — not silently re-numbered. Five now, not four: <code>[STRUCT-working-copy]</code>'s <span class="zh">「fixed slot at the top」</span> was already wrong before this round started (§06).</td></tr>
+        <tr><td class="num">W9</td><td><span class="pill is-done">done</span><br><code>915ad24 … 2633d88</code></td><td>Correct the records in §07</td><td class="num">5</td>
+            <td>In place, struck and rewritten — not silently re-numbered. Grew past five during the pass: page 09's <code>SPLITTERS</code> section went from «all 8 conform» to «6 符合 + 2 使用者裁定的偏離»; P03 items 2/4 followed it; P03 item 8's «the numbers follow <code>wc.columns</code>» named a dead id; and <b>P03 item 10's verdict covered one clause out of five</b> — the two W10 fixed were never in the audit unit at all. Two new pins (<code>[STRUCT-leaf-label-from-switcher]</code>, <code>[TEST-geometric-drop-point-is-axis-bound]</code>), one new drift entry (item 10 contradicts itself on whether the mode is per-list or shared — recorded, left for a ruling), one orphan constant deleted (<code>workingCopyLeftColumnWidth</code>, never called in any revision), and one source comment corrected that described deleted behaviour.</td></tr>
       </tbody>
     </table></div>
 

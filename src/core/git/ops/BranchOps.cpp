@@ -446,6 +446,15 @@ public:
             }
         }
 
+        // The same probe answers a second question, and the message was the
+        // only thing reading it: a failed outcome that nonetheless moved
+        // refs/heads still owes every refs consumer a refresh, which
+        // Session::submitOperation gates on this flag (see
+        // OperationOutcome::mutatedRefs). Evidence-driven on purpose -- an
+        // empty `deleted` means either nothing went or the probe could not
+        // tell, and neither is grounds for claiming the repository changed.
+        outcome.mutatedRefs = !deleted.empty();
+
         // `-d` refuses to delete unmerged work. Offering `-D` is legitimate, but
         // it has to be labelled honestly. Left unhandled this falls through to
         // classifyGitStderr's generic "Git reported an error" fallback, which

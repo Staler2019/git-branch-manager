@@ -667,13 +667,25 @@ void Session::submitOperation(std::unique_ptr<Operation> operation,
                          onSuccess = std::move(onSuccess),
                          onAlways = std::move(onAlways)](OperationOutcome outcome) {
                             const bool succeeded = outcome.succeeded;
+                            // "Failed" and "changed nothing" are not the same
+                            // claim. `git branch -d a b` deletes what it can
+                            // and still exits 1 for the rest, so a refused
+                            // multi-branch delete routinely lands here having
+                            // already moved refs/heads -- and refs read only
+                            // on `succeeded` left the sidebar drawing branches
+                            // that no longer existed. Only an operation that
+                            // measured the change sets this (see
+                            // OperationOutcome::mutatedRefs); the AND with
+                            // refreshHistoryOnSuccess is kept, so no operation
+                            // starts refreshing that was not already going to.
+                            const bool changedRefs = succeeded || outcome.mutatedRefs;
                             refreshUndoJournalCache();
                             callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
                             refreshWorkingCopy();
                             if (onAlways) {
                                 onAlways();
                             }
-                            if (succeeded && refreshHistoryOnSuccess) {
+                            if (changedRefs && refreshHistoryOnSuccess) {
                                 refreshHistory();
                             }
                             if (succeeded && onSuccess) {

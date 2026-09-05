@@ -250,6 +250,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
 - **Note**: **Dart / UI 刻意沒接**（使用者裁定：「開 capi cancellation token 然後先不接線」），
   所以這是一個**新開的、被記錄的**孤兒，寫在 `gbm_capi.h` 的 doc comment 裡而不是留給下一次
   orphan sweep 當死碼刪掉。[TEST-ffi-matches-symbol-only] 指出這條縫只有 device 層測得到。
+  追在 **#139**，並列在 [DRIFT-cancel-capi-unwired]。
 - **Note**: 「取消一個**正在跑**的 git 會不會真的砍掉它」在 capi 層**沒有**自動化測試——這一層
   沒有跑得夠久又不必跟斷言賽跑的操作。那個主張靠的是下一層既有的覆蓋
   （`ProcessRunnerTest` 的 `source.cancel()`、`CancelsAReadOnlyWalkPromptly`、

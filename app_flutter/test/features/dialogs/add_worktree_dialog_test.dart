@@ -308,6 +308,67 @@ void main() {
     });
   });
 
+  group('位置 is gated on having a branch to derive it from', () {
+    // 使用者裁定:「我沒選分支之前，應該把選位置那邊鎖起來，我剛剛一直以為
+    // 可以直接選位置用了」-- the field sat enabled and permanently empty
+    // before a branch was picked, because _computeDefaultPath returns null
+    // on an empty branch name. Both halves of the row are gated on that
+    // same condition, since the reported reach was for 瀏覽…, not the box.
+    testWidgets('both the box and 瀏覽… are disabled before a branch is picked', (
+      tester,
+    ) async {
+      await _pump(tester);
+
+      final TextField pathField = tester.widget<TextField>(
+        find.byKey(const Key('add-worktree-path-field')),
+      );
+      expect(pathField.enabled, isFalse);
+
+      final GbmButton browse = tester.widget<GbmButton>(
+        find.widgetWithText(GbmButton, '瀏覽…'),
+      );
+      expect(browse.onPressed, isNull);
+    });
+
+    testWidgets('picking a branch enables both', (tester) async {
+      await _pump(tester);
+      await _pick(tester, 'release/0.5');
+
+      final TextField pathField = tester.widget<TextField>(
+        find.byKey(const Key('add-worktree-path-field')),
+      );
+      expect(pathField.enabled, isTrue);
+
+      final GbmButton browse = tester.widget<GbmButton>(
+        find.widgetWithText(GbmButton, '瀏覽…'),
+      );
+      expect(browse.onPressed, isNotNull);
+    });
+
+    testWidgets(
+      'create-new gates on the typed name, not on the picker default',
+      (tester) async {
+        await _pump(tester);
+        await _pickCreateNew(tester);
+
+        // The picker defaults to HEAD here, so _picked is non-null -- but
+        // the path is derived from the *typed* name in this mode, and that
+        // is still empty.
+        TextField pathField = tester.widget<TextField>(
+          find.byKey(const Key('add-worktree-path-field')),
+        );
+        expect(pathField.enabled, isFalse);
+
+        await _typeNewBranchName(tester, 'feature/z');
+
+        pathField = tester.widget<TextField>(
+          find.byKey(const Key('add-worktree-path-field')),
+        );
+        expect(pathField.enabled, isTrue);
+      },
+    );
+  });
+
   group('occupied branches', () {
     testWidgets(
       'a branch already checked out elsewhere is disabled and named',

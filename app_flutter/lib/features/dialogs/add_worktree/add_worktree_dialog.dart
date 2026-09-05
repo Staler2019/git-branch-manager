@@ -329,6 +329,8 @@ class _AddWorktreeDialogContentState
       }
     }
 
+    final bool pathEnabled = effectiveBranchName.isNotEmpty;
+
     final String path = _pathController.text.trim();
     final bool pathTaken = _pathExistsAndNonEmpty(path);
 
@@ -465,6 +467,13 @@ class _AddWorktreeDialogContentState
                     child: TextField(
                       key: const Key('add-worktree-path-field'),
                       controller: _pathController,
+                      // Gated on the same condition _computeDefaultPath
+                      // nulls on: with no branch there is nothing to derive
+                      // a path from, so the box could only ever sit empty.
+                      // 使用者裁定 -- they reached for 瀏覽… first, so the
+                      // button is gated with it rather than left live over
+                      // a locked box.
+                      enabled: pathEnabled,
                       onChanged: (_) =>
                           setState(() => _pathManuallyEdited = true),
                       decoration: gbmInputDecoration(colors: colors),
@@ -476,7 +485,7 @@ class _AddWorktreeDialogContentState
                   label: '瀏覽…',
                   kind: GbmButtonKind.secondary,
                   icon: const Icon(Icons.folder_open_outlined),
-                  onPressed: _browsePath,
+                  onPressed: pathEnabled ? _browsePath : null,
                 ),
               ],
             ),

@@ -27,8 +27,18 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `_StashRow`, a `GestureDetector` + `Container` with no `InkWell` at all) — shipped with no
   hover, no selected tint, and no discoverable menu trigger, because this one was never swept;
   it took a direct user report rather than the grep above to surface it.
+- **Consequence**: a fifth — the Working Copy's conflicted-file row — is the one the grep
+  actually caught, and it carried [FLU-gesture-arena-taxes-double-tap] at the same time. **The
+  two defects are coupled, and that is the lesson**: its only callback was `onDoubleTap`, so
+  routing it through `GbmRow` would have fixed neither. `GbmRow` has no `onDoubleTap`, and an
+  `InkWell` with no callback at all is not `isWidgetEnabled` — so the row would have had to
+  gain a single-click action it does not have, which is a UX decision rather than a repair.
+- **Do**: when 「reach for `GbmRow`」 would require inventing an interaction, paint the **same
+  token** from an explicit `MouseRegion` instead and say why in the widget's doc comment. The
+  rule is about the token being visible, not about which widget supplies it.
 - **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上
-  hover/選取/選單](../ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md)
+  hover/選取/選單](../ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md);
+  [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-gesture-arena-taxes-double-tap] The gesture arena taxes double-clickable rows, and it is not local
 
@@ -40,7 +50,15 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   the double-tap on the narrowest subtree that needs it.
 - **Note**: `InkResponse` stays hover-enabled with no primary callback at all, because
   `isWidgetEnabled` is `_primaryButtonEnabled || _secondaryButtonEnabled` and `onSecondaryTapDown`
-  satisfies the second half.
+  satisfies the second half. **With neither, it is not enabled and does not hover** — which is
+  what couples this rule to [FLU-hand-rolled-inkwell-hover] and rules `GbmRow` out for a row
+  whose only interaction is a double tap.
+- **Consequence**: **measured on a real row, not assumed.** The Working Copy's conflicted-file
+  row wrapped its three resolution buttons in an `InkWell(onDoubleTap:)`; tapping `Take Ours`
+  and pumping a single frame dispatched **nothing** (`Expected: <1>, Actual: <0>`), because the
+  ancestor holds the arena until the timeout. That is the whole tax, and it is testable exactly
+  this way — one `tap`, one `pump()`, no elapsed duration.
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-selectionarea-gives-a-string] `SelectionArea` tells you the selected *string*, not which widgets it covers
 

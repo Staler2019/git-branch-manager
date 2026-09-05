@@ -228,6 +228,47 @@ board 轉成上下堆疊之後，這個點落回 Unstaged 欄裡，檔案根本�
   把它當成保留固定槽的理由——列都帶 `GlobalKey`，Flutter 是把 element 搬過去而不是重建。
   就地劃掉重寫。同一句話在 `arch-structure.md:216` 也有一份，一起改。
 
+## G3 的 hover 掃描撿到一列同時中兩槍
+
+[FLU-hand-rolled-inkwell-hover] 要求「任何動到 widget 的一輪，結束前把改過的檔案裡的
+`InkWell(`／`GestureDetector(` 掃一遍」。掃出來 `working_copy_view.dart:303` 是一個
+**沒有明確 hover 色的裸 `InkWell`**，而且它唯一的 callback 是 `onDoubleTap`——那就是
+**兩個**已記錄的缺陷形狀疊在同一列上：
+
+1. 裸 `InkWell` 拿到的是 `ThemeData.hoverColor`（約 4%），在真的螢幕上看不見
+   （[FLU-hand-rolled-inkwell-hover]）。
+2. 那個 `onDoubleTap` 是一個位於這一列**三顆按鈕祖先層**的
+   `DoubleTapGestureRecognizer`，它會把 gesture arena 押住到
+   `kDoubleTapTimeout`（約 300ms）（[FLU-gesture-arena-taxes-double-tap]）。
+
+第二點不是推論，是量出來的。測試先寫，兩條都紅，而且紅的理由正是預測的：
+
+```
+hover:   Expected: Color(0.0863, 0.1059, 0.1333)   Actual: <null>
+按鈕:    Expected: <1>                              Actual: <0>
+```
+
+`Actual: <0>` 的意思是：**按下 `Take Ours` 之後 pump 一幀，什麼都沒有派送出去**。三顆
+衝突解決按鈕每一顆都要等那個計時器。
+
+### 為什麼不是直接換成 `GbmRow`
+
+規則說「row 形狀的東西就用 `GbmRow`」，但這一列 `GbmRow` 兩個都解不掉：
+
+- `GbmRow` 沒有 `onDoubleTap`。
+- 而 `InkWell` 在完全沒有 callback 時 `isWidgetEnabled` 是 false，**連 hover 都不會
+  有**（`_primaryButtonEnabled || _secondaryButtonEnabled`）。
+
+所以走 `GbmRow` 就得給這一列一個它本來沒有的單擊動作——那是 UX 決定，不是修復，不該由
+實作者自己定。改成本輪 W13 已經用過的作法：hover 用明確的 `MouseRegion` 畫**同一個**
+`surfaceHover` token，`onDoubleTap` 往下搬到路徑本身。
+
+**唯一縮小的行為**寫在類別的 doc comment 裡：在按鈕條上按兩下不再開衝突視窗。`Expanded`
+讓路徑吃掉第一顆按鈕以前的所有空間，所以失去的只有按鈕自己那一段，而那裡本來按兩下就
+是有歧義的。
+
+這一列不是本輪弄壞的，也不是本輪的題目——是掃描掃出來的既有缺陷，照標準規則 1 修掉。
+
 ## 數字
 
 **突變檢查**（[TEST-mutation-check-every-test]，兩個數字分開記）：
@@ -244,7 +285,8 @@ board 轉成上下堆疊之後，這個點落回 Unstaged 欄裡，檔案根本�
 | W11 虛線與框線 | 5 | 5 |
 | W12 兩個 chip | 4 | 4 |
 | W13 hover | 4 | 4 |
-| **合計** | **24** | **32** |
+| W14 衝突列 | 2 | 2（各 -1，且 M2 紅的正是按鈕那一條，不是 hover 那一條） |
+| **合計** | **26** | **34** |
 
 W5 用的是二分而不是突變（85 紅／86 綠／78 差 8.0px），W8 的紅是裝置層真的跑出來的。
 

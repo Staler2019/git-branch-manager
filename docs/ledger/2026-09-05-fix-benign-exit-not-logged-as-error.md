@@ -167,6 +167,10 @@ M6 是「level 說 INFO、旁邊卻是紅色 error 圖示」那個缺陷——`_
 
 ## 驗收
 
+**就地更正（追加那一段的結論）：下面每一個數字都是真的量出來的，但全部是 macOS 的數字，而這一段
+原本讀起來像「本輪已經驗完了」。它沒有——同一批 commit 的 Windows `capi (FFI)` job 卡了 81 分鐘，
+卡在本輪自己新增的 `ASinkThatStopsEarlyIsRecordedAsBenign` 上。經過與原因寫在「追加」。**
+
 device 層那一支是唯一把整條鏈接起來的：真 dylib、真 FFI JSON、真 Dart 解碼、真 LogDrawer。
 它也順便問出一件事實——**開 session 本身不讀 local identity**，是這個測試在還沒加
 refresh 之前紅在空清單上驗出來的，不是猜的。要 `refreshRepoStatus()`（F5 唯一的進入點，
@@ -185,3 +189,197 @@ refresh 之前紅在空清單上驗出來的，不是猜的。要 `refreshRepoSt
 `932b261` 的內文把 pin 打成 `[TEST-device-tier-not-in-ce]`，正確是
 `[TEST-device-tier-not-in-ci]`。commit message 無法就地更正（要 rebase 改寫歷史），
 所以更正記在這裡。`scripts/check-rule-pins.py` 只掃 docs，掃不到 commit message。
+
+---
+
+## 追加：Windows CI 卡 81 分鐘，而卡住的是本輪自己新增的測試
+
+使用者的原話：
+
+> 修正一下pr ci
+
+PR #138 除了 `capi (FFI) - Windows` 之外全綠。那一顆在 `Build and test gbm_capi` 這一步不會結束。
+
+拿到日誌本身就有一道關卡：**GitHub 不提供還在跑的 job 的日誌**（`gh run view --log` 回
+「job is still in progress」，REST 的 logs endpoint 回 `BlobNotFound`）。所以第一個決定是攤給使用者
+的——**使用者裁定：取消這個 run，把 log 沖出來**。沖出來之後兇手是指名的，不是推論：
+
+```
+08:18:35  326/669 Test #326: RealRepoTest.MergeBaseOfUnrelatedHistoriesIsRecordedAsBenign ... Passed 0.60 sec
+08:18:35          Start 327: RealRepoTest.ASinkThatStopsEarlyIsRecordedAsBenign
+09:39:46  ##[error]The operation was canceled.
+```
+
+本輪其他三個 benign 測試在同一顆 job 上都是綠的（0.47s / 0.44s / 0.60s）。`main` 的基準是
+**9–11 分鐘 / 659 個測試 / 測試時間 239 秒**，最慢的單一測試 4.97 秒。
+
+## 三個疊在一起的缺陷，只有最底下那個是「壞掉」
+
+```
+①  ProcessRunner Windows 端 terminate() 之後的 join 會永久卡住   ← 真正的病灶
+       ↑ 之前從來沒有任何測試踩到它
+②  ctest 完全沒有 per-test 逾時 → 卡死的測試不會被砍，也不會被指名
+③  ci.yml 沒有 timeout-minutes  → 一路燒到 GitHub 的 6 小時上限
+```
+
+②③ 是護欄，先進去；①是病灶，後進去。順序是刻意的：護欄落地之後，任何殘留的卡死會變成
+**指名道姓、十幾分鐘內結束的紅**，而不是一個上午。
+
+## ① 這個洞比本輪老，而本輪是第一個踩到它的
+
+`ASinkThatStopsEarlyIsRecordedAsBenign` 是**整個 repo 第一個讓 `LineSink` 回傳 `false` 的測試**。
+現有的 cancellation 測試全部是**開跑前就 cancel**（`GitIntegrationTest.cpp:577,1532`、
+`ProcessRunnerTest.cpp:56`），所以 `WindowsChild::terminate()` 在 Windows CI 上**從來沒有被執行過
+一次**。
+
+這件事上一段 ledger 其實已經寫過一次，只是寫的是另一個方向：`sinkStopped` 唯一的正式生產者是
+`HistoryProvider` 的 row cap，「只有大到撞上限的 repo 會踩到，所以一直沒人回報」。同一句話同時解釋
+了為什麼 CI 也一直沒踩到。**缺陷比測試老；測試是把它挖出來的東西。**
+
+兩個平台的不對稱是可以直接從原始碼讀出來的：
+
+| | POSIX | Windows |
+|---|---|---|
+| pump 結構 | 單一 `poll()` 迴圈，三個 fd 一起排 | stdout 在本執行緒 blocking `ReadFile`，stderr／stdin 各一條執行緒也是 blocking |
+| sink 回傳 false | `terminate()` → `break`，**不 join 任何東西** | `terminate()` → `break` → **`stderrThread.join()`** |
+| `terminate()` | SIGTERM → 最多 30×100ms `waitpid(WNOHANG)` → SIGKILL | 光禿禿一句 `TerminateProcess(process_, 1)` |
+
+pipe 的 `ReadFile` 只有在**所有**寫入端關掉才返回，而 `TerminateProcess` 殺的是一個行程不是一棵樹。
+`command.timeout`（測試裡設了 120 秒）救不了：Windows 的 pump 只在兩次 `ReadFile` **之間**驗
+deadline，而 join 在 `break` 之後。
+
+**「是誰握著 stderr pipe 的寫入端」沒有證實，這裡不假裝有。** spawn 端本身是對的（讀取端清掉
+`HANDLE_FLAG_INHERIT`，parent 在 `CreateProcessW` 之後立刻關掉自己那份）。最像的候選是 git 的孫
+行程：`GitExecutable::searchPath()` 在 Windows 上**第一個**候選是登錄檔
+`SOFTWARE\GitForWindows\InstallPath` 底下的 `cmd\git.exe`（不是 `actions/checkout` 日誌裡那個
+`bin\git.exe`），而那一支是不是 wrapper、會不會 re-exec，**在 macOS 上驗不了**。另一個候選是
+`bInheritHandles=TRUE` 下的跨執行緒繼承競態（app 的 worker pool 會並行 spawn；ctest 一個測試一個
+行程，所以**這一次**不成立）。
+
+修法兩種可能都蓋掉，所以不必先分辨——而且 ② 落地之後，猜錯的代價從六小時變成十幾分鐘。
+
+## 修法的兩層，以及一個被拿掉的旗標
+
+**(a) Job Object 讓 `terminate()` 砍整棵樹。** `CREATE_SUSPENDED` 起 → `CreateJobObjectW` →
+`AssignProcessToJobObject` → **`ResumeThread`**；`terminate()` 先 `TerminateJobObject` 再退回
+`TerminateProcess`。`pi.hThread` 因此要留到 resume 之後才關，而且 job 的任何一步失敗都不可以讓
+spawn 失敗——**留下一個 suspended 的孤兒比原本的卡死更糟**。
+
+**設計裡拿掉的是 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。** 計畫原本帶著它（「反正正常路徑上子程序
+早就被收掉了，是 no-op」）。不對：job handle 在**成功**路徑上也會關，那個旗標會連 git 正當留下的
+東西一起殺掉——**簽章 commit 起的 `gpg-agent`** 就是具體的例子，它本來就該活過那一次 commit。
+job 是用來放大 `terminate()`，不是用來收屍。
+
+**(b) join 之前把 helper 從 `ReadFile` 裡拉出來。** `CancelSynchronousIo`，**重試**而不是只發一次
+（執行緒還沒進到 I/O 時它回 `ERROR_NOT_FOUND`）；必然收斂，因為任何一次 read 失敗執行緒就 return。
+兩個 helper（stderr 與 stdin）同形狀，一起改——[GIT-primary-not-current-worktree] 記過相反方向的
+教訓：修好一個就去 grep 它的雙胞胎。
+
+一個容易寫錯的地方：**不要先看「已經 terminate 了嗎」再決定要不要進迴圈**。cancel 是別的執行緒送
+來的，可以剛好落在那個檢查之後——那就是同一個卡死又回來。所以是輪詢，正常路徑上 helper 早就 EOF
+結束，第一次 wait 就返回，什麼也不會被 cancel。
+
+**`detach()` 被否掉，而且理由比「會漏執行緒」重得多**：那條執行緒寫的是 `execute()` 的區域變數
+`result.err`，lambda 還**以參考捕獲** `onProgress`——detach 是 use-after-free，而且是在 ASan 與
+TSan 都不會編到的那個平台上。這一點寫進了程式碼註解與 pin 的 Do-not，否則日後會被當成「簡化」。
+
+**POSIX 那半邊一行沒動。** 它結構上就沒有這個問題，為了對稱去改它只會製造沒有任何一層測得紅的
+分支——就是本輪前半段「兩個被砍掉的防護」同一個道理。
+
+## ② ctest 沒有逾時，是實證不是推測
+
+根目錄 `CMakeLists.txt:46` 只呼叫 `enable_testing()`，沒有 `include(CTest)`，所以不會產生帶
+`TimeOut` 的 `DartConfiguration.tcl`。**那個 1500 秒的預設值是 CTest *module* 的
+`DART_TESTING_TIMEOUT`，不是 ctest 自己的**；沒有那個 module，就是完全沒有逾時。日誌上那 81 分鐘
+就是證據。
+
+放在 `CMakePresets.json` 的 `tbase.execution.timeout`（300 秒）而不是
+`gtest_discover_tests(PROPERTIES TIMEOUT n)`：五個 testPreset 全部 `inherits: tbase`，一行蓋住每
+一條路，包含以後新增的；gtest 那個形式只蓋兩個執行檔，蓋不到 `add_test()` 註冊的兩個 fixture 測試。
+明寫的 `TIMEOUT` property 優先於 `--timeout`，所以那兩個自帶 `TIMEOUT 600` 的完全不受影響。
+300 的依據是量測：整套在 Windows 上總共 239 秒，本機 674 個測試 134 秒、最慢的單一測試 4.13 秒。
+
+## ③ 兩層護欄不是重複，它們回答不同的問題
+
+`timeout-minutes` 的 kill 是**取消**，而 `if: failure()` 在取消時**不會觸發**——所以
+`Upload test logs` 那一步在 job 逾時的路徑上根本到不了。**只有 ctest 那一層會留下指名的紅和證據**；
+job 那一層封的是帳單。四顆 job 同一個 25，不逐 job 調校：`capi-build` 是 matrix job，逐 job 要在
+`matrix.include` 多帶一個欄位，為了省十分鐘的上限多一個維度不划算。
+
+代價也不只是那顆 job：`flutter-ci` 掛 `needs: capi-build`，所以整條分支從頭到尾**一次都沒跑過**
+Flutter 那一段。
+
+## Mutation：這一次的紅不用自己造，它已經在手上了
+
+[TEST-mutation-check-every-test] 要的是「拿掉修正就會紅、而且紅得窄」。這裡兩者都有現成的：
+
+| | 紅（修正之前） | 綠（修正之後） |
+|---|---|---|
+| 證據 | 被取消的那份 CI 日誌，run `33954549299` / job `101275356013` | run `33959613871` / job `101289076305`，`Passed 1.87 sec` |
+| 紅在哪 | `Start 327: RealRepoTest.ASinkThatStopsEarlyIsRecordedAsBenign`，**1 個**，由 ctest 逐一指名而不是用數的 | — |
+
+「紅得窄」在這裡是最強的形式：失敗的測試是被**點名**的，不是從一個數字推回去的。再花一顆 CI round
+去重新推導一個已經有的紅沒有意義。
+
+**同時要記住 [TEST-fixture-cannot-disagree]：這個測試在 macOS/Linux 上永遠是綠的。** 兩邊 pump 結
+構不同，所以它對 Windows 的主張只有 Windows CI 能反駁——本機 674/674 綠**不是**這個修正的證據。
+
+## 追加的驗收：Windows 綠了，而且 job object 的代價量得出來
+
+run `33959613871` / job `101289076305`（commit `05146f4`）：
+
+```
+327/669 Test #327: RealRepoTest.ASinkThatStopsEarlyIsRecordedAsBenign ...  Passed   1.87 sec
+100% tests passed out of 669
+Total Test time (real) = 341.84 sec
+capi (FFI) - Windows   10:03:18Z -> 10:15:05Z   （11m47s）
+```
+
+**81 分鐘變成 1.87 秒。** 這就是 mutation 表右半格的內容。
+
+計畫第 6 步要求逐一確認另外幾個 benign 測試沒有被 commit 3(a) 波及——理由是 job object 落在
+**每一次 git spawn** 上，669 個測試全部踩在上面。逐一列出來，而不是只說「全綠」：
+
+| # | 測試 | 秒 |
+|---|---|---|
+| 320 | `RealRepoTest.DeclaredBenignExitCodeIsRecordedAsBenign` | 0.82 |
+| 324 | `RealRepoTest.ClearingAnIdentityThatWasNeverSetIsRecordedAsBenign` | 0.60 |
+| 325 | `RealRepoTest.TheUntrackedFileDiffsOwnExitOneIsRecordedAsBenign` | 1.20 |
+| 326 | `RealRepoTest.MergeBaseOfUnrelatedHistoriesIsRecordedAsBenign` | 1.66 |
+| 327 | `RealRepoTest.ASinkThatStopsEarlyIsRecordedAsBenign` | **1.87** |
+| 328 | `RealRepoTest.ASinkThatReadsEverythingIsNotRecordedAsBenign`（反例） | 0.87 |
+| 599 | `OperationLogApiTest.ReadingAnUnsetLocalIdentityIsRecordedAsBenign` | 0.52 |
+
+### Job object 讓 Windows 的測試變慢 33%，這個數字要留下來
+
+標準規則 5 說效能要用數字決定，所以不是「感覺沒差」。被取消的那一份日誌在卡死之前已經跑完
+**326 個測試**，和這一次是同一棵樹、同一組測試、只差 `ProcessRunner.cpp` 那一個 commit——
+所以 1..326 是一個現成的對照組，不需要另外造。
+
+| 分組 | 測試數 | 修正前（run `33954549299`） | 修正後（run `33959613871`） | 比值 |
+|---|---|---|---|---|
+| `RealRepoTest.*`（每個都真的 spawn git） | 151 | 133.71s | 177.67s | **1.33×** |
+| 其餘單元測試（`FakeProcessRunner`，不 spawn） | 175 | 5.97s | 6.78s | 1.14× |
+
+**下面那一列是上面那一列的對照組，這是整個量測唯一站得住的理由。** 兩份 log 相隔兩小時、跑在
+不同的實體 runner 上，單看 1.33× 無法排除「今天的機器比較慢」——同一天 macOS job 也從 4m19s
+變成 5m08s（+19%）。但不 spawn 的那 175 個測試只慢了 1.14×，而 spawn 的那 151 個慢了 1.33×，
+**差在中間那 17 個百分點**，方向和 job object 落點完全一致。被拖最慢的十個測試逐一看過，
+**全部都是 `RealRepoTest`**，而且全部是 git 呼叫最密的那幾個（`BisectFindsTheFirstBadCommit…`
+1.74s→4.23s、`CherryPicksARangeInOldestFirstOrder` 1.04s→3.34s、`SyncSubmodulesRewrites…`
+2.83s→5.73s）；沒有一個純單元測試進到那份名單。
+
+成本大約是 **+44 秒**攤在 151 個測試上，換算下來是每次 spawn 多一個排程來回——
+`CREATE_SUSPENDED` 之後要 `ResumeThread`，加上兩個 kernel object 的建立與關閉。
+
+**不為了這 44 秒把修正改掉，理由是兩個候選的省法都會把正確性換掉：**
+
+1. **整個 runner 共用一個 job object**（不要每個 child 一個）——省掉 `CreateJobObjectW`，
+   但 `TerminateJobObject` 就會連**同時在跑的其他 git** 一起殺掉。`sharedReadPool()` 是並行
+   spawn 的，所以這等於把「砍掉這一個」變成「砍掉全部」。
+2. **拿掉 `CREATE_SUSPENDED`**，`CreateProcessW` 之後直接 assign——省掉 resume 的排程來回，
+   但那個 suspend 正是為了關掉「子程序在被 assign 進 job 之前就先生了孫子」的競態。而這一輪
+   的病灶本來就是「孫行程握著 pipe 的寫入端」，把那個競態放回去等於把修正拆掉一半。
+
+11m47s 距離 commit 1 的 25 分鐘上限還有一倍餘裕，所以這個代價目前沒有人在等它。
+記下來是為了：**日後 Windows job 若逼近上限，第一個該回來看的就是這一段，而不是重新猜一次。**

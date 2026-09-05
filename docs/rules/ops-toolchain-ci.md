@@ -83,3 +83,32 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Do**: regenerate with `GBM_UPDATE_GOLDEN=1 flutter test test/data/services/update_script_golden_test.dart`.
   The golden is compared as **bytes**, because the BOM is half of what it pins.
 - **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
+
+## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout at all
+
+- **Rule**: the documented 1500-second default is the **CTest module's** `DART_TESTING_TIMEOUT`,
+  written into `DartConfiguration.tcl` — and the root `CMakeLists.txt` calls `enable_testing()`
+  only, so that file is never generated and ctest applies no deadline of any kind. The two
+  `gtest_discover_tests` calls set `DISCOVERY_TIMEOUT`, which bounds *discovery*, not a test.
+- **Consequence**: a test that fails **by hanging** runs to GitHub's 6-hour job cap. Measured:
+  one Windows `capi (FFI)` job sat 81 minutes on a single test against a 9–11 minute baseline,
+  and stopped only because a human cancelled it — which is also the only way its log became
+  readable, since GitHub refuses to serve logs for an in-progress job.
+- **Consequence**: it costs more than the one job. `flutter-ci` is `needs: capi-build`
+  ([CI-two-workflows]), so it did not run **once** on that branch while a Windows job could not
+  finish.
+- **Do**: both layers, because they answer different questions. `tbase.execution.timeout` in
+  `CMakePresets.json` names the culprit (`***Timeout`, with the test's name, and the remaining
+  tests still run under `stopOnFailure: false`); `timeout-minutes` on every `ci.yml` job caps
+  the bill. A job-level timeout **cancels** the job, and `if: failure()` does not fire on a
+  cancellation — so the `Upload test logs` step is unreachable by that path and only the ctest
+  timeout leaves evidence behind.
+- **Do**: put it on `tbase`, not on `gtest_discover_tests(PROPERTIES TIMEOUT n)`. All five test
+  presets inherit `tbase`, including any added later; the gtest form covers only the two gtest
+  executables and misses every `add_test()` fixture test. An explicit `TIMEOUT` property still
+  wins over `--timeout`, so `graph_matches_git_on_generated_history` and
+  `commit_graph_speedup_ratio` keep their `TIMEOUT 600` untouched.
+- **Do not** reach for `include(CTest)` to get the default back: it pulls in `BUILD_TESTING`
+  (which then fights `GBM_BUILD_TESTS`) and the CDash submit targets, and 1500 seconds is far
+  too long to be the instrument here.
+- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

@@ -131,3 +131,41 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   靜靜變成空測試——`RealRepoTest` 和 `OperationLogApiTest` 的 `SetUp()` 都會把 `user.name` 寫進
   **`--local`** scope（沒有 `--global`），所以「乾淨的 repo」在它們裡面不存在。
 - **Evidence**: [ledger: 「回答了否」和「被拒絕」，紀錄分不出來](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CPP-windows-terminate-hangs-join] Windows 的 `terminate()` 必須砍整棵樹**並且**取消卡住的同步 I/O，否則 `pump()` 的 join 永遠回不來
+
+- **Rule**: `WindowsChild::pump()` 的 stdout 在本執行緒 blocking `ReadFile`，stderr（和 stdin）
+  另開執行緒也是 blocking。pipe 的 `ReadFile` 只有在**所有**寫入端關掉才返回，而
+  `TerminateProcess` 殺的是一個行程不是一棵樹——Windows 上 git 是從登錄檔解出
+  `<InstallPath>\cmd\git.exe`（`GitExecutable::gitFromRegistry`），一個會 re-exec 的 git
+  留下真正在跑的那個握著寫入端。
+- **Consequence**: `stderrThread.join()` 就此卡死，而 `command.timeout` **蓋不到**它：pump 只在
+  兩次 `ReadFile` **之間**驗 deadline，join 在 `break` 之後。實測是一整顆 CI job 卡 81 分鐘。
+- **Rule**: POSIX 那半邊沒有對應的洞，而且**不要為了對稱去改它**——單一 `poll()` 迴圈沒有執行緒
+  要 join，`terminate()` 也已經是 SIGTERM→SIGKILL 兩段式。改它只會製造沒有任何一層測得紅的分支。
+- **Do**: spawn 用 `CREATE_SUSPENDED` → `CreateJobObjectW` → `AssignProcessToJobObject` →
+  **`ResumeThread`**，`terminate()` 先 `TerminateJobObject` 再退回 `TerminateProcess`。
+  `pi.hThread` 因此要留到 resume 之後才關，而且 job 的任何一步失敗都**不可以**讓 spawn 失敗——
+  留下一個 suspended 的孤兒比原本的卡死更糟；沒有 job 就退回原本的單行程 kill。
+- **Do**: 刻意**不加** `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`。job handle 在**成功**路徑上也會關，
+  那個旗標會連 git 正當留下的東西一起殺掉，簽章 commit 起的 `gpg-agent` 就是具體的例子。
+- **Do**: join 之前用 `CancelSynchronousIo` 把 helper 從 `ReadFile` 裡拉出來，**重試**而不是只發
+  一次（執行緒還沒進到 I/O 時它回 `ERROR_NOT_FOUND`）。必然收斂：任何一次 read 失敗執行緒就
+  return。並且用輪詢，不要先看「已經 terminate 了嗎」再決定進不進迴圈——cancel 是別的執行緒送來
+  的，可以剛好落在那個檢查之後，那就是同一個卡死又回來。
+- **Do not**: 把 join 改成 `detach()`。那不是簡化而是 use-after-free——helper 寫的是 `execute()`
+  的區域變數 `result.err`，lambda 還**以參考捕獲** `onProgress`。
+- **Note**: 這個洞比發現它的那一輪老得多。`ASinkThatStopsEarlyIsRecordedAsBenign` 是整個 repo
+  第一個讓 `LineSink` 回傳 false 的測試，現有 cancellation 測試全部在開跑前就 cancel，所以
+  `WindowsChild::terminate()` 在 CI 上從來沒被執行過一次。同一個洞也在 cancel 路徑上。
+- **Note**: **known-remaining，本輪沒有修**：一個「不輸出任何東西、也不結束」的子程序仍然會讓主
+  執行緒卡在 stdout 的 `ReadFile` 上，`command.timeout` 一樣驗不到。要修得把 stdout 換成
+  overlapped I/O 或另開執行緒。等使用者裁定是順手做掉還是開一條 `DRIFT-`。
+- **Note**: macOS/Linux 上那個測試**永遠是綠的**，兩邊 pump 結構不同——這條 rule 只有 Windows CI
+  能反駁（[TEST-fixture-cannot-disagree]）。
+- **Note**: job object 有**量到的代價**，落在每一次 spawn 上：同一棵樹的前 326 個測試，會 spawn git
+  的 151 個從 133.71s 變成 177.67s（**1.33×**），不 spawn 的 175 個只從 5.97s 變成 6.78s（1.14×）
+  ——後者是同兩份 log 的對照組，所以差的那 17 個百分點不是 runner 快慢。省法有兩個，兩個都要拿
+  正確性去換（共用一個 job 會讓 `TerminateJobObject` 殺掉並行的其他 git；拿掉 `CREATE_SUSPENDED`
+  會把「孫子在 assign 之前就生出來」的競態放回去），所以不省。Windows job 11m47s 對 25 分鐘上限。
+- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

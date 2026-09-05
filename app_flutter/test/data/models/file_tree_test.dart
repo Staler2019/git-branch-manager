@@ -103,6 +103,27 @@ void main() {
         );
         expect(node.displayPath, 'lib/app/views/screens/home_screen.dart');
         expect(node.isDirectory, false);
+
+        // And the collapsed folder chain stays *in the name*. The name is
+        // what a tree row draws; a lone file whose folders collapsed into it
+        // would otherwise render as a bare `home_screen.dart` with no row
+        // anywhere saying which folder it is in -- the folders collapsed
+        // into this node, so there is no FileTreeFolderRow left to say it.
+        //
+        // Spec P03 item 10 draws the contrast the other way round: list mode
+        // is 「平鋪完整路徑」 and tree mode 「依資料夾摺成樹狀」, with
+        // 「只有一個子項的資料夾會自動串接成 lib/app/views 一列」. A file is
+        // the same case one level down.
+        expect(node.name, 'lib/app/views/screens/home_screen.dart');
+      });
+
+      test('a folder holding one file collapses into it, prefix and all', () {
+        final tree = FileTree.fromPaths(const <String>['b/c.dart']);
+
+        final FileTreeNode node = tree.children.single;
+        expect(node.isDirectory, false);
+        expect(node.displayPath, 'b/c.dart');
+        expect(node.name, 'b/c.dart');
       });
     });
 

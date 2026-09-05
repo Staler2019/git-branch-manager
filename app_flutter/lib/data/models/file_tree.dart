@@ -165,10 +165,23 @@ FileTreeNode _collapseIfSingleChild(String pathPrefix, _TreeNodeData data) {
     final childData = entry.value;
     final newPathPrefix = '$pathPrefix/$childName';
 
-    // If the child is a leaf (file), collapse all the way and return as file
+    // If the child is a leaf (file), collapse all the way and return as file.
+    //
+    // `name` keeps the whole collapsed chain, and that is load-bearing rather
+    // than cosmetic: `name` is what a tree row draws, and every folder above
+    // this file has just been collapsed *into* it, so there is no
+    // `FileTreeFolderRow` left anywhere to say which folder it is in. It read
+    // `childData.leafPath!.split('/').last`, which rendered `b/c.dart` as a
+    // bare `c.dart` sitting at the tree's root -- indistinguishable from a
+    // real root-level `c.dart`.
+    //
+    // Spec P03 item 10 makes list mode the 「平鋪完整路徑」 one and tree mode
+    // the folded one, with 「只有一個子項的資料夾會自動串接成 lib/app/views
+    // 一列」. This is that same concatenation, applied where the single child
+    // is a file instead of another folder.
     if (childData.isLeaf && childData.children.isEmpty) {
       return FileTreeNode(
-        name: childData.leafPath!.split('/').last,
+        name: newPathPrefix,
         displayPath: childData.leafPath!,
         isDirectory: false,
         children: const [],

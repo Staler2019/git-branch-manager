@@ -208,15 +208,38 @@ half-staged is expressed by the `+34 −12` line counts, which say more than a
 tri-state box could. The reasoning and what replaced each removed affordance
 is in the ledger under "Working Copy 重新設計".
 
-Below the columns, the diff area has **two modes** (`2 file`: unstaged left /
-staged right, and `unified`) and stages by **scope**, not by line-checkbox:
-`diff_scopes.dart` merges changes separated by ≤ `kDefaultScopeGap` (2)
-unchanged lines, never crossing a hunk, and each scope card carries its own
-end-of-run button. An ordinary text selection is a **one-shot temporary
-scope** rendered in a fixed slot at the top. Button text is
+**The two columns are stacked, and the whole stack is on the left.** Unstaged
+above, Staged below (`splitterWcStack`, vertical, 1:1, min 96), inside a
+fixed-width left column (`splitterWcFiles`, extent 260 / min 180) with the
+diff filling everything to its right. Both dividers ran the other way until
+feat/working-copy-vertical-file-lists — **使用者裁定**, because two file
+lists side by side left nothing readable for the file *content*, which is the
+thing the page is for. This is a stated deviation from spec page 09's
+`SPLITTERS`, whose `wc.columns` row says `dir: '垂直'` and whose `wc.diff`
+row says `dir: '水平'` — the `dir` is the divider's own direction, so both
+rows are overruled, not renamed. Each divider therefore got a **new storage
+key** (`wc.stack`, `wc.files`) rather than inheriting a number that had
+stopped meaning anything, per [FLU-splitpane-axis-change]. The commit box is
+untouched: still full-width along the bottom, outside the splitter. The drop
+hint reads 「拖曳檔案到下欄 = stage」 — 「右欄」 would now name a column that
+is not there, and a hint pointing the wrong way is worse than none.
+
+To the right of the columns, the diff area has **two modes** (`2 file`:
+unstaged left / staged right, and `unified`, **which is the default** as of
+the same round — a right-hand pane split into two monospace columns would
+have reproduced the very complaint) and stages by **scope**, not by
+line-checkbox: `diff_scopes.dart` merges changes separated by ≤
+`kDefaultScopeGap` (2) unchanged lines, never crossing a hunk, and each scope
+card carries its own end-of-run button. An ordinary text selection is a
+**one-shot temporary scope**, rendered **nested inside the cards it covers**
+— the head and button on the first card the selection reaches, the rest
+carrying the dashed body and touched tint. ~~It was a fixed slot at the top
+of the column~~ — that shipped, the user pointed at it, and the demo's own
+DOM nests `.variant-B-temp` inside `.variant-B-card`. Button text is
 `scopeButtonLabel()`'s and only its: 匡選行數 primary, 實際變動行數 in
-parentheses (`Stage 3 lines (1 changed)`), parentheses omitted when equal —
-that last half is an implementation judgement, not the user's verdict.
+parentheses (`Stage 3 lines (1 changed)`), parentheses omitted when equal.
+~~That last half is an implementation judgement, not the user's verdict~~ —
+it is **使用者裁定** now, ruled 照建議 on the same round's §06 question 7.
 
 `DiffPage` is **read-only** and has no staging callbacks; the Working Copy's
 diff is `ScopedDiffView`. Selecting a file selects the same *logical* file in
@@ -230,7 +253,7 @@ conflating them is the easy mistake:
 
 | Where | Enum / storage | Left ↔ right means |
 |---|---|---|
-| Working Copy diff pane | `WorkingCopyDiffMode` (`2 file` / `unified`), **widget state, not persisted** | unstaged ↔ staged |
+| Working Copy diff pane | `WorkingCopyDiffMode` (`2 file` / `unified`), **widget state, not persisted**, default `unified` since feat/working-copy-vertical-file-lists | unstaged ↔ staged |
 | History commit detail | `DiffViewMode` (`side by side` / `unified`), persisted app-wide under the flat key `diffViewMode`, default `unified` | 變更前 (old) ↔ 變更後 (new) |
 | Conflict window | no switch; always three panes | ours ↔ result ↔ theirs |
 
@@ -360,3 +383,27 @@ at a real commit. This is a user-requested addition like
   nothing about permanence. Same category as [STRUCT-soft-wrap-preference] — a user-requested
   addition, not a conformance item.
 - **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [STRUCT-leaf-label-from-switcher] A file list's leaf label is handed down by `FileListModeSwitcher`, never derived from the item
+
+- **Rule**: `leafBuilder(context, item, label)` takes the label as its third argument. List mode
+  passes `pathOf(item)` (the full path); tree mode passes `node.name` (the folded segment). A call
+  site that reads the path off the item itself draws the same string in both modes.
+- **Consequence**: that is exactly what shipped, on **all six** surfaces at once — Working Copy's
+  two columns, History's Changed files, Compare's Files, the Conflict window and
+  `panel_file_diff_detail`. Tree mode nested the row under a folder row and then spelled the
+  prefix again on the leaf, so 「摺成樹狀」 cost indentation and bought nothing. P03 item 10's own
+  wording is 「平鋪完整路徑，或依資料夾摺成樹狀」 — full path is what *list* mode is for.
+- **Rule**: the second half is `FileTreeNode`'s. `_collapseIfSingleChild` must keep the whole
+  concatenated prefix in `name` when it collapses a chain down to a **file** — P03-10's own
+  example is 「只有一個子項的資料夾會自動串接成 `lib/app/views` 一列」, and the file branch was
+  doing `leafPath!.split('/').last`, throwing away the very prefix the collapse existed to show.
+  The directory branch was already correct, which is what made it look right in every fixture
+  whose collapsed chain ended in a folder.
+- **Do**: fix this at the switcher, never at one call site. Six call sites each deciding what a
+  leaf label is are six chances to disagree ([CULT-single-source-of-truth]); the parameter makes
+  it a compile error instead.
+- **Do**: **the discriminating fixture needs a folder with more than one child.** A single-child
+  folder collapses into its parent, so the leaf's label and its full path are the same string and
+  the two modes are indistinguishable.
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)

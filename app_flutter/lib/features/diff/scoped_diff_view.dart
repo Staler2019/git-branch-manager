@@ -918,7 +918,7 @@ class _GapBlock extends StatelessWidget {
 }
 
 /// `.variant-B-card`: one scope, with the button that moves it.
-class _ScopeCard extends StatelessWidget {
+class _ScopeCard extends StatefulWidget {
   const _ScopeCard({
     required this.hunk,
     required this.scope,
@@ -980,69 +980,97 @@ class _ScopeCard extends StatelessWidget {
   final VoidCallback? onDiscard;
 
   @override
+  State<_ScopeCard> createState() => _ScopeCardState();
+}
+
+class _ScopeCardState extends State<_ScopeCard> {
+  /// `.variant-B-card:hover`. A MouseRegion rather than a GbmRow because a
+  /// card is not row-shaped -- it is a block with a head, a body and a
+  /// button of its own, and GbmRow's tint would paint over all three.
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final int moving = scope.changedLineIndices.length;
+    final int moving = widget.scope.changedLineIndices.length;
 
     // Two containers, not one. The accent stripe down the left is a border
     // side of a different colour from the other three, and Flutter asserts
     // that a `borderRadius` may only be given on a uniformly-coloured
     // border -- so the radius, fill and shadow live on the outer box (which
     // clips the corners) and the four border sides on the inner one.
-    return Container(
-      key: ValueKey<String>('scope-card-$ordinal'),
-      // `.variant-B-card { margin: var(--space-2) 0 }`. It shipped at
-      // space1, which read as one block of code with hairlines in it rather
-      // than as separate cards.
-      margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
-      decoration: BoxDecoration(
-        color: colors.surfacePanel,
-        borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-        boxShadow: superseded
-            ? null
-            : GbmEffects.shadowSm(context.gbmThemeVariant),
-      ),
-      clipBehavior: Clip.antiAlias,
+    // `.variant-B-card:hover { border-color: var(--border-strong);
+    //                          border-left-color: var(--accent-hover);
+    //                          box-shadow: var(--shadow-md) }`
+    //
+    // A superseded card is deliberately left out: its button is struck
+    // through and inert, and a card that lifts under the pointer while
+    // nothing on it can be pressed is the affordance lying.
+    final bool lifted = _hovered && !widget.superseded;
+    final Color ring = lifted ? colors.borderStrong : colors.borderDefault;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
       child: Container(
+        key: ValueKey<String>('scope-card-${widget.ordinal}'),
+        // `.variant-B-card { margin: var(--space-2) 0 }`. It shipped at
+        // space1, which read as one block of code with hairlines in it rather
+        // than as separate cards.
+        margin: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
         decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(color: colors.borderDefault),
-            right: BorderSide(color: colors.borderDefault),
-            bottom: BorderSide(color: colors.borderDefault),
-            left: BorderSide(
-              // `.variant-B-card-muted` drops the accent for a neutral edge
-              // while the one-shot scope holds the action.
-              color: superseded
-                  ? colors.borderStrong
-                  : (staged ? colors.success : colors.accent),
-              width: 3,
+          color: colors.surfacePanel,
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+          boxShadow: widget.superseded
+              ? null
+              : (lifted
+                    ? GbmEffects.shadowMd(context.gbmThemeVariant)
+                    : GbmEffects.shadowSm(context.gbmThemeVariant)),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: ring),
+              right: BorderSide(color: ring),
+              bottom: BorderSide(color: ring),
+              left: BorderSide(
+                // `.variant-B-card-muted` drops the accent for a neutral edge
+                // while the one-shot scope holds the action.
+                color: widget.superseded
+                    ? colors.borderStrong
+                    : (widget.staged
+                          ? colors.success
+                          : (lifted ? colors.accentHover : colors.accent)),
+                width: 3,
+              ),
             ),
           ),
-        ),
-        // A card's rows sit on surfacePanel while the well behind them is
-        // surfaceSunken, and a pinned gutter paints its own backdrop so the
-        // code can pass under it -- with the well's colour it would show as a
-        // seam down the left of every card.
-        child: GbmPinnedGutterBackdrop(
-          color: colors.surfacePanel,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              _CardHead(
-                ordinal: ordinal,
-                scope: scope,
-                staged: staged,
-                label: scopeButtonLabel(
-                  staged: staged,
-                  spanned: scope.lineIndices.length,
-                  changed: moving,
+          // A card's rows sit on surfacePanel while the well behind them is
+          // surfaceSunken, and a pinned gutter paints its own backdrop so the
+          // code can pass under it -- with the well's colour it would show as a
+          // seam down the left of every card.
+          child: GbmPinnedGutterBackdrop(
+            color: colors.surfacePanel,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                _CardHead(
+                  ordinal: widget.ordinal,
+                  scope: widget.scope,
+                  staged: widget.staged,
+                  label: scopeButtonLabel(
+                    staged: widget.staged,
+                    spanned: widget.scope.lineIndices.length,
+                    changed: moving,
+                  ),
+                  superseded: widget.superseded,
+                  onStage: widget.onStage,
                 ),
-                superseded: superseded,
-                onStage: onStage,
-              ),
-              ..._body(context),
-            ],
+                ..._body(context),
+              ],
+            ),
           ),
         ),
       ),
@@ -1060,15 +1088,15 @@ class _ScopeCard extends StatelessWidget {
   /// per row.
   List<Widget> _body(BuildContext context) {
     final List<Widget> out = <Widget>[];
-    final List<int> indices = scope.lineIndices;
-    bool headPlaced = !showTemporaryHead;
+    final List<int> indices = widget.scope.lineIndices;
+    bool headPlaced = !widget.showTemporaryHead;
 
     int i = 0;
     while (i < indices.length) {
-      final bool inTemporary = temporaryLines.contains(indices[i]);
+      final bool inTemporary = widget.temporaryLines.contains(indices[i]);
       final int start = i;
       while (i < indices.length &&
-          temporaryLines.contains(indices[i]) == inTemporary) {
+          widget.temporaryLines.contains(indices[i]) == inTemporary) {
         i++;
       }
       final List<Widget> rows = <Widget>[
@@ -1081,10 +1109,10 @@ class _ScopeCard extends StatelessWidget {
       out.add(
         _TemporaryBlock(
           showHead: !headPlaced,
-          staged: staged,
-          label: temporaryLabel,
-          hunkCount: temporaryHunkCount,
-          onStage: onSubmitTemporary,
+          staged: widget.staged,
+          label: widget.temporaryLabel,
+          hunkCount: widget.temporaryHunkCount,
+          onStage: widget.onSubmitTemporary,
           children: rows,
         ),
       );
@@ -1094,16 +1122,18 @@ class _ScopeCard extends StatelessWidget {
   }
 
   Widget _row(int index) => SelectionTouchRow(
-    tracker: tracker,
-    rowKey: selectionRowKey(hunkIndex, index),
+    tracker: widget.tracker,
+    rowKey: selectionRowKey(widget.hunkIndex, index),
     child: DiffLineView(
-      softWrap: softWrap,
-      line: hunk.lines[index],
-      staged: staged,
-      selectionCount: scope.changedLineIndices.length,
-      onStageLine: onStage,
-      onDiscardLine: onDiscard,
-      touched: touched.contains(selectionRowKey(hunkIndex, index)),
+      softWrap: widget.softWrap,
+      line: widget.hunk.lines[index],
+      staged: widget.staged,
+      selectionCount: widget.scope.changedLineIndices.length,
+      onStageLine: widget.onStage,
+      onDiscardLine: widget.onDiscard,
+      touched: widget.touched.contains(
+        selectionRowKey(widget.hunkIndex, index),
+      ),
     ),
   );
 }

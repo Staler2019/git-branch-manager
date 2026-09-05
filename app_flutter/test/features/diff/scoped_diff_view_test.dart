@@ -1241,6 +1241,81 @@ void main() {
         expect(title.style?.fontWeight, FontWeight.bold);
         expect(title.style?.color?.toARGB32(), colors.textSecondary.toARGB32());
       });
+
+      // `.variant-B-card:hover { border-color: var(--border-strong);
+      //                          border-left-color: var(--accent-hover);
+      //                          box-shadow: var(--shadow-md) }`
+      //
+      // S11. The card had no hover state at all -- the one dimension-D
+      // signal it was missing, on a surface whose whole affordance is
+      // "press the button on the card you are pointing at".
+      testWidgets('a scope card lifts and brightens under the pointer', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        Border borderOf() =>
+            (tester
+                        .widget<Container>(
+                          find
+                              .descendant(
+                                of: find.byKey(
+                                  const ValueKey<String>('scope-card-1'),
+                                ),
+                                matching: find.byWidgetPredicate(
+                                  (Widget w) =>
+                                      w is Container &&
+                                      w.decoration is BoxDecoration &&
+                                      (w.decoration! as BoxDecoration).border
+                                          is Border &&
+                                      ((w.decoration! as BoxDecoration).border!
+                                                  as Border)
+                                              .left
+                                              .width ==
+                                          3,
+                                ),
+                              )
+                              .first,
+                        )
+                        .decoration!
+                    as BoxDecoration)
+                .border!
+            as Border;
+
+        BoxDecoration outerOf() =>
+            tester
+                    .widget<Container>(
+                      find.byKey(const ValueKey<String>('scope-card-1')),
+                    )
+                    .decoration!
+                as BoxDecoration;
+
+        expect(borderOf().top.color.toARGB32(), colors.borderDefault.toARGB32());
+        expect(borderOf().left.color.toARGB32(), colors.accent.toARGB32());
+        final List<BoxShadow> resting = outerOf().boxShadow!;
+
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        addTearDown(pointer.removePointer);
+        await pointer.addPointer(location: Offset.zero);
+        await pointer.moveTo(
+          tester.getCenter(find.byKey(const ValueKey<String>('scope-card-1'))),
+        );
+        await tester.pump();
+
+        expect(borderOf().top.color.toARGB32(), colors.borderStrong.toARGB32());
+        expect(borderOf().left.color.toARGB32(), colors.accentHover.toARGB32());
+        // Asserted as "a different shadow from the resting one", not against
+        // a literal: shadowMd is a token whose values are the design's, and
+        // copying them here would be a second source for them.
+        expect(outerOf().boxShadow, isNot(equals(resting)));
+        expect(
+          outerOf().boxShadow,
+          GbmEffects.shadowMd(GbmThemeVariant.darkTechnical),
+        );
+      });
     });
   });
 }

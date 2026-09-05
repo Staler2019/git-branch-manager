@@ -106,6 +106,103 @@ DiffFile _fileAt(
   ],
 );
 
+/// The user's reported case, measured in a real repository: an untracked
+/// file of five lines whose middle one is staged.
+///
+/// The unstaged diff is index -> worktree, so the staged line is a *context*
+/// row in it (index line 1) with two added rows either side. One unchanged
+/// line between two changes is inside `kDefaultScopeGap`, so without the
+/// barrier rule the gap rule folds all four added lines into one scope.
+DiffFile _untrackedWithMiddleLineStaged() => DiffFile(
+  oldPath: 'new.txt',
+  newPath: 'new.txt',
+  kind: FileChangeKind.modified,
+  oldMode: '',
+  newMode: '',
+  oldBlob: '',
+  newBlob: '',
+  binary: false,
+  similarity: 0,
+  addedLines: 4,
+  removedLines: 0,
+  displayPath: 'new.txt',
+  hunks: <DiffHunk>[
+    DiffHunk(
+      oldStart: 1,
+      oldCount: 1,
+      newStart: 1,
+      newCount: 5,
+      heading: '',
+      lines: <DiffLine>[
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: 1,
+          text: 'alpha',
+        ),
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: 2,
+          text: 'bravo',
+        ),
+        DiffLine(
+          kind: DiffLineKind.context,
+          oldLine: 1,
+          newLine: 3,
+          text: 'document',
+        ),
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: 4,
+          text: 'delta',
+        ),
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: 5,
+          text: 'echo',
+        ),
+      ],
+    ),
+  ],
+);
+
+/// The staged half of the same case: HEAD -> index, so the one staged line
+/// is index line 1 -- the very line the unstaged diff draws as context.
+DiffFile _theMiddleLine() => DiffFile(
+  oldPath: '',
+  newPath: 'new.txt',
+  kind: FileChangeKind.added,
+  oldMode: '',
+  newMode: '100644',
+  oldBlob: '',
+  newBlob: '',
+  binary: false,
+  similarity: 0,
+  addedLines: 1,
+  removedLines: 0,
+  displayPath: 'new.txt',
+  hunks: <DiffHunk>[
+    DiffHunk(
+      oldStart: 0,
+      oldCount: 0,
+      newStart: 1,
+      newCount: 1,
+      heading: '',
+      lines: <DiffLine>[
+        DiffLine(
+          kind: DiffLineKind.added,
+          oldLine: 0,
+          newLine: 1,
+          text: 'document',
+        ),
+      ],
+    ),
+  ],
+);
+
 void main() {
   group('WorkingCopyDiffPane', () {
     late List<({bool staged, int hunkIndex, List<int> lines})> stageCalls;
@@ -475,6 +572,27 @@ void main() {
       await tester.pump();
 
       expect(find.text('2 未暫存 · 1 已暫存'), findsNothing);
+    });
+
+    // The chip is the list's own count, so it has to be split the same way
+    // the list is -- with the *other* side's changed index lines as hard
+    // barriers. The fixture is the user's reported case: an untracked file
+    // whose middle line is staged, which git sees as three regions.
+    //
+    // The fixture above cannot see this: its hunks sit 50 index lines apart,
+    // so no barrier of one side ever falls inside a gap of the other and the
+    // barrier-less count happens to be right ([TEST-fixture-cannot-disagree]).
+    testWidgets('the counts are split the same way the cards are', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _untrackedWithMiddleLineStaged(),
+        staged: _theMiddleLine(),
+      );
+
+      // Three cards -- two Stage, one Unstage -- so 2 · 1, not 1 · 1.
+      expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
     });
 
     // U8, and it is the round's only change that crosses into `2 file`:

@@ -135,13 +135,43 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   /// the chip cannot say a number the list disagrees with. A cache each
   /// because [DiffScopeCache] holds one entry and two files sharing one
   /// would evict each other every build.
+  ///
+  /// **Corrected in place.** 「one function」 was necessary and was not
+  /// sufficient: the cards are split with the *other* side's changed index
+  /// lines as hard barriers and this count was not, so on the reported case
+  /// -- an untracked file with its middle line staged -- the chip said
+  /// 「1 未暫存」 over two Stage cards. Both now go through the same
+  /// [DiffBarrierMemo], which is why that memo lives in the pure layer
+  /// rather than inside [ScopedDiffView] ([CULT-single-source-of-truth]).
   final DiffScopeCache _unstagedScopes = DiffScopeCache();
   final DiffScopeCache _stagedScopes = DiffScopeCache();
+  final DiffBarrierMemo _barriers = DiffBarrierMemo();
 
-  static int _countScopes(DiffFile? file, DiffScopeCache cache) => cache
-      .scopesOf(file)
+  static int _countScopes(
+    DiffSide side,
+    DiffScopeCache cache,
+    Set<int> barriers,
+  ) => cache
+      .scopesOf(side.file, staged: side.staged, barrierIndexLines: barriers)
       .values
       .fold<int>(0, (int sum, List<DiffScope> scopes) => sum + scopes.length);
+
+  /// U3's two numbers, split exactly the way the merged list is.
+  ///
+  /// Only `unified` draws them, so the barriers are unconditional here: in
+  /// `2 file` the two column heads still say it and this record is never
+  /// built at all.
+  ({int unstaged, int staged}) _scopeCounts() {
+    final List<DiffSide> sides = <DiffSide>[
+      (file: widget.unstagedFile, staged: false),
+      (file: widget.stagedFile, staged: true),
+    ];
+    final List<Set<int>> barriers = _barriers.barriersFor(sides);
+    return (
+      unstaged: _countScopes(sides[0], _unstagedScopes, barriers[0]),
+      staged: _countScopes(sides[1], _stagedScopes, barriers[1]),
+    );
+  }
 
   final CodeWidthMemo _unstagedMemo = CodeWidthMemo();
   final CodeWidthMemo _stagedMemo = CodeWidthMemo();
@@ -170,10 +200,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
           // were removed: in `2 file` the heads still say it, and saying it
           // twice would be [UX-rubric] dimension D's redundancy.
           scopeCounts: _mode == WorkingCopyDiffMode.unified
-              ? (
-                  unstaged: _countScopes(widget.unstagedFile, _unstagedScopes),
-                  staged: _countScopes(widget.stagedFile, _stagedScopes),
-                )
+              ? _scopeCounts()
               : null,
           onModeChanged: (WorkingCopyDiffMode mode) =>
               setState(() => _mode = mode),

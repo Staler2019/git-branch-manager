@@ -1435,106 +1435,100 @@ footer.colophon {
 
   <!-- ============================ 10 ============================ -->
   <section id="round2">
-    <div class="sec-head"><span class="sec-num">10</span><h2><code>unified</code> is still two views</h2></div>
+    <div class="sec-head"><span class="sec-num">10</span><h2><code>unified</code>其實還是兩個 view</h2></div>
     <p class="lede">
       <span class="zh">「unified 可能本來就做錯了，應該是單一 view 檢視 stage/unstage scope and
-      button，而非還是拆成上下檢視」</span> — reported after the layout round shipped, and it is
-      right. What this section overturns is <b>not</b> P03. It is <b>section 02 of this page</b>,
-      whose own <span class="zh">Proposed</span> mockup drew <code>unified</code> as two labelled
-      halves. That was my drawing, not a requirement, and it is struck below.
+      button，而非還是拆成上下檢視」</span> —— 版面那一輪出貨之後回報的，而且是對的。
+      這一節推翻的<b>不是</b> P03，是<b>這一頁的第 02 節</b> ——
+      它自己的 <span class="zh">Proposed</span> mockup 把 <code>unified</code> 畫成上下兩段各有標題。
+      那是我畫的，不是需求，下面就地劃掉。
     </p>
 
     <div class="callout">
-      <div class="callout__title">corrected in place — section 02</div>
+      <div class="callout__title">就地更正 —— 第 02 節</div>
       <p style="margin:0">
-        <s>The diff now shows whole lines: one scroller, an <span class="zh">Unstaged</span>
-        section above a <span class="zh">Staged</span> section.</s> &nbsp;→&nbsp; One scroller,
-        <b>one list</b>, each card carrying its own direction. The stacked-sections drawing at
-        <code>working-copy-layout-spec.html:676–686</code> is superseded by this section;
-        <code>[CULT-correct-the-record]</code> is why it is struck rather than quietly edited —
-        a later audit reading §02 alone would otherwise restore it.
+        <s>Diff 現在顯示完整的行：一個捲軸，<span class="zh">Unstaged</span> 段在
+        <span class="zh">Staged</span> 段上面。</s> &nbsp;→&nbsp; 一個捲軸、<b>一份清單</b>，
+        每張卡片各自帶方向。<code>working-copy-layout-spec.html:676–686</code> 那張上下分段的圖
+        被這一節取代；之所以是劃掉而不是默默改掉，是因為 <code>[CULT-correct-the-record]</code> ——
+        否則之後只讀 §02 的稽核會把它復原回去。
       </p>
     </div>
 
     <p>
-      What ships today is exactly what §02 drew (<code>working_copy_diff_pane.dart:183–199</code>):
-      one <code>GbmCodeScrollWell</code> over a <code>Column</code> of two whole
-      <code>ScopedDiffView</code>s with a 1px rule between them. The direction is a property of the
-      <em>view</em> — <code>ScopedDiffView.staged</code> (<code>:67</code>) reaches
-      <code>scopeButtonLabel(staged: widget.staged, …)</code> (<code>:1076</code>) and the one-shot
-      label (<code>:613</code>) unchanged, so every card in the top half says <span class="zh">Stage</span>
-      and every card in the bottom half says <span class="zh">Unstage</span>. So the mode is
-      「一個捲軸」, never 「一份清單」.
+      今天出貨的東西就是 §02 畫的那個（<code>working_copy_diff_pane.dart:183–199</code>）：
+      一個 <code>GbmCodeScrollWell</code> 包住一個 <code>Column</code>，裡面是兩個完整的
+      <code>ScopedDiffView</code>，中間一條 1px 的線。方向是<em>整個 view</em> 的屬性 ——
+      <code>ScopedDiffView.staged</code>（<code>:67</code>）原封不動地傳到
+      <code>scopeButtonLabel(staged: widget.staged, …)</code>（<code>:1076</code>）
+      與一次性選取的標籤（<code>:613</code>），所以上半部每一張卡片都寫 <span class="zh">Stage</span>、
+      下半部每一張都寫 <span class="zh">Unstage</span>。所以這個模式是「一個捲軸」，從來不是「一份清單」。
     </p>
     <p>
-      <b>The pieces below it are already per-card.</b> <code>_ScopeCard.staged</code>
-      (<code>:957</code>) and <code>_GapBlock.staged</code> (<code>:868</code>) are each their own
-      parameter; they are simply all fed one value from above. The CSS on this very page already
-      carries the distinction too — <code>.sc__card.staged</code> paints the left rail
-      <code>--gbm-success</code> against the unstaged card's <code>--gbm-accent</code> — and it is
-      drawn by nothing.
+      <b>它底下的零件早就已經是逐卡片帶方向的。</b><code>_ScopeCard.staged</code>
+      （<code>:957</code>）與 <code>_GapBlock.staged</code>（<code>:868</code>）各自都是自己的參數；
+      只是上面統一餵同一個值給它們而已。連這一頁自己的 CSS 都已經帶著這個區別 ——
+      <code>.sc__card.staged</code> 把左緣畫成 <code>--gbm-success</code>，對上 unstaged 卡片的
+      <code>--gbm-accent</code> —— 而它沒有被任何東西畫出來。
     </p>
     <p>
-      <b>Corrected:</b> <s>quoted from <span class="zh">變體 B</span> in §06</s>. §06 never draws or
-      discusses a staged card — all fourteen of its S-rows are about the unstaged column. The real
-      source is <span class="zh">變體 B</span>'s <b>block 1</b>, <span class="zh">2 file 模式</span>,
-      whose own DOM carries <code>variant-B-card-staged</code>, <code>variant-B-dot-staged</code> and
-      a <code>variant-B-btn-unstage</code> button reading <code>Unstage 2 lines</code>. Its note is
-      the ruling, verbatim:
+      <b>更正：</b><s>引自 §06 的 <span class="zh">變體 B</span></s>。§06 從來沒有畫過、也沒有討論過
+      staged 卡片 —— 它十四條 S 列講的全部是 unstaged 那一欄。真正的來源是
+      <span class="zh">變體 B</span> 的 <b>block 1</b>，<span class="zh">2 file 模式</span>，
+      它自己的 DOM 帶著 <code>variant-B-card-staged</code>、<code>variant-B-dot-staged</code>，
+      以及一顆寫著 <code>Unstage 2 lines</code> 的 <code>variant-B-btn-unstage</code> 按鈕。
+      它的 note 就是那條裁定，逐字：
     </p>
     <blockquote class="callout">
-      <div class="callout__title">變體 B, block 1's own note</div>
+      <div class="callout__title">變體 B block 1 自己的 note</div>
       <p style="margin:0" class="zh">兩欄之間是一條實線分隔，不做行號對齊 —— 兩側是不同的 diff，硬對齊會製造「同一行」的錯覺。改用<b>顏色對應</b>呼應：Unstaged 卡片左緣是 accent，Staged 是 success，與欄標題的圓點同色。</p>
     </blockquote>
 
     <div class="callout is-ask">
-      <div class="callout__title">the design source draws a third thing, and it is neither</div>
+      <div class="callout__title">設計來源畫的是第三種東西，而且兩種都不是</div>
       <p style="margin:0 0 .6rem">
-        <span class="zh">變體 B</span> has <b>four</b> blocks, and block&nbsp;2 is literally called
-        <span class="zh">unified 模式</span>. Its DOM was re-fetched for this section. It holds
-        <b>one</b> <code>variant-B-colhead</code>, reading <span class="zh">Unstaged</span> — and
-        <b>no staged section at all</b>. Its note:
+        <span class="zh">變體 B</span> 有<b>四</b>個 block，而 block&nbsp;2 的名字字面上就叫
+        <span class="zh">unified 模式</span>。為了這一節重新抓了它的 DOM。它裡面有
+        <b>一</b>個 <code>variant-B-colhead</code>，寫的是 <span class="zh">Unstaged</span> ——
+        而且<b>完全沒有 staged 段</b>。它的 note：
       </p>
       <p style="margin:0 0 .6rem" class="zh">單欄時卡片變寬，其餘結構完全不變 —— 標頭列、+/− 統計、按鈕位置都在同一個位置，切換模式不需要重新學一次。</p>
       <p style="margin:0">
-        So <code>unified</code> in the design means <b>one column, widened</b> — same cards, same
-        heads, same button positions, nothing to relearn. <b>The stacked two-section pane that ships
-        today matches neither the demo nor the report.</b> It was invented, by the code and then by
-        §02 of this page, and this is the first time anyone has read block 2. None of the three
-        readings won: <b>U1 was ruled on a fourth</b> — order by change region, and never merge two
-        directions into one scope. It keeps block 1's warning intact instead of trading it away,
-        which is why it beat the option I recommended.
+        所以設計裡的 <code>unified</code> 是<b>單欄、變寬</b> —— 同樣的卡片、同樣的標頭、
+        同樣的按鈕位置，不用重新學一次。<b>今天出貨的那個上下兩段的 pane，跟 demo 與回報都不符。</b>
+        它是被發明出來的 —— 先被程式碼發明，然後被這一頁的 §02 發明 ——
+        而這是第一次有人讀 block 2。三種讀法沒有一種勝出：<b>U1 是照第四種裁的</b> ——
+        依變更區域排序，而且永遠不把兩個方向併成同一個 scope。
+        它把 block 1 的警告完整保住，而不是拿它去換東西，這就是它贏過我建議的那個選項的原因。
       </p>
     </div>
 
     <div class="callout is-warn">
-      <div class="callout__title">what makes region ordering computable</div>
+      <div class="callout__title">為什麼「依區域排序」算得出來</div>
       <p style="margin:0">
-        The two diffs look incomparable and are not: they <b>share the index as a coordinate
-        space</b>. The unstaged diff is index&nbsp;→&nbsp;work tree, so <em>its old side is the
-        index</em>; the staged diff is HEAD&nbsp;→&nbsp;index, so <em>its new side is the index</em>.
-        One ruler, both sides, <b>and no new git call</b>.
+        兩份 diff 看起來無從比較，其實不然：它們<b>共用 index 這個座標系</b>。
+        unstaged diff 是 index&nbsp;→&nbsp;工作區，所以<em>它的舊側就是 index</em>；
+        staged diff 是 HEAD&nbsp;→&nbsp;index，所以<em>它的新側就是 index</em>。
+        一把尺、兩邊都量得到，<b>而且不需要新的 git 呼叫</b>。
       </p>
       <p style="margin:.7rem 0 0">
-        A region's place on that ruler is read <b>per line, not per hunk</b> — every
-        <code>DiffLine</code> already carries <code>oldLine</code> and <code>newLine</code>
-        (<code>parsed_diff.dart:39,40</code>), so a scope's index range is the min and max of the
-        index-side number over the lines it spans: <code>oldLine</code> for an unstaged scope,
-        <code>newLine</code> for a staged one. <code>oldStart</code>/<code>newStart</code> would
-        only locate the <em>hunk</em>, and the ruling's unit is the region inside it.
+        一個區域在那把尺上的位置是<b>逐行讀的，不是逐 hunk</b> —— 每一個
+        <code>DiffLine</code> 本來就帶著 <code>oldLine</code> 與 <code>newLine</code>
+        （<code>parsed_diff.dart:39,40</code>），所以一個 scope 的 index 區間，
+        就是它涵蓋的那些行的 index 側行號的最小值與最大值：unstaged scope 取 <code>oldLine</code>，
+        staged scope 取 <code>newLine</code>。<code>oldStart</code>/<code>newStart</code>
+        只能定位到<em>整個 hunk</em>，而裁定的單位是 hunk 裡面的區域。
       </p>
       <p style="margin:.7rem 0 0">
-        <b>Two things this deliberately does not do.</b> It never claims two rows are the same row —
-        only that one region precedes another, which is what keeps block 1's warning honoured. And
-        it never merges: two regions that land on the same index lines stay two scopes, adjacent,
-        one per direction.
+        <b>有兩件事它刻意不做。</b>它從不宣稱兩列是同一列 ——
+        只宣稱某個區域排在另一個之前，這就是 block 1 的警告能被守住的原因。
+        它也從不合併：兩個落在同樣 index 行上的區域仍然是兩個 scope，相鄰，一個方向一個。
       </p>
       <p style="margin:.7rem 0 0">
-        The one gap: a scope made entirely of lines absent from the index side (a pure insertion in
-        the work tree) has no index number of its own, and has to be anchored to the nearest line
-        that does. And an <b>untracked</b> file's unstaged diff is
-        <code>--no-index /dev/null → file</code>, which has no index side at all — but such a file
-        has no staged side to order against until it is staged, so the case never arises.
+        唯一的缺口：一個完全由 index 側不存在的行組成的 scope（工作區裡的純新增）
+        沒有自己的 index 行號，必須錨定到最近一個有的行上。而<b>未追蹤</b>檔案的 unstaged diff 是
+        <code>--no-index /dev/null → file</code>，根本沒有 index 側 ——
+        但這種檔案在被 stage 之前也沒有 staged 側可以排序，所以這個情況不會發生。
       </p>
     </div>
 
@@ -1542,7 +1536,7 @@ footer.colophon {
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag before">今天出貨的樣子</span>
-          <span class="specimen-note">two views, one scroller</span>
+          <span class="specimen-note">兩個 view，一個捲軸</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
@@ -1575,15 +1569,15 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          Two column heads, two scope counts, a rule between them — the top half is one view and the
-          bottom half is another. The only thing <code>unified</code> unified was the scrollbar.
+          兩個欄標頭、兩個 scope 計數，中間一條線 —— 上半部是一個 view，下半部是另一個。
+          <code>unified</code> 唯一統一掉的東西是捲軸。
         </p>
       </div>
 
       <div class="specimen">
         <div class="specimen-head">
           <span class="specimen-tag after">Proposed</span>
-          <span class="specimen-note">one list, direction per card</span>
+          <span class="specimen-note">一份清單，方向逐卡片帶</span>
         </div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
@@ -1611,143 +1605,136 @@ footer.colophon {
           </div>
         </div>
         <p class="specimen-note">
-          One list, no column heads, ordered by change region. <b>變更 1 and 變更 2 sit in the same
-          region</b> — one already staged, one not — and that is the case the ruling is about: they are
-          two scopes, adjacent, never one card. The staged card's rail is <code>--gbm-success</code>,
-          its dot matches, and its button uses the demo's <code>variant-B-btn-unstage</code> style,
-          which the app does not draw today (U8).
+          一份清單、沒有欄標頭、依變更區域排序。<b>變更 1 與變更 2 落在同一個區域</b> ——
+          一個已經 stage、一個沒有 —— 而那正是這條裁定在講的情況：它們是兩個 scope，相鄰，
+          絕不會變成同一張卡片。staged 卡片的左緣是 <code>--gbm-success</code>、圓點同色，
+          按鈕用的是 demo 的 <code>variant-B-btn-unstage</code> 樣式，而 app 今天沒有畫它（U8）。
         </p>
       </div>
     </div>
     <p class="specimen-note" style="margin-top:1rem">
-      Both specimens carry §06's <code>.is-built</code> overrides, and three of those describe the
-      surface <em>before</em> W11–W13 landed — the hunk rule, the card-head line and the dashed
-      edges all ship now. Read this pair for <b>structure</b>; the properties are §06's, already
-      ruled on, and are not being reopened here.
+      兩張 specimen 都帶著 §06 的 <code>.is-built</code> 覆寫，而其中三項描述的是 W11–W13
+      落地<em>之前</em>的樣子 —— hunk 橫線、卡片標頭線與虛線邊現在都已經出貨了。
+      這一組請看<b>結構</b>；那些屬性是 §06 的，已經裁定過，這裡不重開。
     </p>
 
-    <h3>Nine things to rule on</h3>
+    <h3>九件要裁定的事</h3>
     <p>
-      Each with a recommendation, so <span class="zh">「照建議」</span> closes all nine the way it
-      closed §06. The plan named six. U4 is the seventh, because a merged list still has to draw
-      <em>something</em> where a hunk starts. U8 and U9 came out of the G1 audit re-reading the
-      demo's DOM, and U1's recommendation was <b>reversed</b> by the same read — the section above
-      shows the working, because a recommendation that flipped is worth more to you than one that
-      never did.
+      每一題都附建議，所以一句<span class="zh">「照建議」</span>就能像 §06 那樣把九題全部帶過。
+      計畫裡列了六題。U4 是第七題，因為一份合併清單在 hunk 開始的地方仍然得畫<em>某個東西</em>。
+      U8 與 U9 是 G1 稽核重讀 demo 的 DOM 時冒出來的，而 U1 的建議也被同一次重讀<b>推翻</b>了 ——
+      上面那一節把推導過程攤開來，因為一個翻過盤的建議對你的價值高過一個從沒翻過的。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:5%">#</th><th style="width:26%">Question</th><th>Recommendation, and why</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:26%">題目</th><th>建議，以及為什麼</th></tr></thead>
       <tbody>
-        <tr><td class="num">U1</td><td><b>What one list is ordered by</b> — <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+        <tr><td class="num">U1</td><td><b>一份清單依什麼排序</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
             <td>
               <span class="zh">「我要對齊的不是行號，是 git 判斷出的區域變更，每個區塊會是一個 scope，然後 unstage, stage 必定是不同 scope」</span>
               <br><br>
-              <b>The alignment unit is the change region, not the line.</b> git already decides where a
-              change region begins and ends, and <code>splitHunkIntoScopes()</code> already turns each
-              one into exactly one <code>DiffScope</code> — so the unit the ruling names is a unit the
-              code already has. The list is a sequence of regions in file order; each region is one
-              card; each card is one direction.
+              <b>對齊的單位是變更區域，不是行。</b>git 早就決定了一個變更區域從哪裡開始、到哪裡結束，
+              而 <code>splitHunkIntoScopes()</code> 早就把每一個區域變成剛好一個 <code>DiffScope</code> ——
+              所以裁定講的那個單位，程式碼裡已經有了。這份清單就是一串依檔案順序排列的區域；
+              一個區域一張卡片；一張卡片一個方向。
               <br><br>
-              <b>And a region is never mixed.</b> A staged scope and an unstaged scope are always two
-              scopes, never merged into one card — which is what makes the button on every card
-              answerable: one press, one direction, one thing git can actually do.
+              <b>而且一個區域絕不混方向。</b>staged scope 與 unstaged scope 永遠是兩個 scope，
+              絕不併成同一張卡片 —— 這就是每張卡片上那顆按鈕答得出來的原因：
+              按一下、一個方向、一件 git 真的做得到的事。
               <br><br>
-              <b>This settles the contradiction rather than picking a side of it.</b>
-              <span class="zh">變體 B</span> block 1 forbids <span class="zh">硬對齊</span> because
-              lining two different diffs' <em>rows</em> up asserts they are the same line. Ordering
-              <em>regions</em> asserts only that one region sits before another in the file, which is
-              true in the index coordinate both diffs already share. So (b)'s illusion is avoided
-              without falling back to (a)'s grouping, which would have separated two edits to the same
-              few lines by the entire length of the file.
+              <b>這是把矛盾解掉，不是選邊站。</b><span class="zh">變體 B</span> block 1 禁止
+              <span class="zh">硬對齊</span>，是因為把兩份不同 diff 的<em>列</em>對齊，
+              等於宣稱它們是同一行。而排序<em>區域</em>只宣稱某個區域在檔案裡排在另一個之前，
+              這件事在兩份 diff 本來就共用的 index 座標裡是真的。
+              所以 (b) 的錯覺被避開了，也不必退回 (a) 的分組 ——
+              那會把對同樣幾行的兩次編輯，用整個檔案的長度隔開。
               <br><br>
-              <s>(a) Grouped: all unstaged cards, then all staged cards. <b>Recommended.</b></s>
-              &nbsp;<s>(b) Interleaved on the index ruler, line by line.</s>
-              &nbsp;<s>(c) Unstaged only, per block 2 literally.</s> — all three superseded by the ruling above.
+              <s>(a) 分組：先全部 unstaged 卡片，再全部 staged 卡片。<b>建議這個。</b></s>
+              &nbsp;<s>(b) 在 index 尺上逐行交錯。</s>
+              &nbsp;<s>(c) 只畫 unstaged，照 block 2 的字面。</s> —— 三個都被上面那條裁定取代。
             </td></tr>
-        <tr><td class="num">U2</td><td>How a card says which way it goes</td>
-            <td><b>The button verb, plus the left rail colour already specified</b> — <code>--gbm-accent</code> for <span class="zh">Stage</span>, <code>--gbm-success</code> for <span class="zh">Unstage</span> (<code>.sc__card.staged</code>, §06) — plus the 6px dot from the old column head moved onto the card head. No text label: <span class="zh">「Unstage 2 lines」</span> already says it, and a second word saying the same thing is the redundancy dimension&nbsp;D of <code>[UX-rubric]</code> penalises.</td></tr>
-        <tr><td class="num">U3</td><td>The two column heads and their <span class="zh">「N 個 scope」</span> chips</td>
-            <td><b>Gone from <code>unified</code></b>; one chip in the title bar reads <span class="zh">「2 未暫存 · 1 已暫存」</span>. They stay untouched in <code>2 file</code> mode, where they still label a column. A head that labels nothing is worse than no head.</td></tr>
-        <tr><td class="num">U4</td><td>Hunk headings, when adjacent hunks come from different diffs</td>
-            <td><b>Keep one heading per hunk, unchanged</b>. It is already only a coordinate (<code>@@ -3,4 +3,4 @@</code>) and the card under it carries the direction. Suppressing it would lose the one landmark that says where in the file you are.</td></tr>
-        <tr><td class="num">U5</td><td>A one-shot selection dragged across both directions</td>
-            <td><b>It takes the direction of the first card it touches, and cards of the other direction are excluded from it.</b> Not a limitation to apologise for: git has no single action that stages and unstages at once, so a button offering it would be <code>[UX-ellipsis-promises-a-dialog]</code>'s lying control. The excluded cards keep their own buttons and stay pressable.</td></tr>
-        <tr><td class="num">U6</td><td><code>2 file</code> mode</td>
-            <td><b>Not one line changed.</b> Left unstaged, right staged, its own splitter, its own two column heads. It is the mode whose whole point is two files side by side, and it is the escape hatch for anyone who wants today's behaviour back.</td></tr>
-        <tr><td class="num">U7</td><td>A line changed twice — once HEAD→index, once index→work tree</td>
-            <td><b>It appears twice, once in each direction, and is not deduplicated.</b> Those are two different changes to two different pairs of content; collapsing them would draw one card whose button could only do half of what it says. <b>U1's ruling already settles this</b> — <span class="zh">「unstage, stage 必定是不同 scope」</span> — so this row is now a consequence rather than a question.</td></tr>
-        <tr><td class="num">U8</td><td>The Unstage button's own style — <b>a conformance gap found by this audit</b></td>
-            <td><span class="zh">變體 B</span> defines <b>two</b> button styles: <code>variant-B-btn-stage</code> (accent fill) and <code>variant-B-btn-unstage</code> (<code>surface-panel-raised</code> ground, <code>border-strong</code> edge, <code>text-primary</code> label). The app implements only the accent one — <code>.sc__btn</code> — so every button on both sides is drawn identically today and only the verb differs. <b>Recommend adopting it</b>, and it matters more in a merged list than it did in two columns: two identically-styled buttons sitting inches apart doing opposite things is the one thing grouping cannot fix. Nothing under <code>docs/</code> had recorded this gap.</td></tr>
-        <tr><td class="num">U9</td><td>The mode switch itself</td>
-            <td>The demo's title bar reads <span class="zh">檢視方式</span> then a segmented control whose two buttons each carry an 11px SVG glyph (two rectangles for <code>2 file</code>, one framed block with two rules for <code>unified</code>). The app draws neither the label nor the glyphs. <b>Recommend leaving it alone this round</b> — it is a separate, purely cosmetic drift on a control that already works, and folding it in would put icon assets in a round about what the pane contains. Raised here rather than silently deferred, because it is <em>your</em> call and not mine.</td></tr>
+        <tr><td class="num">U2</td><td>一張卡片怎麼說自己的方向</td>
+            <td><b>按鈕的動詞，加上早就已經規定好的左緣顏色</b> —— <span class="zh">Stage</span> 是 <code>--gbm-accent</code>、<span class="zh">Unstage</span> 是 <code>--gbm-success</code>（<code>.sc__card.staged</code>，§06）—— 再加上把舊欄標頭那顆 6px 圓點搬到卡片標頭上。不加文字標籤：<span class="zh">「Unstage 2 lines」</span>已經講完了，再多一個講同一件事的詞就是 <code>[UX-rubric]</code> 的 dimension&nbsp;D 要扣分的冗餘。</td></tr>
+        <tr><td class="num">U3</td><td>兩個欄標頭，以及它們的<span class="zh">「N 個 scope」</span>chip</td>
+            <td><b>在 <code>unified</code> 裡整個拿掉</b>；標題列上一顆 chip 寫<span class="zh">「2 未暫存 · 1 已暫存」</span>。在 <code>2 file</code> 模式裡它們一個字不動，因為在那裡它們仍然在標示一個欄。一個什麼都沒標到的標頭，比沒有標頭更糟。</td></tr>
+        <tr><td class="num">U4</td><td>相鄰的 hunk 來自不同 diff 時，hunk 標頭怎麼辦</td>
+            <td><b>維持一個 hunk 一個標頭，不動</b>。它本來就只是一個座標（<code>@@ -3,4 +3,4 @@</code>），方向由它底下的卡片帶。把它藏起來會失去唯一一個告訴你「你在檔案的哪裡」的地標。</td></tr>
+        <tr><td class="num">U5</td><td>一次性選取拖過兩個方向</td>
+            <td><b>取它碰到的第一張卡片的方向，另一個方向的卡片不納入這一次選取。</b>這不是要道歉的限制：git 沒有任何一個動作可以同時 stage 與 unstage，所以一顆提供這件事的按鈕就是 <code>[UX-ellipsis-promises-a-dialog]</code> 講的那種會說謊的控制項。被排除的卡片仍然保有自己的按鈕，仍然按得下去。</td></tr>
+        <tr><td class="num">U6</td><td><code>2 file</code> 模式</td>
+            <td><b>一行都不改。</b>左 unstaged、右 staged，自己的 splitter、自己的兩個欄標頭。它整個存在的意義就是兩份檔案並排，而且它是任何想要今天這個行為的人的逃生口。</td></tr>
+        <tr><td class="num">U7</td><td>同一行被改兩次 —— 一次 HEAD→index、一次 index→工作區</td>
+            <td><b>它出現兩次，一個方向一次，不去重。</b>那是對兩組不同內容做的兩個不同變更；把它們摺在一起會畫出一張卡片，而它的按鈕只做得到它宣稱的一半。<b>U1 的裁定已經把這題解掉了</b> —— <span class="zh">「unstage, stage 必定是不同 scope」</span> —— 所以這一列現在是一個推論，不是一個問題。</td></tr>
+        <tr><td class="num">U8</td><td>Unstage 按鈕自己的樣式 —— <b>這次稽核找到的一個不符</b></td>
+            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。</td></tr>
+        <tr><td class="num">U9</td><td>模式切換器本身</td>
+            <td>demo 的標題列寫的是<span class="zh">檢視方式</span>，後面接一個 segmented control，兩顆按鈕各帶一個 11px 的 SVG 圖示（<code>2 file</code> 是兩個矩形，<code>unified</code> 是一個外框裡兩條線）。app 這兩樣都沒畫。<b>建議這一輪不動它</b> —— 它是一個獨立的、純外觀的落差，落在一個已經能用的控制項上，把它捲進來會讓一輪「pane 裡面裝什麼」的工作變成要處理圖示資產。在這裡提出來而不是默默延後，是因為這是<em>你</em>的裁定，不是我的。</td></tr>
       </tbody>
     </table></div>
 
-    <h3>One asymmetry that has to be stated, not discovered</h3>
+    <h3>有一個不對稱必須寫明，不能讓人自己發現</h3>
     <p>
-      <code>onDiscardScope</code> exists on the unstaged side only
-      (<code>working_copy_diff_pane.dart:217</code>) — there is nothing about a staged line to throw
-      away. In a merged list that means <b>Discard appears on some cards and not others</b>, which
-      reads as a bug unless it is written down. It is the same fact the two column heads used to
-      carry implicitly; folding the heads away is what makes it need saying.
+      <code>onDiscardScope</code> 只存在於 unstaged 那一側
+      （<code>working_copy_diff_pane.dart:217</code>）—— 一行已經 stage 的東西沒有什麼可以丟掉的。
+      在合併清單裡這代表 <b>Discard 會出現在某些卡片上、不出現在另一些上</b>，
+      而這件事不寫下來的話讀起來就像 bug。這跟兩個欄標頭以前隱含帶著的是同一件事；
+      正是因為把標頭摺掉了，它才需要被講出來。
     </p>
 
-    <h3>What this section draws with no source</h3>
+    <h3>這一節有哪些東西是沒有出處的</h3>
     <p>
-      G1's delta audit ran over the two specimens before you saw them: <b>16 values, 11 符合,
-      1 不符, 4 無出處</b>. The 不符 is corrected in place above. The four with no source are all
-      <em>proposals</em>, which is the honest reason they have none — they are the things U1–U9 ask
-      you to rule on, not values I found somewhere and copied:
+      在你看到這兩張 specimen 之前，G1 的差異稽核已經跑過一遍：<b>16 個值、11 符合、
+      1 不符、4 無出處</b>。那個「不符」已經在上面就地更正。四個沒有出處的全部都是<em>提案</em>，
+      這就是它們沒有出處的誠實理由 —— 它們是 U1–U9 要你裁定的東西，
+      不是我從哪裡找到然後抄過來的值：
     </p>
     <ul class="plain">
-      <li>The title-bar chip text <span class="zh">「2 未暫存 · 1 已暫存」</span>. Searched this page and all 21 spec pages for <span class="zh">未暫存</span>/<span class="zh">已暫存</span> — nothing. New copy (U3).</li>
-      <li>The 6px dot <b>placed inside a card head</b>. The dot itself is <code>variant-B-dot</code> and its size is <code>_ColumnHead</code>'s own <code>Container(width: 6, height: 6)</code>; putting it on a card is new (U2).</li>
-      <li>Hunk headings from two different diffs sitting adjacent with nothing between them (U1, U4).</li>
-      <li>The absence of the two column heads (U3).</li>
+      <li>標題列 chip 的文字<span class="zh">「2 未暫存 · 1 已暫存」</span>。在這一頁與 21 頁 spec 裡搜過<span class="zh">未暫存</span>/<span class="zh">已暫存</span> —— 什麼都沒有。新寫的文案（U3）。</li>
+      <li><b>放進卡片標頭裡</b>的那顆 6px 圓點。圓點本身是 <code>variant-B-dot</code>，尺寸是 <code>_ColumnHead</code> 自己的 <code>Container(width: 6, height: 6)</code>；把它放到卡片上是新的（U2）。</li>
+      <li>來自兩份不同 diff 的 hunk 標頭相鄰、中間什麼都沒有（U1、U4）。</li>
+      <li>兩個欄標頭不見了這件事（U3）。</li>
     </ul>
     <p>
-      Everything else traces: the rails and dots to <span class="zh">變體 B</span> block 1, the
-      button verbs to <code>scopeButtonLabel()</code>, the unstage button style to
-      <code>variant-B-btn-unstage</code>, and every cited line number was checked against the file.
-      <b>The 21-page spec says nothing about any of this</b> — <code>unified</code>,
-      <span class="zh">並排</span> and <code>2 file</code> do not appear in it at all, so this whole
-      surface is a user-requested addition in the sense <code>[STRUCT-soft-wrap-preference]</code>
-      records, not a conformance item.
+      其餘每一項都追得到出處：左緣與圓點來自 <span class="zh">變體 B</span> block 1，
+      按鈕動詞來自 <code>scopeButtonLabel()</code>，unstage 按鈕樣式來自
+      <code>variant-B-btn-unstage</code>，而每一個引用的行號都對著檔案核過。
+      <b>21 頁的 spec 對這一切什麼都沒說</b> —— <code>unified</code>、
+      <span class="zh">並排</span>與 <code>2 file</code> 在裡面完全沒出現過，
+      所以整個這個面是 <code>[STRUCT-soft-wrap-preference]</code> 記的那種
+      「使用者要求的追加」，不是一個符合性項目。
     </p>
   </section>
 
   <!-- ============================ 11 ============================ -->
   <section id="untracked-roundtrip">
-    <div class="sec-head"><span class="sec-num">11</span><h2>Stage every line of an untracked file, unstage them all back, and it stays in Staged</h2></div>
+    <div class="sec-head"><span class="sec-num">11</span><h2>未追蹤檔案整份 stage 再整份 unstage 回來，它還留在 Staged</h2></div>
     <p class="lede">
       <span class="zh">「untracked, use line stage all, and unstage all back, the file should not
-      leave in staged list」</span> — reproduced, and the cause is measured rather than reasoned.
-      Everything below is a real transcript from a scratch repository on <b>git 2.55.0</b>, not a
-      reading of the source.
+      leave in staged list」</span> —— 重現了，而且成因是量出來的，不是推理出來的。
+      下面全部都是在 <b>git 2.55.0</b> 上一個臨時 repo 的真實逐字記錄，不是讀原始碼讀出來的。
     </p>
 
-    <h3>What actually happens, step by step</h3>
+    <h3>實際上一步一步發生了什麼</h3>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:34%">Command the app runs</th><th style="width:10%">exit</th><th>What git then reports</th></tr></thead>
+      <thead><tr><th style="width:34%">app 跑的指令</th><th style="width:10%">exit</th><th>git 接著回報什麼</th></tr></thead>
       <tbody>
         <tr><td><code>git diff --no-index -- /dev/null untracked.txt</code><br><span class="specimen-note"><code>DiffService.cpp:613–677</code></span></td><td class="num">1</td>
-            <td>The diff, as designed — exit 1 <em>is</em> the success case here, per <code>[GIT-no-index-sees-untracked]</code>. Header: <code>new file mode 100644</code> / <code>--- /dev/null</code>.</td></tr>
+            <td>diff 本身，設計上就是如此 —— 依 <code>[GIT-no-index-sees-untracked]</code>，這裡的 exit 1 <em>就是</em>成功。標頭：<code>new file mode 100644</code> / <code>--- /dev/null</code>。</td></tr>
         <tr><td><code>git apply --cached</code> &lt;that patch&gt;<br><span class="specimen-note"><code>StageOps.cpp:43–49</code>, header from <code>UnifiedDiffParser.cpp:82–88</code></span></td><td class="num">0</td>
-            <td><code>1 A. N... 000000 100644 100644 000…000 8b05eae untracked.txt</code><br>Staged, blob <code>8b05eae</code>, three lines. Correct.</td></tr>
+            <td><code>1 A. N... 000000 100644 100644 000…000 8b05eae untracked.txt</code><br>已 stage，blob <code>8b05eae</code>，三行。正確。</td></tr>
         <tr><td><code>git apply --cached --reverse</code> &lt;rebuilt <code>a/&lt;path&gt;</code> patch&gt;<br><span class="specimen-note">the plain header of <code>UnifiedDiffParser.cpp:91–101</code></span></td><td class="num">0</td>
-            <td><code>1 <b>AM</b> N... 000000 100644 100644 000…000 <b>e69de29</b> untracked.txt</code><br><b>The index entry survives, holding the empty blob.</b> <code>git cat-file -s e69de29</code> → <code>0</code>.</td></tr>
+            <td><code>1 <b>AM</b> N... 000000 100644 100644 000…000 <b>e69de29</b> untracked.txt</code><br><b>index 條目活下來了，裡面放的是空 blob。</b><code>git cat-file -s e69de29</code> → <code>0</code>。</td></tr>
       </tbody>
     </table></div>
     <p>
-      <code>e69de29bb2d1d6434b8b29ae775ad8c2e48c5391</code> is git's empty blob. The work tree is
-      untouched — <code>cat untracked.txt</code> still prints all three lines. And porcelain v2's
-      first character is <code>A</code>, which is all
-      <code>WorkingCopyStatus.cpp:427–429</code> reads (<code>x != '.'</code> → <code>entry.staged =
-      true</code>), so <code>WorkingCopyStatus::staged()</code> (<code>:347–355</code>) keeps
-      handing the file to the Staged column.
+      <code>e69de29bb2d1d6434b8b29ae775ad8c2e48c5391</code> 是 git 的空 blob。工作區沒有被動到 ——
+      <code>cat untracked.txt</code> 仍然印出三行。而 porcelain v2 的第一個字元是 <code>A</code>，
+      那是 <code>WorkingCopyStatus.cpp:427–429</code> 唯一會讀的東西
+      （<code>x != '.'</code> → <code>entry.staged = true</code>），
+      所以 <code>WorkingCopyStatus::staged()</code>（<code>:347–355</code>）
+      繼續把這個檔案交給 Staged 那一欄。
     </p>
     <div class="callout is-warn">
-      <div class="callout__title">what the user is looking at</div>
+      <div class="callout__title">使用者實際看到的是什麼</div>
       <p style="margin:0">
         The file is in <b>both</b> columns at once. Staged, because the index entry exists — and its
         card is <b>empty</b>, because the staged diff is now <code>new file mode … index

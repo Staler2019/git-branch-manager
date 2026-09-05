@@ -1325,115 +1325,110 @@ footer.colophon {
 
   <!-- ============================ 7 ============================ -->
   <section id="deviation">
-    <div class="sec-head"><span class="sec-num">07</span><h2>What this overrules, quoted</h2></div>
+    <div class="sec-head"><span class="sec-num">07</span><h2>這一輪推翻了什麼，逐字引用</h2></div>
     <p class="lede">
-      Two rows of spec page 09's <code>SPLITTERS</code> table, both of which today's code matches
-      exactly. <code>dir</code> names the <em>divider line's</em> own orientation.
+      spec 第 09 頁 <code>SPLITTERS</code> 表的兩列，今天的程式碼兩列都完全符合。
+      <code>dir</code> 講的是<em>分隔線本身</em>的方向。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:14%">Row</th><th>Spec, verbatim</th><th style="width:26%">After this round</th></tr></thead>
+      <thead><tr><th style="width:14%">列</th><th>spec 原文</th><th style="width:26%">這一輪之後</th></tr></thead>
       <tbody>
         <tr><td class="num">wc.columns</td>
             <td><code>{ id: 'wc.columns', where: 'Unstaged ↔ Staged', dir: '垂直', def: '1 : 1', min: '200px', note: '' }</code></td>
-            <td>line becomes horizontal; ratio <code>1 : 1</code> kept; <code>min</code> re-derived as a height</td></tr>
+            <td>線改成水平；比例 <code>1 : 1</code> 留著；<code>min</code> 重新推導成一個高度</td></tr>
         <tr><td class="num">wc.diff</td>
             <td><code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px', note: '' }</code></td>
-            <td>line becomes vertical; <code>def</code>/<code>min</code> replaced per section 03</td></tr>
+            <td>線改成垂直；<code>def</code>/<code>min</code> 依第 03 節換掉</td></tr>
       </tbody>
     </table></div>
     <p>
-      Both storage keys must be re-keyed rather than reused. That is not a preference:
-      <code>[FLU-splitpane-axis-change]</code> states that changing a pane's axis obliges a
-      decision about the stored value, and only ratio mode survives one. A re-key orphans the old
-      <code>panelLayout.wc.*</code> entries — they read-miss and fall back to the default, which is
-      a lost width, never a wrong one.
+      兩個儲存 key 都必須換新的，不能沿用。這不是偏好：
+      <code>[FLU-splitpane-axis-change]</code> 講明改一個 pane 的軸就必須對已存的值做出決定，
+      而只有 ratio 模式撐得過一次換軸。換 key 會讓舊的 <code>panelLayout.wc.*</code> 條目變成孤兒 ——
+      讀不到、退回預設值，那是丟掉一個寬度，永遠不會是一個錯的寬度。
     </p>
     <p>
-      <b>P03's own mockup</b> draws today's arrangement too. It is overruled by the same ruling and
-      for the same reason; it is not quoted separately because it says nothing the two rows above
-      do not already say in numbers.
+      <b>P03 自己的 mockup</b> 畫的也是今天這個排法。它被同一個裁定、以同一個理由推翻；
+      沒有另外引用，是因為它講的東西上面那兩列已經用數字講完了。
     </p>
     <div class="callout">
-      <div class="callout__title">Records to correct when this lands</div>
+      <div class="callout__title">這一輪落地時要更正的記錄</div>
       <ul class="plain" style="margin-bottom:0">
-        <li><code>docs/reports/spec-conformance-matrix.md</code> — both rows currently read <span class="zh">符合</span>. Struck and rewritten <b>in place</b> as a ratified deviation, or the next audit repairs this layout back to the old one.</li>
-        <li><code>[STRUCT-working-copy]</code> — <span class="zh">「Below the columns, the diff area…」</span> stops being true.</li>
-        <li><code>[STRUCT-working-copy]</code>, second line — <span class="zh">「rendered in a fixed slot at the top」</span> was <b>already</b> untrue before this round; the one-shot block nests inside its card (§06). Corrected on the same pass, marked as a pre-existing error rather than as something this round changed.</li>
-        <li><code>[STRUCT-two-column-switches]</code> — the Working Copy row's default flips to <code>unified</code>.</li>
-        <li><code>splitterWcDiffSides</code>'s doc comment — <span class="zh">「nested inside <code>splitterWcDiff</code>'s 54% share」</span> stops being true.</li>
+        <li><code>docs/reports/spec-conformance-matrix.md</code> —— 兩列現在都寫<span class="zh">符合</span>。要<b>就地</b>劃掉重寫成「使用者裁定的偏離」，否則下一次稽核會把這個版面修回舊的。</li>
+        <li><code>[STRUCT-working-copy]</code> —— <span class="zh">「Below the columns, the diff area…」</span>不再成立。</li>
+        <li><code>[STRUCT-working-copy]</code> 第二行 —— <span class="zh">「rendered in a fixed slot at the top」</span>在這一輪之前<b>就已經</b>不成立了；一次性區塊是巢狀在它的卡片裡的（§06）。同一次順手更正，標成既有錯誤，不是這一輪改出來的。</li>
+        <li><code>[STRUCT-two-column-switches]</code> —— Working Copy 那一列的預設值翻成 <code>unified</code>。</li>
+        <li><code>splitterWcDiffSides</code> 的 doc comment —— <span class="zh">「nested inside <code>splitterWcDiff</code>'s 54% share」</span>不再成立。</li>
       </ul>
     </div>
   </section>
 
   <!-- ============================ 7 ============================ -->
   <section id="worklist">
-    <div class="sec-head"><span class="sec-num">08</span><h2>Work list</h2></div>
+    <div class="sec-head"><span class="sec-num">08</span><h2>工作清單</h2></div>
     <p class="lede">
-      Each is its own commit so each can be reverted alone. The planned order held:
-      W1–W7, then W10, then W11–W13, then W8, then W9 — <b>the device tier last</b>, because
-      W11–W13 restyle the very surface <code>stage_lines_flow_test</code> drives, and a device
-      green taken before them attests a tree that then changes, the same reason
-      <code>[TEST-device-runs-one-file]</code> forbids editing <code>lib/</code> while a device
-      run is in flight. <b>All of it shipped.</b> Three things came out differently from the
-      plan, and each is noted on its own row: W7 has no commit of its own (its tests landed
-      inside the commits they pin, red first), W8 found a real red, and W10 turned out to be a
-      defect in a <em>shared</em> widget rather than in this page.
+      每一項各自一個 commit，所以每一項都可以單獨 revert。計畫的順序守住了：
+      W1–W7，然後 W10，然後 W11–W13，然後 W8，最後 W9 —— <b>裝置層放最後</b>，因為
+      W11–W13 改的正是 <code>stage_lines_flow_test</code> 驅動的那個面，在它們之前拿到的裝置層綠
+      證明的是一棵之後還會變的樹，這跟 <code>[TEST-device-runs-one-file]</code> 禁止在裝置層跑的時候
+      改 <code>lib/</code> 是同一個理由。<b>全部都做完出貨了。</b>有三件事跟計畫不一樣，
+      各自記在自己那一列：W7 沒有自己的 commit（它的測試落在它們所 pin 的那些 commit 裡，先紅），
+      W8 找到一個真的紅，而 W10 結果是一個<em>共用</em>widget 的缺陷，不是這一頁的。
     </p>
     <div class="tablewrap"><table>
-      <thead><tr><th style="width:5%">#</th><th style="width:13%">Status</th><th style="width:23%">Item</th><th style="width:9%">Sites</th><th>What it is</th></tr></thead>
+      <thead><tr><th style="width:5%">#</th><th style="width:13%">狀態</th><th style="width:23%">項目</th><th style="width:9%">改幾處</th><th>是什麼</th></tr></thead>
       <tbody>
-        <tr><td class="num">W1</td><td><span class="pill is-done">done</span><br><code>a4818b4</code></td><td>Two new <code>GbmSplitterSpec</code>s, two deleted</td><td class="num">1 file<br>+6 tests</td>
-            <td><code>splitterWcColumns</code> and <code>splitterWcDiff</code> go; their replacements carry new storage ids. Old keys orphan by design. Per §03's ruling the files↔diff one is <code>extent(260, min 180)</code>, the stacked one keeps <code>1 : 1</code> with the new floor from W5.</td></tr>
-        <tr><td class="num">W2</td><td><span class="pill is-done">done</span><br><code>f16ce70</code></td><td>Outer pane &rarr; horizontal</td><td class="num">1</td>
-            <td><code>working_copy_view.dart</code>'s middle <code>GbmSplitPane</code>. Children keep their order, so board is left and diff is right. The commit box's <code>Container</code> is not touched.</td></tr>
-        <tr><td class="num">W3</td><td><span class="pill is-done">done</span><br><code>d342fd6</code></td><td>Inner board &rarr; vertical</td><td class="num">1</td>
-            <td><code>working_copy_board.dart</code>. Unstaged stays first, so it is on top.</td></tr>
-        <tr><td class="num">W4</td><td><span class="pill is-done">done</span><br><code>dff5c95</code></td><td>Diff default &rarr; <code>unified</code></td><td class="num">1</td>
-            <td>One initialiser. The switch, both enum values and <code>wc.diffSides</code> all stay. The enum's <span class="zh">「For a narrow window」</span> comment is corrected in the same commit.</td></tr>
-        <tr><td class="num">W5</td><td><span class="pill is-done">done</span><br><code>9221762</code></td><td>Narrow-column overflow guard</td><td class="num">1 + test</td>
-            <td>The stacked pane's floor, per §03's arithmetic. <code>RenderFlex</code> lays non-flex children out first, so the header and the hint decide this, not the list.</td></tr>
-        <tr><td class="num">W6</td><td><span class="pill is-done">done</span><br><code>03dfa15</code></td><td>Drop hint text</td><td class="num">1 + tests</td>
-            <td><span class="zh">右</span> → <span class="zh">下</span> per §05's C1 ruling. One string, and the tests that assert it.</td></tr>
-        <tr><td class="num">W7</td><td><span class="pill is-done">done</span><br>folded into<br>W2/W3/W5/W6</td><td>Layout tests</td><td class="num">4 files</td>
-            <td>Unstaged above Staged; files column left of diff; commit box last and full width. Asserted against a <b>neighbour's</b> rect, never a pixel constant. Drag-gesture coordinates rotate from horizontal to vertical.</td></tr>
-        <tr><td class="num">W8</td><td><span class="pill is-done">done</span><br><code>f43a025</code></td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
-            <td>Ran <b>six</b>, not five — the grep also turned up <code>context_menu_flows</code>, and the plan's own list held two the grep missed, so the union was run: <code>stage_lines_flow</code> 7/7, <code>working_copy_line_counts</code> 1/1, <code>commit_flow</code> <b>0/1 → 1/1</b>, <code>commit_file_counts</code> 2/2, <code>conflict_flow</code> 1/1, <code>context_menu_flows</code> 5/5. The red was this test's drop point, <code>board.right - board.width * 0.25</code> — «the other column is to the right» written as arithmetic, which after the rotation lands back inside Unstaged. Nothing below the device tier could see it: the widget-tier drags aim at another <em>row</em>, which is axis-agnostic. Control run of <code>stage_lines_flow</code> on the parent commit first, 7/7, per <code>[TEST-foreground-line-is-not-a-failure]</code>.</td></tr>
-        <tr><td class="num">W10</td><td><span class="pill is-done">done</span><br><code>7f37f55<br>a4bcfd1</code></td><td>Tree-mode leaf text</td><td class="num">1 + test</td>
-            <td>Pre-existing defect, brought into scope by the user; not caused by the relayout — and <b>not in this page</b>. The leaf label is decided by the shared <code>FileListModeSwitcher</code>, whose <code>leafBuilder</code> took no label, so all <b>six</b> surfaces drew the item's full path in both modes: Working Copy's two columns, History's Changed files, Compare's Files, the Conflict window, <code>panel_file_diff_detail</code>. Fixed at the contract (<code>leafBuilder(context, item, label)</code>) rather than at one call site. A <b>second</b> defect sat in the same clause: <code>FileTree._collapseIfSingleChild</code> did <code>split('/').last</code> when a collapsed chain ended in a <em>file</em>, discarding exactly the prefix P03-10's own <code>lib/app/views</code> example is about. Two commits: W10a the tree, W10b the switcher.</td></tr>
-        <tr><td class="num">W11</td><td><span class="pill is-done">done</span><br><code>571b595<br>9973ce2</code></td><td>Scope card: the lines the design draws and the code does not</td><td class="num">1 + tests</td>
-            <td>S3's three dashed rules, S4's head border and muted ground, S9's hunk rule, S10's margin. All of it inside <code>scoped_diff_view.dart</code>; no logic, no <code>selection_touch.dart</code>, no <code>diff_scopes.dart</code>.</td></tr>
-        <tr><td class="num">W12</td><td><span class="pill is-done">done</span><br><code>0eca40b</code></td><td><span class="zh">一次性</span> chip and the column-head chip</td><td class="num">1–2 + tests</td>
-            <td>S8 needs a warning-outlined pill <code>GbmBadge</code> cannot draw at any of its three kinds. Resolved as a <b>shared public widget</b>, <code>GbmOutlinedPill</code>, not a fourth badge kind and not a private class — a private one is invisible to tests, which leaves only <code>BoxDecoration</code>-walking assertions. S5's scope-count chip is the same widget with different tokens, and had to become <code>Flexible</code>: it is a non-flex child, so <code>Expanded(title)</code> could not rescue the 11px overflow it caused (<code>[FLU-renderflex-non-flex-first]</code>), visible only because W3 had narrowed that test's canvas from 200 to 140.</td></tr>
-        <tr><td class="num">W13</td><td><span class="pill is-done">done</span><br><code>ecd29af</code></td><td>Scope card hover</td><td class="num">1 + test</td>
-            <td>S11. Assert the token by identity — <code>[FLU-hand-rolled-inkwell-hover]</code>: a hover test that only checks for no exception proves nothing, and <code>ThemeData.hoverColor</code> is invisible on a real display.</td></tr>
-        <tr><td class="num">W9</td><td><span class="pill is-done">done</span><br><code>915ad24 … 2633d88</code></td><td>Correct the records in §07</td><td class="num">5</td>
-            <td>In place, struck and rewritten — not silently re-numbered. Grew past five during the pass: page 09's <code>SPLITTERS</code> section went from «all 8 conform» to «6 符合 + 2 使用者裁定的偏離»; P03 items 2/4 followed it; P03 item 8's «the numbers follow <code>wc.columns</code>» named a dead id; and <b>P03 item 10's verdict covered one clause out of five</b> — the two W10 fixed were never in the audit unit at all. Two new pins (<code>[STRUCT-leaf-label-from-switcher]</code>, <code>[TEST-geometric-drop-point-is-axis-bound]</code>), one new drift entry (item 10 contradicts itself on whether the mode is per-list or shared — recorded, left for a ruling), one orphan constant deleted (<code>workingCopyLeftColumnWidth</code>, never called in any revision), and one source comment corrected that described deleted behaviour.</td></tr>
+        <tr><td class="num">W1</td><td><span class="pill is-done">done</span><br><code>a4818b4</code></td><td>兩個新的 <code>GbmSplitterSpec</code>，兩個刪掉</td><td class="num">1 檔<br>+6 測試</td>
+            <td><code>splitterWcColumns</code> 與 <code>splitterWcDiff</code> 走人；接替它們的帶新的 storage id。舊 key 變孤兒是刻意的。依 §03 的裁定，檔案區↔diff 那個是 <code>extent(260, min 180)</code>，堆疊那個維持 <code>1 : 1</code>，下限用 W5 那個新的。</td></tr>
+        <tr><td class="num">W2</td><td><span class="pill is-done">done</span><br><code>f16ce70</code></td><td>外層 pane &rarr; 水平</td><td class="num">1</td>
+            <td><code>working_copy_view.dart</code> 中間那個 <code>GbmSplitPane</code>。子節點順序不變，所以 board 在左、diff 在右。commit box 的 <code>Container</code> 一個字都沒動。</td></tr>
+        <tr><td class="num">W3</td><td><span class="pill is-done">done</span><br><code>d342fd6</code></td><td>內層 board &rarr; 垂直</td><td class="num">1</td>
+            <td><code>working_copy_board.dart</code>。Unstaged 仍然排第一，所以它在上面。</td></tr>
+        <tr><td class="num">W4</td><td><span class="pill is-done">done</span><br><code>dff5c95</code></td><td>Diff 預設 &rarr; <code>unified</code></td><td class="num">1</td>
+            <td>一個初始值。切換器、兩個 enum 值與 <code>wc.diffSides</code> 全部留著。enum 上那句<span class="zh">「For a narrow window」</span>註解在同一個 commit 裡更正。</td></tr>
+        <tr><td class="num">W5</td><td><span class="pill is-done">done</span><br><code>9221762</code></td><td>窄欄溢出的防線</td><td class="num">1 + 測試</td>
+            <td>堆疊 pane 的下限，依 §03 的算式。<code>RenderFlex</code> 先排非 flex 的子節點，所以決定這個數字的是標頭與提示，不是清單。</td></tr>
+        <tr><td class="num">W6</td><td><span class="pill is-done">done</span><br><code>03dfa15</code></td><td>Drop hint 文字</td><td class="num">1 + 測試</td>
+            <td><span class="zh">右</span> → <span class="zh">下</span>，依 §05 的 C1 裁定。一個字串，加上斷言它的那些測試。</td></tr>
+        <tr><td class="num">W7</td><td><span class="pill is-done">done</span><br>folded into<br>W2/W3/W5/W6</td><td>版面測試</td><td class="num">4 檔</td>
+            <td>Unstaged 在 Staged 上面；檔案欄在 diff 左邊；commit box 在最後且滿版寬。斷言的對象是<b>鄰居</b>的 rect，絕不是一個像素常數。拖曳手勢的座標從水平轉成垂直。</td></tr>
+        <tr><td class="num">W8</td><td><span class="pill is-done">done</span><br><code>f43a025</code></td><td>裝置層，一次一個檔</td><td class="num">5 個候選</td>
+            <td>跑了<b>六</b>個，不是五個 —— grep 還撈出 <code>context_menu_flows</code>，而計畫自己的清單裡有兩個 grep 沒撈到，所以跑的是聯集：<code>stage_lines_flow</code> 7/7、<code>working_copy_line_counts</code> 1/1、<code>commit_flow</code> <b>0/1 → 1/1</b>、<code>commit_file_counts</code> 2/2、<code>conflict_flow</code> 1/1、<code>context_menu_flows</code> 5/5。紅的是這個測試的落點 <code>board.right - board.width * 0.25</code> ——「另一欄在右邊」被寫成算式，轉向之後這個算式又落回 Unstaged 裡面。裝置層以下沒有任何一層看得到它：widget 層的拖曳瞄的是另一個<em>列</em>，那跟軸向無關。依 <code>[TEST-foreground-line-is-not-a-failure]</code>，先在父 commit 上跑了一次 <code>stage_lines_flow</code> 當對照組，7/7。</td></tr>
+        <tr><td class="num">W10</td><td><span class="pill is-done">done</span><br><code>7f37f55<br>a4bcfd1</code></td><td>Tree 模式的葉節點文字</td><td class="num">1 + 測試</td>
+            <td>既有缺陷，由使用者納入這一輪；不是這次改版面造成的 —— 而且<b>不在這一頁</b>。葉節點的標籤是由共用的 <code>FileListModeSwitcher</code> 決定的，它的 <code>leafBuilder</code> 沒有收 label 參數，所以<b>六個</b>面在兩種模式下畫的都是項目的完整路徑：Working Copy 兩欄、History 的 Changed files、Compare 的 Files、Conflict 視窗、<code>panel_file_diff_detail</code>。修在契約上（<code>leafBuilder(context, item, label)</code>），不是修在某一個呼叫點。同一個句子裡還坐著<b>第二個</b>缺陷：<code>FileTree._collapseIfSingleChild</code> 在摺疊鏈結尾是<em>檔案</em>時做了 <code>split('/').last</code>，丟掉的正好是 P03-10 自己的 <code>lib/app/views</code> 範例在講的那個前綴。兩個 commit：W10a 是樹，W10b 是切換器。</td></tr>
+        <tr><td class="num">W11</td><td><span class="pill is-done">done</span><br><code>571b595<br>9973ce2</code></td><td>Scope 卡片：設計有畫、程式碼沒畫的那些線</td><td class="num">1 + 測試</td>
+            <td>S3 的三條虛線、S4 的標頭底線與 muted 底色、S9 的 hunk 橫線、S10 的外距。全部都在 <code>scoped_diff_view.dart</code> 裡面；不碰邏輯、不碰 <code>selection_touch.dart</code>、不碰 <code>diff_scopes.dart</code>。</td></tr>
+        <tr><td class="num">W12</td><td><span class="pill is-done">done</span><br><code>0eca40b</code></td><td><span class="zh">一次性</span> chip 與欄標頭的 chip</td><td class="num">1–2 + 測試</td>
+            <td>S8 要的是一顆 warning 外框的藥丸，<code>GbmBadge</code> 三種 kind 都畫不出來。解法是做成一個<b>共用的 public widget</b> <code>GbmOutlinedPill</code>，不是第四種 badge kind，也不是 private class —— private 的測試看不到，那就只剩下走 <code>BoxDecoration</code> 的斷言可用。S5 的 scope 計數 chip 是同一個 widget 換一組 token，而且必須改成 <code>Flexible</code>：它是非 flex 子節點，所以 <code>Expanded(title)</code> 救不了它造成的 11px 溢出（<code>[FLU-renderflex-non-flex-first]</code>），而這件事看得到只是因為 W3 把那個測試的畫布從 200 縮到 140。</td></tr>
+        <tr><td class="num">W13</td><td><span class="pill is-done">done</span><br><code>ecd29af</code></td><td>Scope 卡片 hover</td><td class="num">1 + 測試</td>
+            <td>S11。用 identity 斷言那個 token —— <code>[FLU-hand-rolled-inkwell-hover]</code>：只檢查沒有丟例外的 hover 測試什麼都證明不了，而 <code>ThemeData.hoverColor</code> 在真的螢幕上看不見。</td></tr>
+        <tr><td class="num">W9</td><td><span class="pill is-done">done</span><br><code>915ad24 … 2633d88</code></td><td>更正 §07 列的那些記錄</td><td class="num">5</td>
+            <td>就地劃掉重寫 —— 不是默默改個編號。這一趟做下來超過五處：第 09 頁的 <code>SPLITTERS</code> 段從「8 條全部符合」變成「6 符合 + 2 使用者裁定的偏離」；P03 第 2/4 項跟著改；P03 第 8 項那句「數字跟著 <code>wc.columns</code> 走」指的是一個已經死掉的 id；而 <b>P03 第 10 項的判定只涵蓋了五個子句裡的一個</b> —— W10 修掉的那兩個從來就不在稽核範圍內。兩條新 pin（<code>[STRUCT-leaf-label-from-switcher]</code>、<code>[TEST-geometric-drop-point-is-axis-bound]</code>）、一條新的 drift（第 10 項自己前後矛盾，模式到底是各清單獨立還是共用 —— 記下來，留給裁定）、刪掉一個孤兒常數（<code>workingCopyLeftColumnWidth</code>，任何一版都沒有被呼叫過），以及更正一句描述已刪除行為的原始碼註解。</td></tr>
       </tbody>
     </table></div>
 
     <div class="callout is-warn">
-      <div class="callout__title">Two existing tests will go red on W4, and that is the check</div>
+      <div class="callout__title">W4 會讓兩個既有測試變紅，而那就是檢查本身</div>
       <p style="margin-bottom:0">
-        <code>working_copy_diff_pane_test.dart</code> asserts the two-column layout without ever
-        touching the switch — so it implicitly pins <code>twoFile</code> as the default. Those
-        reds <em>are</em> W4's mutation check; the fix is to tap <code>2 file</code> first and keep
-        the assertion.
+        <code>working_copy_diff_pane_test.dart</code> 斷言的是兩欄版面，而且從來沒碰過切換器 ——
+        所以它隱含地把 <code>twoFile</code> 釘成預設值。那些紅<em>就是</em> W4 的 mutation 檢查；
+        修法是先點一下 <code>2 file</code>，斷言保留不動。
       </p>
     </div>
   </section>
 
   <!-- ============================ 8 ============================ -->
   <section id="acceptance">
-    <div class="sec-head"><span class="sec-num">09</span><h2>Acceptance</h2></div>
+    <div class="sec-head"><span class="sec-num">09</span><h2>驗收</h2></div>
     <ul class="plain">
-      <li>A layout test asserts <b>Unstaged's rect is above Staged's</b> and <b>the files column's right edge is at or before the diff's left edge</b> — both against the neighbour, so the test cannot pass by matching a constant that also moved.</li>
-      <li>A test asserts the commit box is still the <b>last</b> child and still spans the full width. This is the only mechanical statement of <span class="zh">「位置不變」</span>.</li>
-      <li>The stacked column at its <code>minExtent</code> throws no overflow. <code>RenderFlex</code> reports main-axis overflow only, so this test is on the vertical axis by construction.</li>
-      <li>Pumping the diff pane with no interaction shows <b>one</b> column. Tapping <code>2 file</code> shows two, left unstaged and right staged — the existing dx assertion, kept, now behind a tap.</li>
-      <li>Dragging a row from Unstaged <b>downward</b> onto Staged stages it, and upward unstages — with the empty-column placeholder still inside the <code>DragTarget</code>'s builder, so a first-ever file can still be dropped on.</li>
-      <li>Tree mode's leaf row paints <b>the segment below its parent folder</b>, not the full path — asserted by pumping the board in tree mode and reading what was painted, the same way the defect was found. List mode still paints the full path, asserted in the same test so a fix that hits both fails.</li>
-      <li>Each property §06 adopted asserted by identity, never by absence of exception — the border's <code>BorderSide.style</code>, the chip's colour against <code>colors.warning</code>, the hover tint against its token. A card-hover test that only checks the tree still builds is the failure <code>[FLU-hand-rolled-inkwell-hover]</code> records.</li>
-      <li><code>flutter analyze</code> at zero and <code>dart format</code> clean; the five device-tier candidates run one at a time, each with a control run on the parent commit.</li>
+      <li>一個版面測試斷言 <b>Unstaged 的 rect 在 Staged 上方</b>，以及<b>檔案欄的右緣不超過 diff 的左緣</b> —— 兩個都是對著鄰居斷言，所以測試不可能靠對上一個同時也移動了的常數而過關。</li>
+      <li>一個測試斷言 commit box 仍然是<b>最後</b>一個子節點、仍然滿版寬。這是<span class="zh">「位置不變」</span>唯一一個機械化的說法。</li>
+      <li>堆疊欄在 <code>minExtent</code> 時不丟溢出。<code>RenderFlex</code> 只回報主軸溢出，所以這個測試在結構上就是落在垂直軸上。</li>
+      <li>不做任何互動就 pump diff pane，看到的是<b>一</b>欄。點 <code>2 file</code> 之後是兩欄，左 unstaged、右 staged —— 既有的 dx 斷言留著，只是現在放在一次點擊後面。</li>
+      <li>把一列從 Unstaged <b>往下</b>拖到 Staged 會 stage，往上拖會 unstage —— 而且空欄的 placeholder 仍然在 <code>DragTarget</code> 的 builder <em>裡面</em>，所以第一個檔案仍然放得進去。</li>
+      <li>Tree 模式的葉節點列畫的是<b>它在父資料夾之下的那一段</b>，不是完整路徑 —— 斷言方式是在 tree 模式下 pump 那個 board、讀畫出來的東西，跟當初找到這個缺陷的方式一樣。List 模式仍然畫完整路徑，在同一個測試裡斷言，這樣一個把兩邊都改掉的「修法」會失敗。</li>
+      <li>§06 採納的每一個屬性都用 identity 斷言，絕不用「沒有丟例外」—— 邊框的 <code>BorderSide.style</code>、chip 的顏色對上 <code>colors.warning</code>、hover 色對上它的 token。一個只檢查樹還建得起來的卡片 hover 測試，就是 <code>[FLU-hand-rolled-inkwell-hover]</code> 記下的那種失敗。</li>
+      <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨；五個裝置層候選一次跑一個，每一個都在父 commit 上跑一次對照組。</li>
     </ul>
   </section>
 

@@ -196,3 +196,33 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   *default* without asserting authority over every call site's explicit choice — never for a value
   a call site cannot legitimately override.
 - **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-floating-label-overflows-fixed-height] `InputDecoration.labelText`'s floating label does not fit inside a fixed-height box
+
+- **Rule**: Material's floating label needs room *above* the input line. Measured: a
+  `TextField` wrapped in `SizedBox(height: 30)` with both `labelText` and a pre-filled
+  `controller` renders the label's rect at `y: 14.9–26.1` while the `SizedBox` itself starts
+  at `y: 20` — the label paints outside its own box and overlaps the value text's leading
+  ~6px. The identical value with no `labelText` (hint-only) renders cleanly inside the same
+  box with no overlap.
+- **Consequence**: a real pre-filled value reads as garbled or missing, which is exactly
+  what shipped: G4b wrapped every single-line dialog field in `SizedBox(height:
+  GbmSpacing.inputHeight)` while `gbmInputDecoration()` still took `labelText`, and the user
+  reported Add Worktree's 位置 field as having "no default" — the value was there all along,
+  visually eaten by its own label.
+- **Do**: a dialog field's label is an external `Text` above the box (the G3 pattern already
+  used for 分支/來源/從哪裡分出/檔案/還原成), never `InputDecoration.labelText`, whenever the
+  field sits inside a fixed-height wrapper. `gbmInputDecoration()`/
+  `gbmMultilineInputDecoration()` have no `labelText` parameter at all for this reason —
+  removed rather than left unused, so no tenth call site can reintroduce the bug; the
+  parameter's absence is a compile error, not a convention to remember.
+- **Do not** reach for `floatingLabelBehavior: never` instead — the label would vanish
+  entirely the moment the field has content, which is always true for a pre-filled field
+  (identity name/email, a configured number, a computed default path).
+- **Do**: `errorText` was probed the same way and found *not* to have this defect — it
+  renders inside the same fixed box (measured `y: 33–50` against the box's own `20–50`), no
+  overflow, no exception — so it was left alone rather than "fixed" for a problem it doesn't have.
+- **Do**: pin the fix with a rect assertion (`labelRect.bottom <= fieldRect.top`), never a
+  bare `find.text(label)` — [FLU-finder-proves-existence-not-position] applies here exactly:
+  existence of the label text proves nothing about whether it overlaps the value.
+- **Evidence**: [ledger: Worktree Dialogs G2–G8, 追加](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)

@@ -177,6 +177,95 @@ G8b 呼叫端遷移的一部分。
   `GbmWarningBanner` 本身沒被這輪改動，符合預期。
 - `scripts/check-rule-pins.py`：172 條規則、70 個交叉引用，懸空 0。
 
-## 本輪沒有動、也沒有新開的缺口
+## ~~本輪沒有動、也沒有新開的缺口~~（訂正：本輪自己開的一個缺口，已在同一輪修掉）
 
-G2–G8 依計畫全數做完，沒有產生新的 `DRIFT-` 項目。
+~~G2–G8 依計畫全數做完，沒有產生新的 `DRIFT-` 項目。~~ 這句話錯了，訂正如下：
+**G4b 自己就開了一個缺口，使用者事後回報「新增worktree的位置沒有預設了」**，見下一節。
+修掉之後才是真的沒有新開的缺口。
+
+## 追加：G4b 自己造成的迴歸——`labelText` 的浮動標籤放不進固定 30px 的框
+
+PR #136 開出、CI 全線通過之後，使用者回報 Add Worktree 的「位置」欄位「沒有預設
+了」。查證前先讀 `_computeDefaultPath()`：邏輯沒變、既有三則斷言 `controller.text`
+的測試全綠——問題不在算出來的值，而是**畫出來的樣子**。
+
+**根因**：`InputDecoration.labelText` 是 Material 的浮動標籤，需要框的上方留白；
+G4b 把每個單行欄位包進 `SizedBox(height: GbmSpacing.inputHeight)`（30px）之後，
+這塊留白就沒有了。寫兩個對照用的 scratch widget test（未提交,量完即刪）量出來：
+
+```
+有 labelText：label rect  Rect.fromLTRB(36.0, 14.9, 59.3, 26.1)
+             value rect  Rect.fromLTRB(36.0, 20.0, 764.0, 43.0)
+             field rect  Rect.fromLTRB(20.0, 20.0, 780.0, 50.0)
+             -- label 的頂端 14.9 比 field 自己的頂端 20.0 還高，畫到框外，
+                且與 value 文字前 ~6px 重疊。
+無 labelText（僅 hintText）：
+             value rect  Rect.fromLTRB(36.0, 20.0, 764.0, 43.0)   -- 同一個值
+             field rect  Rect.fromLTRB(20.0, 20.0, 780.0, 50.0)   -- 完全落在框內
+```
+
+同一個預設值兩種畫法：有 `labelText` 時被自己的標籤蓋住開頭幾個字元，使用者一眼
+看去像是空的或亂碼；拿掉 `labelText` 之後同一個值乾淨地落在框內。這就是回報的
+「沒有預設」——值一直都在，只是視覺上被蓋住了。errorText 另外量過（`新分支名`
+場景）：落在 y=33–50，仍在 field 自己的 20–50 之內，沒有溢出、沒有例外，判斷為
+不受影響，此輪不動。
+
+**範圍**：`gbmInputDecoration(...labelText:...)` 在 `lib/` 底下有 **9 處呼叫、
+橫跨 7 個檔案**——不只使用者回報的那一個。全部改掉，不是本輪不做的縮減：
+
+| 檔案 | 欄位 |
+|---|---|
+| `add_worktree_dialog.dart` | 新分支名、位置 |
+| `new_branch_dialog.dart` | 名稱 |
+| `credential_dialog.dart` | 帳號 / Token / 密碼（依 `obscure` 而定） |
+| `lock_worktree_dialog.dart` | 原因 |
+| `repository_settings_dialog.dart` | 名稱（僅限此 repository）、Email（僅限此 repository） |
+| `preferences_dialog.dart` | `_NumberField`（4 個呼叫端共用一個定義：每隔／記憶體中保留／記錄檔保留）、全域 gitignore 檔案路徑 |
+
+**修法**：每一處都改成 G3 既有的外部標籤樣式（`Text('label', style:
+TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary))` 疊在
+欄位上方，`gbmInputDecoration()` 呼叫改成只帶 `hintText`），而不是給
+`InputDecoration` 加 `floatingLabelBehavior: never`（後者一有值就整個標籤消失，
+把 identity/`_NumberField` 這種本來就有預填值的欄位變成永遠沒有標籤）。這個方向
+是 spec 自己畫的：`worktree-dialogs-spec.html` 的「Proposed」區塊（613/618 行）對
+「新分支名稱」「目標路徑」用的正是 `fld__label` 外部標籤，跟本輪已經套用在
+「分支」「來源」上的樣式一模一樣——不是另闢蹊徑，是把同一個既有樣式套滿。
+
+**`gbmInputDecoration()`／`gbmMultilineInputDecoration()` 拿掉了 `labelText` 參數**
+（[CULT-orphan-wiring] 的反向：不是找不到呼叫端才刪，是刪掉以後才能保證沒有第十
+個呼叫端重蹈覆轍——參數不存在，編譯期就擋掉）。連帶查過
+`gbmMultilineInputDecoration()` 的三個呼叫端（`merge_dialog.dart`／
+`create_tag_dialog.dart`／`cherry_pick_dialog.dart`），本來就沒有一個傳
+`labelText`，一併拿掉參數。
+
+**測試**：`find.widgetWithText(TextField, '<label>')` 這個既有斷言模式在標籤搬出
+`TextField` 之後全部失效（因為 `widgetWithText` 找的是「這個型別的 widget 底下有
+沒有這段文字的後代」，外部 `Text` 不再是 `TextField` 的後代）——grep 全部 9 個字串
+只中 `add_worktree_dialog_test.dart`（12 處）、`new_branch_dialog_test.dart`
+（2 處），改用 `find.byKey(const Key('...'))`（本檔既有慣例，如
+`history-search-field`），新增穩定的欄位 key。`dialog_copy_test.dart`／
+`lock_worktree_dialog_test.dart`／`preferences_dialog_test.dart` 三個檔案的既有
+斷言原本就沒有依賴 `widgetWithText`，改完全綠，不用動。
+
+新增的迴歸測試是**用矩形斷言**，不是量高度或比對 `controller.text`——
+[FLU-finder-proves-existence-not-position] 的教訓：`find.text('位置')` 存在只證明
+有這段文字，不證明它畫在哪裡。斷言外部標籤的 `rect.bottom <= field rect.top`
+（標籤完全在欄位上方，不重疊），並斷言 `field.decoration?.labelText` 為
+`null`。Mutation-check：把 `add_worktree_dialog.dart`「位置」的外部 `Text` 連同
+`SizedBox` 一起刪掉（模擬「標籤消失」這個可觀察缺陷），跑
+`add_worktree_dialog_test.dart` 得到 `+26 -2`——只有這兩則新測試（矩形斷言、樣式
+斷言）變紅，其餘 26 則全綠；同樣手法對 `new_branch_dialog.dart` 的「名稱」得到
+`+22 -2`。兩次都用 scratchpad 副本復原，`diff` 確認逐位元組相同，沒有用
+`git checkout --`。
+
+**驗證**：`flutter analyze --no-pub` 0 issue；`flutter test` 全數 2829 則通過
+（比追加前的 2824 多 5——新增的 rect 斷言測試）；`dart format
+--set-exit-if-changed .` 0 changed；golden test 21/21；
+`scripts/check-rule-pins.py` 176 條規則、74 個交叉引用，懸空 0；grep
+`integration_test/` 底下這 7 個對話框／`_NumberField`／相關 `GbmActionId`，
+沒有命中，裝置層無需重跑。
+
+**未驗證**：這輪的證據全部來自 `flutter_test`（真實的 layout/paint pipeline，
+但沒有實體視窗）。使用者實際在 `-d macos` 上點開 Add Worktree、選一個分支、肉眼
+確認路徑欄位不再被標籤蓋住——這一步沒有做，比照
+[STATE-refresh-entry-point]「未在真實硬體驗證」的記法，如實記下而不是假裝做過。

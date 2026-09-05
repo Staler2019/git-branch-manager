@@ -401,10 +401,21 @@ void main() {
     setUp(() {
       calls = 0;
       cache = DiffScopeCache(
-        split: (DiffFile file, {int maxGap = kDefaultScopeGap}) {
-          calls++;
-          return splitDiffFileIntoScopes(file, maxGap: maxGap);
-        },
+        split:
+            (
+              DiffFile file, {
+              int maxGap = kDefaultScopeGap,
+              bool staged = false,
+              Set<int> barrierIndexLines = const <int>{},
+            }) {
+              calls++;
+              return splitDiffFileIntoScopes(
+                file,
+                maxGap: maxGap,
+                staged: staged,
+                barrierIndexLines: barrierIndexLines,
+              );
+            },
       );
     });
 
@@ -419,6 +430,40 @@ void main() {
       expect(_spans(first[0]!), <List<int>>[
         <int>[1],
       ]);
+    });
+
+    // The barrier set is part of the answer, so it has to be part of the key
+    // -- a merged list hands the *same* file two different barrier sets as
+    // soon as the other side's diff changes, and a cache keyed on the file
+    // alone would go on drawing the previous split's cards.
+    //
+    // Identity, not content: the set is a pure function of the other
+    // sources' `DiffFile`s, which the view memoises on those files' own
+    // identities. Comparing contents instead would be O(changed lines) on
+    // every frame of a selection drag, which is the same order as the split
+    // this cache exists to avoid.
+    test('a different barrier set re-splits', () {
+      final DiffFile file = _file(hunks: <DiffHunk>[_hunk('++.++')]);
+
+      cache.scopesOf(file, staged: false);
+      final Map<int, List<DiffScope>> withBarrier = cache.scopesOf(
+        file,
+        staged: false,
+        barrierIndexLines: <int>{0},
+      );
+
+      expect(calls, 2, reason: 'the barrier set is part of the key');
+      expect(withBarrier[0], isNotNull);
+    });
+
+    test('the same barrier set instance hits', () {
+      final DiffFile file = _file(hunks: <DiffHunk>[_hunk('++.++')]);
+      final Set<int> barriers = <int>{0};
+
+      cache.scopesOf(file, staged: false, barrierIndexLines: barriers);
+      cache.scopesOf(file, staged: false, barrierIndexLines: barriers);
+
+      expect(calls, 1);
     });
 
     test('splits again when a new reply arrives for the same path', () {
@@ -470,6 +515,155 @@ void main() {
       // deselect was supposed to have dropped.
       cache.scopesOf(file);
       expect(calls, 2);
+    });
+  });
+
+  group('changedIndexLines', () {
+    /// A hunk whose lines carry real numbers on both sides.
+    DiffHunk numbered(List<(DiffLineKind, int, int)> spec) => DiffHunk(
+      oldStart: 1,
+      oldCount: spec.length,
+      newStart: 1,
+      newCount: spec.length,
+      heading: '',
+      lines: <DiffLine>[
+        for (final (DiffLineKind kind, int old, int now) in spec)
+          DiffLine(kind: kind, oldLine: old, newLine: now, text: 'x'),
+      ],
+    );
+
+    // The added line's `newLine` and the removed line's `oldLine` are
+    // deliberately *different* numbers. With both at 2 -- which is how this
+    // fixture was first written -- the staged and unstaged answers coincide,
+    // and a mutation making the function always read the old side stayed
+    // green ([TEST-fixture-cannot-disagree]).
+    test('a staged diff reports the index lines it adds', () {
+      // Staged is HEAD -> index, so its *new* side is the index. An added
+      // line puts a line into the index; a removed one takes a HEAD line
+      // away and leaves no index line behind, so it cannot be a barrier --
+      // there is nothing at that coordinate for another diff to collide
+      // with.
+      final DiffFile file = _file(
+        hunks: <DiffHunk>[
+          numbered(<(DiffLineKind, int, int)>[
+            (DiffLineKind.context, 1, 1),
+            (DiffLineKind.added, 0, 5),
+            (DiffLineKind.removed, 9, 0),
+          ]),
+        ],
+      );
+      expect(changedIndexLines(file, staged: true), <int>{5});
+    });
+
+    test('an unstaged diff reports the index lines it removes', () {
+      // The mirror: unstaged is index -> worktree, so its *old* side is the
+      // index and an added line has no index coordinate at all.
+      final DiffFile file = _file(
+        hunks: <DiffHunk>[
+          numbered(<(DiffLineKind, int, int)>[
+            (DiffLineKind.context, 1, 1),
+            (DiffLineKind.added, 0, 5),
+            (DiffLineKind.removed, 9, 0),
+          ]),
+        ],
+      );
+      expect(changedIndexLines(file, staged: false), <int>{9});
+    });
+
+    test('a null or binary file has no barriers', () {
+      expect(changedIndexLines(null, staged: true), isEmpty);
+      expect(changedIndexLines(_file(binary: true), staged: true), isEmpty);
+    });
+  });
+
+  group('splitDiffFileIntoScopes -- barriers', () {
+    // The reported case: the unstaged hunk of an untracked file whose middle
+    // line is staged. `document` is a context line here and index line 1, so
+    // the staged side's own change at index line 1 is what must stop the gap
+    // rule folding alpha/bravo and delta/echo into one card.
+    DiffFile untrackedUnstaged() => _file(
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 1,
+          oldCount: 1,
+          newStart: 1,
+          newCount: 5,
+          heading: '',
+          lines: <DiffLine>[
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 1,
+              text: 'alpha',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 2,
+              text: 'bravo',
+            ),
+            DiffLine(
+              kind: DiffLineKind.context,
+              oldLine: 1,
+              newLine: 3,
+              text: 'document',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 4,
+              text: 'delta',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 5,
+              text: 'echo',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    test('with no barrier the four additions are one scope', () {
+      expect(splitDiffFileIntoScopes(untrackedUnstaged())[0], hasLength(1));
+    });
+
+    test('the staged side\'s index line splits them into two', () {
+      expect(
+        splitDiffFileIntoScopes(
+          untrackedUnstaged(),
+          staged: false,
+          barrierIndexLines: const <int>{1},
+        )[0],
+        hasLength(2),
+      );
+    });
+
+    test('a barrier naming an index line this hunk does not hold is inert', () {
+      expect(
+        splitDiffFileIntoScopes(
+          untrackedUnstaged(),
+          staged: false,
+          barrierIndexLines: const <int>{99},
+        )[0],
+        hasLength(1),
+      );
+    });
+
+    test('reading the wrong side finds no barrier at all', () {
+      // `staged: true` would look at `newLine`, where index line 1 is the
+      // *first* row rather than the context one -- and a barrier on a
+      // changed line does nothing. So the side matters, and getting it
+      // wrong fails silently rather than loudly.
+      expect(
+        splitDiffFileIntoScopes(
+          untrackedUnstaged(),
+          staged: true,
+          barrierIndexLines: const <int>{1},
+        )[0],
+        hasLength(1),
+      );
     });
   });
 

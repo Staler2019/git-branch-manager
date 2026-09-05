@@ -94,6 +94,52 @@ List<DiffScope> splitHunkIntoScopes(
   return List<DiffScope>.unmodifiable(scopes);
 }
 
+/// The index lines [file] changes -- the coordinate a *different* diff of the
+/// same file must not fold across.
+///
+/// The two working-copy diffs share the index as a ruler ([indexPositionOf]),
+/// and a line only has an index coordinate when its index-side number is
+/// non-zero. So the staged side contributes the lines it **adds** to the
+/// index and the unstaged side the lines it **removes** from it; the other
+/// halves (a staged deletion, an unstaged addition) sit between index lines
+/// and leave nothing there to collide with.
+///
+/// A binary file has no hunks to read and a null file is the pane's "nothing
+/// selected" state; both answer empty.
+Set<int> changedIndexLines(DiffFile? file, {required bool staged}) {
+  final Set<int> lines = <int>{};
+  if (file == null || file.binary) return lines;
+  for (final DiffHunk hunk in file.hunks) {
+    for (final DiffLine line in hunk.lines) {
+      if (!_isChanged(line.kind)) continue;
+      final int number = staged ? line.newLine : line.oldLine;
+      if (number > 0) lines.add(number);
+    }
+  }
+  return lines;
+}
+
+/// The line indices of [hunk] that occupy one of [indexLines].
+///
+/// [staged] picks which side of the hunk is the index, exactly as
+/// [indexPositionOf] does -- and getting it wrong finds nothing rather than
+/// finding the wrong thing, which is why the pure test for it asserts a
+/// *miss*.
+Set<int> barrierLineIndices(
+  DiffHunk hunk, {
+  required bool staged,
+  required Set<int> indexLines,
+}) {
+  if (indexLines.isEmpty) return const <int>{};
+  final Set<int> found = <int>{};
+  for (int i = 0; i < hunk.lines.length; i++) {
+    final DiffLine line = hunk.lines[i];
+    final int number = staged ? line.newLine : line.oldLine;
+    if (number > 0 && indexLines.contains(number)) found.add(i);
+  }
+  return found;
+}
+
 /// Every scope of every hunk in [file], keyed by hunk index.
 ///
 /// Keyed rather than flattened because **a scope may never cross a hunk**:
@@ -106,18 +152,33 @@ List<DiffScope> splitHunkIntoScopes(
 Map<int, List<DiffScope>> splitDiffFileIntoScopes(
   DiffFile file, {
   int maxGap = kDefaultScopeGap,
+  bool staged = false,
+  Set<int> barrierIndexLines = const <int>{},
 }) {
   if (file.binary) return const <int, List<DiffScope>>{};
   return <int, List<DiffScope>>{
     for (int hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++)
-      hunkIndex: splitHunkIntoScopes(file.hunks[hunkIndex], maxGap: maxGap),
+      hunkIndex: splitHunkIntoScopes(
+        file.hunks[hunkIndex],
+        maxGap: maxGap,
+        barriers: barrierLineIndices(
+          file.hunks[hunkIndex],
+          staged: staged,
+          indexLines: barrierIndexLines,
+        ),
+      ),
   };
 }
 
 /// The signature [DiffScopeCache] splits with, so a test can hand it a
 /// counting stand-in. [splitDiffFileIntoScopes] is the only production value.
 typedef DiffFileScopeSplitter =
-    Map<int, List<DiffScope>> Function(DiffFile file, {int maxGap});
+    Map<int, List<DiffScope>> Function(
+      DiffFile file, {
+      int maxGap,
+      bool staged,
+      Set<int> barrierIndexLines,
+    });
 
 /// Remembers the scope split of the [DiffFile] it was last asked about.
 ///
@@ -154,6 +215,8 @@ class DiffScopeCache {
 
   DiffFile? _file;
   int _maxGap = kDefaultScopeGap;
+  bool _staged = false;
+  Set<int> _barrierIndexLines = const <int>{};
   Map<int, List<DiffScope>> _scopes = const <int, List<DiffScope>>{};
 
   /// The scopes of [file], split at most once per distinct [file] instance.
@@ -163,16 +226,30 @@ class DiffScopeCache {
   Map<int, List<DiffScope>> scopesOf(
     DiffFile? file, {
     int maxGap = kDefaultScopeGap,
+    bool staged = false,
+    Set<int> barrierIndexLines = const <int>{},
   }) {
     if (file == null) {
       _file = null;
       _scopes = const <int, List<DiffScope>>{};
       return _scopes;
     }
-    if (identical(file, _file) && maxGap == _maxGap) return _scopes;
+    if (identical(file, _file) &&
+        maxGap == _maxGap &&
+        staged == _staged &&
+        identical(barrierIndexLines, _barrierIndexLines)) {
+      return _scopes;
+    }
     _file = file;
     _maxGap = maxGap;
-    _scopes = _split(file, maxGap: maxGap);
+    _staged = staged;
+    _barrierIndexLines = barrierIndexLines;
+    _scopes = _split(
+      file,
+      maxGap: maxGap,
+      staged: staged,
+      barrierIndexLines: barrierIndexLines,
+    );
     return _scopes;
   }
 }

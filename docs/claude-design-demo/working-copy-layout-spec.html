@@ -1,0 +1,988 @@
+<title>Working Copy Layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Namespaced away from the mockup tokens (--gbm-*) so the
+   document's cascade can never bleed into the specimens.
+   Skeleton reused verbatim from worktree-dialogs-spec.html —
+   the sibling page in this folder — rather than re-derived.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+ul.plain { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+ul.plain li { margin-bottom: .4rem; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.ok   { color: var(--pg-good); }
+.verdict.bad  { color: var(--pg-bad); }
+.verdict.none { color: var(--pg-warn); }
+
+/* ---------- callout ---------- */
+.callout {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--pg-surface);
+  padding: 1rem 1.15rem; border-radius: 0 4px 4px 0;
+  margin: 1.5rem 0; max-width: var(--measure);
+}
+.callout.is-warn { border-left-color: var(--pg-warn); }
+.callout.is-ask  { border-left-color: var(--pg-bad); }
+.callout__title {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); margin-bottom: .4rem;
+}
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1000px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-tag.optA   { color: var(--pg-accent); border: var(--rail) solid var(--pg-accent); }
+.specimen-tag.optB   { color: var(--pg-ink-2); border: var(--rail) solid var(--pg-line-strong); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.25rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   app_flutter/lib/theme/tokens.dart's three GbmColors constants.
+   Three themes, switchable, because the layout must hold in all
+   three. Diff row colours added here for the first time; the
+   sibling page had no diff specimen to need them.
+   ============================================================ */
+.stage {   /* tokens live ONLY here — see the sibling page's note */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#eaf1fe;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#c97a17;
+  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37;
+  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e;
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-selected:#0d2a4d;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#d29922;
+  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8;
+  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93;
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#e4edfd;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#9a6700;   /* corrected: the sibling page carries #bf8700, which is not what _lightIde.warning holds */
+  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329;
+  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f;
+}
+
+/* ============================================================
+   THE SPECIMEN. Every number below is a named constant from
+   app_flutter/lib/theme/tokens.dart, tagged in the comment:
+     [TOK]  GbmSpacing / GbmTypography — a real constant
+     [NEW]  proposed here, no source — listed in section 04
+     [SPEC] free-hand specimen literal: a number chosen to make
+            this drawing legible, matching no constant in the app.
+            Only ever inside the diff-row and segmented-control
+            filler, which exist to give the layout something to
+            hold; never on anything the layout decision rests on.
+   ============================================================ */
+.wc {
+  font-family: "Inter", "PingFang TC", -apple-system, sans-serif;
+  color: var(--gbm-text-primary);
+  background: var(--gbm-surface-panel);
+  border: 1px solid var(--gbm-border-default);
+  display: flex; flex-direction: column;
+  width: 100%;
+}
+.wc-body { display: flex; min-height: 0; }
+.wc-body--stack { flex-direction: column; }
+
+/* a pane's own header row: [TOK] rowHeightCompact 26, textXs 11, space2 8 */
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--gbm-surface-panel); }
+.pane__hdr {
+  height: 26px; flex: 0 0 26px;                       /* [TOK] rowHeightCompact */
+  background: var(--gbm-surface-panel-raised);
+  padding: 0 8px;                                     /* [TOK] space2 */
+  display: flex; align-items: center; gap: 6px;      /* [SPEC] gap */
+  font-size: 11px; font-weight: 700;                  /* [TOK] textXs */
+  color: var(--gbm-text-secondary);
+  white-space: nowrap;
+}
+.pane__hdr .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane__list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+.frow {
+  height: 26px; padding: 0 8px;                       /* [TOK] rowHeightCompact, space2 */
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--gbm-text-primary);    /* [TOK] textXs */
+  white-space: nowrap;
+}
+.frow.is-sel { background: var(--gbm-surface-selected); }
+.frow .path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+.frow .cnt { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; }  /* [SPEC] */
+.frow .cnt .a { color: var(--gbm-diff-add-text); }
+.frow .cnt .d { color: var(--gbm-diff-del-text); }
+
+/* drop hint: [TOK] space2 padding + margin, radiusMd 6, textXs 11 */
+.hint {
+  margin: auto 8px 8px; padding: 8px;
+  border: 1px dashed var(--gbm-border-default);
+  border-radius: 6px;
+  font-size: 11px; color: var(--gbm-text-tertiary);
+  text-align: center; white-space: nowrap;
+}
+
+/* dividers — GbmSplitPane's own, unchanged by this round */
+.divv { flex: 0 0 1px; background: var(--gbm-border-default); }
+.divh { flex: 0 0 1px; background: var(--gbm-border-default); }
+
+/* diff pane */
+.dv { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1 1 auto;
+  background: var(--gbm-surface-panel); }
+.dv__bar {
+  height: 26px; flex: 0 0 26px;                       /* [TOK] rowHeightCompact */
+  background: var(--gbm-surface-panel-raised);
+  padding: 0 8px; display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--gbm-text-secondary);
+  border-bottom: 1px solid var(--gbm-border-subtle);
+}
+.dv__bar .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--gbm-text-primary); }
+.seg { display: flex; border: 1px solid var(--gbm-border-default); border-radius: 4px; overflow: hidden; flex: 0 0 auto; }
+.seg span { font-size: 10px; padding: 2px 7px; color: var(--gbm-text-secondary); }  /* [SPEC] */
+.seg span.on { background: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+.dv__body { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--gbm-surface-sunken); }
+.sub {                                                /* [SPEC] padding */
+  font-size: 11px; color: var(--gbm-text-secondary); padding: 3px 8px;
+  background: var(--gbm-surface-panel-raised);
+}
+.dl {
+  display: flex; gap: 8px; padding: 0 8px; height: 17px; align-items: center;  /* [SPEC] height */
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+  color: var(--gbm-text-primary); white-space: pre;
+}
+.dl .g { color: var(--gbm-text-tertiary); width: 22px; text-align: right; flex: 0 0 22px; font-size: 10px; }  /* [SPEC] */
+.dl.add { background: var(--gbm-diff-add-bg); color: var(--gbm-diff-add-text); }
+.dl.del { background: var(--gbm-diff-del-bg); color: var(--gbm-diff-del-text); }
+.dl.hh  { color: var(--gbm-text-tertiary); }
+
+/* commit box: height 200 is the existing literal, unchanged this round */
+.cbox {
+  flex: 0 0 auto; border-top: 1px solid var(--gbm-border-subtle);
+  padding: 12px; display: flex; gap: 8px; align-items: stretch;   /* [TOK] space3, space2 */
+}
+.cbox__fields { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }  /* [SPEC] gap */
+.cbox__in {
+  height: 30px; border: 1px solid var(--gbm-border-default);      /* [TOK] inputHeight */
+  border-radius: 6px; background: var(--gbm-surface-panel);       /* [TOK] radiusMd */
+  padding: 0 12px; display: flex; align-items: center;
+  font-size: 12.5px; color: var(--gbm-text-tertiary);             /* [TOK] textSm */
+}
+.cbox__btns { flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; }
+.btn {
+  height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; border: 1px solid var(--gbm-border-default);
+  color: var(--gbm-text-secondary); background: var(--gbm-surface-panel);
+}
+.btn.primary { background: var(--gbm-accent); border-color: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+
+/* ---------- proportion diagram (scaled, not true size) ---------- */
+.prop { width: 100%; }
+.prop__win {
+  border: 1px solid var(--pg-line-strong); border-radius: 3px; overflow: hidden;
+  background: var(--pg-surface); display: flex; flex-direction: column; height: 190px;
+}
+.prop__row { flex: 1 1 auto; display: flex; min-height: 0; }
+.prop__cell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); text-align: center; gap: .15rem; min-width: 0; padding: .25rem;
+  border-right: 1px solid var(--pg-line);
+}
+.prop__cell:last-child { border-right: none; }
+.prop__cell b { color: var(--pg-ink); font-size: .75rem; }
+.prop__cell.files { background: var(--pg-sunken); }
+.prop__cell.diff  { background: var(--pg-surface); background: color-mix(in oklab, var(--pg-accent) 9%, var(--pg-surface)); }
+.prop__cell.diff b { color: var(--pg-accent); }
+.prop__strip {
+  flex: 0 0 34px; border-top: 1px solid var(--pg-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem; color: var(--pg-ink-3);
+}
+.prop__cap {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: .4rem;
+}
+.propgrid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .propgrid { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- true-size ruler ---------- */
+.ruler { display: flex; gap: 1rem; align-items: flex-start; }
+.ruler__ticks {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); display: flex; flex-direction: column; flex: 0 0 auto;
+}
+.ruler__ticks span { display: flex; align-items: center; }
+
+footer.colophon {
+  margin-top: 5rem; padding-top: 1.5rem;
+  border-top: var(--rail) solid var(--pg-line);
+  font-size: var(--step--1); color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>docs/claude-design-demo</span>
+      <span>2026-09-05</span>
+      <span>feat/working-copy-vertical-file-lists</span>
+    </div>
+    <h1>Working Copy Layout</h1>
+    <p class="standfirst">
+      The two file lists stop sitting side by side and stack down the left; the diff takes the
+      whole right. Written before any code changes, because this one overturns two rows of the
+      spec's own <code>SPLITTERS</code> table and that should be a decision, not a diff.
+    </p>
+    <div class="status-row">
+      <span class="pill is-ratified">使用者裁定 · 檔案清單改左側垂直</span>
+      <span class="pill is-ratified">使用者裁定 · unstaged 在上</span>
+      <span class="pill is-ratified">使用者裁定 · diff 在右側</span>
+      <span class="pill is-ratified">使用者裁定 · commit box 位置不變</span>
+      <span class="pill is-ratified">使用者裁定 · diff 預設改 unified</span>
+      <span class="pill is-open">左欄寬度待裁定</span>
+      <span class="pill is-open">drop hint 文案待裁定</span>
+      <span class="pill is-open">spec 通過才開工</span>
+    </div>
+  </header>
+
+  <!-- ============================ 1 ============================ -->
+  <section id="why">
+    <div class="sec-head"><span class="sec-num">01</span><h2>The complaint, and what actually causes it</h2></div>
+    <p class="lede">
+      <span class="zh">「目前左右不好看檔案內容」</span> — the file content is the thing that needs
+      width, and today it is the only thing that never gets any.
+    </p>
+    <p>
+      The Working Copy is split top/bottom: file lists above, diff below. The file lists are then
+      split left/right into Unstaged and Staged. So the diff gets <b>54% of the height and 100% of
+      a width it did not need to share</b> — while two columns of file paths, which are short,
+      get the full width above it. Then the diff pane splits itself left/right again for
+      <code>2 file</code> mode, and the code that actually has to be read ends up in a box roughly
+      a quarter of the window.
+    </p>
+    <p>
+      Rotating both dividers fixes it without adding a single pane: file paths are short and stack
+      happily; a diff is tall and narrow-hostile. The stack gives the diff a full-height column and
+      every pixel the window gains from then on.
+    </p>
+    <div class="callout is-warn">
+      <div class="callout__title">Not a conformance fix</div>
+      <p>
+        Everything on this page is a <b>deviation the user asked for</b>, in the same standing as the
+        Working Copy's removed checkboxes. Section 06 quotes exactly what it overrules, so a later
+        audit reads it as ratified rather than as drift to be repaired.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 2 ============================ -->
+  <section id="beforeafter">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Before and after</h2></div>
+    <p class="lede">
+      Drawn in the app's own tokens at true vertical size — 26px rows, 11px labels, the real
+      diff colours. Widths are compressed to fit this page; section 03 is where width is decided.
+    </p>
+
+    <div class="stage-controls">
+      <span class="label">App theme</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+      <span class="specimen-note">All three must hold — the tokens are the contract, not one screenshot.</span>
+    </div>
+
+    <div class="compare">
+
+      <!-- BEFORE -->
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">Today</span>
+          <span class="specimen-note"><code>wc.diff</code> vertical 46/54 · <code>wc.columns</code> horizontal 1:1</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="wc-body wc-body--stack" style="height:250px">
+              <!-- file board: two columns side by side -->
+              <div class="wc-body" style="flex:46 1 0; min-height:0">
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+                  <div class="pane__list">
+                    <div class="frow is-sel"><span class="path">lib/graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                    <div class="frow"><span class="path">lib/theme/tokens.dart</span><span class="cnt"><span class="a">+2</span></span></div>
+                  </div>
+                  <div class="hint">拖曳檔案到右欄 = stage</div>
+                </div>
+                <div class="divv"></div>
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Staged · 1</span></div>
+                  <div class="pane__list">
+                    <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+1</span> <span class="d">−1</span></span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="divh"></div>
+              <!-- diff below, then split again -->
+              <div class="dv" style="flex:54 1 0">
+                <div class="dv__bar"><span class="grow">lane_allocator.dart</span><span class="seg"><span class="on">2 file</span><span>unified</span></span></div>
+                <div class="dv__body" style="display:flex">
+                  <div style="flex:1 1 0; min-width:0; overflow:hidden">
+                    <div class="sub">Unstaged</div>
+                    <div class="dl hh"><span class="g"></span>@@ -12,7 +12,9</div>
+                    <div class="dl del"><span class="g">12</span>-  final l = pick(s);</div>
+                    <div class="dl add"><span class="g">12</span>+  final l = pickLef</div>
+                  </div>
+                  <div class="divv"></div>
+                  <div style="flex:1 1 0; min-width:0; overflow:hidden">
+                    <div class="sub">Staged</div>
+                    <div class="dl hh"><span class="g"></span>@@ -3,4 +3,4 @@</div>
+                    <div class="dl del"><span class="g">3</span>-import 'dart:math'</div>
+                    <div class="dl add"><span class="g">3</span>+import 'dart:mat</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="cbox">
+              <div class="cbox__fields">
+                <div class="cbox__in">Summary</div>
+                <div class="cbox__in" style="height:44px; align-items:flex-start; padding-top:7px">Description</div>
+              </div>
+              <div class="cbox__btns"><div class="btn primary">Commit</div><div class="btn">Amend…</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          The code sits in a box a quarter of the window wide, and every line is cut mid-identifier.
+          Above it, two columns of short paths hold the full width.
+        </p>
+      </div>
+
+      <!-- AFTER -->
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">Proposed</span>
+          <span class="specimen-note">files column left · diff right · commit box untouched</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="wc-body" style="height:250px">
+              <!-- file lists: stacked, left -->
+              <div class="wc-body wc-body--stack" style="flex:0 0 150px; min-width:0">
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+                  <div class="pane__list">
+                    <div class="frow is-sel"><span class="path">lane_allocator.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                    <div class="frow"><span class="path">tokens.dart</span><span class="cnt"><span class="a">+2</span></span></div>
+                  </div>
+                  <div class="hint">拖曳檔案到下欄 = stage</div>
+                </div>
+                <div class="divh"></div>
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Staged · 1</span></div>
+                  <div class="pane__list">
+                    <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+1</span></span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="divv"></div>
+              <!-- diff right, unified -->
+              <div class="dv">
+                <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+                <div class="dv__body">
+                  <div class="sub">Unstaged</div>
+                  <div class="dl hh"><span class="g"></span>@@ -12,7 +12,9 @@</div>
+                  <div class="dl"><span class="g">11</span> int chooseLane(Oid seed) {</div>
+                  <div class="dl del"><span class="g">12</span>-  final int lane = pick(seed);</div>
+                  <div class="dl add"><span class="g">12</span>+  final int lane = pickLeftmost(seed);</div>
+                  <div class="dl add"><span class="g">13</span>+  reserve(lane, seed);</div>
+                  <div class="dl"><span class="g">14</span>   return lane;</div>
+                  <div class="sub">Staged</div>
+                  <div class="dl hh"><span class="g"></span>@@ -3,4 +3,4 @@</div>
+                  <div class="dl del"><span class="g">3</span>-import 'dart:math' as math;</div>
+                  <div class="dl add"><span class="g">3</span>+import 'dart:math' show min, max;</div>
+                </div>
+              </div>
+            </div>
+            <div class="cbox">
+              <div class="cbox__fields">
+                <div class="cbox__in">Summary</div>
+                <div class="cbox__in" style="height:44px; align-items:flex-start; padding-top:7px">Description</div>
+              </div>
+              <div class="cbox__btns"><div class="btn primary">Commit</div><div class="btn">Amend…</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          Same three regions, same commit box, same everything below the divider. What changed is
+          which way each of the two dividers runs — and the diff now shows whole lines.
+        </p>
+      </div>
+
+    </div>
+
+    <h3>What deliberately did not move</h3>
+    <ul class="plain">
+      <li>The <b>commit box</b> — still the bottom strip, full width, same 200px, same fields and
+        same 132px button column. <span class="zh">「位置不變」</span> read literally.</li>
+      <li>The <b>conflicted section</b>, when there is one, still pins above everything.</li>
+      <li><b>Dragging is still how a file changes side</b>; there is still no checkbox. Only the
+        direction changed, from sideways to downward.</li>
+      <li>The <code>2 file</code> / <code>unified</code> switch, and the divider inside
+        <code>2 file</code> mode. Only which one is <em>preselected</em> changes.</li>
+    </ul>
+  </section>
+
+  <!-- ============================ 3 ============================ -->
+  <section id="width">
+    <div class="sec-head"><span class="sec-num">03</span><h2>The one open question: what the left column's width does</h2></div>
+    <p class="lede">
+      Both options are draggable and both remember where you left them. They differ in one thing
+      only — what happens to the <em>extra</em> width when the window grows.
+    </p>
+    <p>
+      <b>The numbers below are not window widths.</b> The Working Copy is the trailing pane of
+      <code>splitterMainSidebar</code>, so it never sees the whole window: a 1280 window hands it
+      <code>1280 − 250 (sidebar) − 1 (divider) = <b>1029</b></code>, and 1920 hands it
+      <b>1669</b>. Every figure is that number, split. An earlier draft of this page computed
+      from the raw window width and overstated both diff panes by ~250px.
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag optA">Option A</span>
+          <span class="specimen-note">fixed width · <code>GbmSplitterSpec.extent</code></span>
+        </div>
+        <div class="propgrid">
+          <div>
+            <div class="prop__cap">window 1280 &rarr; 1029 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 25.3%"><b>260</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>768</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1029</div>
+            </div>
+          </div>
+          <div>
+            <div class="prop__cap">window 1920 &rarr; 1669 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 15.6%"><b>260</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>1408</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1669</div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          Every pixel the window gains goes to the diff. Same behaviour as the sidebar
+          (<code>splitterMainSidebar</code>, extent 250 / min 180) and History's Changed files
+          (<code>splitterMainFiles</code>, extent 186 / min 140) — the two other file lists in
+          this app, both extent-mode.
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag optB">Option B</span>
+          <span class="specimen-note">proportional · <code>GbmSplitterSpec.flex</code></span>
+        </div>
+        <div class="propgrid">
+          <div>
+            <div class="prop__cap">window 1280 &rarr; 1029 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 30%"><b>308</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>720</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1029</div>
+            </div>
+          </div>
+          <div>
+            <div class="prop__cap">window 1920 &rarr; 1669 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 30%"><b>500</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>1168</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1669</div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          The file column grows with the window too. Keeps <code>wc.diff</code>'s existing flex
+          behaviour and only re-proportions it — closer to what the spec's <code>SPLITTERS</code>
+          row describes, which is a ratio and not an extent.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout is-ask">
+      <div class="callout__title">Needs a ruling</div>
+      <p>
+        <b>Recommendation: Option A.</b> The complaint is that file content has no width; A is the
+        only one of the two where widening the window is a cure. A 500px-wide column of file paths
+        at 1920 is space spent on strings that are ~30 characters long. Concretely, at 1920 the
+        diff gets <b>1408</b> under A and <b>1168</b> under B — 240px, or about 20 more columns
+        of code, for a file list nobody asked to be wider.
+      </p>
+      <p style="margin-bottom:0">
+        The counter-argument for B is honest and worth stating: it is nearer the spec's own row
+        (a ratio), and it needs no invented pixel default — <b>A's 260 and 180 have no source at
+        all</b> (section 04). If you pick A, those two numbers are yours to set; the ones drawn
+        above are a proposal.
+      </p>
+    </div>
+
+    <h3>How narrow the column may get, either way</h3>
+    <p>
+      Both options need a floor, and the floor is a real arithmetic question because the Unstaged
+      pane carries the drop hint and the Staged pane does not — while <code>GbmSplitPane</code>
+      applies <b>one shared <code>minExtent</code> to both panes</b>.
+    </p>
+    <div class="ruler">
+      <div class="stage" data-stage data-app-theme="dark-technical" style="padding:1rem">
+        <div class="wc" style="width:240px">
+          <div class="pane">
+            <div class="pane__hdr"><span class="grow">Unstaged · 1</span><span style="font-size:10px">☰</span></div>
+            <div class="pane__list"><div class="frow"><span class="path">tokens.dart</span></div></div>
+            <div class="hint">拖曳檔案到下欄 = stage</div>
+          </div>
+        </div>
+      </div>
+      <div class="ruler__ticks">
+        <span style="height:26px">26 &nbsp;header &nbsp;<code>rowHeightCompact</code></span>
+        <span style="height:26px">26 &nbsp;one file row</span>
+        <span style="height:35px">18 + line &nbsp;hint box: 8+1 top · 11px text · 1+8 bottom</span>
+        <span style="height:8px">8 &nbsp;hint bottom margin &nbsp;<code>space2</code></span>
+        <span style="margin-top:.5rem"><b>78 + one 11px line ≈ 95</b></span>
+      </div>
+    </div>
+    <p style="margin-top:1rem">
+      The exact-constant part is <b>78px</b> — header 26, one row 26, and 26 of hint chrome
+      (8 outer margin + 8+1 top + 1+8 bottom). The gap to ~96 is the hint's own 11px text line,
+      whose height is a <code>TextPainter</code> fact and not a token, so <b>96 is a measured
+      proposal, not a derived constant</b>. Staged, having no hint, really only needs 52.
+    </p>
+  </section>
+
+  <!-- ============================ 4 ============================ -->
+  <section id="sources">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Every number, and where it comes from</h2></div>
+    <p class="lede">
+      Audited against the spec HTML before this page was drawn. Two values check out, three
+      contradict a stated row, and four have no source anywhere — those four are the ones you are
+      being asked to rule on.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:20%">Value</th><th style="width:13%">Proposed</th><th>Source</th><th style="width:13%">Verdict</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Unstaged/Staged ratio</td><td class="num">1 : 1</td>
+          <td>P09 <code>SPLITTERS</code>: <code>{ id: 'wc.columns', … def: '1 : 1', min: '200px' }</code></td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td>Drop hint, current text</td><td class="num"><span class="zh">拖曳檔案到右欄 = stage</span></td>
+          <td>Spec P03's dashed panel, byte-identical: <code>…text-align:center"&gt;拖曳檔案到右欄 = stage&lt;/div&gt;</code></td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td><b>Unstaged↔Staged divider direction</b></td><td class="num">horizontal line<br>(stacked)</td>
+          <td>Same row says <code>dir: '垂直'</code> — a vertical line, i.e. side by side. Today's code agrees with the spec.</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td><b>Files↔diff divider direction</b></td><td class="num">vertical line<br>(side by side)</td>
+          <td>P09: <code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px' }</code> — a horizontal line, i.e. stacked. Today's code agrees.</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td>Stack <code>minExtent</code></td><td class="num">96</td>
+          <td>The same <code>wc.columns</code> row states <code>min: '200px'</code>. 200 was a <em>width</em> floor; as a height floor it would demand 400px for the pair. 78px is the exact-constant part of 96 (section 03).</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td>Option A <code>defaultExtent</code></td><td class="num">260</td>
+          <td>No spec row gives a pixel default for this divider — <code>wc.diff</code> is proportional. Repo extent-mode neighbours: 250, 186, 158, 280, 160. None is 260.</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Option A <code>minExtent</code></td><td class="num">180</td>
+          <td><code>wc.diff</code>'s row says <code>min: '150px'</code>. 180 happens to equal <code>sidebarMinWidth</code> — a different divider's number, not evidence for this one.</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Option B ratio</td><td class="num">30 / 70</td>
+          <td>Nothing. <code>wc.diff</code>'s <code>46 / 54</code> is the only ratio the spec gives, and it is for the stacked arrangement this replaces.</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Specimen filler: <code>gap:6px</code>, <code>10px</code> captions, <code>.dl</code> 17px, gutter 22px, <code>.seg</code> padding</td>
+          <td class="num">tagged <code>[SPEC]</code></td>
+          <td>Nothing — chosen to make this drawing legible. Confined to the diff rows and the segmented control, none of which any decision on this page rests on. Everything the layout <em>does</em> rest on (26 / 11 / 8 / 12 / 6 / 30 / 132 / 200 / 1) is a real constant.</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Drop hint, replacement</td><td class="num">see section 05</td>
+          <td>The spec has exactly one wording for this panel and it names <span class="zh">右欄</span>. It does not contemplate a stacked layout, so <b>every</b> candidate is invented copy.</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+      </tbody>
+    </table></div>
+
+    <h3>Two drifts noticed in passing</h3>
+    <p>
+      <b>Not fixed here.</b> The spec draws the drop hint as <code>padding:7px</code>,
+      <code>font-size:10px</code>, <code>margin:auto 10px 10px</code>; the code uses
+      <code>space2</code> (8), <code>textXs</code> (11) and <code>space2</code>. The mockups above
+      draw the <b>code's</b> numbers, since this page is about layout. Recorded so it is not
+      rediscovered as new; not in this round's scope.
+    </p>
+    <p>
+      <b>Fixed here.</b> The sibling page <code>worktree-dialogs-spec.html</code> declares
+      <code>light-ide</code>'s <code>--gbm-warning</code> as <code>#bf8700</code>. The real
+      <code>_lightIde.warning</code> is <code>#9a6700</code>. This page carries the corrected
+      value; the sibling's copy is corrected in place in its own commit alongside this page, since
+      a spec page whose tokens are not the app's tokens is worse than no spec page.
+    </p>
+  </section>
+
+  <!-- ============================ 5 ============================ -->
+  <section id="copy">
+    <div class="sec-head"><span class="sec-num">05</span><h2>The drop hint has to change, and has nothing to quote</h2></div>
+    <p class="lede">
+      <span class="zh">「拖曳檔案到右欄 = stage」</span> — once Staged is below rather than beside,
+      <span class="zh">右欄</span> is simply false. A hint pointing the wrong way is worse than no
+      hint: it is a control that lies.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:8%">#</th><th style="width:34%">Candidate</th><th>Argument</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td class="zh"><b>拖曳檔案到下欄 = stage</b></td>
+            <td><b>Recommended.</b> One character changes — <span class="zh">右</span> → <span class="zh">下</span>. Keeps the spec's own sentence shape, its <code>=</code>, and its word <span class="zh">欄</span>, so the deviation is as small as a deviation can be while still being true.</td></tr>
+        <tr><td class="num">C2</td><td class="zh">拖曳檔案到下方 = stage</td>
+            <td><span class="zh">下方</span> reads slightly more natural than <span class="zh">下欄</span> for something stacked, but abandons the spec's noun. Marginally better Chinese, marginally further from the source.</td></tr>
+        <tr><td class="num">C3</td><td class="zh">往下拖 = stage · 往上拖 = unstage</td>
+            <td>Says both directions, which the current hint never did — the Staged pane has no hint of its own and unstaging is undiscoverable. Honest, and the biggest departure: new information, not a corrected word.</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout is-ask">
+      <div class="callout__title">Needs a ruling</div>
+      <p style="margin-bottom:0">
+        C1 unless you want the unstage direction spelled out, in which case C3. The mockups in
+        section 02 and 03 are drawn with <b>C1</b>.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 6 ============================ -->
+  <section id="deviation">
+    <div class="sec-head"><span class="sec-num">06</span><h2>What this overrules, quoted</h2></div>
+    <p class="lede">
+      Two rows of spec page 09's <code>SPLITTERS</code> table, both of which today's code matches
+      exactly. <code>dir</code> names the <em>divider line's</em> own orientation.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:14%">Row</th><th>Spec, verbatim</th><th style="width:26%">After this round</th></tr></thead>
+      <tbody>
+        <tr><td class="num">wc.columns</td>
+            <td><code>{ id: 'wc.columns', where: 'Unstaged ↔ Staged', dir: '垂直', def: '1 : 1', min: '200px', note: '' }</code></td>
+            <td>line becomes horizontal; ratio <code>1 : 1</code> kept; <code>min</code> re-derived as a height</td></tr>
+        <tr><td class="num">wc.diff</td>
+            <td><code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px', note: '' }</code></td>
+            <td>line becomes vertical; <code>def</code>/<code>min</code> replaced per section 03</td></tr>
+      </tbody>
+    </table></div>
+    <p>
+      Both storage keys must be re-keyed rather than reused. That is not a preference:
+      <code>[FLU-splitpane-axis-change]</code> states that changing a pane's axis obliges a
+      decision about the stored value, and only ratio mode survives one. A re-key orphans the old
+      <code>panelLayout.wc.*</code> entries — they read-miss and fall back to the default, which is
+      a lost width, never a wrong one.
+    </p>
+    <p>
+      <b>P03's own mockup</b> draws today's arrangement too. It is overruled by the same ruling and
+      for the same reason; it is not quoted separately because it says nothing the two rows above
+      do not already say in numbers.
+    </p>
+    <div class="callout">
+      <div class="callout__title">Records to correct when this lands</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><code>docs/reports/spec-conformance-matrix.md</code> — both rows currently read <span class="zh">符合</span>. Struck and rewritten <b>in place</b> as a ratified deviation, or the next audit repairs this layout back to the old one.</li>
+        <li><code>[STRUCT-working-copy]</code> — <span class="zh">「Below the columns, the diff area…」</span> stops being true.</li>
+        <li><code>[STRUCT-two-column-switches]</code> — the Working Copy row's default flips to <code>unified</code>.</li>
+        <li><code>splitterWcDiffSides</code>'s doc comment — <span class="zh">「nested inside <code>splitterWcDiff</code>'s 54% share」</span> stops being true.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================ 7 ============================ -->
+  <section id="worklist">
+    <div class="sec-head"><span class="sec-num">07</span><h2>Work list</h2></div>
+    <p class="lede">
+      Each is its own commit so each can be reverted alone. W1 and W6 are blocked until sections
+      03 and 05 are ruled on.
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:6%">#</th><th style="width:28%">Item</th><th style="width:10%">Sites</th><th>What it is</th></tr></thead>
+      <tbody>
+        <tr><td class="num">W1</td><td>Two new <code>GbmSplitterSpec</code>s, two deleted</td><td class="num">1 file<br>+6 tests</td>
+            <td><b>Blocked on §03.</b> <code>splitterWcColumns</code> and <code>splitterWcDiff</code> go; their replacements carry new storage ids. Old keys orphan by design.</td></tr>
+        <tr><td class="num">W2</td><td>Outer pane &rarr; horizontal</td><td class="num">1</td>
+            <td><code>working_copy_view.dart</code>'s middle <code>GbmSplitPane</code>. Children keep their order, so board is left and diff is right. The commit box's <code>Container</code> is not touched.</td></tr>
+        <tr><td class="num">W3</td><td>Inner board &rarr; vertical</td><td class="num">1</td>
+            <td><code>working_copy_board.dart</code>. Unstaged stays first, so it is on top.</td></tr>
+        <tr><td class="num">W4</td><td>Diff default &rarr; <code>unified</code></td><td class="num">1</td>
+            <td>One initialiser. The switch, both enum values and <code>wc.diffSides</code> all stay. The enum's <span class="zh">「For a narrow window」</span> comment is corrected in the same commit.</td></tr>
+        <tr><td class="num">W5</td><td>Narrow-column overflow guard</td><td class="num">1 + test</td>
+            <td>The stacked pane's floor, per §03's arithmetic. <code>RenderFlex</code> lays non-flex children out first, so the header and the hint decide this, not the list.</td></tr>
+        <tr><td class="num">W6</td><td>Drop hint text</td><td class="num">1 + tests</td>
+            <td><b>Blocked on §05.</b></td></tr>
+        <tr><td class="num">W7</td><td>Layout tests</td><td class="num">4 files</td>
+            <td>Unstaged above Staged; files column left of diff; commit box last and full width. Asserted against a <b>neighbour's</b> rect, never a pixel constant. Drag-gesture coordinates rotate from horizontal to vertical.</td></tr>
+        <tr><td class="num">W8</td><td>Device tier, one file at a time</td><td class="num">5 candidates</td>
+            <td><code>stage_lines_flow</code>, <code>working_copy_line_counts</code>, <code>commit_flow</code>, <code>commit_file_counts</code>, <code>conflict_flow</code>. Grepped by <code>GbmActionId</code> as well as by widget name.</td></tr>
+        <tr><td class="num">W9</td><td>Correct the four records in §06</td><td class="num">4</td>
+            <td>In place, struck and rewritten — not silently re-numbered.</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout is-warn">
+      <div class="callout__title">Two existing tests will go red on W4, and that is the check</div>
+      <p style="margin-bottom:0">
+        <code>working_copy_diff_pane_test.dart</code> asserts the two-column layout without ever
+        touching the switch — so it implicitly pins <code>twoFile</code> as the default. Those
+        reds <em>are</em> W4's mutation check; the fix is to tap <code>2 file</code> first and keep
+        the assertion.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 8 ============================ -->
+  <section id="acceptance">
+    <div class="sec-head"><span class="sec-num">08</span><h2>Acceptance</h2></div>
+    <ul class="plain">
+      <li>A layout test asserts <b>Unstaged's rect is above Staged's</b> and <b>the files column's right edge is at or before the diff's left edge</b> — both against the neighbour, so the test cannot pass by matching a constant that also moved.</li>
+      <li>A test asserts the commit box is still the <b>last</b> child and still spans the full width. This is the only mechanical statement of <span class="zh">「位置不變」</span>.</li>
+      <li>The stacked column at its <code>minExtent</code> throws no overflow. <code>RenderFlex</code> reports main-axis overflow only, so this test is on the vertical axis by construction.</li>
+      <li>Pumping the diff pane with no interaction shows <b>one</b> column. Tapping <code>2 file</code> shows two, left unstaged and right staged — the existing dx assertion, kept, now behind a tap.</li>
+      <li>Dragging a row from Unstaged <b>downward</b> onto Staged stages it, and upward unstages — with the empty-column placeholder still inside the <code>DragTarget</code>'s builder, so a first-ever file can still be dropped on.</li>
+      <li><code>flutter analyze</code> at zero and <code>dart format</code> clean; the five device-tier candidates run one at a time, each with a control run on the parent commit.</li>
+    </ul>
+  </section>
+
+  <footer class="colophon">
+    <span>Tokens: <code>app_flutter/lib/theme/tokens.dart</code></span>
+    <span>Skeleton: <code>worktree-dialogs-spec.html</code>, the sibling page in this folder</span>
+    <span>Faces: Inter · JetBrains Mono — the app's own <code>fontUi</code> / <code>fontMono</code></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>

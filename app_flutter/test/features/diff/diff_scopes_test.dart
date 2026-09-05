@@ -183,6 +183,50 @@ void main() {
     });
   });
 
+  group('splitHunkIntoScopes -- barriers', () {
+    // A barrier is a hunk line the gap rule may not swallow. In the merged
+    // `unified` list it is a line the *other* diff draws as a change of its
+    // own, so folding across it would put one card's span over another
+    // card's position -- and that is exactly the reported defect: an
+    // untracked file whose middle line is staged drew two cards where git
+    // sees three regions.
+    test('a barrier between two changes splits them, inside the gap', () {
+      // `+ + . + +` -- one unchanged line, well inside the gap rule's 2.
+      final DiffHunk hunk = _hunk('++.++');
+      expect(splitHunkIntoScopes(hunk), hasLength(1));
+      expect(splitHunkIntoScopes(hunk, barriers: const <int>{2}), hasLength(2));
+    });
+
+    test('the barrier line itself stays out of both scopes', () {
+      final List<DiffScope> scopes = splitHunkIntoScopes(
+        _hunk('++.++'),
+        barriers: const <int>{2},
+      );
+      expect(scopes[0].lineIndices, <int>[0, 1]);
+      expect(scopes[1].lineIndices, <int>[3, 4]);
+    });
+
+    test('a barrier outside every gap changes nothing', () {
+      // Leading context is already outside every scope, so naming it a
+      // barrier cannot split anything -- the split must come from the gap
+      // between two changes, not from the barrier's mere presence.
+      final DiffHunk hunk = _hunk('.++++');
+      expect(splitHunkIntoScopes(hunk, barriers: const <int>{0}), hasLength(1));
+    });
+
+    test('a barrier on a changed line does not split its own run', () {
+      // The rule is「the gap rule may not *swallow* a barrier」, not「a
+      // barrier ends a scope」. A changed line is not swallowed context, and
+      // splitting a run of real changes there would fragment the commonest
+      // case -- staging part of a block -- for no gain: both sides already
+      // get their own card at that position.
+      expect(
+        splitHunkIntoScopes(_hunk('+++'), barriers: const <int>{1}),
+        hasLength(1),
+      );
+    });
+  });
+
   group('hunkSegments', () {
     List<String> shape(List<DiffSegment> segments) => segments
         .map(

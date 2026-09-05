@@ -46,9 +46,18 @@ class DiffScope {
 /// A hunk with no changed line at all yields no scopes rather than one empty
 /// one, so a caller can render "nothing to stage here" without a special
 /// case.
+///
+/// [barriers] are hunk line indices the gap rule may **not** swallow. Only
+/// the lines strictly between two changes are tested, so a barrier that
+/// lands on a changed line does nothing -- the rule is「may not swallow a
+/// barrier」, not「a barrier ends a scope」. Splitting a run of real changes
+/// would fragment the commonest case, staging part of a block, and buy
+/// nothing: in a merged list both sides already get their own card at that
+/// position.
 List<DiffScope> splitHunkIntoScopes(
   DiffHunk hunk, {
   int maxGap = kDefaultScopeGap,
+  Set<int> barriers = const <int>{},
 }) {
   final List<int> changed = <int>[
     for (int i = 0; i < hunk.lines.length; i++)
@@ -66,7 +75,14 @@ List<DiffScope> splitHunkIntoScopes(
   for (final int index in changed.skip(1)) {
     // The unchanged lines strictly between this change and the previous one.
     final int gap = index - group.last - 1;
-    if (gap <= maxGap) {
+    bool blocked = false;
+    for (int i = group.last + 1; i < index; i++) {
+      if (barriers.contains(i)) {
+        blocked = true;
+        break;
+      }
+    }
+    if (gap <= maxGap && !blocked) {
       group.add(index);
     } else {
       close();

@@ -174,12 +174,83 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     return _scopeCaches[sourceIndex];
   }
 
+  /// The index lines the *other* sources change, per source index.
+  ///
+  /// A merged list draws two diffs of the same file at once, and the gap
+  /// rule must not fold one source's scope across a line the other one
+  /// draws as a change of its own -- see [changedIndexLines]. That is the
+  /// whole of the reported defect: an untracked file with its middle line
+  /// staged gave the unstaged side `+ + . + +`, whose single unchanged line
+  /// *is* the staged change, so two regions became one card.
+  ///
+  /// **Key: the sources' [DiffFile] identities, element by element.** The
+  /// barrier sets are a pure function of those files, and walking every line
+  /// of every hunk to rebuild them is the same order as the split
+  /// [DiffScopeCache] exists to avoid -- so recomputing per frame would undo
+  /// that memo during a selection drag. Identity is the honest key for the
+  /// reason that cache already gives: these are immutable DTOs parsed fresh
+  /// out of each `workingCopyDiffReady` payload.
+  ///
+  /// **Invalidated by**: a different `DiffFile` instance arriving in any
+  /// source. There is nothing to unsubscribe from.
+  ///
+  /// **Symptom if invalidation were missed**: the cards of one side would be
+  /// split at the *previous* diff's boundaries -- so after staging one more
+  /// line, a card would keep a seam where nothing is any more, or lose one
+  /// where something now is.
+  List<Set<int>> _barrierMemo = const <Set<int>>[];
+  List<DiffFile?> _barrierMemoKey = const <DiffFile?>[];
+
+  List<Set<int>> _barriersBySource() {
+    final List<DiffFile?> files = <DiffFile?>[
+      for (final ScopedDiffSource source in widget.sources) source.file,
+    ];
+    if (files.length == _barrierMemoKey.length) {
+      bool same = true;
+      for (int i = 0; i < files.length; i++) {
+        if (!identical(files[i], _barrierMemoKey[i])) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return _barrierMemo;
+    }
+
+    final List<Set<int>> barriers = <Set<int>>[];
+    for (int i = 0; i < widget.sources.length; i++) {
+      final Set<int> other = <int>{};
+      for (int j = 0; j < widget.sources.length; j++) {
+        if (j == i) continue;
+        other.addAll(
+          changedIndexLines(
+            widget.sources[j].file,
+            staged: widget.sources[j].staged,
+          ),
+        );
+      }
+      // `const` so a single-source view hands the cache the *same* empty set
+      // on every build -- a fresh `<int>{}` would miss on identity and
+      // re-split every frame, which is exactly what the memo above is for.
+      barriers.add(other.isEmpty ? const <int>{} : other);
+    }
+
+    _barrierMemoKey = files;
+    _barrierMemo = barriers;
+    return barriers;
+  }
+
   /// The scopes of every source, by source index.
-  List<Map<int, List<DiffScope>>> _scopesBySource() =>
-      <Map<int, List<DiffScope>>>[
-        for (int i = 0; i < widget.sources.length; i++)
-          _cacheFor(i).scopesOf(widget.sources[i].file),
-      ];
+  List<Map<int, List<DiffScope>>> _scopesBySource() {
+    final List<Set<int>> barriers = _barriersBySource();
+    return <Map<int, List<DiffScope>>>[
+      for (int i = 0; i < widget.sources.length; i++)
+        _cacheFor(i).scopesOf(
+          widget.sources[i].file,
+          staged: widget.sources[i].staged,
+          barrierIndexLines: barriers[i],
+        ),
+    ];
+  }
 
   /// Focus for the well, so `SCOPES` row 7's 「Shift + ↑ ↓」 half reaches
   /// [CallbackShortcuts] after a plain click.

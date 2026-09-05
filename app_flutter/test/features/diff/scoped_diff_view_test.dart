@@ -1484,6 +1484,166 @@ void main() {
       expect(find.text('Stage 3 lines'), findsOneWidget);
     });
   });
+
+  // 使用者回報:「my current untracked file, i stage the middle line
+  // (document...) and it should split into 3 scope, but its only 2 scope」.
+  //
+  // Both diffs below are what a real repository answered, measured rather
+  // than invented: a 5-line untracked file with only its middle line staged
+  // gives `git diff` an `@@ -1 +1,5 @@` hunk whose context line *is* the
+  // staged one, and `git diff --cached` a `new file mode` hunk holding just
+  // that line.
+  group('ScopedDiffView -- an untracked file with its middle line staged', () {
+    DiffFile unstagedSide() => DiffFile(
+      oldPath: 'new.txt',
+      newPath: 'new.txt',
+      kind: FileChangeKind.modified,
+      oldMode: '',
+      newMode: '',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 4,
+      removedLines: 0,
+      displayPath: 'new.txt',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 1,
+          oldCount: 1,
+          newStart: 1,
+          newCount: 5,
+          heading: '',
+          lines: <DiffLine>[
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 1,
+              text: 'alpha',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 2,
+              text: 'bravo',
+            ),
+            DiffLine(
+              kind: DiffLineKind.context,
+              oldLine: 1,
+              newLine: 3,
+              text: 'document',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 4,
+              text: 'delta',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 5,
+              text: 'echo',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    DiffFile stagedSide() => DiffFile(
+      oldPath: '',
+      newPath: 'new.txt',
+      kind: FileChangeKind.added,
+      oldMode: '',
+      newMode: '100644',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 1,
+      removedLines: 0,
+      displayPath: 'new.txt',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 0,
+          oldCount: 0,
+          newStart: 1,
+          newCount: 1,
+          heading: '',
+          lines: <DiffLine>[
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 1,
+              text: 'document',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: unstagedSide(),
+              staged: false,
+              onStageScope: (int h, List<int> l) {},
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: stagedSide(),
+              staged: true,
+              onStageScope: (int h, List<int> l) {},
+            ),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('git sees three regions, so there are three cards', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Two before this fix: the gap rule folded alpha/bravo and delta/echo
+      // into one card across the single unchanged line between them -- and
+      // that line is the staged change itself.
+      expect(
+        tester
+            .widgetList<GbmButton>(find.byType(GbmButton))
+            .map((GbmButton b) => b.label)
+            .toList(),
+        <String>['Stage 2 lines', 'Unstage 1 line', 'Stage 2 lines'],
+      );
+    });
+
+    testWidgets('the staged card is painted between the two unstaged ones', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Order, not just count: three cards in the wrong order would satisfy
+      // the assertion above. The staged card sits *on* index line 1, the
+      // first unstaged card is inserted before it and the second after it,
+      // which is what the two-part index position exists to express.
+      //
+      // Measured geometrically, off rows and a button that each resolve to
+      // exactly one widget -- `find.text('document')` would not, because the
+      // staged row and the unstaged side's context row both say it
+      // ([FLU-finder-proves-existence-not-position]).
+      final double staged = tester
+          .getRect(find.widgetWithText(GbmButton, 'Unstage 1 line'))
+          .top;
+      expect(tester.getRect(find.text('bravo')).top, lessThan(staged));
+      expect(tester.getRect(find.text('delta')).top, greaterThan(staged));
+    });
+  });
 }
 
 /// Holds the diff in state so a test can replace it without rebuilding the

@@ -109,12 +109,16 @@ public:
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
-        // `--unset` on a key that was never set locally exits non-zero; that is
-        // not a failure for a "clear the override, if any" operation, so both
-        // calls run best-effort and this always reports success.
+        // `--unset` on a key that was never set locally exits 5 -- measured,
+        // and note it is 5 rather than the 1 that `--get` answers with, which
+        // is why benignExitCodes is a set of codes and not a flag. That is not
+        // a failure for a "clear the override, if any" operation, so both calls
+        // run best-effort and this always reports success; declaring the code
+        // keeps the operation log from calling it an error either.
         for (const char* key : {"user.name", "user.email"}) {
             GitCommand command(paths.commandDir(), {"config", "--local", "--unset", key});
             command.timeout = std::chrono::seconds(10);
+            command.benignExitCodes = {5};
             runner.run(command, token);
         }
 

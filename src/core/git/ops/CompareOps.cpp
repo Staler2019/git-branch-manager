@@ -40,6 +40,10 @@ GitResult<ObjectId> readMergeBase(IProcessRunner& runner,
                                   CancellationToken token) {
     GitCommand command(paths.commandDir(), {"merge-base", left, right});
     command.timeout = std::chrono::seconds(30);
+    // Exit 1 is "these two histories have no common ancestor" -- an answer,
+    // and one this function already reads as data below. 128 (a ref git cannot
+    // resolve) is a real failure and stays one.
+    command.benignExitCodes = {1};
     auto result = runner.run(command, token);
     if (!result) {
         const GitError& error = result.error();

@@ -25,6 +25,8 @@
 #include "core/git/ops/CheckoutOp.h"
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
+#include "core/git/ops/CompareOps.h"
+#include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
@@ -4996,6 +4998,71 @@ TEST_F(RealRepoTest, ACleanExitIsNeverRecordedAsBenign) {
     ASSERT_TRUE(record.has_value());
     ASSERT_EQ(record->exitCode, 0);
     EXPECT_FALSE(record->benignExit);
+}
+
+// The other three call sites that already read a specific non-zero exit as
+// data. Each arranges its condition out of real git state; the exit code is
+// asserted alongside the verdict so a changed git, or a changed arrangement,
+// reddens instead of passing vacuously.
+
+TEST_F(RealRepoTest, ClearingAnIdentityThatWasNeverSetIsRecordedAsBenign) {
+    // `git config --unset` on a key that was never set exits 5, not 1 -- which
+    // is the whole reason GitCommand carries a set of codes rather than a
+    // "tolerate failure" flag. Running the operation twice is what produces
+    // the never-set case honestly: the first run clears what SetUp() wrote.
+    OperationRunner operations(*runner_, paths_);
+    ASSERT_TRUE(submitAndWait(operations, makeClearLocalIdentityOperation()).succeeded);
+
+    RecordSpy spy;
+    EXPECT_TRUE(submitAndWait(operations, makeClearLocalIdentityOperation()).succeeded);
+
+    const auto record = spy.lastEndingWith({"--unset", "user.name"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 5) << "git no longer answers a never-set --unset with 5";
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, TheUntrackedFileDiffsOwnExitOneIsRecordedAsBenign) {
+    // `--no-index` implies `--exit-code`, so it exits 1 whenever it finds the
+    // differences it was asked to find -- i.e. on every untracked file the
+    // Working Copy shows ([GIT-no-index-sees-untracked]).
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    RecordSpy spy;
+    DiffService diffs(*runner_, paths_);
+    auto parsed =
+        diffs.workingTreeDiff(/*staged=*/false, {"new.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(parsed) << parsed.error().message;
+    ASSERT_EQ((*parsed)->files.size(), 1u) << "the --no-index fallback did not run";
+
+    const auto record = spy.lastEndingWith({"/dev/null", "new.txt"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1);
+    EXPECT_TRUE(record->benignExit);
+}
+
+TEST_F(RealRepoTest, MergeBaseOfUnrelatedHistoriesIsRecordedAsBenign) {
+    // `git merge-base` exits 1 when there is no common ancestor, which an
+    // orphan branch produces for real -- 128 would mean a bad ref, and stays
+    // an error.
+    commitFile("a.txt", "a\n", "c1");
+    ASSERT_TRUE(run({"checkout", "--quiet", "--orphan", "unrelated"}));
+    ASSERT_TRUE(run({"rm", "--quiet", "--cached", "a.txt"}));
+    std::filesystem::remove(repo_ / "a.txt");
+    commitFile("b.txt", "b\n", "c2");
+
+    RecordSpy spy;
+    CompareStore compare(*runner_, paths_);
+    CompareRequest request;
+    request.leftRef = "main";
+    request.rightRef = "unrelated";
+    compare.compare(request, CancellationToken{});
+
+    const auto record = spy.lastEndingWith({"merge-base", "main", "unrelated"});
+    ASSERT_TRUE(record.has_value());
+    ASSERT_EQ(record->exitCode, 1) << "the two histories are not actually unrelated";
+    EXPECT_TRUE(record->benignExit);
 }
 
 }  // namespace

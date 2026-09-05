@@ -188,19 +188,14 @@ void main() {
         .map(
           (DiffSegment s) => switch (s) {
             DiffGapSegment() => 'gap${s.lineIndices}',
-            DiffScopeSegment(:final int ordinal) =>
-              'scope$ordinal${s.lineIndices}',
+            DiffScopeSegment() => 'scope${s.lineIndices}',
           },
         )
         .toList(growable: false);
 
-    List<DiffSegment> segmentsOf(String sketch, {int firstOrdinal = 1}) {
+    List<DiffSegment> segmentsOf(String sketch) {
       final DiffHunk hunk = _hunk(sketch);
-      return hunkSegments(
-        hunk,
-        splitHunkIntoScopes(hunk),
-        firstOrdinal: firstOrdinal,
-      );
+      return hunkSegments(hunk, splitHunkIntoScopes(hunk));
     }
 
     test('every line of the hunk is drawn exactly once, in order', () {
@@ -227,18 +222,18 @@ void main() {
     test('context before, between and after the scopes becomes gaps', () {
       expect(shape(segmentsOf('..+...+..')), <String>[
         'gap[0, 1]',
-        'scope1[2]',
+        'scope[2]',
         'gap[3, 4, 5]',
-        'scope2[6]',
+        'scope[6]',
         'gap[7, 8]',
       ]);
     });
 
     test('a scope touching the start or the end of the hunk has no gap beside '
         'it', () {
-      expect(shape(segmentsOf('+..')), <String>['scope1[0]', 'gap[1, 2]']);
-      expect(shape(segmentsOf('..+')), <String>['gap[0, 1]', 'scope1[2]']);
-      expect(shape(segmentsOf('+')), <String>['scope1[0]']);
+      expect(shape(segmentsOf('+..')), <String>['scope[0]', 'gap[1, 2]']);
+      expect(shape(segmentsOf('..+')), <String>['gap[0, 1]', 'scope[2]']);
+      expect(shape(segmentsOf('+')), <String>['scope[0]']);
     });
 
     test('a hunk with no change at all is one gap, not zero segments', () {
@@ -252,18 +247,8 @@ void main() {
       // a second card for what is one change.
       expect(shape(segmentsOf('.+..-.')), <String>[
         'gap[0]',
-        'scope1[1, 2, 3, 4]',
+        'scope[1, 2, 3, 4]',
         'gap[5]',
-      ]);
-    });
-
-    test('firstOrdinal continues the numbering instead of restarting it', () {
-      // Cards are numbered per file, not per hunk, so 變更 N is unique in the
-      // pane -- the second hunk's first card must not also say 變更 1.
-      expect(shape(segmentsOf('+...+', firstOrdinal: 4)), <String>[
-        'scope4[0]',
-        'gap[1, 2, 3]',
-        'scope5[4]',
       ]);
     });
   });

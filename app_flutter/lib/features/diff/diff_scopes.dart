@@ -243,13 +243,21 @@ final class DiffGapSegment extends DiffSegment {
   final List<int> lineIndices;
 }
 
-/// A scope, plus its 1-based position among the scopes of the same side, so
-/// the card can be labelled 「變更 2」 without the widget counting for itself.
+/// A scope, as one drawable block.
+///
+/// It used to carry a 1-based `ordinal` so a card could say 「變更 2」 without
+/// counting for itself, numbered here through a `firstOrdinal` parameter that
+/// continued across hunk boundaries. **Both are deleted**: the merged list
+/// sorts its blocks by index region before drawing them, so a number assigned
+/// while the blocks are still grouped by hunk is shuffled by the sort. The
+/// numbering has to happen after it, which is one traversal above this
+/// function and the only place that can see the whole painted order --
+/// `_ScopedDiffViewState._wellChildren` ([CULT-orphan-wiring]: the reader
+/// could no longer do what the producer promised).
 final class DiffScopeSegment extends DiffSegment {
-  const DiffScopeSegment({required this.scope, required this.ordinal});
+  const DiffScopeSegment({required this.scope});
 
   final DiffScope scope;
-  final int ordinal;
 
   @override
   List<int> get lineIndices => scope.lineIndices;
@@ -257,18 +265,9 @@ final class DiffScopeSegment extends DiffSegment {
 
 /// Interleaves [scopes] with the context runs between them, covering every
 /// line of [hunk] exactly once and in order.
-///
-/// [firstOrdinal] is where this hunk's scope numbering continues from, so a
-/// file's cards read 變更 1, 2, 3… across hunk boundaries rather than
-/// restarting at every `@@`.
-List<DiffSegment> hunkSegments(
-  DiffHunk hunk,
-  List<DiffScope> scopes, {
-  int firstOrdinal = 1,
-}) {
+List<DiffSegment> hunkSegments(DiffHunk hunk, List<DiffScope> scopes) {
   final List<DiffSegment> segments = <DiffSegment>[];
   int cursor = 0;
-  int ordinal = firstOrdinal;
 
   void gapUpTo(int end) {
     if (end <= cursor) return;
@@ -281,7 +280,7 @@ List<DiffSegment> hunkSegments(
 
   for (final DiffScope scope in scopes) {
     gapUpTo(scope.lineIndices.first);
-    segments.add(DiffScopeSegment(scope: scope, ordinal: ordinal++));
+    segments.add(DiffScopeSegment(scope: scope));
     cursor = scope.lineIndices.last + 1;
   }
   gapUpTo(hunk.lines.length);

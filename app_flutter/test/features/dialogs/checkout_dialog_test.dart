@@ -56,11 +56,17 @@ final RepoSessionState _state = RepoSessionState(
     refs: <RefInfo>[
       _ref('main', RefKind.localBranch),
       _ref('release/0.5', RefKind.localBranch),
+      // Two remote rows, and the difference between them is the whole
+      // point: `origin/feature/lfs` has no local counterpart (so it really
+      // does need `-b`), `origin/release/0.5` does (so `-b` is
+      // `fatal: a branch named … already exists`). A fixture with only the
+      // first cannot tell the two apart ([TEST-fixture-cannot-disagree]).
       _ref('origin/feature/lfs', RefKind.remoteBranch),
+      _ref('origin/release/0.5', RefKind.remoteBranch),
       _ref('v0.5.0', RefKind.tag),
     ],
     refCountGuardTripped: false,
-    totalRefCount: 4,
+    totalRefCount: 5,
   ),
 );
 
@@ -159,6 +165,40 @@ void main() {
     // Only the remote name is dropped: a branch whose own name has slashes
     // survives intact.
     expect(_checkedOut(fake).args['newBranchName'], 'feature/lfs');
+  });
+
+  // Measured on git 2.55: `git checkout -b release/0.5 origin/release/0.5`
+  // with a local `release/0.5` already present is
+  // `fatal: a branch named 'release/0.5' already exists`; plain
+  // `git checkout release/0.5` switches to it and reports it tracking the
+  // remote. Add Worktree had the identical defect and was reported first.
+  testWidgets(
+    'a remote branch whose local counterpart exists switches to that local, '
+    'without trying to create it again',
+    (tester) async {
+      final FakeRepoSessionController fake = await _pump(tester);
+
+      await tester.tap(_inList('origin/release/0.5'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(GbmButton, 'Checkout'));
+      await tester.pumpAndSettle();
+
+      expect(_checkedOut(fake).args['target'], 'release/0.5');
+      expect(_checkedOut(fake).args['createBranch'], isFalse);
+    },
+  );
+
+  testWidgets('the create-a-local-branch line only promises what will '
+      'actually happen', (tester) async {
+    await _pump(tester);
+
+    await tester.tap(_inList('origin/feature/lfs'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('建立本地分支'), findsOneWidget);
+
+    await tester.tap(_inList('origin/release/0.5'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('建立本地分支'), findsNothing);
   });
 
   testWidgets('a tag checks out as itself', (tester) async {

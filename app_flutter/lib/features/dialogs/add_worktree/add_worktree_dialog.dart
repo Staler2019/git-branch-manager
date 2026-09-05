@@ -182,8 +182,23 @@ class _AddWorktreeDialogContentState
               ? '已在 ${occupied[b.shortName]}'
               : (!gateOnOccupancy && b.shortName == head ? '目前分支' : ''),
         ),
+      // A remote row resolves to the *local* branch of the same name -- so
+      // it collides with an occupied worktree exactly as its local
+      // counterpart does, and has to carry the same gate. Without this the
+      // local row for a checked-out branch was greyed while
+      // `origin/<same branch>` sat there selectable, and picking it reached
+      // git as `fatal: a branch named '…' already exists` (使用者回報).
       for (final RefInfo b in session.refs.remoteBranches)
-        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+        () {
+          final String local = _localNameFor(b.shortName);
+          final bool taken = gateOnOccupancy && occupied.containsKey(local);
+          return GbmRefPickerEntry(
+            name: b.shortName,
+            kind: GbmRefKind.remoteBranch,
+            enabled: !taken,
+            annotation: taken ? '已在 ${occupied[local]}' : '',
+          );
+        }(),
       for (final RefInfo t in session.refs.tags)
         GbmRefPickerEntry(name: t.shortName, kind: GbmRefKind.tag),
     ];
@@ -255,18 +270,41 @@ class _AddWorktreeDialogContentState
         final GbmRefPickerEntry? entry = _picked;
         if (entry == null) return;
         if (entry.kind == GbmRefKind.remoteBranch) {
+          // Which of the two forms is correct depends on whether the local
+          // branch already exists, and it is not a preference -- measured
+          // on git 2.55, scratch repo:
+          //
+          //   local feat/x   | `add -b feat/x <p> origin/feat/x`  | `add <p> feat/x`
+          //   ---------------|------------------------------------|----------------
+          //   absent         | creates a tracking branch, exit 0   | n/a
+          //   exists, free   | fatal: a branch named … already ex. | exit 0
+          //   exists, in use | same fatal                          | fatal: already used
+          //
+          // The dialog sent `-b` for every remote pick, so the middle row
+          // was a hard failure on the commonest case there is: a branch you
+          // already have locally, picked from the remote side of the list.
+          // The bottom row is what 使用者回報 -- and it is gated in the
+          // picker now, so this branch only has to get the top two right.
+          //
           // Explicit, not relied-on DWIM: `git worktree add <path>
-          // <remote-branch-short-name>` auto-creates a tracking local
-          // branch on its own (measured), but naming both the start point
-          // and the new branch is what Checkout's own dialog already does
-          // for the identical case, and one rule beats two that happen to
-          // agree today.
-          controller.addWorktree(
-            path,
-            branch: entry.name,
-            createBranch: true,
-            newBranchName: _localNameFor(entry.name),
+          // origin/feat/x` creates the tracking branch only while no local
+          // `feat/x` exists; once one does, the same command **detaches**
+          // instead (measured). An earlier comment here recorded only the
+          // first half of that and read as if it held generally.
+          final String local = _localNameFor(entry.name);
+          final bool localExists = session.refs.localBranches.any(
+            (RefInfo b) => b.shortName == local,
           );
+          if (localExists) {
+            controller.addWorktree(path, branch: local);
+          } else {
+            controller.addWorktree(
+              path,
+              branch: entry.name,
+              createBranch: true,
+              newBranchName: local,
+            );
+          }
         } else {
           // A tag or a bare commit here detaches on its own (measured: `git
           // worktree add <path> <tag>` reports "Preparing worktree
@@ -315,9 +353,19 @@ class _AddWorktreeDialogContentState
       }
     }
 
+    // The path is named after the branch the worktree will actually hold,
+    // and for a remote pick that is the local counterpart -- both arms of
+    // _submit's remote case end up on `feat/x`, never on `origin/feat/x`.
+    // It proposed `…/worktrees/gbm/origin-feat-x` before this, for a
+    // worktree whose branch is `feat/x`.
     final String effectiveBranchName =
         _source == WorktreeSource.checkoutExisting
-        ? (_picked?.name ?? '')
+        ? switch (_picked) {
+            null => '',
+            final GbmRefPickerEntry e when e.kind == GbmRefKind.remoteBranch =>
+              _localNameFor(e.name),
+            final GbmRefPickerEntry e => e.name,
+          }
         : _newBranchNameController.text.trim();
     if (!_pathManuallyEdited) {
       final String? computed = _computeDefaultPath(

@@ -74,18 +74,35 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
     ];
   }
 
-  void _submit() {
+  /// True only for a remote pick with **no** local branch of the same name.
+  /// `remote-only` is the load-bearing half: measured on git 2.55, a
+  /// `git checkout -b feat/x origin/feat/x` with a local `feat/x` already
+  /// present is `fatal: a branch named 'feat/x' already exists`, while a
+  /// plain `git checkout feat/x` switches to it and reports it tracking the
+  /// remote. The code said `_selectedIsRemote` alone, so picking a branch
+  /// you already have locally from the remote side of the list was a hard
+  /// failure -- the same defect 使用者回報 against Add Worktree.
+  bool _createsLocalBranch(RepoSessionState session) {
+    final String? target = _selected;
+    if (target == null || !_selectedIsRemote) return false;
+    final String local = _localNameFor(target);
+    return !session.refs.localBranches.any((RefInfo b) => b.shortName == local);
+  }
+
+  void _submit(RepoSessionState session) {
     final String? target = _selected;
     if (target == null) return;
+    final bool createsLocal = _createsLocalBranch(session);
+    // A remote pick always ends up on the local branch of the same name --
+    // either one this creates, or one that was already there.
+    final String resolved = _selectedIsRemote ? _localNameFor(target) : target;
     ref
         .read(repoSessionProvider(widget.identity).notifier)
         .checkout(
-          target: target,
+          target: createsLocal ? target : resolved,
           stashFirst: _stashFirst,
-          // A remote-only branch has no local counterpart to switch to, so
-          // check it out as a new local branch of the same short name.
-          createBranch: _selectedIsRemote,
-          newBranchName: _selectedIsRemote ? _localNameFor(target) : '',
+          createBranch: createsLocal,
+          newBranchName: createsLocal ? _localNameFor(target) : '',
         );
     context.pop();
   }
@@ -117,7 +134,7 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
         GbmButton(
           label: 'Checkout',
           kind: GbmButtonKind.primary,
-          onPressed: _selected == null ? null : _submit,
+          onPressed: _selected == null ? null : () => _submit(session),
         ),
       ],
       // Scrollable, like New branch's: the 目前 row plus the radio pair can
@@ -140,7 +157,7 @@ class _CheckoutDialogContentState extends ConsumerState<CheckoutDialogContent> {
                 _selectedIsRemote = entry.kind == GbmRefKind.remoteBranch;
               }),
             ),
-            if (_selectedIsRemote && _selected != null) ...<Widget>[
+            if (_createsLocalBranch(session)) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
               Text(
                 '建立本地分支「${_localNameFor(_selected!)}」，追蹤 $_selected。',

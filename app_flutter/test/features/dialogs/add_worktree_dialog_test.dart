@@ -133,11 +133,19 @@ RepoSessionState _session({
       _ref('main', RefKind.localBranch),
       _ref('feature/lfs', RefKind.localBranch),
       _ref('release/0.5', RefKind.localBranch),
-      _ref('origin/release/0.5', RefKind.remoteBranch),
+      // Three remote rows, one per measured case of `worktree add` against
+      // a remote pick -- see the 'remote branch' group. A fixture carrying
+      // only one of them cannot tell the three apart
+      // ([TEST-fixture-cannot-disagree]), which is how the -b-always bug
+      // shipped: the one remote row it had *did* have a local counterpart,
+      // and the test asserting `-b` was named 'remote-only'.
+      _ref('origin/release/0.5', RefKind.remoteBranch), // local exists, free
+      _ref('origin/feature/lfs', RefKind.remoteBranch), // local occupied
+      _ref('origin/hotfix/9', RefKind.remoteBranch), // genuinely remote-only
       _ref('v0.5.0', RefKind.tag),
     ],
     refCountGuardTripped: false,
-    totalRefCount: 5,
+    totalRefCount: 7,
   ),
 );
 
@@ -405,11 +413,61 @@ void main() {
   });
 
   group('occupied branches', () {
+    // 使用者回報:「i can select origin worktree, but cannot create worktree
+    // from it」-- the local row for an occupied branch was greyed out and
+    // its remote counterpart, which resolves to that same local branch, was
+    // not. Picking it produced `fatal: a branch named '…' already exists`.
+    testWidgets(
+      'a remote branch whose local counterpart is checked out elsewhere is '
+      'disabled and named too',
+      (tester) async {
+        await _pump(tester);
+
+        final GbmRefPickerEntry entry = tester
+            .widget<GbmRefPicker>(find.byType(GbmRefPicker))
+            .entries
+            .singleWhere(
+              (GbmRefPickerEntry e) => e.name == 'origin/feature/lfs',
+            );
+
+        expect(entry.enabled, isFalse);
+        expect(entry.annotation, '已在 gbm-lfs');
+      },
+    );
+
+    testWidgets('a remote branch whose local counterpart is free stays '
+        'selectable', (tester) async {
+      await _pump(tester);
+
+      final GbmRefPicker picker = tester.widget<GbmRefPicker>(
+        find.byType(GbmRefPicker),
+      );
+      for (final String name in <String>[
+        'origin/release/0.5',
+        'origin/hotfix/9',
+      ]) {
+        final GbmRefPickerEntry entry = picker.entries.singleWhere(
+          (GbmRefPickerEntry e) => e.name == name,
+        );
+        expect(entry.enabled, isTrue, reason: name);
+        expect(entry.annotation, '', reason: name);
+      }
+    });
+
     testWidgets(
       'a branch already checked out elsewhere is disabled and named',
       (tester) async {
         await _pump(tester);
-        expect(find.textContaining('已在 gbm-lfs'), findsOneWidget);
+        // Scoped to the local row, not counted app-wide: `origin/feature/lfs`
+        // legitimately carries the same annotation now, and bumping 1 to 2
+        // would be satisfied by the remote row alone
+        // ([TEST-fixture-cannot-disagree] row 12).
+        final GbmRefPickerEntry local = tester
+            .widget<GbmRefPicker>(find.byType(GbmRefPicker))
+            .entries
+            .singleWhere((GbmRefPickerEntry e) => e.name == 'feature/lfs');
+        expect(local.annotation, '已在 gbm-lfs');
+        expect(local.enabled, isFalse);
 
         // Tapping it must be a no-op -- annotation alone does not prove the
         // row actually refuses the tap ([TEST-fixture-cannot-disagree] #8:
@@ -637,18 +695,62 @@ void main() {
       expect(added.args['createBranch'], isFalse);
     });
 
-    testWidgets('checking out a remote-only branch creates a tracking local', (
+    // Measured on git 2.55 (scratch repo, three runs):
+    //
+    //   local feat/x         | `add -b feat/x <p> origin/feat/x` | `add <p> feat/x`
+    //   ---------------------|-----------------------------------|-----------------
+    //   does not exist       | creates a tracking branch, exit 0 | n/a
+    //   exists, free         | fatal: a branch named … already   | exit 0
+    //   exists, checked out  | fatal: a branch named … already   | fatal: already used
+    //
+    // The dialog used to send `-b` for every remote pick, so the middle row
+    // was `fatal` and the bottom row was `fatal` with a message naming the
+    // wrong problem. 使用者回報 the bottom row verbatim.
+    testWidgets('a genuinely remote-only branch creates a tracking local', (
       tester,
     ) async {
       final FakeRepoSessionController fake = await _pump(tester);
-      await _pick(tester, 'origin/release/0.5');
-      await _typePath(tester, '/src/worktrees/release-0.5');
+      await _pick(tester, 'origin/hotfix/9');
+      await _typePath(tester, '/src/worktrees/hotfix-9');
       await _submit(tester);
 
       final FakeCommand added = _added(fake);
-      expect(added.args['branch'], 'origin/release/0.5');
+      expect(added.args['branch'], 'origin/hotfix/9');
       expect(added.args['createBranch'], isTrue);
-      expect(added.args['newBranchName'], 'release/0.5');
+      expect(added.args['newBranchName'], 'hotfix/9');
+    });
+
+    testWidgets(
+      'a remote branch whose local counterpart already exists checks that '
+      'local out instead of trying to create it again',
+      (tester) async {
+        final FakeRepoSessionController fake = await _pump(tester);
+        await _pick(tester, 'origin/release/0.5');
+        await _typePath(tester, '/src/worktrees/release-0.5');
+        await _submit(tester);
+
+        final FakeCommand added = _added(fake);
+        expect(added.args['branch'], 'release/0.5');
+        expect(added.args['createBranch'], isFalse);
+      },
+    );
+
+    // The default path names the branch that will actually be checked out,
+    // which for a remote pick is the *local* one. The reported command line
+    // shows the old behaviour: it proposed
+    // `…/worktrees/gbm/origin-feat-worktree-dialogs-shell-redesign` for a
+    // worktree whose branch is `feat/worktree-dialogs-shell-redesign`.
+    testWidgets('the default path drops the remote prefix', (tester) async {
+      await _pump(tester);
+      await _pick(tester, 'origin/hotfix/9');
+
+      final TextField pathField = tester.widget<TextField>(
+        find.byKey(const Key('add-worktree-path-field')),
+      );
+      expect(
+        pathField.controller!.text,
+        '/src/worktrees/git-branch-manager/hotfix-9',
+      );
     });
 
     testWidgets('creating a new branch from the resolved start point', (

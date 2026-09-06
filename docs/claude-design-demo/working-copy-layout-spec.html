@@ -1,0 +1,2066 @@
+<title>Working Copy Layout</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Namespaced away from the mockup tokens (--gbm-*) so the
+   document's cascade can never bleed into the specimens.
+   Skeleton reused verbatim from worktree-dialogs-spec.html —
+   the sibling page in this folder — rather than re-derived.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+.pill.is-done     { border-color: var(--pg-good); color: var(--pg-good); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+ul.plain { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+ul.plain li { margin-bottom: .4rem; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.ok   { color: var(--pg-good); }
+.verdict.bad  { color: var(--pg-bad); }
+.verdict.none { color: var(--pg-warn); }
+
+/* ---------- callout ---------- */
+.callout {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--pg-surface);
+  padding: 1rem 1.15rem; border-radius: 0 4px 4px 0;
+  margin: 1.5rem 0; max-width: var(--measure);
+}
+.callout.is-warn { border-left-color: var(--pg-warn); }
+.callout.is-ask  { border-left-color: var(--pg-bad); }
+.callout__title {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); margin-bottom: .4rem;
+}
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1000px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-tag.optA   { color: var(--pg-accent); border: var(--rail) solid var(--pg-accent); }
+.specimen-tag.optB   { color: var(--pg-ink-2); border: var(--rail) solid var(--pg-line-strong); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.25rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   app_flutter/lib/theme/tokens.dart's three GbmColors constants.
+   Three themes, switchable, because the layout must hold in all
+   three. Diff row colours added here for the first time; the
+   sibling page had no diff specimen to need them.
+   ============================================================ */
+.stage {   /* tokens live ONLY here — see the sibling page's note */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#eaf1fe;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#c97a17; --gbm-success:#1a8a4a;
+  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37; --gbm-diff-add-strong:#bfe9cd;
+  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e; --gbm-diff-del-strong:#f3c8c8;
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-selected:#0d2a4d;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#0d2a4d; --gbm-warning:#d29922; --gbm-success:#3fb950;
+  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8; --gbm-diff-add-strong:#173e24;
+  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93; --gbm-diff-del-strong:#4d1c1c;
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#e4edfd;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#9a6700; --gbm-success:#1a7f37;   /* warning corrected: the sibling page carries #bf8700, which is not what _lightIde.warning holds */
+  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329; --gbm-diff-add-strong:#c9f0d4;
+  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f; --gbm-diff-del-strong:#ffc9c2;
+}
+
+/* ============================================================
+   THE SPECIMEN. Every number below is a named constant from
+   app_flutter/lib/theme/tokens.dart, tagged in the comment:
+     [TOK]  GbmSpacing / GbmTypography — a real constant
+     [NEW]  proposed here, no source — listed in section 04
+     [SPEC] free-hand specimen literal: a number chosen to make
+            this drawing legible, matching no constant in the app.
+            Only ever inside the diff-row and segmented-control
+            filler, which exist to give the layout something to
+            hold; never on anything the layout decision rests on.
+   ============================================================ */
+.wc {
+  font-family: "Inter", "PingFang TC", -apple-system, sans-serif;
+  color: var(--gbm-text-primary);
+  background: var(--gbm-surface-panel);
+  border: 1px solid var(--gbm-border-default);
+  display: flex; flex-direction: column;
+  width: 100%;
+}
+.wc-body { display: flex; min-height: 0; }
+.wc-body--stack { flex-direction: column; }
+
+/* a pane's own header row: [TOK] rowHeightCompact 26, textXs 11, space2 8 */
+.pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--gbm-surface-panel); }
+.pane__hdr {
+  height: 26px; flex: 0 0 26px;                       /* [TOK] rowHeightCompact */
+  background: var(--gbm-surface-panel-raised);
+  padding: 0 8px;                                     /* [TOK] space2 */
+  display: flex; align-items: center; gap: 6px;      /* [SPEC] gap */
+  font-size: 11px; font-weight: 700;                  /* [TOK] textXs */
+  color: var(--gbm-text-secondary);
+  white-space: nowrap;
+}
+.pane__hdr .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pane__list { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+.frow {
+  height: 26px; padding: 0 8px;                       /* [TOK] rowHeightCompact, space2 */
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--gbm-text-primary);  /* [TOK] textSm */
+  white-space: nowrap;
+}
+.frow.is-sel { background: var(--gbm-surface-selected); }
+.frow .path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace; }
+/* line-count badges: [TOK] GbmBadge — 10.5px, padding 0 5, radiusFull */
+.frow .cnt { display: flex; gap: 4px; flex: 0 0 auto; }
+.frow .cnt span {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px;
+  padding: 0 5px; border-radius: 999px; line-height: 15px;
+}
+.frow .cnt .a { color: var(--gbm-diff-add-text); background: var(--gbm-diff-add-bg); }
+.frow .cnt .d { color: var(--gbm-diff-del-text); background: var(--gbm-diff-del-bg); }
+
+/* tree mode: [TOK] FileTreeList indents level*16; FileTreeFolderRow is
+   chevron 16 + node.name at textSm, with GbmRow's padding dropped to zero */
+.frow .ind  { flex: 0 0 auto; }
+.frow .chev { flex: 0 0 16px; font-size: 11px; color: var(--gbm-text-tertiary); text-align: center; }
+
+/* drop hint: [TOK] space2 padding + margin, radiusMd 6, textXs 11 */
+.hint {
+  margin: auto 8px 8px; padding: 8px;
+  border: 1px dashed var(--gbm-border-default);
+  border-radius: 6px;
+  font-size: 11px; color: var(--gbm-text-tertiary);
+  text-align: center; white-space: nowrap;
+}
+
+/* dividers — GbmSplitPane's own, unchanged by this round */
+.divv { flex: 0 0 1px; background: var(--gbm-border-default); }
+.divh { flex: 0 0 1px; background: var(--gbm-border-default); }
+
+/* diff pane */
+.dv { display: flex; flex-direction: column; min-width: 0; min-height: 0; flex: 1 1 auto;
+  background: var(--gbm-surface-panel); }
+.dv__bar {
+  height: 26px; flex: 0 0 26px;                       /* [TOK] rowHeightCompact */
+  background: var(--gbm-surface-panel-raised);
+  padding: 0 8px; display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--gbm-text-secondary);
+  border-bottom: 1px solid var(--gbm-border-subtle);
+}
+.dv__bar .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--gbm-text-primary); }
+.seg { display: flex; border: 1px solid var(--gbm-border-default); border-radius: 4px; overflow: hidden; flex: 0 0 auto; }
+.seg span { font-size: 10px; padding: 2px 7px; color: var(--gbm-text-secondary); }  /* [SPEC] */
+.seg span.on { background: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+.dv__body { flex: 1 1 auto; min-height: 0; overflow: hidden; background: var(--gbm-surface-sunken); }
+.sub {                                                /* [SPEC] padding */
+  font-size: 11px; color: var(--gbm-text-secondary); padding: 3px 8px;
+  background: var(--gbm-surface-panel-raised);
+}
+.dl {
+  display: flex; gap: 8px; padding: 0 8px; height: 17px; align-items: center;  /* [SPEC] height */
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+  color: var(--gbm-text-primary); white-space: pre;
+}
+.dl .g { color: var(--gbm-text-tertiary); width: 22px; text-align: right; flex: 0 0 22px; font-size: 10px; }  /* [SPEC] */
+.dl.add { background: var(--gbm-diff-add-bg); color: var(--gbm-diff-add-text); }
+.dl.del { background: var(--gbm-diff-del-bg); color: var(--gbm-diff-del-text); }
+.dl.hh  { color: var(--gbm-text-tertiary); }
+
+/* commit box: height 200 is the existing literal, unchanged this round */
+.cbox {
+  flex: 0 0 auto; border-top: 1px solid var(--gbm-border-subtle);
+  padding: 12px; display: flex; gap: 8px; align-items: stretch;   /* [TOK] space3, space2 */
+}
+.cbox__fields { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 6px; }  /* [SPEC] gap */
+.cbox__in {
+  height: 30px; border: 1px solid var(--gbm-border-default);      /* [TOK] inputHeight */
+  border-radius: 6px; background: var(--gbm-surface-panel);       /* [TOK] radiusMd */
+  padding: 0 12px; display: flex; align-items: center;
+  font-size: 12.5px; color: var(--gbm-text-tertiary);             /* [TOK] textSm */
+}
+.cbox__btns { flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; }
+.btn {
+  height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; border: 1px solid var(--gbm-border-default);
+  color: var(--gbm-text-secondary); background: var(--gbm-surface-panel);
+}
+.btn.primary { background: var(--gbm-accent); border-color: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+
+/* ============================================================
+   SCOPE CARDS (section 06)
+   A fourth tag joins the three above:
+     [B]  quoted from the "Diff Scope Studies" artifact's 變體 B —
+          the design source for this whole surface. Its token names
+          map 1:1 onto the app's (--space-1..4 = 4/8/12/16,
+          --radius-sm/md = 4/6, --text-xs/sm = 11/12.5,
+          --row-h-compact = 26), so every value below is comparable
+          to a real constant without conversion.
+   `.sc` alone draws 變體 B as designed. `.sc.is-built` overrides
+   only the properties the shipped code actually differs on, so the
+   two specimens differ in exactly the rows section 06's table lists
+   and in nothing else.
+   ============================================================ */
+.sc { padding: 8px; background: var(--gbm-surface-sunken);              /* [B] .variant-B-well */
+  border: 1px solid var(--gbm-border-subtle); border-radius: 6px; }
+.sc__hunk { display: flex; align-items: center; gap: 8px; padding: 0 4px 8px;  /* [B] .variant-B-hunk */
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--gbm-text-tertiary); }
+.sc__rule { flex: 1 1 auto; height: 1px; background: var(--gbm-border-subtle); }  /* [B] .variant-B-hunkrule */
+.sc__card { margin: 8px 0; background: var(--gbm-surface-panel);        /* [B] .variant-B-card */
+  border: 1px solid var(--gbm-border-default); border-left: 3px solid var(--gbm-accent);
+  border-radius: 6px; overflow: hidden; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.sc__card.staged { border-left-color: var(--gbm-success); }             /* [B] .variant-B-card-staged */
+.sc__card.muted  { border-left-color: var(--gbm-border-strong); box-shadow: none; }  /* [B] .variant-B-card-muted */
+.sc__head { display: flex; align-items: center; gap: 8px;               /* [B] .variant-B-cardhead */
+  height: 30px; padding: 0 8px 0 12px;
+  background: var(--gbm-surface-panel-raised); border-bottom: 1px solid var(--gbm-border-default); }
+.sc__card.muted .sc__head { background: var(--gbm-surface-sunken); }    /* [B] */
+.sc__tag { font-size: 11px; font-weight: 600; color: var(--gbm-text-secondary); white-space: nowrap; }  /* [B] .variant-B-tag */
+.sc__stat { display: inline-flex; gap: 8px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }  /* [B] .variant-B-stat */
+.sc__stat .p { color: var(--gbm-diff-add-strong); }   /* [B] .variant-B-plus  -- yes, the *-strong tint, as written */
+.sc__stat .m { color: var(--gbm-diff-del-strong); }   /* [B] .variant-B-minus -- see S6's note on what that costs */
+.sc__grow { flex: 1 1 auto; min-width: 8px; }
+.sc__btn { display: inline-flex; align-items: center;                   /* [B] .variant-B-btn + -btn-stage */
+  height: 24px; padding: 0 12px; border-radius: 6px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  border: 1px solid var(--gbm-accent); background: var(--gbm-accent); color: var(--gbm-text-on-accent); }
+.sc__btn.off { background: var(--gbm-surface-sunken);                   /* [B] .variant-B-btn-off */
+  border-color: var(--gbm-border-subtle); color: var(--gbm-text-tertiary); text-decoration: line-through; }
+.sc__btn.unstage { background: var(--gbm-surface-panel-raised);         /* [B] .variant-B-btn-unstage */
+  border-color: var(--gbm-border-strong); color: var(--gbm-text-primary); }
+.sc__temp { margin: 4px 0; background: var(--gbm-surface-panel);        /* [B] .variant-B-temp */
+  border: 1px dashed var(--gbm-accent); border-radius: 4px; }
+.sc__temphead { display: flex; align-items: center; gap: 8px;           /* [B] .variant-B-temphead */
+  height: 28px; padding: 0 4px 0 8px;
+  background: var(--gbm-accent-subtle); border-bottom: 1px dashed var(--gbm-accent); }
+.sc__once { padding: 0 8px; border: 1px solid var(--gbm-warning); border-radius: 999px;  /* [B] .variant-B-once */
+  font-size: 11px; font-weight: 600; color: var(--gbm-warning); white-space: nowrap; }
+.sc__gap { padding-left: 2px; border-left: 1px dashed var(--gbm-border-default); }  /* [B] .variant-B-gap */
+
+/* ---- what the shipped code actually draws, overriding only the deltas ---- */
+.is-built .sc__rule { display: none; }                                     /* no rule beside the hunk heading */
+.is-built .sc__hunk { height: 22px; padding: 0; }                             /* [TOK] GbmRow height 22, EdgeInsets.zero */
+.is-built .sc__card { margin: 4px 0; }                                     /* [TOK] space1, not space2 */
+.is-built .sc__head { height: auto; padding: 3px 8px; border-bottom: none; }
+.is-built .sc__card.muted .sc__head { background: var(--gbm-surface-panel-raised); }
+.is-built .sc__tag { font-weight: 700; }                                   /* [TOK] weightBold */
+.is-built .sc__stat span { font-size: 10.5px; padding: 0 5px; border-radius: 999px; line-height: 15px; }  /* [TOK] GbmBadge */
+.is-built .sc__stat .p { color: var(--gbm-diff-add-text); background: var(--gbm-diff-add-bg); }   /* [TOK] GbmBadge added */
+.is-built .sc__stat .m { color: var(--gbm-diff-del-text); background: var(--gbm-diff-del-bg); }   /* [TOK] GbmBadge removed */
+.is-built .sc__btn { padding: 0 8px; font-weight: 500; }                   /* [TOK] GbmButton sm: space2, weightMedium */
+.is-built .sc__temp { border-style: solid; }
+.is-built .sc__temphead { height: auto; padding: 3px 8px; border-bottom: none; }
+.is-built .sc__once { border: none; padding: 0 5px; border-radius: 999px;  /* [TOK] GbmBadge, neutral kind */
+  background: var(--gbm-surface-sunken); color: var(--gbm-text-secondary);
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; }
+.is-built .sc__gap { padding-left: 2px; border-left: 2px solid var(--gbm-border-subtle); opacity: .6; }
+
+/* column head above the well */
+.sc-col { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 4px; }  /* [B] .variant-B-colhead, [TOK] rowHeightCompact */
+.sc-col__dot { width: 8px; height: 8px; border-radius: 999px; background: var(--gbm-accent); flex: 0 0 auto; }  /* [B] .variant-B-dot */
+.sc-col__dot.staged { background: var(--gbm-success); }
+.sc-col__t { font-size: 12.5px; font-weight: 600; color: var(--gbm-text-primary); }  /* [B] .variant-B-coltitle */
+.sc-col__chip { padding: 1px 8px; background: var(--gbm-surface-panel-raised);       /* [B] .variant-B-chip */
+  border: 1px solid var(--gbm-border-subtle); border-radius: 999px;
+  font-size: 11px; color: var(--gbm-text-tertiary); white-space: nowrap; }
+.is-built .sc-col { height: auto; padding: 4px 8px; }                          /* [TOK] space1 / space2 */
+.is-built .sc-col__dot { width: 6px; height: 6px; }                            /* [TOK] _ColumnHead's own Container(width: 6, height: 6) */
+.is-built .sc-col__t { font-size: 11px; font-weight: 700; color: var(--gbm-text-secondary); }
+.is-built .sc-col__chip { padding: 0; background: none; border: none; }
+
+/* ---------- proportion diagram (scaled, not true size) ---------- */
+.prop { width: 100%; }
+.prop__win {
+  border: 1px solid var(--pg-line-strong); border-radius: 3px; overflow: hidden;
+  background: var(--pg-surface); display: flex; flex-direction: column; height: 190px;
+}
+.prop__row { flex: 1 1 auto; display: flex; min-height: 0; }
+.prop__cell {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); text-align: center; gap: .15rem; min-width: 0; padding: .25rem;
+  border-right: 1px solid var(--pg-line);
+}
+.prop__cell:last-child { border-right: none; }
+.prop__cell b { color: var(--pg-ink); font-size: .75rem; }
+.prop__cell.files { background: var(--pg-sunken); }
+.prop__cell.diff  { background: var(--pg-surface); background: color-mix(in oklab, var(--pg-accent) 9%, var(--pg-surface)); }
+.prop__cell.diff b { color: var(--pg-accent); }
+.prop__strip {
+  flex: 0 0 34px; border-top: 1px solid var(--pg-line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem; color: var(--pg-ink-3);
+}
+.prop__cap {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); letter-spacing: .06em; text-transform: uppercase; margin-bottom: .4rem;
+}
+.propgrid { display: grid; gap: 1rem; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .propgrid { grid-template-columns: 1fr 1fr; } }
+
+/* ---------- true-size ruler ---------- */
+.ruler { display: flex; gap: 1rem; align-items: flex-start; }
+.ruler__ticks {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .6875rem;
+  color: var(--pg-ink-3); display: flex; flex-direction: column; flex: 0 0 auto;
+}
+.ruler__ticks span { display: flex; align-items: center; }
+
+footer.colophon {
+  margin-top: 5rem; padding-top: 1.5rem;
+  border-top: var(--rail) solid var(--pg-line);
+  font-size: var(--step--1); color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>docs/claude-design-demo</span>
+      <span>2026-09-05</span>
+      <span>feat/working-copy-vertical-file-lists</span>
+    </div>
+    <h1>Working Copy Layout</h1>
+    <p class="standfirst">
+      兩個檔案清單不再左右並排，改成堆疊在左側；diff 拿走整個右半邊。這一頁寫在動任何程式碼之前，
+      因為它推翻了 spec 自己 <code>SPLITTERS</code> 表裡的兩列 —— 那應該是一個決定，不是一份 diff。
+    </p>
+    <div class="status-row">
+      <span class="pill is-ratified">使用者裁定 · 檔案清單改左側垂直</span>
+      <span class="pill is-ratified">使用者裁定 · unstaged 在上</span>
+      <span class="pill is-ratified">使用者裁定 · diff 在右側</span>
+      <span class="pill is-ratified">使用者裁定 · commit box 位置不變</span>
+      <span class="pill is-ratified">使用者裁定 · diff 預設改 unified</span>
+      <span class="pill is-ratified">使用者裁定 · 左欄固定寬（方案 A）</span>
+      <span class="pill is-ratified">使用者裁定 · drop hint 用 C1</span>
+      <span class="pill is-ratified">使用者裁定 · tree 葉節點這輪一起修</span>
+      <span class="pill is-ratified">使用者裁定 · scope 卡片照建議（§06）</span>
+      <span class="pill is-ratified">使用者裁定 · 對齊單位是 scope，不是行號（U1）</span>
+      <span class="pill is-ratified">使用者裁定 · unified 合成單一清單（§10）</span>
+      <span class="pill is-ratified">使用者裁定 · U2–U8 照建議</span>
+      <span class="pill is-ratified">使用者裁定 · U9 維持現狀</span>
+      <span class="pill is-ratified">使用者裁定 · 本輪只改 unified 內，U8 除外</span>
+      <span class="pill is-ratified">使用者裁定 · 未追蹤 unstage 要回到 Untracked（§11）</span>
+      <span class="pill is-ratified">使用者裁定 · 樹狀模式照 VS Code：檔案不帶 folder（§14）</span>
+    </div>
+  </header>
+
+  <!-- ============================ 1 ============================ -->
+  <section id="why">
+    <div class="sec-head"><span class="sec-num">01</span><h2>抱怨是什麼，真正的成因又是什麼</h2></div>
+    <p class="lede">
+      <span class="zh">「目前左右不好看檔案內容」</span> —— 檔案內容才是需要寬度的那個東西，
+      而今天它是唯一永遠拿不到寬度的東西。
+    </p>
+    <p>
+      Working Copy 是上下切的：檔案清單在上、diff 在下。檔案清單接著又左右切成 Unstaged 與 Staged。
+      所以 diff 拿到的是<b>高度的 54%，加上一個它根本不需要分給別人的 100% 寬度</b>——
+      而兩欄本來就很短的檔案路徑，在它上面佔滿整個寬度。接著 diff 面板為了 <code>2 file</code>
+      模式再左右切一次，真正需要被讀的程式碼最後被塞進大約視窗四分之一寬的盒子裡。
+    </p>
+    <p>
+      把兩條分隔線各轉 90° 就解決了，而且不用多加任何一個 pane：檔案路徑短，堆疊起來完全沒問題；
+      diff 是又高又怕窄的東西。堆疊之後 diff 拿到一整欄的高度，以及視窗從此之後長出來的每一個像素。
+    </p>
+    <div class="callout is-warn">
+      <div class="callout__title">這不是 conformance 修正</div>
+      <p>
+        這一頁上的每一件事都是<b>使用者要求的偏離</b>，與 Working Copy 拿掉 checkbox 同一個位階。
+        第 06 節逐字引用了它推翻的東西，所以之後的稽核會把它讀成「已裁定」，而不是「待修的 drift」。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 2 ============================ -->
+  <section id="beforeafter">
+    <div class="sec-head"><span class="sec-num">02</span><h2>改之前與改之後</h2></div>
+    <p class="lede">
+      用 app 自己的 token、以真實的垂直尺寸畫的 —— 26px 的列、11px 的標籤、真正的 diff 顏色。
+      寬度為了塞進這一頁而壓縮過；寬度要怎麼決定在第 03 節。
+    </p>
+
+    <div class="stage-controls">
+      <span class="label">App 主題</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+      <span class="specimen-note">三個主題都必須成立 —— 契約是 token，不是某一張截圖。</span>
+    </div>
+
+    <div class="compare">
+
+      <!-- BEFORE -->
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">今天</span>
+          <span class="specimen-note"><code>wc.diff</code> 垂直 46/54 · <code>wc.columns</code> 水平 1:1</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="wc-body wc-body--stack" style="height:250px">
+              <!-- file board: two columns side by side -->
+              <div class="wc-body" style="flex:46 1 0; min-height:0">
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+                  <div class="pane__list">
+                    <div class="frow is-sel"><span class="path">lib/graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                    <div class="frow"><span class="path">lib/theme/tokens.dart</span><span class="cnt"><span class="a">+2</span></span></div>
+                  </div>
+                  <div class="hint">拖曳檔案到右欄 = stage</div>
+                </div>
+                <div class="divv"></div>
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Staged · 1</span></div>
+                  <div class="pane__list">
+                    <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+1</span> <span class="d">−1</span></span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="divh"></div>
+              <!-- diff below, then split again -->
+              <div class="dv" style="flex:54 1 0">
+                <div class="dv__bar"><span class="grow">lane_allocator.dart</span><span class="seg"><span class="on">2 file</span><span>unified</span></span></div>
+                <div class="dv__body" style="display:flex">
+                  <div style="flex:1 1 0; min-width:0; overflow:hidden">
+                    <div class="sub">Unstaged</div>
+                    <div class="dl hh"><span class="g"></span>@@ -12,7 +12,9</div>
+                    <div class="dl del"><span class="g">12</span>-  final l = pick(s);</div>
+                    <div class="dl add"><span class="g">12</span>+  final l = pickLef</div>
+                  </div>
+                  <div class="divv"></div>
+                  <div style="flex:1 1 0; min-width:0; overflow:hidden">
+                    <div class="sub">Staged</div>
+                    <div class="dl hh"><span class="g"></span>@@ -3,4 +3,4 @@</div>
+                    <div class="dl del"><span class="g">3</span>-import 'dart:math'</div>
+                    <div class="dl add"><span class="g">3</span>+import 'dart:mat</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="cbox">
+              <div class="cbox__fields">
+                <div class="cbox__in">Summary</div>
+                <div class="cbox__in" style="height:44px; align-items:flex-start; padding-top:7px">Description</div>
+              </div>
+              <div class="cbox__btns"><div class="btn primary">Commit</div><div class="btn">Amend…</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          程式碼被塞在視窗四分之一寬的盒子裡，每一行都從識別字中間被切斷。
+          它上面是兩欄很短的路徑，佔滿整個寬度。
+        </p>
+      </div>
+
+      <!-- AFTER -->
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">提案</span>
+          <span class="specimen-note">檔案欄在左 · diff 在右 · commit box 不動</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="wc-body" style="height:250px">
+              <!-- file lists: stacked, left -->
+              <div class="wc-body wc-body--stack" style="flex:0 0 150px; min-width:0">
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+                  <div class="pane__list">
+                    <div class="frow is-sel"><span class="path">lane_allocator.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                    <div class="frow"><span class="path">tokens.dart</span><span class="cnt"><span class="a">+2</span></span></div>
+                  </div>
+                  <div class="hint">拖曳檔案到下欄 = stage</div>
+                </div>
+                <div class="divh"></div>
+                <div class="pane" style="flex:1 1 0">
+                  <div class="pane__hdr"><span class="grow">Staged · 1</span></div>
+                  <div class="pane__list">
+                    <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+1</span></span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="divv"></div>
+              <!-- diff right, unified -->
+              <div class="dv">
+                <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+                <div class="dv__body">
+                  <div class="sub">Unstaged</div>
+                  <div class="dl hh"><span class="g"></span>@@ -12,7 +12,9 @@</div>
+                  <div class="dl"><span class="g">11</span> int chooseLane(Oid seed) {</div>
+                  <div class="dl del"><span class="g">12</span>-  final int lane = pick(seed);</div>
+                  <div class="dl add"><span class="g">12</span>+  final int lane = pickLeftmost(seed);</div>
+                  <div class="dl add"><span class="g">13</span>+  reserve(lane, seed);</div>
+                  <div class="dl"><span class="g">14</span>   return lane;</div>
+                  <div class="sub">Staged</div>
+                  <div class="dl hh"><span class="g"></span>@@ -3,4 +3,4 @@</div>
+                  <div class="dl del"><span class="g">3</span>-import 'dart:math' as math;</div>
+                  <div class="dl add"><span class="g">3</span>+import 'dart:math' show min, max;</div>
+                </div>
+              </div>
+            </div>
+            <div class="cbox">
+              <div class="cbox__fields">
+                <div class="cbox__in">Summary</div>
+                <div class="cbox__in" style="height:44px; align-items:flex-start; padding-top:7px">Description</div>
+              </div>
+              <div class="cbox__btns"><div class="btn primary">Commit</div><div class="btn">Amend…</div></div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          一樣的三個區塊、一樣的 commit box、分隔線以下一樣的東西。改的是兩條分隔線各自往哪個方向走
+          —— 而 diff 現在畫得出完整的一行。
+          <b>其中一半被 §10 推翻：</b><s>上面畫的那兩個有標題的半邊</s> ——
+          <code>unified</code> 面板會變成<b>一份清單</b>，方向掛在每一張卡片上。
+          堆疊那件事是我畫的，不是需求；更正寫在 §10。
+        </p>
+      </div>
+
+    </div>
+
+    <h3>Tree 模式留著 —— 而且它原本就有的一個問題會變得更嚴重</h3>
+    <p>
+      list/tree 切換鈕位置完全不動，還在 Unstaged 的標題列上，一樣驅動 History、Compare 與衝突視窗
+      共用的那個 app 層級 <code>fileListViewModeProvider</code>。它本身什麼都沒變。但窄欄會讓一個既有
+      的缺陷變得無法忍受，所以那件事必須現在裁定，而不是之後才被發現。
+    </p>
+    <p>
+      <b>Tree 模式在資料夾列畫短名字，在檔案列畫完整路徑。</b>這是把真的 <code>WorkingCopyBoard</code>
+      在 tree 模式下 pump 起來、把它畫出來的每一個 <code>Text</code> 倒出來驗證的 —— 不是從原始碼讀來的：
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">今天，260px 時</span>
+          <span class="specimen-note">實際量到的輸出</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc" style="width:260px">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 3</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="chev">▾</span><span class="path" style="font-family:inherit">lib</span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">lib/graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">lib/theme/tokens.dart</span><span class="cnt"><span class="a">+8</span></span></div>
+                <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+8</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          每一個葉節點都把它上面那一列資料夾已經講過的話再講一次，然後還被縮排 ——
+          所以你真正在找的那個東西（檔名）正好是被切掉的那一段。注意資料夾列寫的是 <code>lib</code>
+          而葉節點寫的是 <code>lib/graph/…</code>：<code>graph/</code> 這一段在兩個地方都沒有以資料夾
+          的身分出現過，因為 <code>FileTree</code> 會把只有一個子項的資料夾摺起來。
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">提案</span>
+          <span class="specimen-note">葉節點只畫它相對於父節點的那一段</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc" style="width:260px">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 3</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="chev">▾</span><span class="path" style="font-family:inherit">lib</span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">graph/lane_allocator.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                <div class="frow"><span class="ind" style="width:16px"></span><span class="path">theme/tokens.dart</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+                <div class="frow"><span class="path">README.md</span><span class="cnt"><span class="a">+8</span> <span class="d">−3</span></span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          葉節點丟掉父資料夾已經寫過的前綴，但保留被摺起來的 <code>graph/</code> ——
+          那是這一段唯一可能出現的地方。檔名現在放得下了，兩個行數 badge 也擠得進它旁邊。
+        </p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout__title">已裁定 —— <span class="zh">「tree 一起修」</span></div>
+      <p>
+        這<b>不是</b>改版面造成的；它在今天的 app 上、在任何寬度下都成立 ——
+        所以修它本來不在這一輪的範圍內。是使用者明確把它拉進來的。它以 <b>W10</b> 出貨，
+        自己一個可以單獨 revert 的 commit。
+      </p>
+      <p style="margin-bottom:0">
+        <b>List 模式不受影響</b> —— 平鋪清單沒有父資料夾可以扣掉，所以完整路徑留在那裡，那是對的。
+      </p>
+    </div>
+
+    <h3>刻意沒有動的東西</h3>
+    <ul class="plain">
+      <li><b>commit box</b> —— 還是最下面那一條、滿寬、一樣 200px、一樣的欄位、一樣 132px 的按鈕欄。
+        <span class="zh">「位置不變」</span>照字面實作。</li>
+      <li><b>衝突區塊</b>，有的時候一樣釘在所有東西上面。</li>
+      <li><b>檔案換邊還是用拖的</b>；一樣沒有 checkbox。只有方向從往旁邊變成往下。</li>
+      <li><code>2 file</code> / <code>unified</code> 切換鈕，以及 <code>2 file</code> 模式裡面
+        那條分隔線。只有<em>預選</em>哪一個變了。</li>
+      <li><b>list / tree 切換鈕</b> —— 一樣的位置（Unstaged 的標題列，兩欄共用一個），
+        一樣是與 History、Compare、衝突視窗共享的 app 層級偏好。有疑問的只有葉節點那一列的
+        <em>文字</em>，而且只在 tree 模式下。</li>
+    </ul>
+  </section>
+
+  <!-- ============================ 3 ============================ -->
+  <section id="width">
+    <div class="sec-head"><span class="sec-num">03</span><h2>唯一一個待決的問題：左欄的寬度怎麼走</h2></div>
+    <p class="lede">
+      兩個方案都可以拖，也都記得你把它放在哪裡。它們只差一件事 ——
+      視窗變大時，<em>多出來</em>的寬度歸誰。
+    </p>
+    <p>
+      <b>下面的數字不是視窗寬度。</b>Working Copy 是 <code>splitterMainSidebar</code> 的後面那個 pane，
+      所以它從來看不到整個視窗：1280 的視窗給它
+      <code>1280 − 250（側邊欄）− 1（分隔線）= <b>1029</b></code>，1920 給它 <b>1669</b>。
+      每一個數字都是這個數字再切開。這一頁早先的草稿是從原始視窗寬度算的，兩個 diff pane 都多估了約 250px。
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag optA">方案 A</span>
+          <span class="specimen-note">固定寬 · <code>GbmSplitterSpec.extent</code></span>
+        </div>
+        <div class="propgrid">
+          <div>
+            <div class="prop__cap">window 1280 &rarr; 1029 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 25.3%"><b>260</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>768</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1029</div>
+            </div>
+          </div>
+          <div>
+            <div class="prop__cap">window 1920 &rarr; 1669 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 15.6%"><b>260</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>1408</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1669</div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          視窗長出來的每一個像素都給 diff。行為與側邊欄
+          （<code>splitterMainSidebar</code>，extent 250 / min 180）和 History 的 Changed files
+          （<code>splitterMainFiles</code>，extent 186 / min 140）一致 ——
+          這個 app 裡另外兩個檔案清單，兩個都是 extent 模式。
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag optB">方案 B</span>
+          <span class="specimen-note">比例寬 · <code>GbmSplitterSpec.flex</code></span>
+        </div>
+        <div class="propgrid">
+          <div>
+            <div class="prop__cap">window 1280 &rarr; 1029 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 30%"><b>308</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>720</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1029</div>
+            </div>
+          </div>
+          <div>
+            <div class="prop__cap">window 1920 &rarr; 1669 here</div>
+            <div class="prop__win">
+              <div class="prop__row">
+                <div class="prop__cell files" style="flex:0 0 30%"><b>500</b><span>files</span></div>
+                <div class="prop__cell diff"  style="flex:1 1 auto"><b>1168</b><span>diff</span></div>
+              </div>
+              <div class="prop__strip">commit message · 1669</div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          檔案欄也會跟著視窗一起長。保留 <code>wc.diff</code> 既有的 flex 行為、
+          只重新分配比例 —— 比較接近 spec <code>SPLITTERS</code> 那一列講的東西，
+          因為它講的是比例，不是固定寬。
+        </p>
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="callout__title">已裁定 —— <span class="zh">方案 A</span>，固定寬</div>
+      <p>
+        <code>GbmSplitterSpec.extent</code>，搭配 <code>GbmFixedPaneEnd.leading</code>。
+        視窗長出來的每一個像素都給 diff：在 1920 下程式碼拿到 <b>1408</b>，方案 B 是 1168 ——
+        差 240px，大約多 20 個字元。
+      </p>
+      <p style="margin-bottom:0">
+        <b>那兩個數字仍然沒有出處</b>（第 04 節）：<code>defaultExtent 260</code> 與
+        <code>minExtent 180</code> 是這一頁的提案，之所以沿用是因為裁定選的是「模式」，沒有指定數字。
+        除非你另有指示，實作的就是這兩個；最接近的先例是 <code>splitterMainSidebar</code> 自己的 250 / 180。
+      </p>
+    </div>
+
+    <h3>不管選哪個方案，這一欄可以多窄</h3>
+    <p>
+      兩個方案都需要一個下限，而這個下限是一個真的算術問題：Unstaged 那個 pane 帶著 drop hint，
+      Staged 那個沒有 —— 但 <code>GbmSplitPane</code> 是<b>兩個 pane 共用同一個
+      <code>minExtent</code></b>。
+    </p>
+    <div class="ruler">
+      <div class="stage" data-stage data-app-theme="dark-technical" style="padding:1rem">
+        <div class="wc" style="width:240px">
+          <div class="pane">
+            <div class="pane__hdr"><span class="grow">Unstaged · 1</span><span style="font-size:10px">☰</span></div>
+            <div class="pane__list"><div class="frow"><span class="path">tokens.dart</span></div></div>
+            <div class="hint">拖曳檔案到下欄 = stage</div>
+          </div>
+        </div>
+      </div>
+      <div class="ruler__ticks">
+        <span style="height:26px">26 &nbsp;標題列 &nbsp;<code>rowHeightCompact</code></span>
+        <span style="height:26px">26 &nbsp;一列檔案</span>
+        <span style="height:35px">18 + 一行 &nbsp;hint 盒：上 8+1 · 11px 文字 · 下 1+8</span>
+        <span style="height:8px">8 &nbsp;hint 下外距 &nbsp;<code>space2</code></span>
+        <span style="margin-top:.5rem"><b>78 + 一行 11px ≈ 95</b></span>
+      </div>
+    </div>
+    <p style="margin-top:1rem">
+      能用具名常數算死的部分是 <b>78px</b> —— 標題列 26、一列 26、hint 的框佔 26
+      （外距 8 + 上 8+1 + 下 1+8）。到 ~96 之間的差額是 hint 自己那一行 11px 文字，
+      它的行高是 <code>TextPainter</code> 的事實而不是一個 token，所以
+      <b>96 是量出來的提案，不是推導出來的常數</b>。Staged 沒有 hint，其實只需要 52。
+    </p>
+  </section>
+
+  <!-- ============================ 4 ============================ -->
+  <section id="sources">
+    <div class="sec-head"><span class="sec-num">04</span><h2>每一個數字，以及它從哪裡來</h2></div>
+    <p class="lede">
+      這一頁畫出來之前先對著 spec HTML 稽核過。兩個值對得上、三個與明文列牴觸、四個哪裡都找不到出處 ——
+      那四個就是要請你裁定的。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:20%">值</th><th style="width:13%">提案</th><th>出處</th><th style="width:13%">判定</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Unstaged/Staged 比例</td><td class="num">1 : 1</td>
+          <td>P09 <code>SPLITTERS</code>: <code>{ id: 'wc.columns', … def: '1 : 1', min: '200px' }</code></td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td>Drop hint 現有文字</td><td class="num"><span class="zh">拖曳檔案到右欄 = stage</span></td>
+          <td>Spec P03 的虛線框，逐位元組相同：<code>…text-align:center"&gt;拖曳檔案到右欄 = stage&lt;/div&gt;</code></td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td><b>Unstaged↔Staged 分隔線方向</b></td><td class="num">水平線<br>（上下堆疊）</td>
+          <td>同一列寫 <code>dir: '垂直'</code> —— 一條垂直線，也就是左右並排。今天的程式碼與 spec 一致。</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td><b>檔案區↔diff 分隔線方向</b></td><td class="num">垂直線<br>（左右並排）</td>
+          <td>P09: <code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px' }</code>  —— 一條水平線，也就是上下堆疊。今天的程式碼與它一致。</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td>堆疊的 <code>minExtent</code></td><td class="num">96</td>
+          <td>同一列 <code>wc.columns</code> 寫 <code>min: '200px'</code>。200 是<em>寬度</em>下限；當成高度下限的話，兩欄加起來要 400px。78px 是 96 裡面能用具名常數算死的部分（第 03 節）。</td>
+          <td class="verdict bad">不符</td>
+        </tr>
+        <tr>
+          <td>Option A <code>defaultExtent</code></td><td class="num">260</td>
+          <td>spec 沒有任何一列給這條分隔線像素預設值 —— <code>wc.diff</code> 是比例的。repo 裡其他 extent 模式的鄰居：250、186、158、280、160。沒有一個是 260。</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Option A <code>minExtent</code></td><td class="num">180</td>
+          <td><code>wc.diff</code> 那一列寫 <code>min: '150px'</code>。180 剛好等於 <code>sidebarMinWidth</code> —— 那是另一條分隔線的數字，不能當這一條的證據。</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>方案 B 的比例</td><td class="num">30 / 70</td>
+          <td>沒有。spec 給的唯一比例是 <code>wc.diff</code> 的 <code>46 / 54</code>，而那是給這次要換掉的上下堆疊排法用的。</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Tree 縮排 / 箭號 / 列文字</td><td class="num">16 · 16 · 12.5</td>
+          <td><code>EdgeInsets.only(left: level * 16.0)</code> (<code>file_tree_list.dart</code>); <code>Icon(Icons.arrow_right, size: 16)</code> and <code>fontSize: GbmTypography.textSm</code> (<code>file_tree_folder_row.dart</code>). 檔案列也是 <code>textSm</code> —— <b>這一頁早先的草稿把它畫成 <code>textXs</code></b>，是對著真的 pump 出來的結果更正的。</td>
+          <td class="verdict ok">符合</td>
+        </tr>
+        <tr>
+          <td>Tree 葉節點文字，今天</td><td class="num">完整路徑</td>
+          <td>量出來的，不是讀來的：把 <code>WorkingCopyBoard</code> 在 tree 模式 pump 起來，畫出來的是 <code>lib</code>，接著 <code>lib/graph/lane_allocator.dart</code>，接著 <code>lib/theme/tokens.dart</code>。<code>_buildFileRow</code> 在兩個模式都畫 <code>entry.path</code>，而 <code>FileTreeFolderRow</code> 畫的是 <code>node.name</code>。</td>
+          <td class="verdict bad">defect</td>
+        </tr>
+        <tr>
+          <td>Specimen 填充用的值：<code>gap:6px</code>, <code>10px</code> captions, <code>.dl</code> 17px, gutter 22px, <code>.seg</code> padding</td>
+          <td class="num">標記為 <code>[SPEC]</code></td>
+          <td>沒有 —— 是為了讓這張圖看得懂而挑的。範圍限定在 diff 的行與切換控制項，這一頁的任何決定都不靠它們。版面<em>真正</em>靠的那些（26 / 11 / 8 / 12 / 6 / 30 / 132 / 200 / 1）全部是真的常數。</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+        <tr>
+          <td>Drop hint 的替代文字</td><td class="num">見第 05 節</td>
+          <td>spec 對這個框只有一種寫法，而它寫的是<span class="zh">右欄</span>。它從來沒有設想過堆疊版面，所以<b>每一個</b>候選字都是憑空發明的文案。</td>
+          <td class="verdict none">無出處</td>
+        </tr>
+      </tbody>
+    </table></div>
+
+    <h3>順手發現的兩個 drift</h3>
+    <p>
+      <b>這裡沒有修。</b>spec 把 drop hint 畫成 <code>padding:7px</code>、
+      <code>font-size:10px</code>、<code>margin:auto 10px 10px</code>；程式碼用的是
+      <code>space2</code>（8）、<code>textXs</code>（11）與 <code>space2</code>。上面的 mockup 畫的是
+      <b>程式碼</b>的數字，因為這一頁講的是版面。記在這裡是為了下次不要當成新發現；不在這一輪範圍內。
+    </p>
+    <p>
+      <b>這裡修掉了。</b>隔壁那一頁 <code>worktree-dialogs-spec.html</code> 把
+      <code>light-ide</code> 的 <code>--gbm-warning</code> 宣告成 <code>#bf8700</code>。真正的
+      <code>_lightIde.warning</code> 是 <code>#9a6700</code>。這一頁用的是更正過的值；
+      隔壁那一份在自己的 commit 裡就地更正 —— 一份 token 與 app 不符的 spec 頁，比沒有 spec 頁更糟。
+    </p>
+  </section>
+
+  <!-- ============================ 5 ============================ -->
+  <section id="copy">
+    <div class="sec-head"><span class="sec-num">05</span><h2>Drop hint 非改不可，而且沒有東西可以引用</h2></div>
+    <p class="lede">
+      <span class="zh">「拖曳檔案到右欄 = stage」</span> —— 一旦 Staged 變成在下面而不是在旁邊，
+      <span class="zh">右欄</span> 就是假的。一個指錯方向的提示比沒有提示更糟：那是一個會說謊的控制項。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:8%">#</th><th style="width:34%">候選</th><th>論點</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td class="zh"><b>拖曳檔案到下欄 = stage</b></td>
+            <td><b>建議這個。</b>只改一個字 —— <span class="zh">右</span> → <span class="zh">下</span>。保留 spec 自己的句型、它的 <code>=</code>、它的<span class="zh">欄</span>字，所以在「還是真的」的前提下，偏離已經小到不能再小。</td></tr>
+        <tr><td class="num">C2</td><td class="zh">拖曳檔案到下方 = stage</td>
+            <td>對堆疊起來的東西來說，<span class="zh">下方</span>讀起來比<span class="zh">下欄</span>稍微自然一點，但放棄了 spec 自己的名詞。中文好一點點，離來源遠一點點。</td></tr>
+        <tr><td class="num">C3</td><td class="zh">往下拖 = stage · 往上拖 = unstage</td>
+            <td>兩個方向都講，這是現在的提示從來沒做過的 —— Staged 那一欄自己沒有提示，unstage 根本沒人找得到。誠實，也是偏離最大的一個：這是新資訊，不是改一個字。</td></tr>
+      </tbody>
+    </table></div>
+    <div class="callout">
+      <div class="callout__title">已裁定 —— <span class="zh">C1</span></div>
+      <p style="margin-bottom:0">
+        <span class="zh">「拖曳檔案到下欄 = stage」</span>。動一個字，
+        <span class="zh">右</span> → <span class="zh">下</span>；句型、<code>=</code>
+        與<span class="zh">欄</span>這個名詞全部維持 spec 的。第 02、03 節的 mockup 已經照這樣畫了。
+        <b>Staged 那個 pane 仍然沒有自己的提示</b> —— 會補一個的是候選 C3，而它沒有被選上，
+        所以 unstage 的可發現性維持今天的樣子。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 6 ============================ -->
+  <section id="scopes">
+    <div class="sec-head"><span class="sec-num">06</span><h2>stage/unstage 的 scope 卡片，從來沒有被寫下來過</h2></div>
+    <p class="lede">
+      <span class="zh">「這部分之前只有 code 修改，沒有設計在 spec 上」</span> —— 沒錯，而且比聽起來更糟。
+      設計是存在的，而且是你的；不存在的是 <code>docs/</code> 底下任何一頁記錄它。
+      這個 repo 裡唯一的痕跡，是 Dart 註解裡的一組 CSS class 名稱。
+    </p>
+    <p>
+      來源是 <b>Diff Scope Studies</b> 的 <span class="zh">變體 B</span> ——
+      <code>claude.ai/code/artifact/bd3d9fdf-18a4-473a-95b3-27aa34966361</code>。它在
+      <code>docs/rules/ops-spec-reading.md</code> 裡以 <code>[SPEC-demo-dom-is-the-spec]</code> 被引用，
+      但網址被截成 <code>bd3d9fdf-…</code>，所以那條「<em>要讀 DOM</em>」的規則光靠 repo 是遵守不了的。
+      這一節把它的 CSS 和 DOM 都抓回來了。<b>它的 token 名稱與 app 的一對一對應</b> ——
+      <code>--space-1..4</code> 是 4/8/12/16、<code>--radius-sm/md</code> 是 4/6、
+      <code>--text-xs/sm</code> 是 11/12.5、<code>--row-h-compact</code> 是 26 ——
+      所以下面每一個數字都可以直接跟真的常數比對，中間不需要換算。
+    </p>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after"><span class="zh">變體 B</span>，設計原樣</span>
+          <span class="specimen-note">引用它的 CSS 與 DOM</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div style="width:100%; max-width:470px">
+            <div class="sc-col">
+              <span class="sc-col__dot"></span>
+              <span class="sc-col__t">Unstaged</span>
+              <span class="sc__grow"></span>
+              <span class="sc-col__chip">2 個 scope</span>
+            </div>
+            <div class="sc">
+              <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">38</span>  int allocate(Commit c) {</div>
+                <div class="dl"><span class="g">39</span>    for (final lane in lanes) {</div>
+              </div>
+              <div class="sc__card">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 1</span>
+                  <span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn">Stage 3 lines</span>
+                </div>
+                <div>
+                  <div class="dl del"><span class="g">40</span>-    if (lane.free) return lane.index;</div>
+                  <div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed != c) return …</div>
+                  <div class="dl"><span class="g">41</span>    }</div>
+                </div>
+              </div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">44</span>  }</div>
+              </div>
+              <div class="sc__card muted">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 2</span>
+                  <span class="sc__stat"><span class="p">+1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn off">Stage 1 line</span>
+                </div>
+                <div class="sc__temp">
+                  <div class="sc__temphead">
+                    <span class="sc__tag">臨時選取</span>
+                    <span class="sc__once">一次性</span>
+                    <span class="sc__grow"></span>
+                    <span class="sc__btn">Stage 2 lines</span>
+                  </div>
+                  <div>
+                    <div class="dl add"><span class="g">46</span>+    log('no free lane; growing');</div>
+                    <div class="dl"><span class="g">47</span>    return grow();</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          一次性區塊坐在它蓋到的那張卡片<b>裡面</b>，把卡片的內容切開；被它取代的那張卡片邊緣轉灰，
+          自己的按鈕被劃掉並失效。
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">今天出貨的樣子</span>
+          <span class="specimen-note">從 <code>scoped_diff_view.dart</code> 讀出來的</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px">
+            <div class="sc-col">
+              <span class="sc-col__dot"></span>
+              <span class="sc-col__t">Unstaged</span>
+              <span class="sc__grow"></span>
+              <span class="sc-col__chip">2 個 scope</span>
+            </div>
+            <div class="sc">
+              <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">38</span>  int allocate(Commit c) {</div>
+                <div class="dl"><span class="g">39</span>    for (final lane in lanes) {</div>
+              </div>
+              <div class="sc__card">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 1</span>
+                  <span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn">Stage 3 lines (2 changed)</span>
+                </div>
+                <div>
+                  <div class="dl del"><span class="g">40</span>-    if (lane.free) return lane.index;</div>
+                  <div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed != c) return …</div>
+                  <div class="dl"><span class="g">41</span>    }</div>
+                </div>
+              </div>
+              <div class="sc__gap">
+                <div class="dl"><span class="g">44</span>  }</div>
+              </div>
+              <div class="sc__card muted">
+                <div class="sc__head">
+                  <span class="sc__tag">變更 2</span>
+                  <span class="sc__stat"><span class="p">+1</span></span>
+                  <span class="sc__grow"></span>
+                  <span class="sc__btn off">Stage 1 line</span>
+                </div>
+                <div class="sc__temp">
+                  <div class="sc__temphead">
+                    <span class="sc__tag">臨時選取</span>
+                    <span class="sc__once">一次性</span>
+                    <span class="sc__grow"></span>
+                    <span class="sc__btn">Stage 2 lines</span>
+                  </div>
+                  <div>
+                    <div class="dl add"><span class="g">46</span>+    log('no free lane; growing');</div>
+                    <div class="dl"><span class="g">47</span>    return grow();</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          每一個結構決定都活下來了。走樣的是表面：hunk 標頭旁邊沒有那條線、兩個標頭下面都沒有底線、
+          設計是虛線的地方變成實線、設計是純數字的地方變成 badge、欄標題變小變粗，
+          以及設計用 <code>--warning</code> 外框的<span class="zh">一次性</span> chip 變成中性色。
+        </p>
+      </div>
+    </div>
+    <p class="specimen-note" style="margin-top:1rem">
+      兩張都畫在 470px，因為這一頁是兩欄並排。真正的 pane 在 1280 視窗下是 768px 寬（第 03 節）——
+      這一節沒有任何東西跟寬度有關，所以在哪個寬度比都可以。
+    </p>
+
+    <h3>每一個差異，以及它是哪一種差異</h3>
+    <p>
+      照它們屬於哪一個決定分組，而不是一個屬性列一列，因為它們不是十五個獨立選擇 —— 是六個。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:6%">#</th><th style="width:24%">項目</th><th style="width:22%"><span class="zh">變體 B</span></th><th style="width:22%">今天</th><th style="width:14%">類別</th></tr></thead>
+      <tbody>
+        <tr><td class="num">S1</td><td>卡片：左緣、圓角、陰影、底色；muted 的灰邊與拿掉的陰影；<code>-btn-off</code> 的刪除線與失效；它們後面的那個 well</td>
+            <td colspan="2">一模一樣。卡片之所以是兩層巢狀 <code>Container</code>，只是因為 Flutter 不接受四邊顏色不同的 border 上加 <code>borderRadius</code>（<code>[FLU-border-uniform-color-required]</code>）。</td>
+            <td class="verdict ok">符合</td></tr>
+        <tr><td class="num">S2</td><td><span class="zh">臨時選取</span>的位置</td>
+            <td>巢狀在卡片<em>裡面</em>，把內容切開</td>
+            <td>一樣</td>
+            <td class="verdict ok">符合 · 但見下方</td></tr>
+        <tr><td class="num">S3</td><td><b>虛線 vs 實線</b>，三個地方：臨時區塊的外框、它標頭下面那條線、gap 的左側線</td>
+            <td><code>1px dashed</code> accent · <code>1px dashed</code> accent · <code>1px dashed border-default</code></td>
+            <td>實線 accent · 完全沒有 · <code>2px</code> 實線 <code>border-subtle</code> 加 <code>Opacity(0.6)</code></td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S4</td><td><b>卡片標頭的盒子</b></td>
+            <td>高 <code>30</code>、內距 <code>0 space2 0 space3</code>、<code>border-bottom 1px border-default</code>；muted 的標頭底色是 <code>surface-sunken</code></td>
+            <td>沒有固定高（上下 3px 內距）、左右對稱的 <code>space2</code>、沒有底線；標頭永遠是 <code>surfacePanelRaised</code></td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S5</td><td><b>欄標頭</b></td>
+            <td>高 <code>row-h-compact</code>、內距 <code>0 space1</code>；圓點 <b>8×8</b>；標題 <code>text-sm</code> semibold <code>text-primary</code>；計數是 <code>panel-raised</code> 底、<code>border-subtle</code> 外框的 <code>radius-full</code> chip</td>
+            <td>內距 <code>space2 / space1</code>、沒有固定高；圓點 <b>6×6</b>；標題 <code>textXs</code> bold <code>textSecondary</code>；計數是純 tertiary 文字</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S6</td><td><b>卡片標頭裡的 <code>+N −M</code></b></td>
+            <td>純等寬數字、<code>text-xs</code>、著色為 <code>--diff-add-strong</code> / <code>--diff-del-strong</code> —— <b>那是淡背景色</b>，在這裡被當文字色用</td>
+            <td><code>GbmBadge</code> 藥丸，kind 是 <code>added</code>/<code>removed</code>：<code>diffAddBg</code> 底 <code>diffAddText</code> 字，10.5px</td>
+            <td class="verdict none">待裁定<br>（實作者判斷，已記錄）</td></tr>
+        <tr><td class="num">S7</td><td><b>按鈕文字</b></td>
+            <td><code>Stage 3 lines</code></td>
+            <td>匡選行數與實際變動行數不同時是 <code>Stage 3 lines (2 changed)</code></td>
+            <td class="verdict none">待裁定<br>（實作者判斷，已記錄）</td></tr>
+        <tr><td class="num">S8</td><td><span class="zh">一次性</span> chip</td>
+            <td><code>radius-full</code>、透明底、<b>外框與字都是 <code>--warning</code></b>、<code>text-xs</code> semibold</td>
+            <td><code>GbmBadge</code> 的預設 <code>neutral</code> kind：<code>surfaceSunken</code> 底、<code>textSecondary</code> 字、10.5px 等寬</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S9</td><td>Hunk 標頭</td>
+            <td>等寬 <code>text-xs</code> tertiary，後面接一條<b>填滿整列剩餘寬度的 1px 線</b></td>
+            <td>字一樣、沒有那條線；是一個高 22 帶 <code>onTap</code> 的 <code>GbmRow</code> —— 設計沒畫這個，但 <code>SCOPES</code> 第 6 列要求它</td>
+            <td class="verdict none">待裁定<br>（只有那條線）</td></tr>
+        <tr><td class="num">S10</td><td>卡片的上下外距</td>
+            <td><code>space2</code> (8)</td><td><code>space1</code> (4)</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S11</td><td>卡片 hover</td>
+            <td><code>border-strong</code>、<code>accent-hover</code> 左緣、<code>shadow-md</code></td>
+            <td>完全沒有 hover</td>
+            <td class="verdict none">待裁定</td></tr>
+        <tr><td class="num">S12</td><td>每張卡片各自的水平捲軸（<code>.variant-B-scroll</code>，hover 時 6px 的滑塊）</td>
+            <td>每張卡片的內容各自捲</td>
+            <td><code>GbmCodeHScroll</code> + <code>GbmPinnedGutter</code>，一個介面一個捲軸，受 app 層級的 soft-wrap 偏好管</td>
+            <td class="verdict ok">已被裁定取代<br><code>[STRUCT-soft-wrap-preference]</code></td></tr>
+        <tr><td class="num">S13</td><td>按鈕尺寸：高 24 與 <code>text-xs</code> 對得上；內距 <code>space3</code> vs <code>space2</code>、字重 semibold vs medium 對不上</td>
+            <td colspan="2">兩個不符都是 <code>GbmButton</code> 自己的 <code>sm</code> 尺寸，全 app 的小按鈕共用。在這裡改它不是改 scope 卡片。</td>
+            <td class="verdict ok">共用元件<br>不在範圍內</td></tr>
+        <tr><td class="num">S14</td><td>程式碼那幾行本身 —— 行號欄、正負號欄、選取底色</td>
+            <td colspan="2"><code>DiffLineView</code>，與 History、Compare、各面板、衝突視窗共用。理由同 S13。</td>
+            <td class="verdict ok">共用元件<br>不在範圍內</td></tr>
+      </tbody>
+    </table></div>
+
+    <p>
+      <b>這一節在你看到之前就稽核過了</b>，兩欄一起：每一個<span class="zh">變體 B</span>的值對著
+      artifact 自己的 CSS 與 DOM，每一個<em>今天</em>的值對著 Dart。58 個值、52 個乾淨，
+      <b>四個更正套進了這一頁</b> —— 圓點的 8px（原本畫成程式碼的 6，還冒充是設計的）、
+      <code>+N −M</code> 的色彩 token（我自己默默換掉的，S6 的可讀性問題就是因此才浮出來）、
+      一個與自己註解矛盾的 hunk 標頭內距，以及一個什麼都對不上的 6px —— 那個是刪掉，不是加標記。
+    </p>
+
+    <div class="callout is-warn">
+      <div class="callout__title">這次比對證明過期的一條規則</div>
+      <p style="margin-bottom:0">
+        <code>[STRUCT-working-copy]</code> 寫一次性 scope 是
+        <span class="zh">「rendered in a fixed slot at the top」</span>。它不是，而且從把它巢狀化的那一輪
+        之後就不是了 —— 上面的 DOM 和 <code>scoped_diff_view.dart</code> 自己的註解彼此一致，
+        只跟那條規則不一致。這件事併進 W9 就地更正，不另外開工作項，因為沒有東西要蓋：
+        程式碼已經是對的，錯的只有紀錄。
+      </p>
+    </div>
+
+    <div class="callout">
+      <div class="callout__title">已裁定 —— <span class="zh">「照建議」</span>，六題全部</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><b>S3 虛線</b> —— <em>建議採用</em>。虛線不是裝飾：它是把
+          <span class="zh">臨時選取</span>的<span class="zh">一次性</span>區塊，
+          跟會留著的實線邊卡片區分開來的東西。今天兩個都是實線，只有顏色不同。</li>
+        <li><b>S4 卡片標頭</b> —— <em>建議採用底線</em>（沒有它的話標頭會被讀成程式碼的一部分）
+          <em>與 muted 標頭的沉底色</em>；固定 30px 高度<em>建議維持現狀</em>，
+          因為標頭是一個 <code>Wrap</code>，在窄 pane 裡允許換第二行，固定高度會把它切掉 ——
+          而這件事在 pane 變成右側欄之後更重要。</li>
+        <li><b>S5 欄標頭</b> —— <em>建議採用 chip 與 8px 圓點</em>，
+          <em>標題維持</em> <code>textXs</code>/bold/secondary，那是這個 app 裡其他每一個 pane 標頭
+          用的規格；在這裡照設計走反而會讓這一個標頭跟它的鄰居長得不一樣。</li>
+        <li><b>S6 <code>+N −M</code></b> —— <em>建議保留 badge</em>，而這是唯一一處建議
+          <b>不照</b>設計走、而且理由是設計本身而不是一致性的地方。<span class="zh">變體 B</span> 寫的是
+          <code>.variant-B-plus { color: var(--diff-add-strong) }</code>，而
+          <code>--diff-add-strong</code> 是<em>淡背景色</em> —— light 是 <code>#bfe9cd</code>、
+          dark 是 <code>#173e24</code>。把它當文字色畫在標頭自己的 <code>panel-raised</code> 底上，
+          在這個 app 出貨的主題裡就是 <code>#161b22</code> 上面放 <code>#173e24</code>：幾乎讀不到。
+          上面那張 specimen 就是照它寫的畫的，所以左邊那些數字看起來像不見了。
+          一致性也指向同一邊 —— 這個 pane 旁邊的兩個檔案清單，畫同一件事用的就是 <code>GbmBadge</code>。</li>
+        <li><b>S7 <code>(N changed)</code></b> —— <em>建議保留</em>。
+          <span class="zh">匡選行數</span>與<span class="zh">實際變動行數</span>是兩個不同的數字，
+          而按鈕移動的是前者；設計那個比較短的寫法只有在兩者相等時才不會有歧義，
+          而那正好就是程式碼會省略括號的情況。</li>
+        <li><b>S8 <span class="zh">一次性</span> chip</b> —— <em>建議採用 warning 外框</em>。
+          它是畫面上唯一一個在講<span class="zh">「這個按下去就沒了」</span>的東西，
+          而中性色藥丸跟它旁邊的計數 badge 長得一模一樣。</li>
+        <li><b>S9 hunk 橫線 · S10 外距 · S11 hover</b> —— <em>三個都建議採用</em>；
+          每一個都只是一個屬性，而 hover 是卡片目前完全沒有的那個 dimension D 訊號。</li>
+      </ul>
+    </div>
+    <p style="margin-top:1.25rem">
+      <b>上面每一個建議都被採納了</b>，落在第 08 節的 <b>W11–W13</b>。六題裡有兩題是<em>維持現狀</em>、
+      成本為零：S6 的 badge 與 S7 的 <code>(N changed)</code> 留著，而且兩者從「實作者判斷」升格成
+      「已裁定」。有一題是部分採納，值得再講一次以免被讀成全部採納：
+      <b>S4 收下標頭的底線與 muted 標頭的沉底色，不收它的 30px 固定高度</b> ——
+      標頭是一個 <code>Wrap</code>，在它搬到右側欄之後必須能自由換第二行。
+      S3、S5 與 S8–S11 其餘的部分都照設計原樣採納。
+    </p>
+  </section>
+
+  <!-- ============================ 7 ============================ -->
+  <section id="deviation">
+    <div class="sec-head"><span class="sec-num">07</span><h2>這一輪推翻了什麼，逐字引用</h2></div>
+    <p class="lede">
+      spec 第 09 頁 <code>SPLITTERS</code> 表的兩列，今天的程式碼兩列都完全符合。
+      <code>dir</code> 講的是<em>分隔線本身</em>的方向。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:14%">列</th><th>spec 原文</th><th style="width:26%">這一輪之後</th></tr></thead>
+      <tbody>
+        <tr><td class="num">wc.columns</td>
+            <td><code>{ id: 'wc.columns', where: 'Unstaged ↔ Staged', dir: '垂直', def: '1 : 1', min: '200px', note: '' }</code></td>
+            <td>線改成水平；比例 <code>1 : 1</code> 留著；<code>min</code> 重新推導成一個高度</td></tr>
+        <tr><td class="num">wc.diff</td>
+            <td><code>{ id: 'wc.diff', where: '檔案區 ↔ Diff', dir: '水平', def: '46 / 54', min: '150px', note: '' }</code></td>
+            <td>線改成垂直；<code>def</code>/<code>min</code> 依第 03 節換掉</td></tr>
+      </tbody>
+    </table></div>
+    <p>
+      兩個儲存 key 都必須換新的，不能沿用。這不是偏好：
+      <code>[FLU-splitpane-axis-change]</code> 講明改一個 pane 的軸就必須對已存的值做出決定，
+      而只有 ratio 模式撐得過一次換軸。換 key 會讓舊的 <code>panelLayout.wc.*</code> 條目變成孤兒 ——
+      讀不到、退回預設值，那是丟掉一個寬度，永遠不會是一個錯的寬度。
+    </p>
+    <p>
+      <b>P03 自己的 mockup</b> 畫的也是今天這個排法。它被同一個裁定、以同一個理由推翻；
+      沒有另外引用，是因為它講的東西上面那兩列已經用數字講完了。
+    </p>
+    <div class="callout">
+      <div class="callout__title">這一輪落地時要更正的記錄</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><code>docs/reports/spec-conformance-matrix.md</code> —— 兩列現在都寫<span class="zh">符合</span>。要<b>就地</b>劃掉重寫成「使用者裁定的偏離」，否則下一次稽核會把這個版面修回舊的。</li>
+        <li><code>[STRUCT-working-copy]</code> —— <span class="zh">「Below the columns, the diff area…」</span>不再成立。</li>
+        <li><code>[STRUCT-working-copy]</code> 第二行 —— <span class="zh">「rendered in a fixed slot at the top」</span>在這一輪之前<b>就已經</b>不成立了；一次性區塊是巢狀在它的卡片裡的（§06）。同一次順手更正，標成既有錯誤，不是這一輪改出來的。</li>
+        <li><code>[STRUCT-two-column-switches]</code> —— Working Copy 那一列的預設值翻成 <code>unified</code>。</li>
+        <li><code>splitterWcDiffSides</code> 的 doc comment —— <span class="zh">「nested inside <code>splitterWcDiff</code>'s 54% share」</span>不再成立。</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============================ 7 ============================ -->
+  <section id="worklist">
+    <div class="sec-head"><span class="sec-num">08</span><h2>工作清單</h2></div>
+    <p class="lede">
+      每一項各自一個 commit，所以每一項都可以單獨 revert。計畫的順序守住了：
+      W1–W7，然後 W10，然後 W11–W13，然後 W8，最後 W9 —— <b>裝置層放最後</b>，因為
+      W11–W13 改的正是 <code>stage_lines_flow_test</code> 驅動的那個面，在它們之前拿到的裝置層綠
+      證明的是一棵之後還會變的樹，這跟 <code>[TEST-device-runs-one-file]</code> 禁止在裝置層跑的時候
+      改 <code>lib/</code> 是同一個理由。<b>全部都做完出貨了。</b>有三件事跟計畫不一樣，
+      各自記在自己那一列：W7 沒有自己的 commit（它的測試落在它們所 pin 的那些 commit 裡，先紅），
+      W8 找到一個真的紅，而 W10 結果是一個<em>共用</em>widget 的缺陷，不是這一頁的。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:13%">狀態</th><th style="width:23%">項目</th><th style="width:9%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">W1</td><td><span class="pill is-done">done</span><br><code>a4818b4</code></td><td>兩個新的 <code>GbmSplitterSpec</code>，兩個刪掉</td><td class="num">1 檔<br>+6 測試</td>
+            <td><code>splitterWcColumns</code> 與 <code>splitterWcDiff</code> 走人；接替它們的帶新的 storage id。舊 key 變孤兒是刻意的。依 §03 的裁定，檔案區↔diff 那個是 <code>extent(260, min 180)</code>，堆疊那個維持 <code>1 : 1</code>，下限用 W5 那個新的。</td></tr>
+        <tr><td class="num">W2</td><td><span class="pill is-done">done</span><br><code>f16ce70</code></td><td>外層 pane &rarr; 水平</td><td class="num">1</td>
+            <td><code>working_copy_view.dart</code> 中間那個 <code>GbmSplitPane</code>。子節點順序不變，所以 board 在左、diff 在右。commit box 的 <code>Container</code> 一個字都沒動。</td></tr>
+        <tr><td class="num">W3</td><td><span class="pill is-done">done</span><br><code>d342fd6</code></td><td>內層 board &rarr; 垂直</td><td class="num">1</td>
+            <td><code>working_copy_board.dart</code>。Unstaged 仍然排第一，所以它在上面。</td></tr>
+        <tr><td class="num">W4</td><td><span class="pill is-done">done</span><br><code>dff5c95</code></td><td>Diff 預設 &rarr; <code>unified</code></td><td class="num">1</td>
+            <td>一個初始值。切換器、兩個 enum 值與 <code>wc.diffSides</code> 全部留著。enum 上那句<span class="zh">「For a narrow window」</span>註解在同一個 commit 裡更正。</td></tr>
+        <tr><td class="num">W5</td><td><span class="pill is-done">done</span><br><code>9221762</code></td><td>窄欄溢出的防線</td><td class="num">1 + 測試</td>
+            <td>堆疊 pane 的下限，依 §03 的算式。<code>RenderFlex</code> 先排非 flex 的子節點，所以決定這個數字的是標頭與提示，不是清單。</td></tr>
+        <tr><td class="num">W6</td><td><span class="pill is-done">done</span><br><code>03dfa15</code></td><td>Drop hint 文字</td><td class="num">1 + 測試</td>
+            <td><span class="zh">右</span> → <span class="zh">下</span>，依 §05 的 C1 裁定。一個字串，加上斷言它的那些測試。</td></tr>
+        <tr><td class="num">W7</td><td><span class="pill is-done">done</span><br>folded into<br>W2/W3/W5/W6</td><td>版面測試</td><td class="num">4 檔</td>
+            <td>Unstaged 在 Staged 上面；檔案欄在 diff 左邊；commit box 在最後且滿版寬。斷言的對象是<b>鄰居</b>的 rect，絕不是一個像素常數。拖曳手勢的座標從水平轉成垂直。</td></tr>
+        <tr><td class="num">W8</td><td><span class="pill is-done">done</span><br><code>f43a025</code></td><td>裝置層，一次一個檔</td><td class="num">5 個候選</td>
+            <td>跑了<b>六</b>個，不是五個 —— grep 還撈出 <code>context_menu_flows</code>，而計畫自己的清單裡有兩個 grep 沒撈到，所以跑的是聯集：<code>stage_lines_flow</code> 7/7、<code>working_copy_line_counts</code> 1/1、<code>commit_flow</code> <b>0/1 → 1/1</b>、<code>commit_file_counts</code> 2/2、<code>conflict_flow</code> 1/1、<code>context_menu_flows</code> 5/5。紅的是這個測試的落點 <code>board.right - board.width * 0.25</code> ——「另一欄在右邊」被寫成算式，轉向之後這個算式又落回 Unstaged 裡面。裝置層以下沒有任何一層看得到它：widget 層的拖曳瞄的是另一個<em>列</em>，那跟軸向無關。依 <code>[TEST-foreground-line-is-not-a-failure]</code>，先在父 commit 上跑了一次 <code>stage_lines_flow</code> 當對照組，7/7。</td></tr>
+        <tr><td class="num">W10</td><td><span class="pill is-done">done</span><br><code>7f37f55<br>a4bcfd1</code></td><td>Tree 模式的葉節點文字</td><td class="num">1 + 測試</td>
+            <td>既有缺陷，由使用者納入這一輪；不是這次改版面造成的 —— 而且<b>不在這一頁</b>。葉節點的標籤是由共用的 <code>FileListModeSwitcher</code> 決定的，它的 <code>leafBuilder</code> 沒有收 label 參數，所以<b>六個</b>面在兩種模式下畫的都是項目的完整路徑：Working Copy 兩欄、History 的 Changed files、Compare 的 Files、Conflict 視窗、<code>panel_file_diff_detail</code>。修在契約上（<code>leafBuilder(context, item, label)</code>），不是修在某一個呼叫點。同一個句子裡還坐著<b>第二個</b>缺陷：<code>FileTree._collapseIfSingleChild</code> 在摺疊鏈結尾是<em>檔案</em>時做了 <code>split('/').last</code>，丟掉的正好是 P03-10 自己的 <code>lib/app/views</code> 範例在講的那個前綴。兩個 commit：W10a 是樹，W10b 是切換器。<b>後半被 §14 推翻：</b><s>檔案那一支要保留整段前綴</s> —— 使用者驗收後裁定樹狀模式照 VS Code，收合停在資料夾，檔案只畫 basename。切換器那一半（也就是使用者說<span class="zh">「共用沒錯」</span>的那一半）不變。</td></tr>
+        <tr><td class="num">W11</td><td><span class="pill is-done">done</span><br><code>571b595<br>9973ce2</code></td><td>Scope 卡片：設計有畫、程式碼沒畫的那些線</td><td class="num">1 + 測試</td>
+            <td>S3 的三條虛線、S4 的標頭底線與 muted 底色、S9 的 hunk 橫線、S10 的外距。全部都在 <code>scoped_diff_view.dart</code> 裡面；不碰邏輯、不碰 <code>selection_touch.dart</code>、不碰 <code>diff_scopes.dart</code>。</td></tr>
+        <tr><td class="num">W12</td><td><span class="pill is-done">done</span><br><code>0eca40b</code></td><td><span class="zh">一次性</span> chip 與欄標頭的 chip</td><td class="num">1–2 + 測試</td>
+            <td>S8 要的是一顆 warning 外框的藥丸，<code>GbmBadge</code> 三種 kind 都畫不出來。解法是做成一個<b>共用的 public widget</b> <code>GbmOutlinedPill</code>，不是第四種 badge kind，也不是 private class —— private 的測試看不到，那就只剩下走 <code>BoxDecoration</code> 的斷言可用。S5 的 scope 計數 chip 是同一個 widget 換一組 token，而且必須改成 <code>Flexible</code>：它是非 flex 子節點，所以 <code>Expanded(title)</code> 救不了它造成的 11px 溢出（<code>[FLU-renderflex-non-flex-first]</code>），而這件事看得到只是因為 W3 把那個測試的畫布從 200 縮到 140。</td></tr>
+        <tr><td class="num">W13</td><td><span class="pill is-done">done</span><br><code>ecd29af</code></td><td>Scope 卡片 hover</td><td class="num">1 + 測試</td>
+            <td>S11。用 identity 斷言那個 token —— <code>[FLU-hand-rolled-inkwell-hover]</code>：只檢查沒有丟例外的 hover 測試什麼都證明不了，而 <code>ThemeData.hoverColor</code> 在真的螢幕上看不見。</td></tr>
+        <tr><td class="num">W9</td><td><span class="pill is-done">done</span><br><code>915ad24 … 2633d88</code></td><td>更正 §07 列的那些記錄</td><td class="num">5</td>
+            <td>就地劃掉重寫 —— 不是默默改個編號。這一趟做下來超過五處：第 09 頁的 <code>SPLITTERS</code> 段從「8 條全部符合」變成「6 符合 + 2 使用者裁定的偏離」；P03 第 2/4 項跟著改；P03 第 8 項那句「數字跟著 <code>wc.columns</code> 走」指的是一個已經死掉的 id；而 <b>P03 第 10 項的判定只涵蓋了五個子句裡的一個</b> —— W10 修掉的那兩個從來就不在稽核範圍內。兩條新 pin（<code>[STRUCT-leaf-label-from-switcher]</code>、<code>[TEST-geometric-drop-point-is-axis-bound]</code>）、一條新的 drift（第 10 項自己前後矛盾，模式到底是各清單獨立還是共用 —— 記下來，留給裁定）、刪掉一個孤兒常數（<code>workingCopyLeftColumnWidth</code>，任何一版都沒有被呼叫過），以及更正一句描述已刪除行為的原始碼註解。</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout is-warn">
+      <div class="callout__title">W4 會讓兩個既有測試變紅，而那就是檢查本身</div>
+      <p style="margin-bottom:0">
+        <code>working_copy_diff_pane_test.dart</code> 斷言的是兩欄版面，而且從來沒碰過切換器 ——
+        所以它隱含地把 <code>twoFile</code> 釘成預設值。那些紅<em>就是</em> W4 的 mutation 檢查；
+        修法是先點一下 <code>2 file</code>，斷言保留不動。
+      </p>
+    </div>
+  </section>
+
+  <!-- ============================ 8 ============================ -->
+  <section id="acceptance">
+    <div class="sec-head"><span class="sec-num">09</span><h2>驗收</h2></div>
+    <ul class="plain">
+      <li>一個版面測試斷言 <b>Unstaged 的 rect 在 Staged 上方</b>，以及<b>檔案欄的右緣不超過 diff 的左緣</b> —— 兩個都是對著鄰居斷言，所以測試不可能靠對上一個同時也移動了的常數而過關。</li>
+      <li>一個測試斷言 commit box 仍然是<b>最後</b>一個子節點、仍然滿版寬。這是<span class="zh">「位置不變」</span>唯一一個機械化的說法。</li>
+      <li>堆疊欄在 <code>minExtent</code> 時不丟溢出。<code>RenderFlex</code> 只回報主軸溢出，所以這個測試在結構上就是落在垂直軸上。</li>
+      <li>不做任何互動就 pump diff pane，看到的是<b>一</b>欄。點 <code>2 file</code> 之後是兩欄，左 unstaged、右 staged —— 既有的 dx 斷言留著，只是現在放在一次點擊後面。</li>
+      <li>把一列從 Unstaged <b>往下</b>拖到 Staged 會 stage，往上拖會 unstage —— 而且空欄的 placeholder 仍然在 <code>DragTarget</code> 的 builder <em>裡面</em>，所以第一個檔案仍然放得進去。</li>
+      <li>Tree 模式的葉節點列畫的是<b>它在父資料夾之下的那一段</b>，不是完整路徑 —— 斷言方式是在 tree 模式下 pump 那個 board、讀畫出來的東西，跟當初找到這個缺陷的方式一樣。List 模式仍然畫完整路徑，在同一個測試裡斷言，這樣一個把兩邊都改掉的「修法」會失敗。</li>
+      <li>§06 採納的每一個屬性都用 identity 斷言，絕不用「沒有丟例外」—— 邊框的 <code>BorderSide.style</code>、chip 的顏色對上 <code>colors.warning</code>、hover 色對上它的 token。一個只檢查樹還建得起來的卡片 hover 測試，就是 <code>[FLU-hand-rolled-inkwell-hover]</code> 記下的那種失敗。</li>
+      <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨；五個裝置層候選一次跑一個，每一個都在父 commit 上跑一次對照組。</li>
+    </ul>
+  </section>
+
+
+  <!-- ============================ 10 ============================ -->
+  <section id="round2">
+    <div class="sec-head"><span class="sec-num">10</span><h2><code>unified</code>其實還是兩個 view</h2></div>
+    <p class="lede">
+      <span class="zh">「unified 可能本來就做錯了，應該是單一 view 檢視 stage/unstage scope and
+      button，而非還是拆成上下檢視」</span> —— 版面那一輪出貨之後回報的，而且是對的。
+      這一節推翻的<b>不是</b> P03，是<b>這一頁的第 02 節</b> ——
+      它自己的 <span class="zh">Proposed</span> mockup 把 <code>unified</code> 畫成上下兩段各有標題。
+      那是我畫的，不是需求，下面就地劃掉。
+    </p>
+
+    <div class="callout">
+      <div class="callout__title">就地更正 —— 第 02 節</div>
+      <p style="margin:0">
+        <s>Diff 現在顯示完整的行：一個捲軸，<span class="zh">Unstaged</span> 段在
+        <span class="zh">Staged</span> 段上面。</s> &nbsp;→&nbsp; 一個捲軸、<b>一份清單</b>，
+        每張卡片各自帶方向。<code>working-copy-layout-spec.html:676–686</code> 那張上下分段的圖
+        被這一節取代；之所以是劃掉而不是默默改掉，是因為 <code>[CULT-correct-the-record]</code> ——
+        否則之後只讀 §02 的稽核會把它復原回去。
+      </p>
+    </div>
+
+    <p>
+      今天出貨的東西就是 §02 畫的那個（<code>working_copy_diff_pane.dart:183–199</code>）：
+      一個 <code>GbmCodeScrollWell</code> 包住一個 <code>Column</code>，裡面是兩個完整的
+      <code>ScopedDiffView</code>，中間一條 1px 的線。方向是<em>整個 view</em> 的屬性 ——
+      <code>ScopedDiffView.staged</code>（<code>:67</code>）原封不動地傳到
+      <code>scopeButtonLabel(staged: widget.staged, …)</code>（<code>:1076</code>）
+      與一次性選取的標籤（<code>:613</code>），所以上半部每一張卡片都寫 <span class="zh">Stage</span>、
+      下半部每一張都寫 <span class="zh">Unstage</span>。所以這個模式是「一個捲軸」，從來不是「一份清單」。
+    </p>
+    <p>
+      <b>它底下的零件早就已經是逐卡片帶方向的。</b><code>_ScopeCard.staged</code>
+      （<code>:957</code>）與 <code>_GapBlock.staged</code>（<code>:868</code>）各自都是自己的參數；
+      只是上面統一餵同一個值給它們而已。連這一頁自己的 CSS 都已經帶著這個區別 ——
+      <code>.sc__card.staged</code> 把左緣畫成 <code>--gbm-success</code>，對上 unstaged 卡片的
+      <code>--gbm-accent</code> —— 而它沒有被任何東西畫出來。
+    </p>
+    <p>
+      <b>更正：</b><s>引自 §06 的 <span class="zh">變體 B</span></s>。§06 從來沒有畫過、也沒有討論過
+      staged 卡片 —— 它十四條 S 列講的全部是 unstaged 那一欄。真正的來源是
+      <span class="zh">變體 B</span> 的 <b>block 1</b>，<span class="zh">2 file 模式</span>，
+      它自己的 DOM 帶著 <code>variant-B-card-staged</code>、<code>variant-B-dot-staged</code>，
+      以及一顆寫著 <code>Unstage 2 lines</code> 的 <code>variant-B-btn-unstage</code> 按鈕。
+      它的 note 就是那條裁定，逐字：
+    </p>
+    <blockquote class="callout">
+      <div class="callout__title">變體 B block 1 自己的 note</div>
+      <p style="margin:0" class="zh">兩欄之間是一條實線分隔，不做行號對齊 —— 兩側是不同的 diff，硬對齊會製造「同一行」的錯覺。改用<b>顏色對應</b>呼應：Unstaged 卡片左緣是 accent，Staged 是 success，與欄標題的圓點同色。</p>
+    </blockquote>
+
+    <div class="callout is-ask">
+      <div class="callout__title">設計來源畫的是第三種東西，而且兩種都不是</div>
+      <p style="margin:0 0 .6rem">
+        <span class="zh">變體 B</span> 有<b>四</b>個 block，而 block&nbsp;2 的名字字面上就叫
+        <span class="zh">unified 模式</span>。為了這一節重新抓了它的 DOM。它裡面有
+        <b>一</b>個 <code>variant-B-colhead</code>，寫的是 <span class="zh">Unstaged</span> ——
+        而且<b>完全沒有 staged 段</b>。它的 note：
+      </p>
+      <p style="margin:0 0 .6rem" class="zh">單欄時卡片變寬，其餘結構完全不變 —— 標頭列、+/− 統計、按鈕位置都在同一個位置，切換模式不需要重新學一次。</p>
+      <p style="margin:0">
+        所以設計裡的 <code>unified</code> 是<b>單欄、變寬</b> —— 同樣的卡片、同樣的標頭、
+        同樣的按鈕位置，不用重新學一次。<b>今天出貨的那個上下兩段的 pane，跟 demo 與回報都不符。</b>
+        它是被發明出來的 —— 先被程式碼發明，然後被這一頁的 §02 發明 ——
+        而這是第一次有人讀 block 2。三種讀法沒有一種勝出：<b>U1 是照第四種裁的</b> ——
+        依變更區域排序，而且永遠不把兩個方向併成同一個 scope。
+        它把 block 1 的警告完整保住，而不是拿它去換東西，這就是它贏過我建議的那個選項的原因。
+      </p>
+    </div>
+
+    <div class="callout is-warn">
+      <div class="callout__title">為什麼「依區域排序」算得出來</div>
+      <p style="margin:0">
+        兩份 diff 看起來無從比較，其實不然：它們<b>共用 index 這個座標系</b>。
+        unstaged diff 是 index&nbsp;→&nbsp;工作區，所以<em>它的舊側就是 index</em>；
+        staged diff 是 HEAD&nbsp;→&nbsp;index，所以<em>它的新側就是 index</em>。
+        一把尺、兩邊都量得到，<b>而且不需要新的 git 呼叫</b>。
+      </p>
+      <p style="margin:.7rem 0 0">
+        一個區域在那把尺上的位置是<b>逐行讀的，不是逐 hunk</b> —— 每一個
+        <code>DiffLine</code> 本來就帶著 <code>oldLine</code> 與 <code>newLine</code>
+        （<code>parsed_diff.dart:39,40</code>），所以一個 scope 的 index 區間，
+        就是它涵蓋的那些行的 index 側行號的最小值與最大值：unstaged scope 取 <code>oldLine</code>，
+        staged scope 取 <code>newLine</code>。<code>oldStart</code>/<code>newStart</code>
+        只能定位到<em>整個 hunk</em>，而裁定的單位是 hunk 裡面的區域。
+      </p>
+      <p style="margin:.7rem 0 0">
+        <b>有兩件事它刻意不做。</b>它從不宣稱兩列是同一列 ——
+        只宣稱某個區域排在另一個之前，這就是 block 1 的警告能被守住的原因。
+        它也從不合併：兩個落在同樣 index 行上的區域仍然是兩個 scope，相鄰，一個方向一個。
+      </p>
+      <p style="margin:.7rem 0 0">
+        唯一的缺口：一個完全由 index 側不存在的行組成的 scope（工作區裡的純新增）
+        沒有自己的 index 行號，必須錨定到最近一個有的行上。而<b>未追蹤</b>檔案的 unstaged diff 是
+        <code>--no-index /dev/null → file</code>，根本沒有 index 側 ——
+        但這種檔案在被 stage 之前也沒有 staged 側可以排序，所以這個情況不會發生。
+      </p>
+    </div>
+
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">今天出貨的樣子</span>
+          <span class="specimen-note">兩個 view，一個捲軸</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
+            <div class="dv">
+              <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+              <div class="dv__body" style="padding:0 6px">
+                <div class="sc-col"><span class="sc-col__dot"></span><span class="sc-col__t">Unstaged</span><span class="sc__grow"></span><span class="sc-col__chip">2 個 scope</span></div>
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
+                    <div><div class="dl del"><span class="g">40</span>-    if (lane.free) return lane…</div><div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed…</div></div>
+                  </div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
+                    <div><div class="dl add"><span class="g">46</span>+    log('no free lane');</div></div>
+                  </div>
+                </div>
+                <div style="height:1px; background:var(--gbm-border-default); margin:6px -6px"></div>
+                <div class="sc-col"><span class="sc-col__dot staged"></span><span class="sc-col__t">Staged</span><span class="sc__grow"></span><span class="sc-col__chip">1 個 scope</span></div>
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -3,4 +3,4 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card staged">
+                    <div class="sc__head"><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Unstage 2 lines</span></div>
+                    <div><div class="dl del"><span class="g">3</span>-import 'dart:math' as m;</div><div class="dl add"><span class="g">3</span>+import 'dart:math' show min;</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          兩個欄標頭、兩個 scope 計數，中間一條線 —— 上半部是一個 view，下半部是另一個。
+          <code>unified</code> 唯一統一掉的東西是捲軸。
+        </p>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">提案</span>
+          <span class="specimen-note">一份清單，方向逐卡片帶</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="is-built" style="width:100%; max-width:470px; display:flex; flex-direction:column; height:340px">
+            <div class="dv">
+              <div class="dv__bar"><span class="grow">lib/graph/lane_allocator.dart</span><span class="sc-col__chip" style="flex:0 0 auto">2 未暫存 · 1 已暫存</span><span class="seg"><span>2 file</span><span class="on">unified</span></span></div>
+              <div class="dv__body" style="padding:0 6px">
+                <div class="sc">
+                  <div class="sc__hunk"><span>@@ -38,12 +38,14 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card staged">
+                    <div class="sc__head"><span class="sc-col__dot staged"></span><span class="sc__tag">變更 1</span><span class="sc__stat"><span class="p">+1</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn unstage">Unstage 2 lines</span></div>
+                    <div><div class="dl del"><span class="g">38</span>-  int allocate(Commit c) {</div><div class="dl add"><span class="g">38</span>+  int allocate(Commit commit) {</div></div>
+                  </div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 2</span><span class="sc__stat"><span class="p">+2</span><span class="m">−1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 3 lines</span></div>
+                    <div><div class="dl del"><span class="g">40</span>-    if (lane.free) return lane…</div><div class="dl add"><span class="g">40</span>+    if (lane.free &amp;&amp; lane.seed…</div></div>
+                  </div>
+                  <div class="sc__hunk"><span>@@ -61,6 +63,7 @@</span><span class="sc__rule"></span></div>
+                  <div class="sc__card">
+                    <div class="sc__head"><span class="sc-col__dot"></span><span class="sc__tag">變更 3</span><span class="sc__stat"><span class="p">+1</span></span><span class="sc__grow"></span><span class="sc__btn">Stage 1 line</span></div>
+                    <div><div class="dl add"><span class="g">63</span>+    log('no free lane');</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="specimen-note">
+          一份清單、沒有欄標頭、依變更區域排序。<b>變更 1 與變更 2 落在同一個區域</b> ——
+          一個已經 stage、一個沒有 —— 而那正是這條裁定在講的情況：它們是兩個 scope，相鄰，
+          絕不會變成同一張卡片。staged 卡片的左緣是 <code>--gbm-success</code>、圓點同色，
+          按鈕用的是 demo 的 <code>variant-B-btn-unstage</code> 樣式，而 app 今天沒有畫它（U8）。
+        </p>
+      </div>
+    </div>
+    <p class="specimen-note" style="margin-top:1rem">
+      兩張 specimen 都帶著 §06 的 <code>.is-built</code> 覆寫，而其中三項描述的是 W11–W13
+      落地<em>之前</em>的樣子 —— hunk 橫線、卡片標頭線與虛線邊現在都已經出貨了。
+      這一組請看<b>結構</b>；那些屬性是 §06 的，已經裁定過，這裡不重開。
+    </p>
+
+    <h3>九件要裁定的事</h3>
+    <p>
+      每一題都附建議，所以一句<span class="zh">「照建議」</span>就能像 §06 那樣把九題全部帶過。
+      計畫裡列了六題。U4 是第七題，因為一份合併清單在 hunk 開始的地方仍然得畫<em>某個東西</em>。
+      U8 與 U9 是 G1 稽核重讀 demo 的 DOM 時冒出來的，而 U1 的建議也被同一次重讀<b>推翻</b>了 ——
+      上面那一節把推導過程攤開來，因為一個翻過盤的建議對你的價值高過一個從沒翻過的。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:26%">題目</th><th>裁定，以及為什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">U1</td><td><b>一份清單依什麼排序</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td>
+              <span class="zh">「我要對齊的不是行號，是 git 判斷出的區域變更，每個區塊會是一個 scope，然後 unstage, stage 必定是不同 scope」</span>
+              <br><br>
+              <b>對齊的單位是變更區域，不是行。</b>git 早就決定了一個變更區域從哪裡開始、到哪裡結束，
+              而 <code>splitHunkIntoScopes()</code> 早就把每一個區域變成剛好一個 <code>DiffScope</code> ——
+              所以裁定講的那個單位，程式碼裡已經有了。這份清單就是一串依檔案順序排列的區域；
+              一個區域一張卡片；一張卡片一個方向。
+              <br><br>
+              <b>而且一個區域絕不混方向。</b>staged scope 與 unstaged scope 永遠是兩個 scope，
+              絕不併成同一張卡片 —— 這就是每張卡片上那顆按鈕答得出來的原因：
+              按一下、一個方向、一件 git 真的做得到的事。
+              <br><br>
+              <b>這是把矛盾解掉，不是選邊站。</b><span class="zh">變體 B</span> block 1 禁止
+              <span class="zh">硬對齊</span>，是因為把兩份不同 diff 的<em>列</em>對齊，
+              等於宣稱它們是同一行。而排序<em>區域</em>只宣稱某個區域在檔案裡排在另一個之前，
+              這件事在兩份 diff 本來就共用的 index 座標裡是真的。
+              所以 (b) 的錯覺被避開了，也不必退回 (a) 的分組 ——
+              那會把對同樣幾行的兩次編輯，用整個檔案的長度隔開。
+              <br><br>
+              <s>(a) 分組：先全部 unstaged 卡片，再全部 staged 卡片。<b>建議這個。</b></s>
+              &nbsp;<s>(b) 在 index 尺上逐行交錯。</s>
+              &nbsp;<s>(c) 只畫 unstaged，照 block 2 的字面。</s> —— 三個都被上面那條裁定取代。
+            </td></tr>
+        <tr><td class="num">U2</td><td>一張卡片怎麼說自己的方向 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>按鈕的動詞，加上早就已經規定好的左緣顏色</b> —— <span class="zh">Stage</span> 是 <code>--gbm-accent</code>、<span class="zh">Unstage</span> 是 <code>--gbm-success</code>（<code>.sc__card.staged</code>，§06）—— 再加上把舊欄標頭那顆 6px 圓點搬到卡片標頭上。不加文字標籤：<span class="zh">「Unstage 2 lines」</span>已經講完了，再多一個講同一件事的詞就是 <code>[UX-rubric]</code> 的 dimension&nbsp;D 要扣分的冗餘。</td></tr>
+        <tr><td class="num">U3</td><td>兩個欄標頭，以及它們的<span class="zh">「N 個 scope」</span>chip —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>在 <code>unified</code> 裡整個拿掉</b>；標題列上一顆 chip 寫<span class="zh">「2 未暫存 · 1 已暫存」</span>。在 <code>2 file</code> 模式裡它們一個字不動，因為在那裡它們仍然在標示一個欄。一個什麼都沒標到的標頭，比沒有標頭更糟。</td></tr>
+        <tr><td class="num">U4</td><td>相鄰的 hunk 來自不同 diff 時，hunk 標頭怎麼辦 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>維持一個 hunk 一個標頭，不動</b>。它本來就只是一個座標（<code>@@ -3,4 +3,4 @@</code>），方向由它底下的卡片帶。把它藏起來會失去唯一一個告訴你「你在檔案的哪裡」的地標。</td></tr>
+        <tr><td class="num">U5</td><td>一次性選取拖過兩個方向 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>取它碰到的第一張卡片的方向，另一個方向的卡片不納入這一次選取。</b>這不是要道歉的限制：git 沒有任何一個動作可以同時 stage 與 unstage，所以一顆提供這件事的按鈕就是 <code>[UX-ellipsis-promises-a-dialog]</code> 講的那種會說謊的控制項。被排除的卡片仍然保有自己的按鈕，仍然按得下去。</td></tr>
+        <tr><td class="num">U6</td><td><code>2 file</code> 模式 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>版面與行為一行都不改。</b>左 unstaged、右 staged，自己的 splitter、自己的兩個欄標頭。它整個存在的意義就是兩份檔案並排，而且它是任何想要今天這個行為的人的逃生口。
+              <br><br>
+              <s><b>一行都不改。</b></s> —— 就地更正。這句話在裁定當下是對的，
+              <b>下一句補充把它縮小了</b>：<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
+              所以 <code>2 file</code> 的<em>版面</em>與<em>行為</em>不動，
+              而 U8 的 Unstage 按鈕樣式<b>兩個模式一起改</b>。
+              照 <code>[CULT-correct-the-record]</code> 劃掉重寫，不是默默改掉 ——
+              因為原句已經被引用過一次，把它悄悄換掉會讓引用它的人讀到一個從沒存在過的裁定。</td></tr>
+        <tr><td class="num">U7</td><td>同一行被改兩次 —— 一次 HEAD→index、一次 index→工作區 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><b>它出現兩次，一個方向一次，不去重。</b>那是對兩組不同內容做的兩個不同變更；把它們摺在一起會畫出一張卡片，而它的按鈕只做得到它宣稱的一半。<b>U1 的裁定已經把這題解掉了</b> —— <span class="zh">「unstage, stage 必定是不同 scope」</span> —— 所以這一列現在是一個推論，不是一個問題。</td></tr>
+        <tr><td class="num">U8</td><td>Unstage 按鈕自己的樣式 —— <b>這次稽核找到的一個不符</b> —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td><span class="zh">變體 B</span> 定義了<b>兩種</b>按鈕樣式：<code>variant-B-btn-stage</code>（accent 填滿）與 <code>variant-B-btn-unstage</code>（<code>surface-panel-raised</code> 底、<code>border-strong</code> 邊、<code>text-primary</code> 字）。<s>app 只實作了 accent 那個 —— <code>.sc__btn</code> —— 所以今天兩側每一顆按鈕畫出來都一模一樣，只有動詞不同。</s>
+              <b>這句是錯的，實作時量出來的，就地更正。</b>
+              <code>scoped_diff_view.dart</code> 從最早那個 scope 卡片 commit
+              （<code>7abb728</code>）就寫著
+              <code>kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary</code>，
+              而 <code>GbmButtonKind.secondary</code> 給的正是
+              <code>surface-panel-raised</code> 底與 <code>text-primary</code> 字。
+              三個屬性裡有兩個本來就對了。<b>真正差的只有邊框一個 token</b>：
+              app 用 <code>border-default</code>，<span class="zh">變體 B</span> 寫的是
+              <code>border-strong</code>。所以這不是「沒實作」，是「弱了一階」。<b>建議採用</b>，而且它在合併清單裡比在兩欄裡更重要：兩顆樣式一模一樣、相隔幾公分、做的事相反的按鈕，正是分組救不了的那件事。<code>docs/</code> 底下沒有任何地方記過這個落差。
+              <br><br>
+              <b>裁定：採用，而且兩個模式一起改。</b>（裁定是對著上面那個<em>錯的</em>描述下的 ——
+              真正要做的比當時寫的小得多，但方向一樣：讓 Unstage 按鈕在合併清單裡讀得出是自己的控制項。）<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響到 2file 的」</span>。
+              這是本輪唯一越過 <code>unified</code> 邊界的一項，其他每一項都留在 pane 裡面。
+              <br><br>
+              <b>它讓實作變簡單，不是變複雜。</b>樣式跟著<em>卡片自己的方向</em>走，
+              而 <code>_ScopeCard.staged</code>（<code>scoped_diff_view.dart:957</code>）
+              本來就是逐卡片的參數 —— 所以這是一個純粹的
+              <code>staged ? unstage 樣式 : stage 樣式</code>，不需要再把「我現在是哪個模式」
+              傳一路下去。<b>反過來做才會出事</b>：合併之後的 <code>unified</code>
+              在一個只有 staged 變更的檔案上只會拿到<em>一個</em>來源，
+              跟 <code>2 file</code> 的右欄形狀一模一樣，
+              所以任何「數來源個數來猜模式」的寫法都會在那個檔案上畫錯按鈕，
+              而每一個兩來源的 fixture 都會是綠的（<code>[TEST-fixture-cannot-disagree]</code>）。
+              兩個模式一致，這個陷阱根本不存在。</td></tr>
+        <tr><td class="num">U9</td><td>模式切換器本身 —— <span class="pill is-ratified" style="white-space:nowrap">使用者裁定</span></td>
+            <td>demo 的標題列寫的是<span class="zh">檢視方式</span>，後面接一個 segmented control，兩顆按鈕各帶一個 11px 的 SVG 圖示（<code>2 file</code> 是兩個矩形，<code>unified</code> 是一個外框裡兩條線）。app 這兩樣都沒畫。<b>裁定：不動它，照既有模式維持。</b><span class="zh">「u9 不應動，照既有模式維持」</span> —— 它是一個獨立的、純外觀的落差，落在一個已經能用的控制項上，把它捲進來會讓一輪「pane 裡面裝什麼」的工作變成要處理圖示資產。<b>這是一句「維持現狀」的裁定，不是一句「以後再說」</b>：檢視方式標籤與那兩個 11px SVG 圖示照現況留著，不列進本輪工作清單，也不留成待辦。</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">已裁定 —— 九題全部</div>
+      <ul class="plain" style="margin-bottom:0">
+        <li><b>U1</b> —— 對齊單位是 <b>git 判斷出的區域變更</b>，不是行號；
+          <span class="zh">「unstage, stage 必定是不同 scope」</span>。上一節有完整推導。</li>
+        <li><b>U2–U8</b> —— <span class="zh">「其他照建議」</span>。</li>
+        <li><b>U9</b> —— <span class="zh">「u9 不應動，照既有模式維持」</span>。維持現狀，不是延後。</li>
+        <li><b>範圍</b> —— <span class="zh">「這次只改 unified 內」</span>，
+          <b>唯一的例外是 U8</b>：<span class="zh">「u8 影響樣式應該要跟 2 file 模式相同，
+          所以應該要一起動，這是唯一會影響到 2file 的」</span>。</li>
+      </ul>
+    </div>
+
+    <h3>範圍那條線畫在哪裡</h3>
+    <p>
+      把兩句合起來，本輪能碰的東西剛好是這樣 ——
+      ASCII 畫出來比一段散文清楚，因為要記的是<em>邊界</em>不是<em>清單</em>：
+    </p>
+    <pre>
+  Working Copy diff pane
+  ├── 標題列（模式切換器）        ← U9：不動。標籤與圖示照現況
+  ├── 2 file 模式
+  │   ├── 版面（左右兩欄、splitter、兩個欄標頭）   ← U6：不動
+  │   ├── 行為（哪一欄放哪一份 diff）              ← U6：不動
+  │   └── 卡片上那顆按鈕的<b>樣式</b>              ← U8：<b>改</b>（本輪唯一越界的一項）
+  └── unified 模式
+      └── 全部                                     ← U1–U5、U7、U8 都在這裡面</pre>
+    <p>
+      這條線是<b>使用者畫的，不是我推導的</b>，兩句原話都逐字引在上面那張表裡。
+      會值得畫成圖，是因為它不是「一個模式全改、一個模式全不改」那種好記的形狀 ——
+      U8 從中間穿過去，而穿過去的理由是<b>一致性</b>：
+      同一顆按鈕在兩個模式裡長得不一樣，本身就是一個新的缺陷，
+      修掉 <code>unified</code> 卻留下 <code>2 file</code> 只是把 U8 這個不符換一個地方擺。
+    </p>
+
+    <h3>有一個不對稱必須寫明，不能讓人自己發現</h3>
+    <p>
+      <code>onDiscardScope</code> 只存在於 unstaged 那一側
+      （<code>working_copy_diff_pane.dart:217</code>）—— 一行已經 stage 的東西沒有什麼可以丟掉的。
+      在合併清單裡這代表 <b>Discard 會出現在某些卡片上、不出現在另一些上</b>，
+      而這件事不寫下來的話讀起來就像 bug。這跟兩個欄標頭以前隱含帶著的是同一件事；
+      正是因為把標頭摺掉了，它才需要被講出來。
+    </p>
+
+    <h3>這一節有哪些東西是沒有出處的</h3>
+    <p>
+      在你看到這兩張 specimen 之前，G1 的差異稽核已經跑過一遍：<b>16 個值、11 符合、
+      1 不符、4 無出處</b>。那個「不符」已經在上面就地更正。四個沒有出處的全部都是<em>提案</em>，
+      這就是它們沒有出處的誠實理由 —— 它們是 U1–U9 要你裁定的東西，
+      不是我從哪裡找到然後抄過來的值：
+    </p>
+    <ul class="plain">
+      <li>標題列 chip 的文字<span class="zh">「2 未暫存 · 1 已暫存」</span>。在這一頁與 21 頁 spec 裡搜過<span class="zh">未暫存</span>/<span class="zh">已暫存</span> —— 什麼都沒有。新寫的文案（U3）。</li>
+      <li><b>放進卡片標頭裡</b>的那顆 6px 圓點。圓點本身是 <code>variant-B-dot</code>，尺寸是 <code>_ColumnHead</code> 自己的 <code>Container(width: 6, height: 6)</code>；把它放到卡片上是新的（U2）。</li>
+      <li>來自兩份不同 diff 的 hunk 標頭相鄰、中間什麼都沒有（U1、U4）。</li>
+      <li>兩個欄標頭不見了這件事（U3）。</li>
+    </ul>
+    <p>
+      其餘每一項都追得到出處：左緣與圓點來自 <span class="zh">變體 B</span> block 1，
+      按鈕動詞來自 <code>scopeButtonLabel()</code>，unstage 按鈕樣式來自
+      <code>variant-B-btn-unstage</code>，而每一個引用的行號都對著檔案核過。
+      <b>21 頁的 spec 對這一切什麼都沒說</b> —— <code>unified</code>、
+      <span class="zh">並排</span>與 <code>2 file</code> 在裡面完全沒出現過，
+      所以整個這個面是 <code>[STRUCT-soft-wrap-preference]</code> 記的那種
+      「使用者要求的追加」，不是一個符合性項目。
+    </p>
+  </section>
+
+  <!-- ============================ 11 ============================ -->
+  <section id="untracked-roundtrip">
+    <div class="sec-head"><span class="sec-num">11</span><h2>未追蹤檔案整份 stage 再整份 unstage 回來，它還留在 Staged</h2></div>
+    <p class="lede">
+      <span class="zh">「untracked, use line stage all, and unstage all back, the file should not
+      leave in staged list」</span> —— 重現了，而且成因是量出來的，不是推理出來的。
+      下面全部都是在 <b>git 2.55.0</b> 上一個臨時 repo 的真實逐字記錄，不是讀原始碼讀出來的。
+    </p>
+
+    <h3>實際上一步一步發生了什麼</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:34%">app 跑的指令</th><th style="width:10%">exit</th><th>git 接著回報什麼</th></tr></thead>
+      <tbody>
+        <tr><td><code>git diff --no-index -- /dev/null untracked.txt</code><br><span class="specimen-note"><code>DiffService.cpp:613–677</code></span></td><td class="num">1</td>
+            <td>diff 本身，設計上就是如此 —— 依 <code>[GIT-no-index-sees-untracked]</code>，這裡的 exit 1 <em>就是</em>成功。標頭：<code>new file mode 100644</code> / <code>--- /dev/null</code>。</td></tr>
+        <tr><td><code>git apply --cached</code> &lt;那份 patch&gt;<br><span class="specimen-note"><code>StageOps.cpp:43–49</code>，標頭來自 <code>UnifiedDiffParser.cpp:82–88</code></span></td><td class="num">0</td>
+            <td><code>1 A. N... 000000 100644 100644 000…000 8b05eae untracked.txt</code><br>已 stage，blob <code>8b05eae</code>，三行。正確。</td></tr>
+        <tr><td><code>git apply --cached --reverse</code> &lt;重建的 <code>a/&lt;path&gt;</code> patch&gt;<br><span class="specimen-note"><code>UnifiedDiffParser.cpp:91–101</code> 的純標頭</span></td><td class="num">0</td>
+            <td><code>1 <b>AM</b> N... 000000 100644 100644 000…000 <b>e69de29</b> untracked.txt</code><br><b>index 條目活下來了，裡面放的是空 blob。</b><code>git cat-file -s e69de29</code> → <code>0</code>。</td></tr>
+      </tbody>
+    </table></div>
+    <p>
+      <code>e69de29bb2d1d6434b8b29ae775ad8c2e48c5391</code> 是 git 的空 blob。工作區沒有被動到 ——
+      <code>cat untracked.txt</code> 仍然印出三行。而 porcelain v2 的第一個字元是 <code>A</code>，
+      那是 <code>WorkingCopyStatus.cpp:427–429</code> 唯一會讀的東西
+      （<code>x != '.'</code> → <code>entry.staged = true</code>），
+      所以 <code>WorkingCopyStatus::staged()</code>（<code>:347–355</code>）
+      繼續把這個檔案交給 Staged 那一欄。
+    </p>
+    <div class="callout is-warn">
+      <div class="callout__title">使用者實際看到的是什麼</div>
+      <p style="margin:0">
+        這個檔案同時出現在<b>兩</b>欄裡。在 Staged，是因為 index 條目還在 —— 而且它的卡片是
+        <b>空的</b>，因為 staged diff 現在是 <code>new file mode … index
+        0000000..e69de29</code>，一個 hunk 都沒有。在 Unstaged，是因為第二個位置的 <code>M</code>
+        代表 index ≠ 工作區。畫面上沒有任何東西告訴你 staged 那一半是殘留物。
+      </p>
+    </div>
+
+    <h3>兩個候選修法，量過的</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:30%">指令</th><th style="width:10%">exit</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td><code>git rm --cached -- untracked.txt</code></td><td class="num"><span class="verdict bad">1</span></td>
+            <td><b>拒絕。</b><code>error: the following file has staged content different from both the file and the HEAD … (use -f to force removal)</code>。計畫裡提的就是這個指令；量完就把它退掉了。用 <code>-f</code> 硬闖一個 git 刻意提出的拒絕，正是 <code>[GIT-remove-locked-needs-two-forces]</code> 已經記下的那種形狀。</td></tr>
+        <tr><td><code>git restore --staged -- untracked.txt</code></td><td class="num"><span class="verdict ok">0</span></td>
+            <td><b>回到 <code>? untracked.txt</code></b>，工作區完好 —— 而且從 <code>A.</code> 狀態與 <code>AM</code> 殘留狀態<b>兩邊</b>都會落到這裡。<code>git reset -- &lt;path&gt;</code> 行為完全相同；之所以選 <code>restore --staged</code>，只是因為 app 本來就在跑的正是這一條。</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="callout">
+      <div class="callout__title">整檔那條路徑本來就是對的 —— 修法就是它</div>
+      <p style="margin:0">
+        把檔案從 Staged 往上拖跑的是 <code>UnstageFilesOperation</code>
+        （<code>StageOps.cpp:93–135</code>），也就是 <code>git restore --staged --</code>，
+        而它今天就會把未追蹤檔案還原成 <code>?</code>。所以這兩條路徑在政策上並沒有分歧 ——
+        只是其中一條沒有用那個把政策講出來的指令而已。
+        <b>提案的規則：unstage 掉一個 staged <code>DiffFile.kind</code> 是 <code>Added</code>
+        的檔案的<em>每一條</em>變更，就是一次整檔 unstage，跑
+        <code>git restore --staged -- &lt;path&gt;</code>，而不是反向 patch。</b>
+        一個指令、一個終態，<code>[CULT-single-source-of-truth]</code>。
+      </p>
+    </div>
+
+    <h3>這條規則必須停在哪裡，也是量的</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:34%">情況</th><th style="width:10%">今天</th><th>為什麼它必須繼續用反向 patch</th></tr></thead>
+      <tbody>
+        <tr><td>新增檔案的<b>部分</b> unstage —— 三行裡的一行</td><td class="num"><span class="verdict ok">正確</span></td>
+            <td>exit 0、<code>1 AM … 48d0939</code>，index 裡放的是 <code>alpha</code>+<code>charlie</code>。完全正確，而在這裡用 <code>restore --staged</code> 會把使用者想留著的那一份 stage 丟掉。閘門是<b><span class="zh">「每一條變更」</span>，絕不是<span class="zh">「任何一次 unstage」</span></b>。</td></tr>
+        <tr><td><b>已追蹤</b>檔案，整份 stage 再整份 unstage</td><td class="num"><span class="verdict ok">正確</span></td>
+            <td>exit 0，落在 <code>1 .M</code> —— 沒有 stage、沒有殘留。條目被還原成它的 HEAD 內容，不是被清空，所以沒有東西變成孤兒。這就是為什麼閘門是 <code>kind == Added</code>，而不是只有<span class="zh">「全部行」</span>。</td></tr>
+        <tr><td>接著上面那次部分 unstage，再把剩下兩行 unstage 掉</td><td class="num"><span class="verdict none">n/a</span></td>
+            <td>那一次選取<em>就是</em>當下那份 staged diff 的每一條變更，所以規則會觸發、條目會消失。這條規則在結構上就是可迭代的；它不需要記得先前按過什麼。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>為什麼沒有任何測試抓到它</h3>
+    <p>
+      <code>GitIntegrationTest.cpp</code> 有 <code>StagesSelectedLinesOfAnUntrackedFile</code>，
+      <b>沒有 unstage 的對照</b>。這就是 <code>[TEST-fixture-cannot-disagree]</code>
+      最素的形式：一個只會 stage 的 fixture 看不到 unstage 留下了什麼。
+      <code>integration_test/stage_lines_flow_test.dart</code> 在這個面上有 7 個測試，
+      沒有一個用未追蹤檔案。新測試斷言的是 <b>porcelain 的 <code>?</code></b> ——
+      使用者看到的東西 —— 而不是<span class="zh">「index 條目不見了」</span>，
+      那是實作在自言自語。
+    </p>
+  </section>
+
+  <!-- ============================ 12 ============================ -->
+  <section id="round2-work">
+    <div class="sec-head"><span class="sec-num">12</span><h2>第二輪工作清單</h2></div>
+    <p class="lede">
+      §08 那張表是第一輪的記錄，維持原樣。這裡是這一輪追加的列，
+      分支從第一輪那條切出來：<code>fix/working-copy-unified-single-view</code>。
+      X1 與 §10 無關，先做 —— 它是一個有自己測試層的 C++ 修正，
+      把它卡在一個 UI 裁定後面會變成沒有人要求的縮減範圍。
+    </p>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">X1</td><td><span class="pill is-ratified">done</span></td><td>未追蹤檔案 unstage 之後回到 <code>?</code></td><td class="num">1 + 2 測試</td>
+            <td>把 §11 的規則放進 <code>PartialStageOperation</code>（<code>StageOps.cpp:168–241</code>）。先在 <code>GitIntegrationTest.cpp</code> 寫紅，斷言 porcelain 的 <code>?</code>；然後補一個裝置層案例，因為 <code>stage_lines_flow_test.dart</code> 七個測試裡沒有一個用未追蹤檔案。不動 capi —— 修正完全在 operation 內部，所以不會跨過 <code>[TEST-ffi-matches-symbol-only]</code> 的那條縫。</td></tr>
+        <tr><td class="num">X2</td><td><span class="pill is-ratified">done</span></td><td><code>ScopedDiffView</code> 改成吃一串來源</td><td class="num">2</td>
+            <td><b>純重構，不動任何一個像素。</b><code>file</code>/<code>staged</code>/<code>onStageScope</code>/<code>onDiscardScope</code> 收成一串 <code>ScopedDiffSource</code>；<code>_wellChildren</code> 改成走 來源 → hunks → segments。<code>_ScopeCard</code>/<code>_GapBlock</code> 不用改 —— 它們本來就各自收 <code>staged</code>。列的 <code>GlobalKey</code> 要改用 <code>(source, hunk, line)</code> 當 key，否則兩個來源的同號列會撞在一起，那在結構上就是 <code>[FLU-selectionarea-gives-a-string]</code> 的陷阱 1。驗收條件是既有測試一個字都不改、全部維持綠。</td></tr>
+        <tr><td class="num">X3</td><td><span class="pill is-ratified">done</span></td><td><code>unified</code> 變成一份合併清單</td><td class="num">1 + 測試</td>
+            <td>依 U1–U9 的裁定，九題全部已定。區域排序（U1）、逐卡片的左緣與圓點、標題列的計數 chip、一次性選取的方向規則。<code>2 file</code> 的版面與行為一個字不動（U6），模式切換器不動（U9）。<b>Unstage 按鈕樣式獨立成 X5</b>，因為它是本輪唯一跨到 <code>2 file</code> 的改動，混在這個 commit 裡就沒辦法單獨 revert。</td></tr>
+        <tr><td class="num">X5</td><td><span class="pill is-ratified">done</span></td><td>Unstage 按鈕的第二種樣式（U8）</td><td class="num">2</td>
+            <td><b>本輪唯一跨到 <code>2 file</code> 的一項</b>，所以自己一個 commit，可以單獨 revert。<b>實作時量到落差比稽核當時寫的小</b>：<code>GbmButtonKind.secondary</code> 早就供了 <code>surface-panel-raised</code> 與 <code>text-primary</code>，只有邊框是 <code>border-default</code> 而非 <code>border-strong</code>。所以做的是給 <code>GbmButton</code> 一個 <code>borderColor</code> 覆寫、在這兩個呼叫點傳 <code>borderStrong</code> —— 直接改 <code>secondary</code> 這個 kind 會動到全 app 每一顆次要按鈕。條件是<b>卡片自己的 <code>staged</code></b>，不是模式 —— <code>_ScopeCard</code> 已經逐張帶著這個值，所以兩個模式自然一致，不必把模式傳下去。<b>放在 X3 之後</b>，這樣 <code>2 file</code> 的既有測試是在版面改動已經全綠之後才被碰到，紅了就一定是這個 commit。測試斷言按鈕的<b>顏色 token</b>，不是它存在 —— 一個只找得到 <code>Unstage 2 lines</code> 的斷言，在兩顆按鈕長得一模一樣的今天也是綠的（<code>[FLU-hand-rolled-inkwell-hover]</code> 那句<span class="zh">「用 identity 斷言 token」</span>）。</td></tr>
+        <tr><td class="num">X4</td><td><span class="pill is-ratified">done</span></td><td>記錄</td><td class="num">4</td>
+            <td><code>[STRUCT-two-column-switches]</code> 的 Working Copy 那一列寫著<span class="zh">「左 ↔ 右 means unstaged ↔ staged」</span>，這對 <code>unified</code> 不再成立；<code>[STRUCT-working-copy]</code> 的 diff 段落同理。X1 的發現是 <code>GIT-</code> pin 等級的材料，該放在 <code>[GIT-new-file-patch-needs-dev-null]</code> 旁邊，它那句<span class="zh">「不要改 unstage 方向」</span>是<em>對的</em>，現在多了一條量出來的邊界。新的 ledger 檔，加上它在 <code>INDEX.md</code> 的那一行。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>第二輪的驗收</h3>
+    <ul class="plain">
+      <li>一個真 repo 測試把未追蹤檔案的每一行 stage、再每一行 unstage 回來，斷言 <b>porcelain 回報 <code>?</code></b> —— 不是斷言某個 index 條目不見了。</li>
+      <li>第二個真 repo 測試只 unstage <b>三行裡的一行</b>，斷言條目連同另外兩行活著，這樣修法就不可能變成「任何一次 unstage 都 <code>restore --staged</code>」。</li>
+      <li>第三個斷言<b>已追蹤</b>的對照組仍然落在 <code>.M</code>，把 <code>kind == Added</code> 這道閘門釘住，而不是釘<span class="zh">「全部行」</span>。</li>
+      <li>在 <code>unified</code> 下，掛載的 <code>ScopedDiffView</code> 剛好<b>一</b>個，而且同一份清單裡同時找得到 <code>Stage …</code> 與 <code>Unstage …</code> 兩種按鈕。</li>
+      <li>交錯順序由一個 fixture 釘住：它的 staged hunk 的 <code>newStart</code> 落在兩個 unstaged hunk 的 <code>oldStart</code> <b>之間</b> —— 一個數字剛好重合的 fixture 分不出「排序過」與「接在後面」（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li>一次跨過 staged 卡片與 unstaged 卡片的拖曳，只把先碰到的那個方向放進一次性 scope，斷言在產生出來的按鈕自己的標籤上。
+        <br><b>就地更正：</b>這一條是清單裡<b>唯一沒有在第一輪實作時寫出來的</b>，
+        而它正好蓋著一個真缺陷。X3 讓畫面依 index 區域排序，
+        <code>_rowsInRenderOrder</code> 卻還照 source 走 —— 於是
+        <code>resolveTemporaryScope</code> 取到的<span class="zh">「第一個碰到的」</span>
+        永遠是 unstaged，即使畫在上面的是 staged 卡片。U5 的裁定被實作成了它的反面，
+        而且 Shift+↑/↓ 跨的也是螢幕上不存在的順序
+        （<code>[SPEC-range-follows-paint-order]</code>）。補寫這條驗收就是那個紅；
+        修法是把區塊的建立與排序抽成一個 <code>_orderedBlocks</code>，兩邊都從它推導。
+        <b>沒有寫出來的驗收不是還沒驗，是沒有驗</b>——這一輪的教訓就這一句。</li>
+      <li><code>2 file</code> 模式既有的<b>版面</b>斷言在測試一個字都不改的情況下仍然過（X3 之後）。</li>
+      <li>Unstage 按鈕在 <b><code>2 file</code> 與 <code>unified</code> 兩個模式裡拿到同一組顏色 token</b>，而且跟 Stage 那顆<b>不同</b> —— 兩個模式各一條斷言，因為 U8 的整個理由就是一致性，只驗一個模式等於沒驗。</li>
+      <li>畫面順序只有<b>一個</b>來源：<code>_wellChildren</code> 畫的與
+        <code>_rowsInRenderOrder</code> 走的是同一份區塊清單。釘住它的 fixture 讓
+        staged 側落在 index 10、unstaged 側落在 100，排序因此把 staged 畫在<b>上面</b>
+        —— 兩側位置相同的 fixture 分不出 source 順序與畫面順序
+        （<code>[TEST-fixture-cannot-disagree]</code>），另加一條守門測試斷言畫面順序
+        真的是反過來的，否則主測試會因為錯的理由通過。</li>
+      <li><code>flutter analyze</code> 歸零、<code>dart format</code> 乾淨、<code>ctest</code> 綠，<code>stage_lines_flow_test.dart</code> 在裝置上整份重跑，並且先在父 commit 上跑一次對照組。</li>
+    </ul>
+  </section>
+
+  <section id="sec13">
+    <div class="sec-head"><span class="sec-num">13</span><h2>第三輪：未追蹤檔案中間那一行</h2></div>
+    <p class="lede">
+      §12 那張表是第二輪的記錄，維持原樣。這一輪是使用者拿實際檔案回報的一個
+      案例：五行的未追蹤檔案，把中間那一行 stage 起來，<b>應該是三個 scope，
+      畫出來只有兩個</b>。量出來一個回報底下是三個缺陷，而且修掉任何一個，
+      另外兩個都還在。
+    </p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td><span class="pill is-ratified">done</span></td><td>index 座標改成兩段</td><td class="num">1 + 測試</td>
+            <td><code>IndexPosition</code> 從一個 <code>int</code> 變成 <code>({int line, int offset})</code>。<code>offset 0</code> 表示這一列<b>就是</b> index 的第 <code>line</code> 行，<code>offset 1</code> 表示它夾在第 <code>line</code> 行與下一行之間。一段式的座標讓未追蹤檔案的<b>每一列</b>都回報同一個數字，於是「照區域排序」退化成「照來源的先後」。這是三個缺陷裡最容易漏的一個——它要等另外兩個修好才看得見。</td></tr>
+        <tr><td class="num">C2</td><td><span class="pill is-ratified">done</span></td><td>gap 規則接受硬邊界</td><td class="num">1 + 測試</td>
+            <td><code>splitHunkIntoScopes</code> 多一個 <code>barriers</code>，被指名的未變更行不可以被吞進 scope。規則寫成<b>「不可以吞掉邊界」</b>而不是「碰到邊界就結束 scope」——它只作用在同一側兩個變更<em>中間</em>的未變更行，所以所有單一來源的 fixture 一個字都不用改。同一顆 commit 裡加上 <code>changedIndexLines</code>（誰是邊界）與 <code>barrierLineIndices</code>（翻成那個 hunk 自己的列號）。</td></tr>
+        <tr><td class="num">C3</td><td><span class="pill is-ratified">done</span></td><td><code>unified</code> 接上邊界</td><td class="num">1 + 測試</td>
+            <td>每一個來源拿到<b>其他</b>來源改到的 index 行當邊界，切出來就是 git 看到的三個區域：<code>Stage 2 lines</code> / <code>Unstage 1 line</code> / <code>Stage 2 lines</code>。<code>2 file</code> 只有一個來源，邊界集合是空的，所以這一項在那個模式裡結構上就是惰性的，不需要旗標。</td></tr>
+        <tr><td class="num">C4</td><td><span class="pill is-ratified">done</span></td><td>同一個 index 行不畫兩次（<b>裁定 B</b>）</td><td class="num">1 + 測試</td>
+            <td><span class="zh">「b」</span>——一側畫成未變更、另一側畫成變更的那一行，在合併清單裡<b>只畫一次</b>。<code>hunkSegments</code> 多一個 <code>hiddenLines</code>，而關鍵不是「跳過那一列」，是<b>把那一段未變更的跑馬燈從那裡切成兩段</b>；只跳過不切，上下兩段 context 會悄悄併成同一個區塊。</td></tr>
+        <tr><td class="num">C5</td><td><span class="pill is-ratified">done</span></td><td>標題列的計數也用同一組邊界</td><td class="num">3 + 測試</td>
+            <td><b>收尾時才發現的第四個缺陷。</b>「N 未暫存 · M 已暫存」有自己的 <code>DiffScopeCache</code>，呼叫時不帶方向也不帶邊界——所以在這個案例上，卡片是三張，標題列寫的是 <code>1 未暫存 · 1 已暫存</code>。修法不是在 pane 裡再算一次（那就是這個缺陷本身的形狀），而是把 <code>ScopedDiffView</code> 私有的 memo 抽成純層的 <code>DiffBarrierMemo</code>，兩邊共用（<code>[CULT-single-source-of-truth]</code>）。原本那段 doc comment 保證<span class="zh">「the chip cannot say a number the list disagrees with」</span>，就地劃掉改寫。</td></tr>
+        <tr><td class="num">C6</td><td><span class="pill is-ratified">done</span></td><td>記錄</td><td class="num">4</td>
+            <td>兩條新 pin：<code>[FLU-index-position-is-two-part]</code> 與 <code>[FLU-other-side-changes-are-barriers]</code>。<code>[FLU-merged-diff-keys-by-source]</code> 裡那句「fallback 是 hunk 自己的 start」就地更正成 <code>start - 1</code> 配 offset。<code>[STRUCT-working-copy]</code> 的切 scope 那一句補上邊界。ledger 追加一段。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>第三輪的驗收</h3>
+    <ul class="plain">
+      <li>用實測出來的那份 diff 當 fixture，斷言畫出來是<b>三張卡</b>，按鈕依序是 <code>Stage 2 lines</code> / <code>Unstage 1 line</code> / <code>Stage 2 lines</code>——不是「至少三張」，是精確的三個標籤。</li>
+      <li>那張 staged 卡片<b>畫在兩張 unstaged 卡片中間</b>，用幾何斷言（拿它的按鈕矩形對上 <code>bravo</code> 與 <code>delta</code> 兩列），不是用 finder 數數量（<code>[FLU-finder-proves-existence-not-position]</code>）。</li>
+      <li><code>document</code> 這一列在整份清單裡<b>只出現一次</b>，而且落在第二張卡片裡面——裁定 B 的正面與位置各一條，只驗「只有一個」不足以說它畫在對的地方。</li>
+      <li><code>alpha</code>/<code>bravo</code>/<code>delta</code>/<code>echo</code> 每一列都還在——去重不可以順手吃掉別的東西。</li>
+      <li>標題列的兩個數字<b>跟卡片同一種切法</b>：同一份 fixture 上斷言 <code>2 未暫存 · 1 已暫存</code>。原本的 chip 測試兩個 hunk 相隔 50 個 index 行，任何一側的邊界都不會落進另一側的 gap 裡，所以它在整段缺陷期間都是綠的（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li><code>DiffBarrierMemo</code> 命中時交回<b>同一個 <code>Set</code> 實例</b>，單一來源交回 <code>const &lt;int&gt;{}</code>——不是相等，是 identity：<code>DiffScopeCache</code> 用 <code>identical</code> 當 key，一個相等但新的集合會讓它每一幀重切。</li>
+      <li><code>changedIndexLines</code> 的 fixture 兩側必須是<b>不同</b>的數字。第一版寫成兩側都是 2，把函式改成「永遠讀舊的那一側」<b>全綠</b>——這一輪自己撞上的 <code>[TEST-fixture-cannot-disagree]</code>，而抓到它的是 mutation 檢查。</li>
+      <li><code>stage_lines_flow_test.dart</code> 與 <code>untracked_unstage_flow_test.dart</code> 在裝置上逐檔重跑，輸出<b>不接 <code>tail</code>、也不接只留進度列的 <code>grep</code></b>。</li>
+    </ul>
+  </section>
+
+  <!-- ============================ 14 ============================ -->
+  <section id="sec14">
+    <div class="sec-head"><span class="sec-num">14</span><h2>第四輪：樹狀模式照 VS Code，檔案不帶 folder</h2></div>
+    <p class="lede">
+      §13 那張表是第三輪的記錄，維持原樣。這一輪是使用者驗收 <b>W10</b>
+      （§08 那張表裡「tree 葉節點這輪一起修」的那一列）時回報的：
+      <span class="zh">「w10我覺得共用沒錯，但是需要修一下，樹狀模式下，我想要的是像
+      vscode一樣，folder可以堆疊名稱，但是檔案不會有folder」</span>。
+      <b>「共用沒錯」是對 W10 範圍的裁定 —— 那個共用元件留著</b>；被推翻的是它的行為。
+    </p>
+
+    <div class="compare">
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">驗收看到的</span>
+          <span class="specimen-note">W10 出貨的樣子 · <code>7f37f55</code></span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="path">▾ docs</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">rules/fn-flutter-layout.md</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">要的</span>
+          <span class="specimen-note">資料夾鏈才堆疊，檔案畫 basename</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="path">▾ docs</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">▾ ledger</span></div>
+                <div class="frow" style="padding-left:40px"><span class="path">2026-09-05-feat-worktree-dialogs-shell-redesign.md</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">▾ rules</span></div>
+                <div class="frow" style="padding-left:40px"><span class="path">fn-flutter-layout.md</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p>
+      <b>更正：</b><s>W10 的第二個缺陷是「收合鏈結尾是檔案時，前綴被
+      <code>leafPath!.split('/').last</code> 丟掉了」，所以要把整段前綴留在
+      <code>name</code> 裡</s> —— 診斷對了一半，修法多做了一步。P03 item 10 的
+      例子<span class="zh">「只有一個子項的資料夾會自動串接成 <code>lib/app/views</code>
+      一列」</span>講的是三層<b>資料夾</b>；把它延伸到「單一子項是檔案」是這個 repo
+      自己加的，不是 spec 要求的。VS Code 的 <code>explorer.compactFolders</code>
+      只壓縮資料夾鏈，遇到檔案就停 —— 使用者要的就是這個。
+    </p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td><span class="pill is-ratified">done</span></td><td>收合停在資料夾</td><td class="num">2 + 測試</td>
+            <td><code>_collapseIfSingleChild</code> 只在單一子項<b>本身是資料夾</b>時才遞迴。遞迴刻意 gate 在 <code>!childData.isLeaf</code>，不是把舊分支刪掉了事：讓它遞迴進一個 leaf 會走到函式底部，回一個<b>名字是檔名的空資料夾</b>，檔案從樹上與 <code>getAllLeafPaths()</code> 一起消失 —— 而 <code>getAllLeafPaths()</code> 正是 Working Copy 拖整個資料夾在讀的東西。資料夾鏈那半邊原封不動，<code>lib → app → views</code> 那個測試全程綠。</td></tr>
+        <tr><td class="num">C2</td><td><span class="pill is-ratified">done</span></td><td>資料夾的展開鍵改成從根算起</td><td class="num">1 + 測試</td>
+            <td><b>C1 之前就在的缺陷，但 C1 會放大它。</b><code>FileTreeList</code> 用 <code>node.displayPath</code> 當展開鍵，而資料夾的 <code>displayPath</code> 只是<b>從它自己這一層</b>累積的前綴 —— <code>lib/</code> 與 <code>test/</code> 底下各一個 <code>features</code> 都拿到 <code>'features'</code>，展開一個另一個跟著開。改成 <code>name</code>（畫出來的字，含摺疊鏈）與 <code>displayPath</code>（從根算起，全樹唯一）兩件事分開。畫面上的字一個都沒動：<code>FileTreeFolderRow</code> 畫的是 <code>name</code>。</td></tr>
+        <tr><td class="num">C3</td><td><span class="pill is-ratified">done</span></td><td>就地更正三處紀錄</td><td class="num">4</td>
+            <td><code>[STRUCT-leaf-label-from-switcher]</code> 第二條 Rule 劃掉重寫，並新增一條 root-anchored <code>displayPath</code> 的 Rule；同一條 pin 的<span class="zh">「鑑別 fixture 需要多子項資料夾」</span>那條 Do 對 C1 已經不成立（現在任何巢狀檔案都分得出兩個模式），改寫成它對 C2 才成立。conformance matrix 的 P03 item 10、上一輪的 ledger 各補一段。四個前提被推翻的測試<b>就地改寫</b>，劃掉舊主張再寫新的。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>第四輪的驗收</h3>
+    <ul class="plain">
+      <li>fixture 就是使用者回報的那兩個路徑，斷言 <code>docs</code> 底下是<b>兩個資料夾節點</b>（<code>ledger</code> / <code>rules</code>），各自一個檔案子節點，<code>name</code> 是<b>裸的 basename</b>、<code>displayPath</code> 仍然是完整路徑。</li>
+      <li>C2 的鑑別 fixture 兩個父節點<b>各有多個</b>子項。只有一個 <code>features</code> 子項會被 C1 摺成 <code>lib/features</code>，前綴順帶被錨定，缺陷就消失了（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li>C2 的測試是 widget 層而不是模型層：它要驗的是<b>展開一個不會連動另一個</b>，那是 <code>FileTreeList</code> 的行為，不是 <code>FileTree</code> 的資料。</li>
+      <li>mutation 與 tests-reddened 分開記兩個數字，數字用眼睛讀進度列的 <code>-N</code>：C1 是 <b>2 次 mutation、各紅 5 個</b>（同一組五個，含新測試），C2 是 <b>1 次 mutation、紅 2 個</b>。</li>
+      <li>裝置層：<code>pumpRealAppOn</code> 會清掉 <code>fileListViewMode</code>，所以每個 device test 都跑在 <b>list 模式</b>，而 list 模式在 <code>FileListModeSwitcher</code> 裡是早退的那一支、根本不會建 <code>FileTree</code>。照<span class="zh">「跑一次比論證便宜」</span>還是跑了 <code>commit_flow_test.dart</code> 當對照組：<b>1/1 綠，9s</b>。</li>
+    </ul>
+  </section>
+
+  <footer class="colophon">
+    <span>Tokens: <code>app_flutter/lib/theme/tokens.dart</code></span>
+    <span>骨架：<code>worktree-dialogs-spec.html</code>，同一個資料夾裡的姊妹頁</span>
+    <span>字體：Inter · JetBrains Mono —— app 自己的 <code>fontUi</code> / <code>fontMono</code></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>

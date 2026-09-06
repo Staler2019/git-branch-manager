@@ -66,17 +66,29 @@ Future<void> _openDiff(WidgetTester tester, String repo) async {
   await tester.pumpAndSettle(const Duration(seconds: 2));
 }
 
-/// The unstaged (left) pane -- the one whose cards stage.
-Finder get _unstagedPane =>
-    find.byWidgetPredicate((Widget w) => w is ScopedDiffView && !w.staged);
+/// A [ScopedDiffView] that draws diffs in the given direction.
+///
+/// Written as 「holds a source of this direction」 rather than 「is of this
+/// direction」 because direction is a property of each source now, not of the
+/// view: `2 file` mode gives each direction its own view, while `unified`
+/// hands both to one. Both spellings resolve to exactly one widget in either
+/// mode, so `findsOneWidget` keeps meaning what it did -- and in the merged
+/// list the two getters deliberately resolve to the *same* view, with the
+/// button labels below doing the discriminating.
+Finder _paneWith({required bool staged}) => find.byWidgetPredicate(
+  (Widget w) =>
+      w is ScopedDiffView &&
+      w.sources.any((ScopedDiffSource s) => s.staged == staged),
+);
 
-/// The staged (right) pane -- the one whose cards *unstage*, i.e. the
-/// 「往左」 direction. A separate capi entry point (`gbm_unstage_lines`,
-/// `git apply --cached --reverse`) reading a separate diff (the staged one,
-/// whose hunk indices are its own), so the stage direction passing says
-/// nothing about this one.
-Finder get _stagedPane =>
-    find.byWidgetPredicate((Widget w) => w is ScopedDiffView && w.staged);
+/// The pane whose cards stage.
+Finder get _unstagedPane => _paneWith(staged: false);
+
+/// The pane whose cards *unstage*, i.e. the 「往左」 direction. A separate
+/// capi entry point (`gbm_unstage_lines`, `git apply --cached --reverse`)
+/// reading a separate diff (the staged one, whose hunk indices are its own),
+/// so the stage direction passing says nothing about this one.
+Finder get _stagedPane => _paneWith(staged: true);
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

@@ -208,15 +208,49 @@ half-staged is expressed by the `+34 −12` line counts, which say more than a
 tri-state box could. The reasoning and what replaced each removed affordance
 is in the ledger under "Working Copy 重新設計".
 
-Below the columns, the diff area has **two modes** (`2 file`: unstaged left /
-staged right, and `unified`) and stages by **scope**, not by line-checkbox:
-`diff_scopes.dart` merges changes separated by ≤ `kDefaultScopeGap` (2)
-unchanged lines, never crossing a hunk, and each scope card carries its own
-end-of-run button. An ordinary text selection is a **one-shot temporary
-scope** rendered in a fixed slot at the top. Button text is
+**The two columns are stacked, and the whole stack is on the left.** Unstaged
+above, Staged below (`splitterWcStack`, vertical, 1:1, min 96), inside a
+fixed-width left column (`splitterWcFiles`, extent 260 / min 180) with the
+diff filling everything to its right. Both dividers ran the other way until
+feat/working-copy-vertical-file-lists — **使用者裁定**, because two file
+lists side by side left nothing readable for the file *content*, which is the
+thing the page is for. This is a stated deviation from spec page 09's
+`SPLITTERS`, whose `wc.columns` row says `dir: '垂直'` and whose `wc.diff`
+row says `dir: '水平'` — the `dir` is the divider's own direction, so both
+rows are overruled, not renamed. Each divider therefore got a **new storage
+key** (`wc.stack`, `wc.files`) rather than inheriting a number that had
+stopped meaning anything, per [FLU-splitpane-axis-change]. The commit box is
+untouched: still full-width along the bottom, outside the splitter. The drop
+hint reads 「拖曳檔案到下欄 = stage」 — 「右欄」 would now name a column that
+is not there, and a hint pointing the wrong way is worse than none.
+
+To the right of the columns, the diff area has **two modes** (`2 file`:
+unstaged left / staged right, and `unified`, **which is the default** as of
+the same round — a right-hand pane split into two monospace columns would
+have reproduced the very complaint). ~~`unified` stacks the two sides in one
+column~~ — that shipped, and it was 「還是拆成上下檢視」: two columns rotated
+rather than merged. **It is now one list**, its cards ordered by where each
+region sits on the index (`indexPositionOf`), with the two column heads
+replaced by 「N 未暫存 · M 已暫存」 in the title bar and each card carrying
+its own direction — 使用者裁定 U1–U8. `2 file`'s layout and behaviour are
+untouched; the one thing that crosses into it is the Unstage button's
+`border-strong` ring, 使用者裁定 「這是唯一會影響到 2file 的」. It stages by
+**scope**, not by
+line-checkbox: `diff_scopes.dart` merges changes separated by ≤
+`kDefaultScopeGap` (2) unchanged lines, never crossing a hunk — and, in the
+merged list, never crossing an unchanged line the *other* side changes
+([FLU-other-side-changes-are-barriers]); the title bar's own counts are split
+by those same barriers, because they are the list's number. Each scope
+card carries its own end-of-run button. An ordinary text selection is a
+**one-shot temporary scope**, rendered **nested inside the cards it covers**
+— the head and button on the first card the selection reaches, the rest
+carrying the dashed body and touched tint. ~~It was a fixed slot at the top
+of the column~~ — that shipped, the user pointed at it, and the demo's own
+DOM nests `.variant-B-temp` inside `.variant-B-card`. Button text is
 `scopeButtonLabel()`'s and only its: 匡選行數 primary, 實際變動行數 in
-parentheses (`Stage 3 lines (1 changed)`), parentheses omitted when equal —
-that last half is an implementation judgement, not the user's verdict.
+parentheses (`Stage 3 lines (1 changed)`), parentheses omitted when equal.
+~~That last half is an implementation judgement, not the user's verdict~~ —
+it is **使用者裁定** now, ruled 照建議 on the same round's §06 question 7.
 
 `DiffPage` is **read-only** and has no staging callbacks; the Working Copy's
 diff is `ScopedDiffView`. Selecting a file selects the same *logical* file in
@@ -230,9 +264,21 @@ conflating them is the easy mistake:
 
 | Where | Enum / storage | Left ↔ right means |
 |---|---|---|
-| Working Copy diff pane | `WorkingCopyDiffMode` (`2 file` / `unified`), **widget state, not persisted** | unstaged ↔ staged |
+| Working Copy diff pane, `2 file` | `WorkingCopyDiffMode.twoFile`, **widget state, not persisted** | unstaged ↔ staged |
+| Working Copy diff pane, `unified` | `WorkingCopyDiffMode.unified`, same storage, **the default** since feat/working-copy-vertical-file-lists | **nothing** — one merged list, ordered by index region; direction is per card |
 | History commit detail | `DiffViewMode` (`side by side` / `unified`), persisted app-wide under the flat key `diffViewMode`, default `unified` | 變更前 (old) ↔ 變更後 (new) |
 | Conflict window | no switch; always three panes | ours ↔ result ↔ theirs |
+
+`unified` is **one list, not two stacked columns**, since
+fix/working-copy-unified-single-view. It had shipped as two `ScopedDiffView`s
+one above the other — two columns rotated, which is 「還是拆成上下檢視」 and
+what the user rejected. So the row above is two rows now: in `2 file` a
+position still means a direction, and in `unified` it means only where the
+region sits in the file. The card's own left edge, dot and verb are what
+carry direction there ([SPEC-demo-dom-is-the-spec]'s `.variant-B-btn-stage` /
+`.variant-B-btn-unstage`), and `ScopedDiffView` takes a **list** of
+`ScopedDiffSource` for exactly this reason — one element in `2 file`, two in
+`unified` ([FLU-merged-diff-keys-by-source]).
 
 They deliberately **do not share a preference** — one setting flipping both
 would surprise the user in whichever view they were not looking at. History's
@@ -360,3 +406,36 @@ at a real commit. This is a user-requested addition like
   nothing about permanence. Same category as [STRUCT-soft-wrap-preference] — a user-requested
   addition, not a conformance item.
 - **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [STRUCT-leaf-label-from-switcher] A file list's leaf label is handed down by `FileListModeSwitcher`, never derived from the item
+
+- **Rule**: `leafBuilder(context, item, label)` takes the label as its third argument. List mode
+  passes `pathOf(item)` (the full path); tree mode passes `node.name` (the folded segment). A call
+  site that reads the path off the item itself draws the same string in both modes.
+- **Consequence**: that is exactly what shipped, on **all six** surfaces at once — Working Copy's
+  two columns, History's Changed files, Compare's Files, the Conflict window and
+  `panel_file_diff_detail`. Tree mode nested the row under a folder row and then spelled the
+  prefix again on the leaf, so 「摺成樹狀」 cost indentation and bought nothing. P03 item 10's own
+  wording is 「平鋪完整路徑，或依資料夾摺成樹狀」 — full path is what *list* mode is for.
+- **Rule**: ~~the second half is `FileTreeNode`'s. `_collapseIfSingleChild` must keep the whole
+  concatenated prefix in `name` when it collapses a chain down to a **file**~~ — **overruled the
+  next day, 使用者裁定**: 「樹狀模式下，我想要的是像 vscode 一樣，folder 可以堆疊名稱，但是檔案
+  不會有 folder」. A chain of single-child *folders* still stacks into one row (that is P03-10's
+  own 「只有一個子項的資料夾會自動串接成 `lib/app/views` 一列」, untouched); the collapse now
+  **stops at the file**, which gets a real folder row above it and draws its bare basename. What
+  was retired is the previous round's extension of the spec's example to a file child, not the
+  example. VS Code's `explorer.compactFolders` is the same rule.
+- **Rule**: a folder's `displayPath` is **root-anchored** (`parentPath/label`) while its `name` is
+  only the label it draws. `FileTreeList` keys expand/collapse on `displayPath`, so a level-local
+  prefix made `lib/features` and `test/features` share one key and open together.
+- **Do**: fix this at the switcher, never at one call site. Six call sites each deciding what a
+  leaf label is are six chances to disagree ([CULT-single-source-of-truth]); the parameter makes
+  it a compile error instead.
+- **Do**: ~~the discriminating fixture needs a folder with more than one child~~ — that was true
+  only while a lone file collapsed into its parent. Now **any** nested file tells the two modes
+  apart, because tree mode draws its basename and list mode its full path. The multi-child fixture
+  is still what the *`displayPath`* rule needs: a single-child folder is collapsed into its parent,
+  which anchors its prefix as a side effect and hides the shared-key defect
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md);
+  [ledger: 追加三，樹狀模式改成 VS Code 語意](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

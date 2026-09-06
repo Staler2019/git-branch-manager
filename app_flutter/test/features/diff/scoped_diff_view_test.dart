@@ -14,6 +14,8 @@ import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dashed.dart';
+import 'package:gbm_flutter/widgets/gbm_outlined_pill.dart';
 
 import '../../support/pump_app.dart';
 
@@ -114,17 +116,21 @@ void main() {
           width: width,
           child: ScopedDiffView(
             softWrap: false,
-            title: isStaged ? 'Staged' : 'Unstaged',
-            file: file,
-            staged: isStaged,
-            loading: loading,
-            truncated: truncated,
-            onStageScope: (int h, List<int> l) =>
-                staged.add((hunkIndex: h, lines: l)),
-            onDiscardScope: discardable
-                ? (int h, List<int> l) =>
-                      discarded.add((hunkIndex: h, lines: l))
-                : null,
+            sources: <ScopedDiffSource>[
+              ScopedDiffSource(
+                title: isStaged ? 'Staged' : 'Unstaged',
+                file: file,
+                staged: isStaged,
+                loading: loading,
+                truncated: truncated,
+                onStageScope: (int h, List<int> l) =>
+                    staged.add((hunkIndex: h, lines: l)),
+                onDiscardScope: discardable
+                    ? (int h, List<int> l) =>
+                          discarded.add((hunkIndex: h, lines: l))
+                    : null,
+              ),
+            ],
           ),
         ),
       );
@@ -501,11 +507,18 @@ void main() {
     testWidgets('the card head keeps its button inside the card at a narrow '
         'width', (WidgetTester tester) async {
       // The bound is the card, not the pane: a button can sit inside a
-      // 420px pane while hanging off the 200px card it belongs to.
+      // 420px pane while hanging off the card it belongs to.
+      //
+      // The width is the *diff* pane's own floor. It used to be
+      // `splitterWcColumns.minExtent` -- a file-list column's floor, which
+      // was never this widget's neighbour and only ever stood in as "a
+      // narrow number from the same view". `splitterWcDiffSides` is the
+      // divider this view actually sits inside in `2 file` mode, and its
+      // 140 is narrower than the old 200, so the check got stricter.
       await pump(
         tester,
         file: _file(<String>['.+-.']),
-        width: GbmLayout.splitterWcColumns.minExtent,
+        width: GbmLayout.splitterWcDiffSides.minExtent,
       );
 
       final Rect button = tester.getRect(find.byType(GbmButton));
@@ -1028,6 +1041,643 @@ void main() {
             'would point at whatever now sits at those indices',
       );
     });
+
+    // 變體 B's own CSS, quoted, for the four properties this group pins:
+    //
+    //   .variant-B-temp     { border: 1px dashed var(--accent); }
+    //   .variant-B-temphead { border-bottom: 1px dashed var(--accent); }
+    //   .variant-B-gap      { padding-left: 2px;
+    //                         border-left: 1px dashed var(--border-default); }
+    //   .variant-B-cardhead { border-bottom: 1px solid var(--border-default); }
+    //   .variant-B-card     { margin: var(--space-2) 0; }
+    //
+    // 使用者裁定「照建議」on section 06 of
+    // docs/claude-design-demo/working-copy-layout-spec.html, items S3, S4
+    // (its border and muted ground only, not its 30px height), S9 and S10.
+    group('-- 變體 B card chrome', () {
+      testWidgets('the one-shot block is outlined in dashed accent, and its '
+          'head is underlined in the same dash', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        // The dash is the whole point: it is what separates the one-shot
+        // block from the solid-edged cards that persist. Both were solid
+        // before, differing only in colour.
+        final GbmDashedBorder outline = tester.widget<GbmDashedBorder>(
+          find.byKey(const ValueKey<String>('temporary-scope-card')),
+        );
+        expect(outline.color.toARGB32(), colors.accent.toARGB32());
+
+        final GbmDashedLine rule = tester.widget<GbmDashedLine>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+            matching: find.byType(GbmDashedLine),
+          ),
+        );
+        expect(rule.axis, Axis.horizontal);
+        expect(rule.color.toARGB32(), colors.accent.toARGB32());
+      });
+
+      testWidgets('a context gap is marked by a dashed rule, not a solid one '
+          'plus dimming', (WidgetTester tester) async {
+        // Two changes far enough apart to leave a gap between them.
+        await pump(tester, _file(<String>['+.....+']));
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        final GbmDashedLine rule = tester
+            .widgetList<GbmDashedLine>(find.byType(GbmDashedLine))
+            .first;
+        expect(rule.axis, Axis.vertical);
+        expect(rule.color.toARGB32(), colors.borderDefault.toARGB32());
+
+        // 變體 B dims nothing anywhere -- grepped, the word `opacity` appears
+        // only under `.variant-A-*` and `.variant-C-*`. The dashed rule is
+        // what marks context; the built version marked it twice, once with a
+        // 2px solid rule and again by fading the code itself.
+        expect(find.byType(Opacity), findsNothing);
+      });
+
+      testWidgets('the card head is separated from the code by a rule, and a '
+          'superseded head sits on sunken ground', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        Container headOf(String cardKey) => tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey<String>(cardKey)),
+                matching: find.byWidgetPredicate(
+                  (Widget w) =>
+                      w is Container &&
+                      w.decoration is BoxDecoration &&
+                      (w.decoration! as BoxDecoration).border is Border &&
+                      ((w.decoration! as BoxDecoration).border! as Border)
+                              .bottom
+                              .width >
+                          0 &&
+                      ((w.decoration! as BoxDecoration).border! as Border)
+                              .left
+                              .width ==
+                          0,
+                ),
+              )
+              .first,
+        );
+
+        final BoxDecoration live =
+            headOf('scope-card-1').decoration! as BoxDecoration;
+        expect(
+          (live.border! as Border).bottom.color.toARGB32(),
+          colors.borderDefault.toARGB32(),
+        );
+        expect(live.color!.toARGB32(), colors.surfacePanelRaised.toARGB32());
+
+        // Now supersede it and read the same head again.
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final BoxDecoration muted =
+            headOf('scope-card-1').decoration! as BoxDecoration;
+        expect(muted.color!.toARGB32(), colors.surfaceSunken.toARGB32());
+      });
+
+      testWidgets('a hunk heading is followed by a rule, and a card is spaced '
+          'by space2', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+.']));
+
+        // S9: the heading is mono text plus a 1px rule filling the rest of
+        // the row. Without it the `@@ …` line reads as another code line.
+        expect(
+          find.byKey(const ValueKey<String>('hunk-heading-rule-0')),
+          findsOneWidget,
+        );
+
+        // S10: space2 (8), not space1 (4). Read off the widget rather than
+        // measured, because the margin collapses against nothing here and a
+        // rect comparison would only see the sum of two neighbours' margins.
+        final Container card = tester.widget<Container>(
+          find.byKey(const ValueKey<String>('scope-card-1')),
+        );
+        expect(
+          card.margin,
+          const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
+        );
+      });
+
+      // `.variant-B-once { border: 1px solid var(--warning);
+      //                    border-radius: var(--radius-full);
+      //                    font-weight: var(--weight-semibold);
+      //                    color: var(--warning) }` -- transparent ground.
+      //
+      // S8. It shipped as a [GbmBadge] at its default neutral kind, which is
+      // the same shape as the +N/-N count pills sitting a few pixels away in
+      // the card head above. This is the one thing on screen that says
+      // 「這個按下去就沒了」, and it should not look like a tally.
+      testWidgets('the 一次性 pill is outlined in warning, not a neutral '
+          'badge', (WidgetTester tester) async {
+        await pump(tester, _file(<String>['.+-.']));
+        await clickThen(tester, 'h0 l1');
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        final Finder pill = find.ancestor(
+          of: find.text('一次性'),
+          matching: find.byType(GbmOutlinedPill),
+        );
+        expect(pill, findsOneWidget);
+
+        final GbmOutlinedPill widget = tester.widget<GbmOutlinedPill>(pill);
+        expect(widget.color.toARGB32(), colors.warning.toARGB32());
+        expect(widget.background, isNull, reason: 'transparent ground');
+        expect(widget.fontWeight, GbmTypography.weightSemibold);
+
+        // And it is no longer the neutral badge it used to be. Asserted
+        // because "an outlined pill exists" would still pass with a stray
+        // GbmBadge left beside it.
+        expect(
+          find.ancestor(of: find.text('一次性'), matching: find.byType(GbmBadge)),
+          findsNothing,
+        );
+      });
+
+      // `.variant-B-dot { width: 8px; height: 8px }` and
+      // `.variant-B-chip { padding: 1px var(--space-2);
+      //                    background: var(--surface-panel-raised);
+      //                    border: 1px solid var(--border-subtle);
+      //                    border-radius: var(--radius-full);
+      //                    color: var(--text-tertiary) }`.
+      //
+      // S5, partially: the chip and the 8px dot are adopted, the title's
+      // text-sm/semibold/primary is **not** -- every other pane header in
+      // this app is textXs/bold/secondary, and matching the design here
+      // would make this one header unlike its neighbours.
+      testWidgets('the column head draws an 8px dot and a ringed count chip', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        final Container dot = tester.widget<Container>(
+          find.byKey(const ValueKey<String>('column-head-dot')),
+        );
+        expect(dot.constraints?.maxWidth, 8);
+        expect(dot.constraints?.maxHeight, 8);
+
+        final GbmOutlinedPill chip = tester.widget<GbmOutlinedPill>(
+          find.ancestor(
+            of: find.textContaining('個 scope'),
+            matching: find.byType(GbmOutlinedPill),
+          ),
+        );
+        expect(chip.color.toARGB32(), colors.textTertiary.toARGB32());
+        expect(chip.borderColor?.toARGB32(), colors.borderSubtle.toARGB32());
+        expect(
+          chip.background?.toARGB32(),
+          colors.surfacePanelRaised.toARGB32(),
+        );
+
+        // The title deliberately keeps this app's own header treatment.
+        final Text title = tester.widget<Text>(find.text('Unstaged'));
+        expect(title.style?.fontSize, GbmTypography.textXs);
+        expect(title.style?.fontWeight, FontWeight.bold);
+        expect(title.style?.color?.toARGB32(), colors.textSecondary.toARGB32());
+      });
+
+      // `.variant-B-card:hover { border-color: var(--border-strong);
+      //                          border-left-color: var(--accent-hover);
+      //                          box-shadow: var(--shadow-md) }`
+      //
+      // S11. The card had no hover state at all -- the one dimension-D
+      // signal it was missing, on a surface whose whole affordance is
+      // "press the button on the card you are pointing at".
+      testWidgets('a scope card lifts and brightens under the pointer', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester, _file(<String>['.+-.']));
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+        Border borderOf() =>
+            (tester
+                            .widget<Container>(
+                              find
+                                  .descendant(
+                                    of: find.byKey(
+                                      const ValueKey<String>('scope-card-1'),
+                                    ),
+                                    matching: find.byWidgetPredicate(
+                                      (Widget w) =>
+                                          w is Container &&
+                                          w.decoration is BoxDecoration &&
+                                          (w.decoration! as BoxDecoration)
+                                                  .border
+                                              is Border &&
+                                          ((w.decoration! as BoxDecoration)
+                                                          .border!
+                                                      as Border)
+                                                  .left
+                                                  .width ==
+                                              3,
+                                    ),
+                                  )
+                                  .first,
+                            )
+                            .decoration!
+                        as BoxDecoration)
+                    .border!
+                as Border;
+
+        BoxDecoration outerOf() =>
+            tester
+                    .widget<Container>(
+                      find.byKey(const ValueKey<String>('scope-card-1')),
+                    )
+                    .decoration!
+                as BoxDecoration;
+
+        expect(
+          borderOf().top.color.toARGB32(),
+          colors.borderDefault.toARGB32(),
+        );
+        expect(borderOf().left.color.toARGB32(), colors.accent.toARGB32());
+        final List<BoxShadow> resting = outerOf().boxShadow!;
+
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        addTearDown(pointer.removePointer);
+        await pointer.addPointer(location: Offset.zero);
+        await pointer.moveTo(
+          tester.getCenter(find.byKey(const ValueKey<String>('scope-card-1'))),
+        );
+        await tester.pump();
+
+        expect(borderOf().top.color.toARGB32(), colors.borderStrong.toARGB32());
+        expect(borderOf().left.color.toARGB32(), colors.accentHover.toARGB32());
+        // Asserted as "a different shadow from the resting one", not against
+        // a literal: shadowMd is a token whose values are the design's, and
+        // copying them here would be a second source for them.
+        expect(outerOf().boxShadow, isNot(equals(resting)));
+        expect(
+          outerOf().boxShadow,
+          GbmEffects.shadowMd(GbmThemeVariant.darkTechnical),
+        );
+      });
+    });
+  });
+
+  group('ScopedDiffView -- U5: the direction is the first card painted', () {
+    late List<({bool staged, int hunkIndex, List<int> lines})> staged;
+
+    setUp(() => staged = <({bool staged, int hunkIndex, List<int> lines})>[]);
+
+    /// One hunk, three added lines, sitting at [start] on the index side.
+    ///
+    /// Both line numbers are set to the same run because a source reads only
+    /// its own side ([indexPositionOf] takes `oldLine` for unstaged and
+    /// `newLine` for staged), and giving them different runs would only make
+    /// the fixture harder to read without changing what either side sees.
+    DiffFile sideFile({required String tag, required int start}) => DiffFile(
+      oldPath: 'lib/a.dart',
+      newPath: 'lib/a.dart',
+      kind: FileChangeKind.modified,
+      oldMode: '',
+      newMode: '',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 3,
+      removedLines: 0,
+      displayPath: 'lib/a.dart',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: start,
+          oldCount: 3,
+          newStart: start,
+          newCount: 3,
+          heading: '',
+          lines: <DiffLine>[
+            for (int i = 0; i < 3; i++)
+              DiffLine(
+                kind: DiffLineKind.added,
+                oldLine: start + i,
+                newLine: start + i,
+                text: '$tag l$i',
+              ),
+          ],
+        ),
+      ],
+    );
+
+    /// Staged at line 10, unstaged at line 100 -- so the region sort paints
+    /// the **staged** card first, and source order and painted order
+    /// disagree. A fixture with the unstaged side first cannot tell the two
+    /// apart ([TEST-fixture-cannot-disagree]).
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: sideFile(tag: 'un', start: 100),
+              staged: false,
+              onStageScope: (int h, List<int> l) =>
+                  staged.add((staged: false, hunkIndex: h, lines: l)),
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: sideFile(tag: 'st', start: 10),
+              staged: true,
+              onStageScope: (int h, List<int> l) =>
+                  staged.add((staged: true, hunkIndex: h, lines: l)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Future<void> dragSelect(WidgetTester tester, String from, String to) async {
+      final Rect fromRect = tester.getRect(find.text(from));
+      final Rect toRect = tester.getRect(find.text(to));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(fromRect.left + 1, fromRect.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(toRect.right - 1, toRect.center.dy));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('the staged card is painted above the unstaged one', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      expect(
+        tester.getRect(find.text('st l0')).top,
+        lessThan(tester.getRect(find.text('un l0')).top),
+        reason:
+            'the fixture only discriminates while the region sort has put '
+            'source 1 first',
+      );
+
+      // 變更 N is numbered over the painted list, so the staged card is 1
+      // and the unstaged one is 2 -- the reverse of source order. This is
+      // the claim `hunkSegments`' deleted `firstOrdinal` used to make one
+      // level down; it could not survive there, because a number handed out
+      // while the blocks are still grouped by hunk is shuffled by the sort
+      // that follows ([CULT-nothing-silently-dropped]).
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-1')),
+          matching: find.text('st l0'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-2')),
+          matching: find.text('un l0'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a drag crossing both directions takes the direction of the '
+        'card it reached first', (tester) async {
+      await pump(tester);
+
+      await dragSelect(tester, 'st l0', 'un l2');
+
+      // The whole of U5, stated where the user reads it: 「取它碰到的第一張
+      // 卡片的方向」. The first card the drag reaches is the staged one, so
+      // the one-shot button unstages -- and the unstaged rows it also
+      // crossed are excluded rather than folded in, because git has no one
+      // action that stages and unstages at once.
+      expect(
+        temporaryLabel('Unstage 3 lines'),
+        findsOneWidget,
+        reason:
+            'source order would answer 「stage」 here; painted order is what '
+            'U5 names',
+      );
+      expect(
+        temporaryLabel('Stage 3 lines'),
+        findsNothing,
+        reason: 'one drag is one direction, and one press',
+      );
+
+      // The other direction's card is excluded, not consumed: it keeps its
+      // own button and stays pressable. Paired with the assertion above --
+      // no Stage label *inside* the one-shot card -- this one being outside
+      // it is what the two together say.
+      expect(find.text('Stage 3 lines'), findsOneWidget);
+    });
+  });
+
+  // 使用者回報:「my current untracked file, i stage the middle line
+  // (document...) and it should split into 3 scope, but its only 2 scope」.
+  //
+  // Both diffs below are what a real repository answered, measured rather
+  // than invented: a 5-line untracked file with only its middle line staged
+  // gives `git diff` an `@@ -1 +1,5 @@` hunk whose context line *is* the
+  // staged one, and `git diff --cached` a `new file mode` hunk holding just
+  // that line.
+  group('ScopedDiffView -- an untracked file with its middle line staged', () {
+    DiffFile unstagedSide() => DiffFile(
+      oldPath: 'new.txt',
+      newPath: 'new.txt',
+      kind: FileChangeKind.modified,
+      oldMode: '',
+      newMode: '',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 4,
+      removedLines: 0,
+      displayPath: 'new.txt',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 1,
+          oldCount: 1,
+          newStart: 1,
+          newCount: 5,
+          heading: '',
+          lines: <DiffLine>[
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 1,
+              text: 'alpha',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 2,
+              text: 'bravo',
+            ),
+            DiffLine(
+              kind: DiffLineKind.context,
+              oldLine: 1,
+              newLine: 3,
+              text: 'document',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 4,
+              text: 'delta',
+            ),
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 5,
+              text: 'echo',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    DiffFile stagedSide() => DiffFile(
+      oldPath: '',
+      newPath: 'new.txt',
+      kind: FileChangeKind.added,
+      oldMode: '',
+      newMode: '100644',
+      oldBlob: '',
+      newBlob: '',
+      binary: false,
+      similarity: 0,
+      addedLines: 1,
+      removedLines: 0,
+      displayPath: 'new.txt',
+      hunks: <DiffHunk>[
+        DiffHunk(
+          oldStart: 0,
+          oldCount: 0,
+          newStart: 1,
+          newCount: 1,
+          heading: '',
+          lines: <DiffLine>[
+            DiffLine(
+              kind: DiffLineKind.added,
+              oldLine: 0,
+              newLine: 1,
+              text: 'document',
+            ),
+          ],
+        ),
+      ],
+    );
+
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: unstagedSide(),
+              staged: false,
+              onStageScope: (int h, List<int> l) {},
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: stagedSide(),
+              staged: true,
+              onStageScope: (int h, List<int> l) {},
+            ),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('git sees three regions, so there are three cards', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Two before this fix: the gap rule folded alpha/bravo and delta/echo
+      // into one card across the single unchanged line between them -- and
+      // that line is the staged change itself.
+      expect(
+        tester
+            .widgetList<GbmButton>(find.byType(GbmButton))
+            .map((GbmButton b) => b.label)
+            .toList(),
+        <String>['Stage 2 lines', 'Unstage 1 line', 'Stage 2 lines'],
+      );
+    });
+
+    testWidgets('the staged card is painted between the two unstaged ones', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      // Order, not just count: three cards in the wrong order would satisfy
+      // the assertion above. The staged card sits *on* index line 1, the
+      // first unstaged card is inserted before it and the second after it,
+      // which is what the two-part index position exists to express.
+      //
+      // Measured geometrically, off rows and a button that each resolve to
+      // exactly one widget -- `find.text('document')` would not, because the
+      // staged row and the unstaged side's context row both say it
+      // ([FLU-finder-proves-existence-not-position]).
+      final double staged = tester
+          .getRect(find.widgetWithText(GbmButton, 'Unstage 1 line'))
+          .top;
+      expect(tester.getRect(find.text('bravo')).top, lessThan(staged));
+      expect(tester.getRect(find.text('delta')).top, greaterThan(staged));
+    });
+
+    // 使用者裁定 B: 「合併模式下把另一側已經當成變更畫出來的 context 列隱藏
+    // 掉」. The unstaged diff carries `document` as context because it is
+    // what its two insertions sit around -- but in a merged list the staged
+    // card *is* that line, one row below, so drawing it twice states the
+    // same index line twice in one list.
+    testWidgets('the line the other side stages is not drawn twice', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+
+      expect(find.text('document'), findsOneWidget);
+      // And it is the staged card's row that survives, not the context one:
+      // the surviving row sits inside the card whose button unstages.
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.widgetWithText(GbmButton, 'Unstage 1 line'),
+            matching: find.byKey(const ValueKey<String>('scope-card-2')),
+          ),
+          matching: find.text('document'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('nothing else is dropped', (WidgetTester tester) async {
+      await pump(tester);
+
+      // The suppression is narrow: only a context row whose index line the
+      // other source changes. Every real change on both sides still draws.
+      for (final String text in <String>['alpha', 'bravo', 'delta', 'echo']) {
+        expect(find.text(text), findsOneWidget, reason: text);
+      }
+    });
   });
 }
 
@@ -1057,10 +1707,14 @@ class _HostState extends State<_Host> {
   @override
   Widget build(BuildContext context) => ScopedDiffView(
     softWrap: false,
-    title: 'Unstaged',
-    file: _file,
-    staged: false,
-    onStageScope: widget.onStageScope,
+    sources: <ScopedDiffSource>[
+      ScopedDiffSource(
+        title: 'Unstaged',
+        file: _file,
+        staged: false,
+        onStageScope: widget.onStageScope,
+      ),
+    ],
     onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
   );
 }

@@ -63,13 +63,28 @@ void main() {
       );
       final Rect board = tester.getRect(find.byType(WorkingCopyBoard));
       final Offset from = tester.getCenter(unstagedRow);
-      // A quarter in from the board's right edge: inside the Staged
+      // A quarter up from the board's *bottom* edge: inside the Staged
       // column's DragTarget, and clear of the column header above it.
-      final Offset to = Offset(board.right - board.width * 0.25, from.dy);
+      // This was `board.right - board.width * 0.25` while the two columns
+      // sat side by side; the board is a vertical stack now (Unstaged
+      // above, Staged below), so that point lands back inside Unstaged and
+      // the file never crosses. Nothing below the device tier saw it --
+      // the widget-tier drags target another *row* by its text, which is
+      // axis-agnostic, and only this test computes a geometric point.
+      final Offset to = Offset(from.dx, board.bottom - board.height * 0.25);
 
       final TestGesture drag = await tester.startGesture(from);
       // Past kTouchSlop in two steps: a single moveTo can be consumed as
       // the drag's own start and leave the Draggable never picked up.
+      //
+      // The first step stays deliberately *horizontal* even though the
+      // travel is now vertical. `startGesture` defaults to
+      // `PointerDeviceKind.touch`, which is in `_kTouchLikeDeviceTypes`,
+      // so a vertical first move inside the file list can be claimed by
+      // the list's own scroller before the `Draggable` wins the arena --
+      // the nudge sideways settles it first, and only then does the drag
+      // go down. See [TEST-dragdevices-is-not-a-guard] for why a mouse
+      // drag would not have this problem and a touch one does.
       await tester.pump(const Duration(milliseconds: 50));
       await drag.moveTo(Offset(from.dx + 40, from.dy));
       await tester.pump();

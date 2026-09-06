@@ -332,3 +332,37 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   was named 「remote-only」 while its fixture had a local `release/0.5`
   ([TEST-fixture-cannot-disagree]).
 - **Evidence**: [ledger: 追加三](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [GIT-reverse-patch-cannot-unadd] A reverse `git apply --cached` cannot un-add a file, so unstaging *every* line of an added path needs `git restore --staged`
+
+- **Rule**: measured on git 2.55.0. `git apply --cached --reverse` over the whole of an
+  added file's staged diff **exits 0** and leaves the index entry in place holding the empty
+  blob `e69de29`, so `git status --porcelain=v2` goes on reporting `A`/`AM`. The file sits in
+  the Staged column reading `+0` **and** appears under Unstaged at the same time.
+- **Rule**: `git rm --cached` is not the escape — measured refused, exit 1, from that state.
+  `git restore --staged -- <path>` works from both states and is what the whole-file unstage
+  path (`UnstageFilesOperation`) already runs, so routing this case through the same helper
+  makes the two paths converge instead of each inventing an end state
+  ([CULT-single-source-of-truth]).
+- **Do**: gate it on 「the index reports this path as Added」 **and** 「this selection covers
+  every changed line」. A *partial* unstage of an added file is already correct — it leaves a
+  shorter `A`, which is what the user asked for — and answering that one with
+  `restore --staged` throws away the part of the stage they kept.
+- **Note**: **the `kind == Added` half is a deliberate narrowing, not a pinned invariant, and
+  that was measured rather than assumed.** Dropping it leaves the whole suite green: every
+  other kind reachable here converges anyway, because a Modified or Deleted file's index entry
+  is *restored to its HEAD content* by either path rather than emptied, so there is no orphan
+  to clean up. A rename is not a counter-example — the diff is requested with a single-path
+  pathspec, so git cannot pair the two halves and reports the new side as Added regardless.
+  Kept because the special case exists for one measured shape and widening it silently would
+  route the next diverging kind through `restore --staged` with nothing noticing.
+- **See also**: [GIT-new-file-patch-needs-dev-null]'s 「do not change the unstaging
+  direction」 is **still right** and now has a measured boundary: the plain `a/<path>` header
+  is correct for every *partial* unstage, and the whole-file case is not a header problem at
+  all — no header can make a reverse patch delete an index entry.
+- **Do**: assert **porcelain's `?`**, never 「the index entry is gone」. The latter is the
+  implementation talking to itself and is satisfied by states porcelain would still call
+  staged. A fixture that only stages cannot see any of this — `GitIntegrationTest.cpp` had
+  `StagesSelectedLinesOfAnUntrackedFile` and no unstage mirror
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: unified 合成單一清單，未追蹤 unstage 回到 Untracked](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

@@ -2368,6 +2368,180 @@ TEST_F(RealRepoTest, StagesSelectedLinesOfAnUntrackedFile) {
     EXPECT_FALSE((*status)->entries[0].untracked);
 }
 
+// The three tests below pin one rule and both of its edges.
+//
+// Rule: unstaging *every* changed line of a file the index reports as Added
+// has to leave the path untracked again -- `?` in porcelain v2 -- because
+// there is no earlier version of it for the index to hold.
+//
+// A reverse `git apply --cached` cannot express that. Measured on git 2.55.0:
+// it exits 0 and leaves the index entry in place holding the empty blob
+// e69de29, so porcelain still reports `A`/`AM` and the file sits in the
+// Staged column reading +0 while *also* appearing under Unstaged. `git rm
+// --cached` was the obvious alternative and was measured to be refused
+// (exit 1); `git restore --staged` works from both states and is already what
+// the whole-file unstage path runs, so the two paths converge on one end state
+// rather than each inventing their own ([CULT-single-source-of-truth]).
+//
+// The two edge tests below are not equally strong, and the difference was
+// measured rather than assumed. Dropping the "every changed line" half of the
+// gate reddens UnstagingOneLineOfAnUntrackedFileKeepsTheRestStaged and nothing
+// else -- narrow, which is what a mutation check is asking. Dropping the
+// `kind == Added` half leaves the entire suite **green**, including
+// UnstagingEveryLineOfATrackedFileLeavesItModified: `restore --staged` and the
+// reverse patch land a tracked file on `.M` either way, so that test cannot
+// disagree with the gate it looks like it is pinning
+// ([TEST-fixture-cannot-disagree]).
+//
+// It is kept anyway, under a name that already says what it does pin: a tracked file
+// unstaged in full ends up modified-not-untracked. That claim is real and
+// would redden if this rule ever started emptying tracked entries. What it is
+// *not* is evidence for the `kind == Added` clause -- see
+// selectionCoversWholeAddedFile's own comment for why that clause is a
+// deliberate narrowing with no test behind it.
+TEST_F(RealRepoTest, UnstagingEveryLineOfAnUntrackedFileReturnsItToUntracked) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    PartialStageRequest stage;
+    stage.path = "new.txt";
+    stage.staged = false;
+    stage.hunkIndex = 0;
+    stage.lineIndices = {0, 1, 2};
+    auto staged = submitAndWait(makePartialStageOperation(stage));
+    ASSERT_TRUE(staged.succeeded) << (staged.error ? staged.error->detail : "");
+
+    PartialStageRequest unstage;
+    unstage.path = "new.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {0, 1, 2};
+    auto unstaged = submitAndWait(makePartialStageOperation(unstage));
+    ASSERT_TRUE(unstaged.succeeded) << (unstaged.error ? unstaged.error->detail : "");
+
+    // Asserted on what the user sees -- porcelain's `?` -- and deliberately
+    // not on "the index entry is gone", which is the implementation talking to
+    // itself. The file must be back under Untracked with nothing staged.
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    ASSERT_EQ((*status)->entries.size(), 1u);
+    EXPECT_TRUE((*status)->entries[0].untracked);
+    EXPECT_FALSE((*status)->entries[0].staged);
+
+    // And the work tree is untouched -- unstaging never edits the file.
+    std::ifstream in(repo_ / "new.txt", std::ios::binary);
+    std::string contents((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    contents.erase(std::remove(contents.begin(), contents.end(), '\r'), contents.end());
+    EXPECT_EQ(contents, "a\nb\nc\n");
+}
+
+// First edge: a *partial* unstage of the same file must keep going through the
+// reverse patch. Measured -- exit 0, `1 AM ... 48d0939`, index holding
+// `alpha`+`charlie`. Using `restore --staged` here would throw away the part
+// of the stage the user asked to keep, so the gate is "every changed line",
+// never "any unstage of an added file".
+TEST_F(RealRepoTest, UnstagingOneLineOfAnUntrackedFileKeepsTheRestStaged) {
+    commitFile("seed.txt", "seed\n", "c1");
+    writeFile("new.txt", "a\nb\nc\n");
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    PartialStageRequest stage;
+    stage.path = "new.txt";
+    stage.staged = false;
+    stage.hunkIndex = 0;
+    stage.lineIndices = {0, 1, 2};
+    ASSERT_TRUE(submitAndWait(makePartialStageOperation(stage)).succeeded);
+
+    PartialStageRequest unstage;
+    unstage.path = "new.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {1};
+    auto unstaged = submitAndWait(makePartialStageOperation(unstage));
+    ASSERT_TRUE(unstaged.succeeded) << (unstaged.error ? unstaged.error->detail : "");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    ASSERT_EQ((*status)->entries.size(), 1u);
+    EXPECT_TRUE((*status)->entries[0].staged);
+    EXPECT_FALSE((*status)->entries[0].untracked);
+
+    DiffService diffs(*runner_, paths_);
+    auto stagedDiff =
+        diffs.workingTreeDiff(/*staged=*/true, {"new.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff) << stagedDiff.error().message;
+    ASSERT_EQ((*stagedDiff)->files.size(), 1u);
+    ASSERT_EQ((*stagedDiff)->files.front().hunks.size(), 1u);
+    EXPECT_EQ((*stagedDiff)->files.front().hunks.front().lines.size(), 2u);
+}
+
+// Second edge: a *tracked* file unstaged in full must land on `.M`, not `?`.
+// Its index entry is restored to the HEAD content rather than emptied, so
+// nothing is orphaned and the reverse patch was already correct here. This is
+// what makes the gate `kind == Added` rather than "every line".
+TEST_F(RealRepoTest, UnstagingEveryLineOfATrackedFileLeavesItModified) {
+    commitFile("tracked.txt", "a\nb\nc\n", "c1");
+    writeFile("tracked.txt", "a\nCHANGED\nc\n");
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+
+    StageFilesRequest stageAll;
+    stageAll.paths = {"tracked.txt"};
+    ASSERT_TRUE(submitAndWait(makeStageFilesOperation(stageAll)).succeeded);
+
+    DiffService diffs(*runner_, paths_);
+    auto stagedDiff =
+        diffs.workingTreeDiff(/*staged=*/true, {"tracked.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(stagedDiff) << stagedDiff.error().message;
+    ASSERT_EQ((*stagedDiff)->files.size(), 1u);
+    ASSERT_EQ((*stagedDiff)->files.front().hunks.size(), 1u);
+    const std::size_t lineCount = (*stagedDiff)->files.front().hunks.front().lines.size();
+
+    PartialStageRequest unstage;
+    unstage.path = "tracked.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    for (std::size_t i = 0; i < lineCount; ++i) {
+        unstage.lineIndices.push_back(i);
+    }
+    auto unstaged = submitAndWait(makePartialStageOperation(unstage));
+    ASSERT_TRUE(unstaged.succeeded) << (unstaged.error ? unstaged.error->detail : "");
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status);
+    ASSERT_EQ((*status)->entries.size(), 1u);
+    EXPECT_FALSE((*status)->entries[0].untracked);
+    EXPECT_FALSE((*status)->entries[0].staged);
+    EXPECT_TRUE((*status)->entries[0].hasUnstagedChange);
+}
+
 // `core.autocrlf=true` is set deliberately, and the assertion below is
 // deliberately not byte-exact.
 //

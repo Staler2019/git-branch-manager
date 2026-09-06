@@ -431,15 +431,16 @@ class ChangedFilesPanelCore extends StatelessWidget {
             mode: viewMode,
             items: files,
             pathOf: (ChangedFile file) => file.path,
-            leafBuilder: (BuildContext context, ChangedFile file) =>
-                _buildFileRow(context, file),
+            leafBuilder:
+                (BuildContext context, ChangedFile file, String label) =>
+                    _buildFileRow(context, file, label),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildFileRow(BuildContext context, ChangedFile file) {
+  Widget _buildFileRow(BuildContext context, ChangedFile file, String label) {
     final GbmColors colors = context.gbmColors;
     final bool isSelected = selectedPath == file.path;
 
@@ -466,8 +467,11 @@ class ChangedFilesPanelCore extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Expanded(
+            // `label`, not the path: in tree mode the folder rows above
+            // already carry the prefix. `FileListModeSwitcher` decides
+            // which it is; a row cannot see its own depth.
             child: Text(
-              file.path,
+              label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

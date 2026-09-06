@@ -46,9 +46,18 @@ class DiffScope {
 /// A hunk with no changed line at all yields no scopes rather than one empty
 /// one, so a caller can render "nothing to stage here" without a special
 /// case.
+///
+/// [barriers] are hunk line indices the gap rule may **not** swallow. Only
+/// the lines strictly between two changes are tested, so a barrier that
+/// lands on a changed line does nothing -- the rule is「may not swallow a
+/// barrier」, not「a barrier ends a scope」. Splitting a run of real changes
+/// would fragment the commonest case, staging part of a block, and buy
+/// nothing: in a merged list both sides already get their own card at that
+/// position.
 List<DiffScope> splitHunkIntoScopes(
   DiffHunk hunk, {
   int maxGap = kDefaultScopeGap,
+  Set<int> barriers = const <int>{},
 }) {
   final List<int> changed = <int>[
     for (int i = 0; i < hunk.lines.length; i++)
@@ -66,7 +75,14 @@ List<DiffScope> splitHunkIntoScopes(
   for (final int index in changed.skip(1)) {
     // The unchanged lines strictly between this change and the previous one.
     final int gap = index - group.last - 1;
-    if (gap <= maxGap) {
+    bool blocked = false;
+    for (int i = group.last + 1; i < index; i++) {
+      if (barriers.contains(i)) {
+        blocked = true;
+        break;
+      }
+    }
+    if (gap <= maxGap && !blocked) {
       group.add(index);
     } else {
       close();
@@ -76,6 +92,123 @@ List<DiffScope> splitHunkIntoScopes(
   close();
 
   return List<DiffScope>.unmodifiable(scopes);
+}
+
+/// The index lines [file] changes -- the coordinate a *different* diff of the
+/// same file must not fold across.
+///
+/// The two working-copy diffs share the index as a ruler ([indexPositionOf]),
+/// and a line only has an index coordinate when its index-side number is
+/// non-zero. So the staged side contributes the lines it **adds** to the
+/// index and the unstaged side the lines it **removes** from it; the other
+/// halves (a staged deletion, an unstaged addition) sit between index lines
+/// and leave nothing there to collide with.
+///
+/// A binary file has no hunks to read and a null file is the pane's "nothing
+/// selected" state; both answer empty.
+Set<int> changedIndexLines(DiffFile? file, {required bool staged}) {
+  final Set<int> lines = <int>{};
+  if (file == null || file.binary) return lines;
+  for (final DiffHunk hunk in file.hunks) {
+    for (final DiffLine line in hunk.lines) {
+      if (!_isChanged(line.kind)) continue;
+      final int number = staged ? line.newLine : line.oldLine;
+      if (number > 0) lines.add(number);
+    }
+  }
+  return lines;
+}
+
+/// The line indices of [hunk] that occupy one of [indexLines].
+///
+/// [staged] picks which side of the hunk is the index, exactly as
+/// [indexPositionOf] does -- and getting it wrong finds nothing rather than
+/// finding the wrong thing, which is why the pure test for it asserts a
+/// *miss*.
+Set<int> barrierLineIndices(
+  DiffHunk hunk, {
+  required bool staged,
+  required Set<int> indexLines,
+}) {
+  if (indexLines.isEmpty) return const <int>{};
+  final Set<int> found = <int>{};
+  for (int i = 0; i < hunk.lines.length; i++) {
+    final DiffLine line = hunk.lines[i];
+    final int number = staged ? line.newLine : line.oldLine;
+    if (number > 0 && indexLines.contains(number)) found.add(i);
+  }
+  return found;
+}
+
+/// One diff of a file, as the barrier rule sees it: its content and which
+/// side of it is the index.
+typedef DiffSide = ({DiffFile? file, bool staged});
+
+/// The index lines the *other* sides change, per side -- memoised.
+///
+/// A merged list draws two diffs of the same file at once, and the gap rule
+/// must not fold one side's scope across a line the other one draws as a
+/// change of its own ([changedIndexLines]). Every surface that splits such a
+/// list owes the same answer: the cards themselves, and anything that counts
+/// them. Two of them deriving it separately is how the count and the list
+/// come to disagree ([CULT-single-source-of-truth]) -- which is exactly what
+/// shipped, the title bar saying 「1 未暫存」 over two Stage cards.
+///
+/// **Key: the sides' [DiffFile] identities and [DiffSide.staged] flags,
+/// element by element.** The barrier sets are a pure function of both, and
+/// walking every line of every hunk to rebuild them is the same order as the
+/// split [DiffScopeCache] exists to avoid -- so recomputing per frame would
+/// undo that memo during a selection drag. Identity is the honest key for the
+/// reason that cache already gives: these are immutable DTOs parsed fresh out
+/// of each `workingCopyDiffReady` payload.
+///
+/// **Invalidated by**: a different [DiffFile] instance, or a flipped
+/// [DiffSide.staged], arriving in any side. There is nothing to unsubscribe
+/// from.
+///
+/// **Symptom if invalidation were missed**: the cards of one side would be
+/// split at the *previous* diff's boundaries -- so after staging one more
+/// line, a card would keep a seam where nothing is any more, or lose one
+/// where something now is.
+class DiffBarrierMemo {
+  List<Set<int>> _barriers = const <Set<int>>[];
+  List<DiffSide> _key = const <DiffSide>[];
+
+  /// The barrier index lines for each of [sides], in the same order.
+  ///
+  /// The returned sets are the *same instances* across a hit, which is what
+  /// lets [DiffScopeCache]'s own identity check hit in turn -- a fresh set
+  /// per build would re-split every frame however good this memo was.
+  List<Set<int>> barriersFor(List<DiffSide> sides) {
+    if (sides.length == _key.length) {
+      bool same = true;
+      for (int i = 0; i < sides.length; i++) {
+        if (!identical(sides[i].file, _key[i].file) ||
+            sides[i].staged != _key[i].staged) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return _barriers;
+    }
+
+    final List<Set<int>> barriers = <Set<int>>[];
+    for (int i = 0; i < sides.length; i++) {
+      final Set<int> other = <int>{};
+      for (int j = 0; j < sides.length; j++) {
+        if (j == i) continue;
+        other.addAll(changedIndexLines(sides[j].file, staged: sides[j].staged));
+      }
+      // `const` so a lone side hands the cache the *same* empty set on every
+      // build -- a fresh `<int>{}` would miss on identity and re-split every
+      // frame, which is what this memo is for.
+      barriers.add(other.isEmpty ? const <int>{} : other);
+    }
+
+    _key = List<DiffSide>.unmodifiable(sides);
+    _barriers = List<Set<int>>.unmodifiable(barriers);
+    return _barriers;
+  }
 }
 
 /// Every scope of every hunk in [file], keyed by hunk index.
@@ -90,18 +223,33 @@ List<DiffScope> splitHunkIntoScopes(
 Map<int, List<DiffScope>> splitDiffFileIntoScopes(
   DiffFile file, {
   int maxGap = kDefaultScopeGap,
+  bool staged = false,
+  Set<int> barrierIndexLines = const <int>{},
 }) {
   if (file.binary) return const <int, List<DiffScope>>{};
   return <int, List<DiffScope>>{
     for (int hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++)
-      hunkIndex: splitHunkIntoScopes(file.hunks[hunkIndex], maxGap: maxGap),
+      hunkIndex: splitHunkIntoScopes(
+        file.hunks[hunkIndex],
+        maxGap: maxGap,
+        barriers: barrierLineIndices(
+          file.hunks[hunkIndex],
+          staged: staged,
+          indexLines: barrierIndexLines,
+        ),
+      ),
   };
 }
 
 /// The signature [DiffScopeCache] splits with, so a test can hand it a
 /// counting stand-in. [splitDiffFileIntoScopes] is the only production value.
 typedef DiffFileScopeSplitter =
-    Map<int, List<DiffScope>> Function(DiffFile file, {int maxGap});
+    Map<int, List<DiffScope>> Function(
+      DiffFile file, {
+      int maxGap,
+      bool staged,
+      Set<int> barrierIndexLines,
+    });
 
 /// Remembers the scope split of the [DiffFile] it was last asked about.
 ///
@@ -138,6 +286,8 @@ class DiffScopeCache {
 
   DiffFile? _file;
   int _maxGap = kDefaultScopeGap;
+  bool _staged = false;
+  Set<int> _barrierIndexLines = const <int>{};
   Map<int, List<DiffScope>> _scopes = const <int, List<DiffScope>>{};
 
   /// The scopes of [file], split at most once per distinct [file] instance.
@@ -147,16 +297,30 @@ class DiffScopeCache {
   Map<int, List<DiffScope>> scopesOf(
     DiffFile? file, {
     int maxGap = kDefaultScopeGap,
+    bool staged = false,
+    Set<int> barrierIndexLines = const <int>{},
   }) {
     if (file == null) {
       _file = null;
       _scopes = const <int, List<DiffScope>>{};
       return _scopes;
     }
-    if (identical(file, _file) && maxGap == _maxGap) return _scopes;
+    if (identical(file, _file) &&
+        maxGap == _maxGap &&
+        staged == _staged &&
+        identical(barrierIndexLines, _barrierIndexLines)) {
+      return _scopes;
+    }
     _file = file;
     _maxGap = maxGap;
-    _scopes = _split(file, maxGap: maxGap);
+    _staged = staged;
+    _barrierIndexLines = barrierIndexLines;
+    _scopes = _split(
+      file,
+      maxGap: maxGap,
+      staged: staged,
+      barrierIndexLines: barrierIndexLines,
+    );
     return _scopes;
   }
 }
@@ -197,6 +361,73 @@ DiffScope _scopeFrom(DiffHunk hunk, List<int> changedIndices) {
 /// Rendering reads this list straight through, so the "which lines are in a
 /// card and which are the code around it" decision stays in one pure place
 /// instead of being re-derived by a widget's build method.
+/// Where a diff row sits on the index, as a two-part coordinate.
+///
+/// [line] is an index line number; [offset] is `0` when the row *is* that
+/// line and `1` when it sits between it and the next one. Two rows from two
+/// different diffs that answer the same pair are adjacent in the index --
+/// see [indexPositionOf] for why the second number cannot be dropped.
+typedef IndexPosition = ({int line, int offset});
+
+/// Where a hunk's line sits on the **index** side.
+///
+/// The two working-copy diffs share the index as a coordinate system: the
+/// unstaged diff is index -> worktree, so its *old* side is the index; the
+/// staged diff is HEAD -> index, so its *new* side is. That shared ruler is
+/// what lets `unified` mode order one merged list by region without a third
+/// git call, which is the whole of U1's ruling
+/// (「我要對齊的不是行號，是 git 判斷出的區域變更」).
+///
+/// The answer is **two** numbers, not one. [IndexPosition.line] is an index
+/// line number; [IndexPosition.offset] says whether the row *is* that line
+/// (`0`) or merely sits after it (`1`).
+///
+/// A line with no index side -- an addition on the unstaged side, a deletion
+/// on the staged one -- does not occupy an index line at all: it lands
+/// *between* two. Reading its literal `0` would sort every insertion to the
+/// top of the file, so it takes the last line that did have one and an
+/// offset of 1. **The offset is the load-bearing half.** Collapsing such a
+/// row onto the bare line number -- which is what this returned for one
+/// round -- makes it tie with the index line itself, and then a card from
+/// the *other* diff sitting on that very line cannot be ordered between the
+/// rows inserted before it and the rows inserted after it. Measured on the
+/// reported case, a 5-line untracked file with its middle line staged: all
+/// six rows of the two diffs answered `1`, so the merged list had nothing
+/// to sort by and the staged card could only fall to the end.
+///
+/// A row before the hunk's first index line takes `line: start - 1` with an
+/// offset, for the same reason: it is before that line, not on it.
+///
+/// Note this is a *position*, not an identity: two regions answering the same
+/// pair are adjacent in the index, not the same change. Ordering by it
+/// asserts precedence only, which is exactly what 變體 B's own note forbids
+/// hard line alignment for.
+IndexPosition indexPositionOf(
+  DiffHunk hunk,
+  int lineIndex, {
+  required bool staged,
+}) {
+  int line = (staged ? hunk.newStart : hunk.oldStart) - 1;
+  if (hunk.lines.isEmpty) return (line: line, offset: 1);
+  final int last = lineIndex < hunk.lines.length
+      ? lineIndex
+      : hunk.lines.length - 1;
+  int own = 0;
+  for (int i = 0; i <= last; i++) {
+    final DiffLine element = hunk.lines[i];
+    own = staged ? element.newLine : element.oldLine;
+    if (own > 0) line = own;
+  }
+  return (line: line, offset: own > 0 ? 0 : 1);
+}
+
+/// Orders two [IndexPosition]s: by index line first, then by whether the row
+/// is that line or sits after it.
+int compareIndexPositions(IndexPosition a, IndexPosition b) {
+  final int byLine = a.line.compareTo(b.line);
+  return byLine != 0 ? byLine : a.offset.compareTo(b.offset);
+}
+
 sealed class DiffSegment {
   const DiffSegment();
 
@@ -212,45 +443,71 @@ final class DiffGapSegment extends DiffSegment {
   final List<int> lineIndices;
 }
 
-/// A scope, plus its 1-based position among the scopes of the same side, so
-/// the card can be labelled 「變更 2」 without the widget counting for itself.
+/// A scope, as one drawable block.
+///
+/// It used to carry a 1-based `ordinal` so a card could say 「變更 2」 without
+/// counting for itself, numbered here through a `firstOrdinal` parameter that
+/// continued across hunk boundaries. **Both are deleted**: the merged list
+/// sorts its blocks by index region before drawing them, so a number assigned
+/// while the blocks are still grouped by hunk is shuffled by the sort. The
+/// numbering has to happen after it, which is one traversal above this
+/// function and the only place that can see the whole painted order --
+/// `_ScopedDiffViewState._wellChildren` ([CULT-orphan-wiring]: the reader
+/// could no longer do what the producer promised).
 final class DiffScopeSegment extends DiffSegment {
-  const DiffScopeSegment({required this.scope, required this.ordinal});
+  const DiffScopeSegment({required this.scope});
 
   final DiffScope scope;
-  final int ordinal;
 
   @override
   List<int> get lineIndices => scope.lineIndices;
 }
 
-/// Interleaves [scopes] with the context runs between them, covering every
-/// line of [hunk] exactly once and in order.
+/// Interleaves [scopes] with the context runs between them, in order.
 ///
-/// [firstOrdinal] is where this hunk's scope numbering continues from, so a
-/// file's cards read 變更 1, 2, 3… across hunk boundaries rather than
-/// restarting at every `@@`.
+/// Every line of [hunk] is covered exactly once, **except** those named by
+/// [hiddenLines]: those are dropped, and a context run is split where one
+/// falls rather than being drawn across it.
+///
+/// [hiddenLines] exists for the merged `unified` list, where two diffs of
+/// one file are drawn together. A context line there may be a line the
+/// *other* diff draws as a change of its own -- 使用者裁定 B:「合併模式下把
+/// 另一側已經當成變更畫出來的 context 列隱藏掉」-- and drawing it in both
+/// states the same index line twice in one list. Nothing is lost: the two
+/// rows answer the same [IndexPosition], so the surviving one is painted
+/// exactly where the dropped one would have been.
+///
+/// It only ever reaches context: every changed line belongs to some scope,
+/// so a hidden line that is a change is not in any gap run to begin with.
 List<DiffSegment> hunkSegments(
   DiffHunk hunk,
   List<DiffScope> scopes, {
-  int firstOrdinal = 1,
+  Set<int> hiddenLines = const <int>{},
 }) {
   final List<DiffSegment> segments = <DiffSegment>[];
   int cursor = 0;
-  int ordinal = firstOrdinal;
 
   void gapUpTo(int end) {
-    if (end <= cursor) return;
-    segments.add(
-      DiffGapSegment(
-        List<int>.unmodifiable(<int>[for (int i = cursor; i < end; i++) i]),
-      ),
-    );
+    List<int> run = <int>[];
+    void flush() {
+      if (run.isEmpty) return;
+      segments.add(DiffGapSegment(List<int>.unmodifiable(run)));
+      run = <int>[];
+    }
+
+    for (int i = cursor; i < end; i++) {
+      if (hiddenLines.contains(i)) {
+        flush();
+      } else {
+        run.add(i);
+      }
+    }
+    flush();
   }
 
   for (final DiffScope scope in scopes) {
     gapUpTo(scope.lineIndices.first);
-    segments.add(DiffScopeSegment(scope: scope, ordinal: ordinal++));
+    segments.add(DiffScopeSegment(scope: scope));
     cursor = scope.lineIndices.last + 1;
   }
   gapUpTo(hunk.lines.length);

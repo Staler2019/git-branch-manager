@@ -353,3 +353,114 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   forcing one would need `_reopenExtent` cleared in memory while storage kept the old number —
   which reads deterministic in-session and differs after a restart.
 - **Evidence**: [ledger: 追加六](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+
+## [FLU-merged-diff-keys-by-source] A view drawing two diffs at once keys every positional row by its source, and settles direction from painted order
+
+- **Rule**: `ScopedDiffView` takes a **list** of `ScopedDiffSource` — one element in `2 file`
+  mode, two in `unified`. Direction, callbacks, empty wording and the in-flight/refused flags
+  are all per source; the view itself owns only the selection, the wrap flag and the scroll
+  context.
+- **Rule**: the row key is `'$sourceIndex:$hunkIndex:$lineIndex'`. The two working-copy diffs
+  carry the *same* hunk and line numbers, so a two-part key collides — and a collision here is
+  not a wrong answer but a framework assert, two `SelectionListener`s sharing one notifier
+  ([FLU-selectionarea-gives-a-string]'s trap 1).
+- **Rule**: ordering is by **region**, not by line — `indexPositionOf` reads the coordinate the
+  two diffs share (unstaged is index→worktree so its *old* side is the index; staged is
+  HEAD→index so its *new* side is). 使用者裁定: 「我要對齊的不是行號，是 git 判斷出的區域變更，
+  每個區塊會是一個 scope，然後 unstage, stage 必定是不同 scope」. Ordering regions asserts
+  precedence only, so 變體 B's own ban on hard line alignment survives it.
+- **Do**: sort **decorated with the original index** — `List.sort` is not stable, and the
+  tie-break (equal position → unstaged first) has to be deterministic or two builds paint two
+  orders.
+- **Do**: **never derive 「am I merged?」 from `sources.length`.** A unified view of a file with
+  only staged changes gets exactly one source, indistinguishable in shape from `2 file`'s right
+  pane — so any such derivation draws the wrong thing on precisely that file while every
+  two-source fixture stays green ([TEST-fixture-cannot-disagree]). Pass the fact down
+  (`showColumnHeads`) from whoever owns the mode.
+- **Do**: **build the ordered blocks once and derive everything from that one list** —
+  `_orderedBlocks` feeds both the widgets and `_rowsInRenderOrder`. They were two traversals
+  for one round, a source-major one for the rows and a sorted one for the paint, and they
+  disagreed exactly when the regions interleaved — which is the only case the sort exists for.
+- **Consequence**: the two readers of that row list are what a drag's *direction* and a
+  Shift-range are resolved from, so the split silently inverted a ratified ruling: a drag
+  reaching a staged card painted above an unstaged one resolved to unstaged.
+- **Do**: the discriminating fixture puts the two sides at **different** index positions
+  (staged at 10, unstaged at 100), so the sort really does reverse them; equal positions leave
+  source order and painted order identical and green either way
+  ([TEST-fixture-cannot-disagree]). Pair it with a guard test asserting the reversal, or the
+  main test can pass because the sort never fired.
+- **Note**: scope numbering (`變更 N`) is assigned **after** the sort, by the widget builder —
+  `hunkSegments` cannot do it, because a number handed out while the blocks are still grouped
+  by hunk is shuffled by the sort. Its `firstOrdinal` parameter and `DiffScopeSegment.ordinal`
+  were deleted for that reason rather than rewired ([CULT-orphan-wiring]).
+- **Evidence**: [ledger: 沒寫出來的那條驗收](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Do**: a source that is **in flight or refused still says so** even when another source has
+  rows. Writing the placeholder rule as 「only when nothing has content」 silently deletes
+  「Diff too large to display」 the moment the other side has cards, which is the message
+  [CPP-parse-refuses-over-cap] says every consumer owes the user. Only the plain 「nothing on
+  this side」 is suppressed, because the pane's own count already says it.
+- **Do**: **a fixture whose two sides sit at the same index position cannot see the ordering at
+  all** — concatenating and sorting give the same answer there. The discriminating one puts one
+  side's region *between* two of the other's, and it needs a **context** line: that is the only
+  kind carrying both line numbers, so with added lines alone `indexPositionOf` falls back to the
+  hunk's own start, which already reads the right side, and the whole loop can be mutated to
+  read the wrong one with the test still green.
+- **Correction**: 「falls back to the hunk's own start」 was true of the one-part position this
+  pin was written against; it is now `start - 1` with `offset: 1`, and the fallback still reads
+  the right side. See [FLU-index-position-is-two-part] for why the extra part exists — the
+  one-part form made every inserted row of an untracked file report the *same* position, which
+  is a tie the sort cannot break rather than a wrong side.
+- **Evidence**: [ledger: unified 合成單一清單](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [FLU-index-position-is-two-part] An index position is a line **and** an offset, or every inserted row collapses onto the line above it
+
+- **Rule**: `IndexPosition` is `({int line, int offset})`. `offset 0` means the row *is* index
+  line `line`; `offset 1` means it sits strictly between `line` and the next one. A row before a
+  hunk's first index line takes `start - 1` with offset 1, which is why the empty-hunk fallback
+  subtracts.
+- **Consequence**: an added line has no index coordinate of its own — the unstaged diff numbers it
+  only on the worktree side — so a one-part position had to answer with the last index line seen.
+  In an untracked file **every** row answers the same number, and 「order by region」 degenerates
+  into 「keep the order the sources happened to be in」. That is the third of the three defects
+  behind one report, and it is the one that survives fixing the other two: split the regions
+  correctly and there is still nothing to sort them by.
+- **Do**: compare with `compareIndexPositions`, never field by field at a call site. The tie-break
+  after both parts are equal is the caller's (unstaged first), and it is separate from this
+  ordering ([FLU-merged-diff-keys-by-source]).
+- **Do**: the discriminating fixture is an **untracked** file — a tracked one gives its context
+  rows real index numbers, so the offset never has to carry anything and a one-part position
+  answers correctly on every row ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [FLU-other-side-changes-are-barriers] In a merged diff list, a line the *other* side changes is a hard barrier the gap rule may not swallow
+
+- **Rule**: `splitHunkIntoScopes` merges changes separated by ≤ `kDefaultScopeGap` unchanged
+  lines. In a merged list that rule is wrong on its own: an unchanged line of source A that
+  source B draws as a change of its own is a **region boundary git itself drew**, so a scope may
+  not span it. `changedIndexLines(otherFile, staged:)` names those index lines and
+  `barrierLineIndices(hunk, …)` translates them into that hunk's own row indices.
+- **Consequence**: the reported case is an untracked file whose middle line is staged. The
+  unstaged side reads `+ + . + +`, its single unchanged row *is* the staged change, and one
+  unchanged line is inside the gap — so git's three regions were drawn as **two** cards.
+- **Rule**: it is 「may not swallow a barrier」, never 「a barrier ends a scope」. The rule applies
+  only to unchanged lines strictly *between* two changes of the same source; a barrier outside a
+  gap changes nothing, which is what keeps every single-source fixture untouched.
+- **Rule**: 使用者裁定 B — a row whose index line the other source already draws as a change is
+  **hidden** in the merged list rather than drawn twice. `hunkSegments` takes `hiddenLines` and
+  *splits the gap run* around each one; skipping the line without splitting silently joins the
+  two context runs either side into one block, which is the mutation that discriminates.
+- **Do**: the barrier sets go through **one** `DiffBarrierMemo` in the pure layer, shared by the
+  cards and by anything that counts them. Two derivations of one fact is how the title bar's
+  「N 未暫存 · M 已暫存」 came to say 1 over two Stage cards
+  ([CULT-single-source-of-truth], [CULT-scrutinise-the-comment] — the doc comment claiming the
+  chip 「cannot say a number the list disagrees with」 stopped being true the moment the cards
+  gained barriers and nothing else did).
+- **Do**: memoise on the sides' `DiffFile` identity **and** their `staged` flags — the same file
+  read as the other direction reports different index lines. Hand back the *same* `Set`
+  instances on a hit, and `const <int>{}` for a lone side, or `DiffScopeCache`'s own `identical`
+  check misses and re-splits every frame.
+- **Do**: **a fixture whose two sides are far apart cannot see any of this** — no barrier of one
+  side falls inside a gap of the other, so the barrier-less answer is right. The title bar's
+  original test had its hunks 50 index lines apart and stayed green through the whole defect
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

@@ -53,7 +53,14 @@ The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html
   board failed the same clause a second time — `FileListModeSwitcher` builds a tree only in
   tree mode and hands `items` straight to a `ListView` in list mode, the default — so one
   range implementation cannot serve both (C18).
+- **Consequence**: **and it recurs per *ordering rule*, not only per display mode.** A merged
+  diff list sorted by index region kept a second, source-major traversal for its row order, so
+  Shift+↑/↓ spanned an order nothing on screen was in — the same clause failing a third time,
+  in a view whose whole point is that the two orders differ.
 - **Do**: assert with set equality; a `containsAll` assertion cannot see this.
+- **Do**: **one list, two readers** — build the painted order once and derive the range list
+  from it, so「painted order」cannot become a second opinion
+  ([FLU-merged-diff-keys-by-source]).
 
 ## [SPEC-21-pages-and-revisions] The spec HTML has 21 pages, and P16 revises earlier ones
 

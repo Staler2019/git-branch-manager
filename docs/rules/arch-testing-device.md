@@ -107,3 +107,23 @@ Format: [README.md](README.md).
 - **Do**: a run is cheaper than the reasoning — this file was 1/1 in 4 seconds. Prefer running the
   candidate to arguing it is unaffected.
 - **Evidence**: [ledger: worktree 五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [TEST-geometric-drop-point-is-axis-bound] A drag test that computes a drop point from the container's rect breaks when the container changes axis; one that targets another row does not
+
+- **Rule**: `Offset(board.right - board.width * 0.25, from.dy)` encodes 「the other column is to
+  the right」 as arithmetic. Rotate the container and the same expression lands back inside the
+  column the drag started in, so the drop silently does nothing and the failure surfaces as a
+  missing *count* (`Found 0 widgets with text "Staged · 1"`), never as a gesture error.
+- **Consequence**: `commit_flow_test.dart` was the only red in a six-file device sweep of the
+  Working Copy rotation, and **nothing below the device tier could see it** — the widget-tier
+  drags take their destination from another row's text (`getCenter(find.text('pubspec.yaml'))`),
+  which is axis-agnostic and stayed green through the whole round.
+- **Do**: prefer targeting a **row** over computing a fraction of the container. Where the target
+  column can legitimately be empty — a repository with nothing staged, which is the case this
+  test sets up — there is no row to aim at and the geometric point is unavoidable; then it is a
+  known axis dependency, and a round that changes an axis owns re-reading it.
+- **Do**: keep the first post-`startGesture` step **across** the drag's real direction.
+  `startGesture` defaults to `PointerDeviceKind.touch`, which *is* in `_kTouchLikeDeviceTypes`
+  ([TEST-dragdevices-is-not-a-guard] is about `mouse`, which is not), so a first move along the
+  list's own scroll axis can be claimed by the scroller before the `Draggable` wins the arena.
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)

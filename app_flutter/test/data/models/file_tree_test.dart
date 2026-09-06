@@ -97,13 +97,77 @@ void main() {
 
         final tree = FileTree.fromPaths(paths);
 
-        // Entire path should collapse to single node
-        final node = tree.children.firstWhere(
-          (node) => node.name.contains('home_screen.dart'),
-        );
-        expect(node.displayPath, 'lib/app/views/screens/home_screen.dart');
-        expect(node.isDirectory, false);
+        // The *folder* chain collapses all the way -- that half is spec P03
+        // item 10's own 「只有一個子項的資料夾會自動串接成 lib/app/views 一
+        // 列」 -- and then stops, leaving the file as an ordinary child row.
+        //
+        // ~~This used to assert the whole chain ended up in the file's own
+        // `name`~~, which is what 使用者裁定（2026-09-05）overturned:
+        // 「folder 可以堆疊名稱，但是檔案不會有 folder」. Corrected in place
+        // rather than deleted, because the premise is what changed.
+        final FileTreeNode folder = tree.children.single;
+        expect(folder.isDirectory, isTrue);
+        expect(folder.name, 'lib/app/views/screens');
+
+        final FileTreeNode file = folder.children.single;
+        expect(file.isDirectory, isFalse);
+        expect(file.name, 'home_screen.dart');
+        expect(file.displayPath, 'lib/app/views/screens/home_screen.dart');
       });
+
+      // ~~'a folder holding one file collapses into it, prefix and all'~~ --
+      // the same assertion, inverted by 使用者裁定（2026-09-05）. A folder
+      // holding exactly one file keeps its own row; only folder-to-folder
+      // chains stack.
+      test('a folder holding one file keeps its own row', () {
+        final tree = FileTree.fromPaths(const <String>['b/c.dart']);
+
+        final FileTreeNode folder = tree.children.single;
+        expect(folder.isDirectory, isTrue);
+        expect(folder.name, 'b');
+
+        final FileTreeNode file = folder.children.single;
+        expect(file.isDirectory, isFalse);
+        expect(file.name, 'c.dart');
+        expect(file.displayPath, 'b/c.dart');
+      });
+
+      // 使用者裁定（2026-09-05）:「樹狀模式下，我想要的是像 vscode 一樣，
+      // folder 可以堆疊名稱，但是檔案不會有 folder」, reported against this
+      // exact shape -- `docs` drew two rows reading
+      // `ledger/<file>.md` and `rules/<file>.md`, with no folder row at all.
+      test(
+        'a folder whose single child is a file is not compacted into it',
+        () {
+          final tree = FileTree.fromPaths(const <String>[
+            'docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md',
+            'docs/rules/fn-flutter-layout.md',
+          ]);
+
+          final FileTreeNode docs = tree.children.single;
+          expect(docs.name, 'docs');
+          expect(docs.isDirectory, isTrue);
+          expect(docs.children.map((FileTreeNode n) => n.name), <String>[
+            'ledger',
+            'rules',
+          ]);
+          expect(docs.children.map((FileTreeNode n) => n.isDirectory), <bool>[
+            true,
+            true,
+          ]);
+
+          final FileTreeNode ledgerFile = docs.children.first.children.single;
+          expect(ledgerFile.isDirectory, isFalse);
+          expect(
+            ledgerFile.name,
+            '2026-09-05-feat-worktree-dialogs-shell-redesign.md',
+          );
+          expect(
+            ledgerFile.displayPath,
+            'docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md',
+          );
+        },
+      );
     });
 
     group('hierarchy and path operations', () {
@@ -111,7 +175,10 @@ void main() {
         const paths = ['lib/app/views/a.dart'];
 
         final tree = FileTree.fromPaths(paths);
-        final node = tree.children.first;
+        // The chain collapses down to the folder and stops there, so the leaf
+        // is that folder's child rather than the tree's own -- 使用者裁定
+        // （2026-09-05）. Its `displayPath` is still the full path.
+        final node = tree.children.first.children.single;
 
         expect(node.displayPath, 'lib/app/views/a.dart');
       });
@@ -251,23 +318,28 @@ void main() {
             'lib/models/user.dart',
           });
 
+          // Root-anchored: this row draws 「app/views」 (its `name`) but is
+          // keyed 'lib/app/views', so it cannot share an expand/collapse key
+          // with an `app/views` under some other parent.
           final FileTreeNode viewsNode = libNode.children.singleWhere(
-            (n) => n.displayPath == 'app/views',
+            (n) => n.displayPath == 'lib/app/views',
           );
+          expect(viewsNode.name, 'app/views');
           expect(viewsNode.getAllLeafPaths().toSet(), <String>{
             'lib/app/views/home.dart',
             'lib/app/views/settings.dart',
           });
 
-          // lib/models/ collapses into its single leaf child, so it is a file
-          // node whose only leaf is itself.
-          final FileTreeNode modelsLeaf = libNode.children.singleWhere(
-            (n) => n.displayPath == 'lib/models/user.dart',
+          // ~~lib/models/ collapses into its single leaf child~~ -- it keeps
+          // its own folder row now (使用者裁定, 2026-09-05), holding one file.
+          final FileTreeNode modelsNode = libNode.children.singleWhere(
+            (n) => n.name == 'models',
           );
-          expect(modelsLeaf.isDirectory, isFalse);
-          expect(modelsLeaf.getAllLeafPaths(), <String>[
+          expect(modelsNode.isDirectory, isTrue);
+          expect(modelsNode.getAllLeafPaths(), <String>[
             'lib/models/user.dart',
           ]);
+          expect(modelsNode.children.single.name, 'user.dart');
         },
       );
 

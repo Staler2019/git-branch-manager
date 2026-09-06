@@ -117,13 +117,16 @@ class _PanelFileDiffDetailState extends ConsumerState<PanelFileDiffDetail> {
                   mode: viewMode,
                   items: widget.diff.files,
                   pathOf: (DiffFile file) => file.displayPath,
-                  leafBuilder: (BuildContext context, DiffFile file) =>
-                      _FileRow(
-                        file: file,
-                        selected: file.displayPath == selected.displayPath,
-                        onTap: () =>
-                            setState(() => _selectedPath = file.displayPath),
-                      ),
+                  leafBuilder:
+                      (BuildContext context, DiffFile file, String label) =>
+                          _FileRow(
+                            file: file,
+                            label: label,
+                            selected: file.displayPath == selected.displayPath,
+                            onTap: () => setState(
+                              () => _selectedPath = file.displayPath,
+                            ),
+                          ),
                 ),
               ),
             ],
@@ -147,11 +150,17 @@ class _PanelFileDiffDetailState extends ConsumerState<PanelFileDiffDetail> {
 class _FileRow extends StatelessWidget {
   const _FileRow({
     required this.file,
+    required this.label,
     required this.selected,
     required this.onTap,
   });
 
   final DiffFile file;
+
+  /// What to draw as the row's name -- the whole path in list mode, only
+  /// the unwritten segment in tree mode. Decided by
+  /// `FileListModeSwitcher`, because a row cannot see its own depth.
+  final String label;
   final bool selected;
   final VoidCallback onTap;
 
@@ -165,7 +174,7 @@ class _FileRow extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: Text(
-              file.displayPath,
+              label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 color: colors.textPrimary,

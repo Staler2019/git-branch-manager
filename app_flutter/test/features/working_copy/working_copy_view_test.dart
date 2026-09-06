@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:flutter/gestures.dart' show PointerDeviceKind;
+import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
@@ -11,6 +13,9 @@ import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
     as wc;
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
+import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 
 import '../../support/fake_repo_session.dart';
 import '../../support/pump_app.dart';
@@ -95,6 +100,75 @@ void main() {
       expect(find.textContaining('Staged \u00b7'), findsOneWidget);
       expect(find.text('lib/main.dart'), findsOneWidget);
       expect(find.text('pubspec.yaml'), findsOneWidget);
+    });
+
+    // 「file line view 在右側」「commit message 位置不變」. Every assertion
+    // here compares one rect against a *neighbour's* rect and never against a
+    // pixel constant -- a finder proves existence, not position, and a
+    // constant would re-pin the divider's default width rather than the
+    // arrangement the user asked for. Widths measured under the test font are
+    // not comparable to the real one either, so no number is read out.
+    testWidgets('the file board is left of the diff pane, commit box below', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                WorkingCopyStatus(entries: [stagedEntry, unstagedEntry]),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      // Select a file so the right pane draws the real diff widget rather
+      // than its "Select a file" placeholder -- the placeholder is centred,
+      // so asserting on it would measure a text run's centre instead of the
+      // pane the round actually moves.
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+
+      final Rect board = tester.getRect(find.byType(WorkingCopyBoard));
+      final Rect diff = tester.getRect(find.byType(WorkingCopyDiffPane));
+      final Rect commitBox = tester.getRect(find.byType(CommitMessageBox));
+
+      // Side by side, not stacked: the board ends at or before the diff
+      // begins, and the two occupy the same horizontal band. The second half
+      // is what makes the first half mean "left of" rather than "above".
+      expect(
+        board.right,
+        lessThanOrEqualTo(diff.left),
+        reason: 'the file board must end before the diff pane begins',
+      );
+      expect(board.top, equals(diff.top));
+      expect(board.bottom, equals(diff.bottom));
+
+      // The commit box did not move: still below both panes, and still
+      // *crossing* the divider rather than sitting under one of them.
+      //
+      // Crossing is the assertion rather than "spans the full width"
+      // because CommitMessageBox is the inner widget -- it is inset by the
+      // commit area's own `EdgeInsets.all(space3)` and shares its Row with a
+      // fixed-width button column, so its rect legitimately reaches neither
+      // window edge. Crossing still fails in both directions that matter:
+      // nested in the left column its right edge would not reach the diff,
+      // and nested in the right one its left edge would not reach the board.
+      expect(commitBox.top, greaterThanOrEqualTo(board.bottom));
+      expect(commitBox.left, lessThan(board.right));
+      expect(commitBox.right, greaterThan(diff.left));
     });
 
     testWidgets('renders the conflicted section without a layout exception', (
@@ -239,6 +313,131 @@ void main() {
       ]) {
         expect(tester.getSize(find.text(label)).width, greaterThan(0));
       }
+    });
+
+    // Two of this repo's recorded defect shapes sat in one row, and neither
+    // was caused by this round: the conflicted-file row hand-rolled a bare
+    // `InkWell` ([FLU-hand-rolled-inkwell-hover] -- `ThemeData.hoverColor` is
+    // ~4%, invisible on a real display) whose only callback was `onDoubleTap`,
+    // which is itself an ancestor `DoubleTapGestureRecognizer` over the row's
+    // own three buttons ([FLU-gesture-arena-taxes-double-tap]). Found by the
+    // `InkWell(`/`GestureDetector(` sweep that rule asks for at the end of any
+    // round that touches widgets.
+    group('conflicted row chrome', () {
+      const WorkingCopyEntry conflicted = WorkingCopyEntry(
+        path: 'lib/conflicted.dart',
+        oldPath: '',
+        untracked: false,
+        staged: false,
+        indexStatus: FileChangeKind.modified,
+        hasUnstagedChange: false,
+        worktreeStatus: FileChangeKind.modified,
+        unstagedAdded: 0,
+        unstagedRemoved: 0,
+        stagedAdded: 0,
+        stagedRemoved: 0,
+        conflict: ConflictKind.bothModified,
+        ancestorBlob: '',
+        oursBlob: '',
+        theirsBlob: '',
+        similarity: 0,
+        isSubmodule: false,
+        isConflicted: true,
+      );
+
+      Future<FakeRepoSessionController> pumpConflicted(
+        WidgetTester tester,
+      ) async {
+        final FakeRepoSessionController controller = FakeRepoSessionController(
+          identity,
+          const RepoSessionState(),
+        );
+        await pumpGbmWidget(
+          tester,
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: WorkingCopyView(identity: identity),
+          ),
+          overrides: [
+            repoSessionProvider(identity).overrideWith((ref) => controller),
+            wc
+                .repoWorkingCopyStatusProvider(identity)
+                .overrideWithValue(
+                  const WorkingCopyStatus(entries: [conflicted]),
+                ),
+            wc
+                .repoWorkingCopyDiffsProvider(identity)
+                .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+          ],
+        );
+        return controller;
+      }
+
+      // The row's own background box, identified by the bottom divider it
+      // carries rather than by position in the tree, so the assertion survives
+      // the row being rebuilt around a different hover mechanism.
+      BoxDecoration rowDecoration(WidgetTester tester) =>
+          tester
+                  .widget<Container>(
+                    find
+                        .ancestor(
+                          of: find.text('lib/conflicted.dart'),
+                          matching: find.byWidgetPredicate(
+                            (Widget w) =>
+                                w is Container &&
+                                w.decoration is BoxDecoration &&
+                                (w.decoration! as BoxDecoration).border != null,
+                          ),
+                        )
+                        .first,
+                  )
+                  .decoration!
+              as BoxDecoration;
+
+      // Asserting the token by identity: a hover test that only checks for no
+      // exception proves nothing, which is the whole of the recorded rule.
+      testWidgets('hovering the row paints the surfaceHover token', (
+        tester,
+      ) async {
+        await pumpConflicted(tester);
+        expect(rowDecoration(tester).color, isNull, reason: 'at rest');
+
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: Offset.zero);
+        addTearDown(pointer.removePointer);
+        await pointer.moveTo(
+          tester.getCenter(find.text('lib/conflicted.dart')),
+        );
+        await tester.pump();
+
+        expect(
+          rowDecoration(tester).color,
+          tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+        );
+      });
+
+      // One `pump()` and no elapsed duration: if an ancestor is holding the
+      // gesture arena open for a double tap, the press does not reach the
+      // button until `kDoubleTapTimeout` (~300ms) has passed, and this sees
+      // nothing. That delay is what the rule calls the tax.
+      testWidgets('a button fires on the frame it is pressed, not a '
+          'double-tap timeout later', (tester) async {
+        final FakeRepoSessionController controller = await pumpConflicted(
+          tester,
+        );
+
+        await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+        await tester.pump();
+
+        expect(controller.resolveConflictCalls.length, 1);
+        expect(
+          controller.resolveConflictCalls.single.path,
+          'lib/conflicted.dart',
+        );
+      });
     });
 
     testWidgets('commit message box is visible', (tester) async {

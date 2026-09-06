@@ -9,6 +9,7 @@ import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
+import '../../diff/diff_scopes.dart';
 import '../../diff/scoped_diff_view.dart';
 import '../../diff/widgets/diff_line.dart';
 import '../../diff/temporary_scope_provider.dart';
@@ -23,8 +24,17 @@ enum WorkingCopyDiffMode {
   /// broken, and every other two-pane surface in the app resizes.
   twoFile,
 
-  /// One column, unstaged above staged. For a narrow window, where two
-  /// columns of monospace leave nothing readable in either.
+  /// One column, unstaged above staged. **The default**, and it used to say
+  /// "for a narrow window, where two columns of monospace leave nothing
+  /// readable in either" -- true as far as it went, and wrong about which
+  /// windows it applies to.
+  ///
+  /// This pane now occupies the right-hand half of the window rather than
+  /// its lower half, so splitting it again into two columns would spend the
+  /// readable width on exactly the arrangement the round was asked to undo
+  /// (「左右不好看檔案內容」). Narrowness is no longer the trigger: the
+  /// pane is *always* the narrower of the two axes it could be split on.
+  /// [twoFile] is unchanged and one click away.
   unified,
 }
 
@@ -101,7 +111,9 @@ class WorkingCopyDiffPane extends StatefulWidget {
 }
 
 class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
-  WorkingCopyDiffMode _mode = WorkingCopyDiffMode.twoFile;
+  /// `unified`, not `twoFile`. Widget state, deliberately not persisted --
+  /// see [WorkingCopyDiffMode] for why this default moved.
+  WorkingCopyDiffMode _mode = WorkingCopyDiffMode.unified;
   final ScrollController _stagedScroll = ScrollController();
 
   /// Stands in when the caller passed no [WorkingCopyDiffPane.scrollController].
@@ -118,6 +130,49 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   /// rather than one shared: the sides hold different files and a single
   /// memo would thrash between them on every rebuild, which is the one thing
   /// [CodeWidthMemo] exists to stop -- 5,000 lines cost 46ms to measure.
+  /// The title bar's own scope counts (U3) go through the same
+  /// [splitDiffFileIntoScopes] the cards do -- one function, two memos, so
+  /// the chip cannot say a number the list disagrees with. A cache each
+  /// because [DiffScopeCache] holds one entry and two files sharing one
+  /// would evict each other every build.
+  ///
+  /// **Corrected in place.** 「one function」 was necessary and was not
+  /// sufficient: the cards are split with the *other* side's changed index
+  /// lines as hard barriers and this count was not, so on the reported case
+  /// -- an untracked file with its middle line staged -- the chip said
+  /// 「1 未暫存」 over two Stage cards. Both now go through the same
+  /// [DiffBarrierMemo], which is why that memo lives in the pure layer
+  /// rather than inside [ScopedDiffView] ([CULT-single-source-of-truth]).
+  final DiffScopeCache _unstagedScopes = DiffScopeCache();
+  final DiffScopeCache _stagedScopes = DiffScopeCache();
+  final DiffBarrierMemo _barriers = DiffBarrierMemo();
+
+  static int _countScopes(
+    DiffSide side,
+    DiffScopeCache cache,
+    Set<int> barriers,
+  ) => cache
+      .scopesOf(side.file, staged: side.staged, barrierIndexLines: barriers)
+      .values
+      .fold<int>(0, (int sum, List<DiffScope> scopes) => sum + scopes.length);
+
+  /// U3's two numbers, split exactly the way the merged list is.
+  ///
+  /// Only `unified` draws them, so the barriers are unconditional here: in
+  /// `2 file` the two column heads still say it and this record is never
+  /// built at all.
+  ({int unstaged, int staged}) _scopeCounts() {
+    final List<DiffSide> sides = <DiffSide>[
+      (file: widget.unstagedFile, staged: false),
+      (file: widget.stagedFile, staged: true),
+    ];
+    final List<Set<int>> barriers = _barriers.barriersFor(sides);
+    return (
+      unstaged: _countScopes(sides[0], _unstagedScopes, barriers[0]),
+      staged: _countScopes(sides[1], _stagedScopes, barriers[1]),
+    );
+  }
+
   final CodeWidthMemo _unstagedMemo = CodeWidthMemo();
   final CodeWidthMemo _stagedMemo = CodeWidthMemo();
 
@@ -141,6 +196,12 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         _TitleBar(
           displayPath: widget.displayPath,
           mode: _mode,
+          // U3's replacement for the two column heads, and only where they
+          // were removed: in `2 file` the heads still say it, and saying it
+          // twice would be [UX-rubric] dimension D's redundancy.
+          scopeCounts: _mode == WorkingCopyDiffMode.unified
+              ? _scopeCounts()
+              : null,
           onModeChanged: (WorkingCopyDiffMode mode) =>
               setState(() => _mode = mode),
         ),
@@ -176,14 +237,21 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               ),
               verticalController: _unstagedScroll,
               backdrop: colors.surfaceSunken,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _side(staged: false),
-                  Container(height: 1, color: colors.borderDefault),
-                  _side(staged: true),
+              // **One view holding both directions**, not two stacked.
+              // 「應該是單一 view 檢視 stage/unstage scope and button，而非
+              // 還是拆成上下檢視」 -- two views one above the other is what
+              // shipped, and it was two columns rotated rather than a merged
+              // list. The cards carry their own direction now (U2), the
+              // ordering is by index region (U1), and the column heads are
+              // gone because there is no column left for them to label (U3).
+              child: ScopedDiffView(
+                sources: <ScopedDiffSource>[
+                  _source(staged: false),
+                  _source(staged: true),
                 ],
+                showColumnHeads: false,
+                onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
+                softWrap: widget.softWrap,
               ),
             ),
           },
@@ -192,7 +260,13 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     );
   }
 
-  Widget _side({required bool staged}) => ScopedDiffView(
+  /// One direction's diff, as a [ScopedDiffSource].
+  ///
+  /// Every per-side value lives here rather than in the widget that draws
+  /// it, which is what lets `unified` hand *both* directions to one
+  /// [ScopedDiffView] without either side's callbacks having to know how
+  /// many neighbours it has.
+  ScopedDiffSource _source({required bool staged}) => ScopedDiffSource(
     title: staged ? 'Staged' : 'Unstaged',
     file: staged ? widget.stagedFile : widget.unstagedFile,
     staged: staged,
@@ -204,6 +278,10 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     // Discard is a work-tree rewrite, so it exists on the unstaged side
     // only -- there is nothing about a staged line to throw away.
     onDiscardScope: staged ? null : widget.onDiscardScope,
+  );
+
+  Widget _side({required bool staged}) => ScopedDiffView(
+    sources: <ScopedDiffSource>[_source(staged: staged)],
     onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
     softWrap: widget.softWrap,
   );
@@ -213,11 +291,17 @@ class _TitleBar extends StatelessWidget {
   const _TitleBar({
     required this.displayPath,
     required this.mode,
+    required this.scopeCounts,
     required this.onModeChanged,
   });
 
   final String displayPath;
   final WorkingCopyDiffMode mode;
+
+  /// How many cards each direction has, or null when the two column heads
+  /// are still saying it themselves (`2 file`). U3.
+  final ({int unstaged, int staged})? scopeCounts;
+
   final ValueChanged<WorkingCopyDiffMode> onModeChanged;
 
   @override
@@ -248,6 +332,19 @@ class _TitleBar extends StatelessWidget {
             ),
           ),
           const Spacer(),
+          if (scopeCounts != null) ...<Widget>[
+            const SizedBox(width: GbmSpacing.space2),
+            // One line, both directions, in the same order the list draws
+            // them -- 「2 未暫存 · 1 已暫存」. Not a pill per side: two pills
+            // here would be the two column heads again, in a narrower place.
+            Text(
+              '${scopeCounts!.unstaged} 未暫存 · ${scopeCounts!.staged} 已暫存',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textTertiary,
+              ),
+            ),
+          ],
           const SizedBox(width: GbmSpacing.space2),
           GbmSegmentedControl<WorkingCopyDiffMode>(
             value: mode,

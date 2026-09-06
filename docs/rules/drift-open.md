@@ -242,6 +242,26 @@ historical the moment they are written.
 - **Evidence**: **#139**;
   [ledger: 追加四](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
+## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared
+
+- **Rule**: one sentence says 「收合狀態與**模式**各清單獨立記憶」 and the next says
+  「**同一個設定**套用到 Working Copy 兩欄、History 的 Changed files、Compare 的 Files、
+  以及 Conflict 視窗的檔案清單」. Both are P03 item 10's own `note`, one clause apart.
+- **Rule**: the code implements the second — one app-wide `fileListViewModeProvider`, read by
+  all five call sites — and `docs/reports/spec-conformance-matrix.md`'s item 10 row has ratified
+  that reading through two rounds. **Collapse state genuinely is per-list**
+  (`FileTreeList`'s own `_expandedFolders` State), so only the *mode* half is in dispute.
+- **Consequence**: nothing is broken today, which is exactly why this is written down rather
+  than fixed. Switching to per-list mode would be a behaviour change nobody asked for, and
+  「the spec says so」 is not available as a reason when the spec says both.
+- **Do**: this needs a **ruling**, not an implementer picking the sentence they prefer —
+  [SPEC-mockup-is-not-prose]'s prose-wins tiebreak cannot help when both sides are prose.
+  Same disposition as [DRIFT-restore-before-this-state-missing]: recorded, left open.
+- **Note**: found while correcting item 10's *other* two clauses, which really were broken
+  ([STRUCT-leaf-label-from-switcher]). Reading the whole `note` instead of the row's title is
+  what surfaced all three.
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**

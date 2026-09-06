@@ -45,22 +45,30 @@ WorkingCopyEntry _entry({
   isConflicted: false,
 );
 
-/// The paths whose row currently renders selected, read straight off the
-/// [GbmRow]s -- set equality against this is the only assertion that can see
-/// a range spanning the wrong rows. `containsAll` cannot.
+/// The paths whose row currently renders selected, read off each [GbmRow]'s
+/// own key -- set equality against this is the only assertion that can see a
+/// range spanning the wrong rows. `containsAll` cannot.
+///
+/// The key, not the row's first `Text`. That is what this used to read, and
+/// it was a proxy that stopped being one the moment tree mode started
+/// labelling a leaf with only the segment its folder rows had not already
+/// written: the row for `lib/a.dart` now draws `a.dart`, which is
+/// indistinguishable from a root-level `a.dart`. `working_copy_board.dart`
+/// composes the key from `entry.path` itself, so it is the row's identity
+/// rather than a rendering of it.
 Set<String> _selectedPaths(WidgetTester tester) {
   final Set<String> paths = <String>{};
   for (final GbmRow row in tester.widgetList<GbmRow>(find.byType(GbmRow))) {
     if (!row.selected) continue;
-    // Read the first Text under the row rather than casting through the
-    // row's widget shape: a layout change should red the layout test, not
-    // every selection test at once.
-    final Text label = tester
-        .widgetList<Text>(
-          find.descendant(of: find.byWidget(row), matching: find.byType(Text)),
-        )
-        .first;
-    paths.add(label.data!);
+    final String key = (row.key! as ValueKey<String>).value;
+    // 'wc-file-{staged|unstaged}-{path}-selected'; every row collected here
+    // is selected, so the suffix is always present.
+    final String withoutSuffix = key.substring(
+      0,
+      key.length - '-selected'.length,
+    );
+    final int pathStart = withoutSuffix.indexOf('-', 'wc-file-'.length) + 1;
+    paths.add(withoutSuffix.substring(pathStart));
   }
   return paths;
 }
@@ -168,6 +176,89 @@ void main() {
       expect(find.text('pubspec.yaml'), findsOneWidget);
     });
 
+    // 「把水平 unstaged-staged file list 改成左側垂直，unstaged 一樣在上」.
+    // Asserted on the two headers' rects against each other rather than
+    // against any constant -- a finder proves existence, not position, and
+    // the divider's own default is not what is being pinned here.
+    testWidgets('the two columns are stacked, Unstaged on top', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      final Rect unstaged = tester.getRect(find.text('Unstaged · 2'));
+      final Rect staged = tester.getRect(find.text('Staged · 1'));
+
+      // Stacked, not side by side: the two headers start at the same x.
+      // Side by side they would start at *different* x and the same y, so
+      // this pair of assertions is what tells the two arrangements apart --
+      // "Unstaged is above Staged" alone is vacuously true of a row whose
+      // two headers share a baseline only by rounding.
+      expect(unstaged.left, equals(staged.left));
+      expect(unstaged.bottom, lessThanOrEqualTo(staged.top));
+    });
+
+    // Stacking put a floor under a column's *height* where there had only
+    // ever been one under its width, and the column is
+    // `Column[ header(26, non-flex), Expanded(list), dropHint(non-flex) ]`.
+    // RenderFlex lays its non-flex children out first and divides only what
+    // is left, so the Expanded list cannot rescue an overflow the header and
+    // the hint cause between them -- which is the whole reason
+    // `splitterWcStack.minExtent` is 96 rather than the 78px of exact
+    // constants underneath it.
+    testWidgets('a column at its height floor does not overflow', (
+      tester,
+    ) async {
+      // Each pane gets half of what is left after the divider. 5 is
+      // split_pane.dart's own `_kDividerWidth`, which is private -- if it
+      // ever changes this test starts squeezing the panes below their floor
+      // and GbmSplitPane's clamp overflows instead, which is a different and
+      // equally visible red rather than a silent pass.
+      //
+      // This test was green the moment it was written, because the floor it
+      // checks was set in the same round. What makes it non-vacuous is the
+      // bisection: lowering `splitterWcStack.minExtent` reddens it at 85 and
+      // passes at 86, and at 78 -- the exact-constant part of the floor --
+      // RenderFlex reports "overflowed by 8.0 pixels on the bottom". So 86
+      // is the real floor and the shipped 96 has 10px of headroom.
+      final double boardHeight = GbmLayout.splitterWcStack.minExtent * 2 + 5;
+
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: GbmLayout.splitterWcFiles.minExtent,
+          height: boardHeight,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+
+      // Not enough on its own: an Expanded satisfies "no overflow" while
+      // collapsing its child to zero height, and RenderFlex only reports
+      // main-axis overflow anyway. So assert the two non-flex children are
+      // still really drawn, with height.
+      expect(tester.getRect(find.text('Unstaged · 2')).height, greaterThan(0));
+      expect(
+        tester.getRect(find.textContaining('= stage')).height,
+        greaterThan(0),
+      );
+    });
+
     // Nothing anywhere asserted that a drop actually stages: the widget
     // tests only checked that a `Draggable` exists, and the device-tier
     // commit flow was still tapping a checkbox that 變體 B deleted. With
@@ -265,10 +356,17 @@ void main() {
       // Unstaged header only -- a second copy would be two controls for one
       // global setting.
       expect(find.byType(FileListModeToggleButton), findsOneWidget);
+      // Which column it belongs to is asserted against the *other* column's
+      // header, not against the board's own centre line. The centre-line
+      // form ("it is in the left half") was a proxy that only worked while
+      // the two columns sat side by side; once they were stacked both spanned
+      // the full width and the switch measured at x=771 on the Unstaged
+      // header -- correct, and failing an assertion that had stopped
+      // describing the claim.
       expect(
-        tester.getRect(find.byType(FileListModeToggleButton)).center.dx,
-        lessThan(tester.getRect(find.byType(WorkingCopyBoard)).center.dx),
-        reason: 'it belongs to the left (Unstaged) column',
+        tester.getRect(find.byType(FileListModeToggleButton)).bottom,
+        lessThanOrEqualTo(tester.getRect(find.text('Staged · 1')).top),
+        reason: 'it belongs to the Unstaged column, which is the upper one',
       );
     });
 
@@ -289,7 +387,7 @@ void main() {
       );
 
       expect(
-        find.text('\u62d6\u66f3\u6a94\u6848\u5230\u53f3\u6b04 = stage'),
+        find.text('\u62d6\u66f3\u6a94\u6848\u5230\u4e0b\u6b04 = stage'),
         findsOneWidget,
       );
     });
@@ -560,10 +658,14 @@ void main() {
       await tester.tap(find.byType(FileTreeFolderRow));
       await tester.pumpAndSettle();
 
-      await _tapWithModifier(tester, find.text('lib/a.dart'), null);
+      // The leaves are labelled `a.dart` / `b.dart` here, not `lib/a.dart`:
+      // the `lib` folder row above them already carries the prefix. The
+      // *assertion* is still on the full paths, because `_selectedPaths`
+      // reads each row's key rather than the text it draws.
+      await _tapWithModifier(tester, find.text('a.dart'), null);
       await _tapWithModifier(
         tester,
-        find.text('lib/b.dart'),
+        find.text('b.dart'),
         LogicalKeyboardKey.shiftLeft,
       );
 
@@ -681,8 +783,15 @@ void main() {
       tester,
     ) async {
       // The default 800x600 test canvas hides width overflow: the real floor
-      // is GbmLayout.splitterWcColumns.minExtent per column, and the rows now
-      // carry two badges they did not before.
+      // is GbmLayout.splitterWcFiles.minExtent for the whole board, and the
+      // rows now carry two badges they did not before.
+      //
+      // It used to read `splitterWcColumns.minExtent * 2` -- two columns
+      // side by side, each with its own width floor. Stacked, both columns
+      // are as wide as the board, and the board is the fixed pane of the
+      // files-vs-diff divider, so its floor is that divider's `minExtent`
+      // and there is no `* 2`. The canvas is *narrower* than before (180
+      // against 400), which makes this a stricter test, not a looser one.
       const WorkingCopyEntry longPath = WorkingCopyEntry(
         path: 'lib/features/working_copy/widgets/working_copy_board.dart',
         oldPath: '',
@@ -704,7 +813,7 @@ void main() {
         isConflicted: false,
       );
 
-      final double boardWidth = GbmLayout.splitterWcColumns.minExtent * 2;
+      final double boardWidth = GbmLayout.splitterWcFiles.minExtent;
       await pumpGbmWidget(
         tester,
         child: SizedBox(

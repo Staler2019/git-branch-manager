@@ -579,12 +579,13 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     // History's Changed files, and Compare's Files.
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
 
-    Widget buildRailRow(ConflictBatchEntry entry) {
+    Widget buildRailRow(ConflictBatchEntry entry, String label) {
       final WorkingCopyEntry? wc = conflicted
           .cast<WorkingCopyEntry?>()
           .firstWhere((e) => e?.path == entry.path, orElse: () => null);
       return _ConflictRailRow(
         entry: entry,
+        label: label,
         selected: entry.path == _selectedPath,
         onTap: () => _selectPath(entry.path),
         onTakeOurs: () => ref
@@ -693,7 +694,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                   ? ListView(
                                       children: <Widget>[
                                         for (final entry in _batch.entries)
-                                          buildRailRow(entry),
+                                          // List mode's label is the whole
+                                          // path; this arm is hand-rolled
+                                          // only to keep the ListView.
+                                          buildRailRow(entry, entry.path),
                                       ],
                                     )
                                   // Tree mode has no scroll-offset
@@ -707,7 +711,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                           (
                                             BuildContext context,
                                             ConflictBatchEntry entry,
-                                          ) => buildRailRow(entry),
+                                            String label,
+                                          ) => buildRailRow(entry, label),
                                     ),
                             ),
                           ],
@@ -1216,6 +1221,7 @@ class _ConflictActionBar extends StatelessWidget {
 class _ConflictRailRow extends StatelessWidget {
   const _ConflictRailRow({
     required this.entry,
+    required this.label,
     required this.selected,
     required this.onTap,
     required this.onTakeOurs,
@@ -1224,6 +1230,9 @@ class _ConflictRailRow extends StatelessWidget {
   });
 
   final ConflictBatchEntry entry;
+
+  /// What to draw as the row's name -- see `FileListModeSwitcher.leafBuilder`.
+  final String label;
   final bool selected;
   final VoidCallback onTap;
   final VoidCallback onTakeOurs;
@@ -1255,8 +1264,10 @@ class _ConflictRailRow extends StatelessWidget {
                   ),
                   const SizedBox(width: GbmSpacing.space1),
                   Expanded(
+                    // `label`, not the path: in tree mode the folder
+                    // rows above already carry the prefix.
                     child: Text(
-                      entry.path,
+                      label,
                       style: TextStyle(
                         fontSize: GbmTypography.textSm,
                         color: colors.textPrimary,

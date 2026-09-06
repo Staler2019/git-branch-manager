@@ -210,24 +210,100 @@ class SelectionTouchRow extends StatelessWidget {
   }
 }
 
-/// The key a diff row is tracked under. Positional, so it is only valid for
-/// as long as the diff it was computed from is on screen.
-String selectionRowKey(int hunkIndex, int lineIndex) => '$hunkIndex:$lineIndex';
+/// The key a diff row is tracked under.
+///
+/// Positional, so it is only valid for as long as the diff it was computed
+/// from is on screen. [sourceIndex] is the first component because one
+/// [ScopedDiffView] can now draw more than one diff at a time -- `unified`
+/// mode merges the unstaged and staged diffs into a single list -- and the
+/// two carry the same hunk and line numbers. Without it, row `0:0` of the
+/// unstaged diff and row `0:0` of the staged one are one key, so a
+/// [SelectionListener] registered for either would collide with the other's
+/// and the framework would assert on two listeners sharing one notifier
+/// ([FLU-selectionarea-gives-a-string]'s trap 1).
+String selectionRowKey(int sourceIndex, int hunkIndex, int lineIndex) =>
+    '$sourceIndex:$hunkIndex:$lineIndex';
 
-/// Splits [touched] back into line indices per hunk, dropping anything that
-/// is not in [changedByHunk] -- only added and removed lines move, so a drag
-/// that crossed only context has nothing to stage.
+/// A one-shot selection, resolved to exactly one source.
+///
+/// One, because git has no action that stages and unstages at the same time
+/// -- so a button offering to do both would be a control that lies. The
+/// direction is settled by which card the selection reaches *first* in
+/// painted order; see [resolveTemporaryScope].
+class TemporaryScope {
+  const TemporaryScope({required this.sourceIndex, required this.byHunk});
+
+  final int sourceIndex;
+
+  /// Hunk index to the changed line indices under the selection, ascending.
+  final Map<int, List<int>> byHunk;
+}
+
+/// Picks the one source a drag acts on, then splits its rows back into line
+/// indices per hunk.
+///
+/// The winner is the first row in [rowsInRenderOrder] that is both touched
+/// and *changed* -- changed, because a drag that opens over the context
+/// lines above a staged card would otherwise hand the scope to whichever
+/// source happened to own that context, which is not a card the user can
+/// see. Rows belonging to any other source are dropped from the result;
+/// their own cards keep their own buttons, so nothing becomes unreachable.
+///
+/// Returns null when the selection touches no changed line at all.
+TemporaryScope? resolveTemporaryScope({
+  required List<String> rowsInRenderOrder,
+  required Set<String> touched,
+  required List<Map<int, Set<int>>> changedBySource,
+}) {
+  for (final String row in rowsInRenderOrder) {
+    if (!touched.contains(row)) continue;
+    final List<int>? parts = _parseRowKey(row);
+    if (parts == null) continue;
+    final int sourceIndex = parts[0];
+    if (sourceIndex >= changedBySource.length) continue;
+    if (!(changedBySource[sourceIndex][parts[1]]?.contains(parts[2]) ??
+        false)) {
+      continue;
+    }
+    final Map<int, List<int>> byHunk = touchedChangedLines(
+      touched,
+      changedBySource[sourceIndex],
+      sourceIndex: sourceIndex,
+    );
+    if (byHunk.isEmpty) continue;
+    return TemporaryScope(sourceIndex: sourceIndex, byHunk: byHunk);
+  }
+  return null;
+}
+
+List<int>? _parseRowKey(String key) {
+  final List<String> parts = key.split(':');
+  if (parts.length != 3) return null;
+  final int? sourceIndex = int.tryParse(parts[0]);
+  final int? hunkIndex = int.tryParse(parts[1]);
+  final int? lineIndex = int.tryParse(parts[2]);
+  if (sourceIndex == null || hunkIndex == null || lineIndex == null) {
+    return null;
+  }
+  return <int>[sourceIndex, hunkIndex, lineIndex];
+}
+
+/// Splits [touched] back into line indices per hunk for one source, dropping
+/// anything that is not in [changedByHunk] -- only added and removed lines
+/// move, so a drag that crossed only context has nothing to stage -- and
+/// anything belonging to a different source.
 Map<int, List<int>> touchedChangedLines(
   Set<String> touched,
-  Map<int, Set<int>> changedByHunk,
-) {
+  Map<int, Set<int>> changedByHunk, {
+  required int sourceIndex,
+}) {
   final Map<int, List<int>> result = <int, List<int>>{};
   for (final String key in touched) {
-    final List<String> parts = key.split(':');
-    if (parts.length != 2) continue;
-    final int? hunkIndex = int.tryParse(parts[0]);
-    final int? lineIndex = int.tryParse(parts[1]);
-    if (hunkIndex == null || lineIndex == null) continue;
+    final List<int>? parts = _parseRowKey(key);
+    if (parts == null) continue;
+    if (parts[0] != sourceIndex) continue;
+    final int hunkIndex = parts[1];
+    final int lineIndex = parts[2];
     if (!(changedByHunk[hunkIndex]?.contains(lineIndex) ?? false)) continue;
     (result[hunkIndex] ??= <int>[]).add(lineIndex);
   }

@@ -532,6 +532,7 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · U9 維持現狀</span>
       <span class="pill is-ratified">使用者裁定 · 本輪只改 unified 內，U8 除外</span>
       <span class="pill is-ratified">使用者裁定 · 未追蹤 unstage 要回到 Untracked（§11）</span>
+      <span class="pill is-ratified">使用者裁定 · 樹狀模式照 VS Code：檔案不帶 folder（§14）</span>
     </div>
   </header>
 
@@ -1398,7 +1399,7 @@ footer.colophon {
         <tr><td class="num">W8</td><td><span class="pill is-done">done</span><br><code>f43a025</code></td><td>裝置層，一次一個檔</td><td class="num">5 個候選</td>
             <td>跑了<b>六</b>個，不是五個 —— grep 還撈出 <code>context_menu_flows</code>，而計畫自己的清單裡有兩個 grep 沒撈到，所以跑的是聯集：<code>stage_lines_flow</code> 7/7、<code>working_copy_line_counts</code> 1/1、<code>commit_flow</code> <b>0/1 → 1/1</b>、<code>commit_file_counts</code> 2/2、<code>conflict_flow</code> 1/1、<code>context_menu_flows</code> 5/5。紅的是這個測試的落點 <code>board.right - board.width * 0.25</code> ——「另一欄在右邊」被寫成算式，轉向之後這個算式又落回 Unstaged 裡面。裝置層以下沒有任何一層看得到它：widget 層的拖曳瞄的是另一個<em>列</em>，那跟軸向無關。依 <code>[TEST-foreground-line-is-not-a-failure]</code>，先在父 commit 上跑了一次 <code>stage_lines_flow</code> 當對照組，7/7。</td></tr>
         <tr><td class="num">W10</td><td><span class="pill is-done">done</span><br><code>7f37f55<br>a4bcfd1</code></td><td>Tree 模式的葉節點文字</td><td class="num">1 + 測試</td>
-            <td>既有缺陷，由使用者納入這一輪；不是這次改版面造成的 —— 而且<b>不在這一頁</b>。葉節點的標籤是由共用的 <code>FileListModeSwitcher</code> 決定的，它的 <code>leafBuilder</code> 沒有收 label 參數，所以<b>六個</b>面在兩種模式下畫的都是項目的完整路徑：Working Copy 兩欄、History 的 Changed files、Compare 的 Files、Conflict 視窗、<code>panel_file_diff_detail</code>。修在契約上（<code>leafBuilder(context, item, label)</code>），不是修在某一個呼叫點。同一個句子裡還坐著<b>第二個</b>缺陷：<code>FileTree._collapseIfSingleChild</code> 在摺疊鏈結尾是<em>檔案</em>時做了 <code>split('/').last</code>，丟掉的正好是 P03-10 自己的 <code>lib/app/views</code> 範例在講的那個前綴。兩個 commit：W10a 是樹，W10b 是切換器。</td></tr>
+            <td>既有缺陷，由使用者納入這一輪；不是這次改版面造成的 —— 而且<b>不在這一頁</b>。葉節點的標籤是由共用的 <code>FileListModeSwitcher</code> 決定的，它的 <code>leafBuilder</code> 沒有收 label 參數，所以<b>六個</b>面在兩種模式下畫的都是項目的完整路徑：Working Copy 兩欄、History 的 Changed files、Compare 的 Files、Conflict 視窗、<code>panel_file_diff_detail</code>。修在契約上（<code>leafBuilder(context, item, label)</code>），不是修在某一個呼叫點。同一個句子裡還坐著<b>第二個</b>缺陷：<code>FileTree._collapseIfSingleChild</code> 在摺疊鏈結尾是<em>檔案</em>時做了 <code>split('/').last</code>，丟掉的正好是 P03-10 自己的 <code>lib/app/views</code> 範例在講的那個前綴。兩個 commit：W10a 是樹，W10b 是切換器。<b>後半被 §14 推翻：</b><s>檔案那一支要保留整段前綴</s> —— 使用者驗收後裁定樹狀模式照 VS Code，收合停在資料夾，檔案只畫 basename。切換器那一半（也就是使用者說<span class="zh">「共用沒錯」</span>的那一半）不變。</td></tr>
         <tr><td class="num">W11</td><td><span class="pill is-done">done</span><br><code>571b595<br>9973ce2</code></td><td>Scope 卡片：設計有畫、程式碼沒畫的那些線</td><td class="num">1 + 測試</td>
             <td>S3 的三條虛線、S4 的標頭底線與 muted 底色、S9 的 hunk 橫線、S10 的外距。全部都在 <code>scoped_diff_view.dart</code> 裡面；不碰邏輯、不碰 <code>selection_touch.dart</code>、不碰 <code>diff_scopes.dart</code>。</td></tr>
         <tr><td class="num">W12</td><td><span class="pill is-done">done</span><br><code>0eca40b</code></td><td><span class="zh">一次性</span> chip 與欄標頭的 chip</td><td class="num">1–2 + 測試</td>
@@ -1953,6 +1954,93 @@ footer.colophon {
       <li><code>DiffBarrierMemo</code> 命中時交回<b>同一個 <code>Set</code> 實例</b>，單一來源交回 <code>const &lt;int&gt;{}</code>——不是相等，是 identity：<code>DiffScopeCache</code> 用 <code>identical</code> 當 key，一個相等但新的集合會讓它每一幀重切。</li>
       <li><code>changedIndexLines</code> 的 fixture 兩側必須是<b>不同</b>的數字。第一版寫成兩側都是 2，把函式改成「永遠讀舊的那一側」<b>全綠</b>——這一輪自己撞上的 <code>[TEST-fixture-cannot-disagree]</code>，而抓到它的是 mutation 檢查。</li>
       <li><code>stage_lines_flow_test.dart</code> 與 <code>untracked_unstage_flow_test.dart</code> 在裝置上逐檔重跑，輸出<b>不接 <code>tail</code>、也不接只留進度列的 <code>grep</code></b>。</li>
+    </ul>
+  </section>
+
+  <!-- ============================ 14 ============================ -->
+  <section id="sec14">
+    <div class="sec-head"><span class="sec-num">14</span><h2>第四輪：樹狀模式照 VS Code，檔案不帶 folder</h2></div>
+    <p class="lede">
+      §13 那張表是第三輪的記錄，維持原樣。這一輪是使用者驗收 <b>W10</b>
+      （§08 那張表裡「tree 葉節點這輪一起修」的那一列）時回報的：
+      <span class="zh">「w10我覺得共用沒錯，但是需要修一下，樹狀模式下，我想要的是像
+      vscode一樣，folder可以堆疊名稱，但是檔案不會有folder」</span>。
+      <b>「共用沒錯」是對 W10 範圍的裁定 —— 那個共用元件留著</b>；被推翻的是它的行為。
+    </p>
+
+    <div class="compare">
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag before">驗收看到的</span>
+          <span class="specimen-note">W10 出貨的樣子 · <code>7f37f55</code></span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="path">▾ docs</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">rules/fn-flutter-layout.md</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head">
+          <span class="specimen-tag after">要的</span>
+          <span class="specimen-note">資料夾鏈才堆疊，檔案畫 basename</span>
+        </div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="wc">
+            <div class="pane">
+              <div class="pane__hdr"><span class="grow">Unstaged · 2</span><span style="font-size:10px">☰</span></div>
+              <div class="pane__list">
+                <div class="frow"><span class="path">▾ docs</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">▾ ledger</span></div>
+                <div class="frow" style="padding-left:40px"><span class="path">2026-09-05-feat-worktree-dialogs-shell-redesign.md</span></div>
+                <div class="frow" style="padding-left:24px"><span class="path">▾ rules</span></div>
+                <div class="frow" style="padding-left:40px"><span class="path">fn-flutter-layout.md</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <p>
+      <b>更正：</b><s>W10 的第二個缺陷是「收合鏈結尾是檔案時，前綴被
+      <code>leafPath!.split('/').last</code> 丟掉了」，所以要把整段前綴留在
+      <code>name</code> 裡</s> —— 診斷對了一半，修法多做了一步。P03 item 10 的
+      例子<span class="zh">「只有一個子項的資料夾會自動串接成 <code>lib/app/views</code>
+      一列」</span>講的是三層<b>資料夾</b>；把它延伸到「單一子項是檔案」是這個 repo
+      自己加的，不是 spec 要求的。VS Code 的 <code>explorer.compactFolders</code>
+      只壓縮資料夾鏈，遇到檔案就停 —— 使用者要的就是這個。
+    </p>
+
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:5%">#</th><th style="width:11%">狀態</th><th style="width:24%">項目</th><th style="width:8%">改幾處</th><th>是什麼</th></tr></thead>
+      <tbody>
+        <tr><td class="num">C1</td><td><span class="pill is-ratified">done</span></td><td>收合停在資料夾</td><td class="num">2 + 測試</td>
+            <td><code>_collapseIfSingleChild</code> 只在單一子項<b>本身是資料夾</b>時才遞迴。遞迴刻意 gate 在 <code>!childData.isLeaf</code>，不是把舊分支刪掉了事：讓它遞迴進一個 leaf 會走到函式底部，回一個<b>名字是檔名的空資料夾</b>，檔案從樹上與 <code>getAllLeafPaths()</code> 一起消失 —— 而 <code>getAllLeafPaths()</code> 正是 Working Copy 拖整個資料夾在讀的東西。資料夾鏈那半邊原封不動，<code>lib → app → views</code> 那個測試全程綠。</td></tr>
+        <tr><td class="num">C2</td><td><span class="pill is-ratified">done</span></td><td>資料夾的展開鍵改成從根算起</td><td class="num">1 + 測試</td>
+            <td><b>C1 之前就在的缺陷，但 C1 會放大它。</b><code>FileTreeList</code> 用 <code>node.displayPath</code> 當展開鍵，而資料夾的 <code>displayPath</code> 只是<b>從它自己這一層</b>累積的前綴 —— <code>lib/</code> 與 <code>test/</code> 底下各一個 <code>features</code> 都拿到 <code>'features'</code>，展開一個另一個跟著開。改成 <code>name</code>（畫出來的字，含摺疊鏈）與 <code>displayPath</code>（從根算起，全樹唯一）兩件事分開。畫面上的字一個都沒動：<code>FileTreeFolderRow</code> 畫的是 <code>name</code>。</td></tr>
+        <tr><td class="num">C3</td><td><span class="pill is-ratified">done</span></td><td>就地更正三處紀錄</td><td class="num">4</td>
+            <td><code>[STRUCT-leaf-label-from-switcher]</code> 第二條 Rule 劃掉重寫，並新增一條 root-anchored <code>displayPath</code> 的 Rule；同一條 pin 的<span class="zh">「鑑別 fixture 需要多子項資料夾」</span>那條 Do 對 C1 已經不成立（現在任何巢狀檔案都分得出兩個模式），改寫成它對 C2 才成立。conformance matrix 的 P03 item 10、上一輪的 ledger 各補一段。四個前提被推翻的測試<b>就地改寫</b>，劃掉舊主張再寫新的。</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>第四輪的驗收</h3>
+    <ul class="plain">
+      <li>fixture 就是使用者回報的那兩個路徑，斷言 <code>docs</code> 底下是<b>兩個資料夾節點</b>（<code>ledger</code> / <code>rules</code>），各自一個檔案子節點，<code>name</code> 是<b>裸的 basename</b>、<code>displayPath</code> 仍然是完整路徑。</li>
+      <li>C2 的鑑別 fixture 兩個父節點<b>各有多個</b>子項。只有一個 <code>features</code> 子項會被 C1 摺成 <code>lib/features</code>，前綴順帶被錨定，缺陷就消失了（<code>[TEST-fixture-cannot-disagree]</code>）。</li>
+      <li>C2 的測試是 widget 層而不是模型層：它要驗的是<b>展開一個不會連動另一個</b>，那是 <code>FileTreeList</code> 的行為，不是 <code>FileTree</code> 的資料。</li>
+      <li>mutation 與 tests-reddened 分開記兩個數字，數字用眼睛讀進度列的 <code>-N</code>：C1 是 <b>2 次 mutation、各紅 5 個</b>（同一組五個，含新測試），C2 是 <b>1 次 mutation、紅 2 個</b>。</li>
+      <li>裝置層：<code>pumpRealAppOn</code> 會清掉 <code>fileListViewMode</code>，所以每個 device test 都跑在 <b>list 模式</b>，而 list 模式在 <code>FileListModeSwitcher</code> 裡是早退的那一支、根本不會建 <code>FileTree</code>。照<span class="zh">「跑一次比論證便宜」</span>還是跑了 <code>commit_flow_test.dart</code> 當對照組：<b>1/1 綠，9s</b>。</li>
     </ul>
   </section>
 

@@ -19,10 +19,13 @@ class FileTreeNode {
   /// The display name of this node (just the last segment or collapsed path).
   final String name;
 
-  /// The full display path of this node, including collapsed segments.
+  /// The root-anchored path of this node, including collapsed segments.
   ///
-  /// For example, if a file is at lib/app/views/a.dart but lib -> app -> views
-  /// are all single-child folders, displayPath would be 'lib/app/views/a.dart'.
+  /// For a file it is the path it was built from. For a folder it is
+  /// `<parent's displayPath>/<name>` -- so a folder deep in the tree names
+  /// itself from the root even though [name] draws only its own (possibly
+  /// concatenated) label. `FileTreeList` uses it as the expand/collapse key,
+  /// which is why it must be unique across the whole tree.
   final String displayPath;
 
   /// Whether this node represents a directory.
@@ -79,7 +82,7 @@ class FileTree {
     }
 
     // Convert to FileTreeNode with collapsing
-    final displayedChildren = _buildDisplayNodes(rootChildren);
+    final displayedChildren = _buildDisplayNodes(rootChildren, '');
 
     return FileTree(children: displayedChildren);
   }
@@ -133,14 +136,25 @@ void _insertPath(
 }
 
 /// Converts internal tree structure to display nodes with collapsing.
-List<FileTreeNode> _buildDisplayNodes(Map<String, _TreeNodeData> nodeMap) {
+///
+/// [parentPath] is the root-anchored path of the folder these nodes sit in,
+/// empty at the top level. It exists so a folder's [FileTreeNode.displayPath]
+/// names it from the root -- see [_collapseIfSingleChild].
+List<FileTreeNode> _buildDisplayNodes(
+  Map<String, _TreeNodeData> nodeMap,
+  String parentPath,
+) {
   return nodeMap.entries.map((entry) {
-    return _buildDisplayNode(entry.key, entry.value);
+    return _buildDisplayNode(entry.key, entry.value, parentPath);
   }).toList();
 }
 
 /// Builds a single display node, collapsing single-child paths as needed.
-FileTreeNode _buildDisplayNode(String name, _TreeNodeData data) {
+FileTreeNode _buildDisplayNode(
+  String name,
+  _TreeNodeData data,
+  String parentPath,
+) {
   if (data.isLeaf) {
     // Leaf node (file)
     return FileTreeNode(
@@ -152,12 +166,23 @@ FileTreeNode _buildDisplayNode(String name, _TreeNodeData data) {
   }
 
   // Directory node - try to collapse single-child path
-  final collapsed = _collapseIfSingleChild(name, data);
+  final collapsed = _collapseIfSingleChild(name, data, parentPath);
   return collapsed;
 }
 
 /// Recursively collapses single-child directories into a single display path.
-FileTreeNode _collapseIfSingleChild(String pathPrefix, _TreeNodeData data) {
+///
+/// [label] is what the row draws -- the folder's own name, with any collapsed
+/// chain concatenated onto it. [parentPath] is where that row sits, so the
+/// node's `displayPath` is `parentPath/label` and therefore unique across the
+/// whole tree: `FileTreeList` keys expand/collapse on it, and two `features`
+/// folders under different parents opened and closed together while it was
+/// only the prefix accumulated from this level down.
+FileTreeNode _collapseIfSingleChild(
+  String label,
+  _TreeNodeData data,
+  String parentPath,
+) {
   // Collapse only while the single child is itself a **folder**.
   //
   // 使用者裁定（2026-09-05）:「樹狀模式下，我想要的是像 vscode 一樣，
@@ -181,16 +206,21 @@ FileTreeNode _collapseIfSingleChild(String pathPrefix, _TreeNodeData data) {
     // bottom branch and hand back an empty *directory* named after the file,
     // dropping the file out of the tree and out of [getAllLeafPaths].
     if (!childData.isLeaf) {
-      return _collapseIfSingleChild('$pathPrefix/${entry.key}', childData);
+      return _collapseIfSingleChild(
+        '$label/${entry.key}',
+        childData,
+        parentPath,
+      );
     }
   }
 
   // Cannot collapse further - build children normally
-  final children = _buildDisplayNodes(data.children);
+  final String fullPath = parentPath.isEmpty ? label : '$parentPath/$label';
+  final children = _buildDisplayNodes(data.children, fullPath);
 
   return FileTreeNode(
-    name: pathPrefix,
-    displayPath: pathPrefix,
+    name: label,
+    displayPath: fullPath,
     isDirectory: true,
     children: children,
   );

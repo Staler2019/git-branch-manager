@@ -318,9 +318,13 @@ void main() {
             'lib/models/user.dart',
           });
 
+          // Root-anchored: this row draws 「app/views」 (its `name`) but is
+          // keyed 'lib/app/views', so it cannot share an expand/collapse key
+          // with an `app/views` under some other parent.
           final FileTreeNode viewsNode = libNode.children.singleWhere(
-            (n) => n.displayPath == 'app/views',
+            (n) => n.displayPath == 'lib/app/views',
           );
+          expect(viewsNode.name, 'app/views');
           expect(viewsNode.getAllLeafPaths().toSet(), <String>{
             'lib/app/views/home.dart',
             'lib/app/views/settings.dart',

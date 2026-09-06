@@ -107,10 +107,13 @@ class FileListModeSwitcher<T> extends StatelessWidget {
             }
             final T? item = byPath[node.displayPath];
             // `node.name`, not `node.displayPath`: the folder rows above
-            // this leaf already carry the prefix. For a leaf whose folders
-            // collapsed *into* it there is no such row, and `name` carries
-            // the whole chain for exactly that case -- see
-            // `_collapseIfSingleChild` in `file_tree.dart`.
+            // this leaf already carry the prefix, and a file's `name` is
+            // always its bare basename. ~~The second half of this comment
+            // used to say `name` carries the whole collapsed chain for a
+            // leaf its folders collapsed into~~ -- that case no longer
+            // exists: 使用者裁定（2026-09-05）「檔案不會有 folder」, so
+            // `_collapseIfSingleChild` (`file_tree.dart`) stops at the
+            // folder and every file has a real folder row above it.
             return item == null
                 ? const SizedBox.shrink()
                 : leafBuilder(context, item, node.name);

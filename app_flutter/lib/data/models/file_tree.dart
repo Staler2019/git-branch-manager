@@ -158,38 +158,31 @@ FileTreeNode _buildDisplayNode(String name, _TreeNodeData data) {
 
 /// Recursively collapses single-child directories into a single display path.
 FileTreeNode _collapseIfSingleChild(String pathPrefix, _TreeNodeData data) {
-  // If this node has exactly one child, check if we should collapse
+  // Collapse only while the single child is itself a **folder**.
+  //
+  // 使用者裁定（2026-09-05）:「樹狀模式下，我想要的是像 vscode 一樣，
+  // folder 可以堆疊名稱，但是檔案不會有 folder」—— VS Code's own
+  // `explorer.compactFolders` compacts a chain of folders and stops at the
+  // file, so a file row always draws a bare basename under a real folder row.
+  //
+  // ~~This used to collapse through a *file* child too, keeping the whole
+  // chain in `name`~~ — that shipped, and it is what the ruling overturns:
+  // `docs/ledger/x.md` + `docs/rules/y.md` drew `docs` with two rows reading
+  // `ledger/x.md` and `rules/y.md`, so folding the tree cost indentation and
+  // bought nothing. Spec P03 item 10's own example
+  // (「只有一個子項的資料夾會自動串接成 lib/app/views 一列」) is a chain of
+  // *folders* and is untouched by this — what is retired is the previous
+  // round's extension of it to a file child, not the spec's own case.
   if (data.children.length == 1 && data.leafPath == null) {
     final entry = data.children.entries.single;
-    final childName = entry.key;
     final childData = entry.value;
-    final newPathPrefix = '$pathPrefix/$childName';
 
-    // If the child is a leaf (file), collapse all the way and return as file.
-    //
-    // `name` keeps the whole collapsed chain, and that is load-bearing rather
-    // than cosmetic: `name` is what a tree row draws, and every folder above
-    // this file has just been collapsed *into* it, so there is no
-    // `FileTreeFolderRow` left anywhere to say which folder it is in. It read
-    // `childData.leafPath!.split('/').last`, which rendered `b/c.dart` as a
-    // bare `c.dart` sitting at the tree's root -- indistinguishable from a
-    // real root-level `c.dart`.
-    //
-    // Spec P03 item 10 makes list mode the 「平鋪完整路徑」 one and tree mode
-    // the folded one, with 「只有一個子項的資料夾會自動串接成 lib/app/views
-    // 一列」. This is that same concatenation, applied where the single child
-    // is a file instead of another folder.
-    if (childData.isLeaf && childData.children.isEmpty) {
-      return FileTreeNode(
-        name: newPathPrefix,
-        displayPath: childData.leafPath!,
-        isDirectory: false,
-        children: const [],
-      );
+    // Never recurse into a leaf: `_collapseIfSingleChild` would take its
+    // bottom branch and hand back an empty *directory* named after the file,
+    // dropping the file out of the tree and out of [getAllLeafPaths].
+    if (!childData.isLeaf) {
+      return _collapseIfSingleChild('$pathPrefix/${entry.key}', childData);
     }
-
-    // If the child is a directory, recursively check if we can collapse further
-    return _collapseIfSingleChild(newPathPrefix, childData);
   }
 
   // Cannot collapse further - build children normally

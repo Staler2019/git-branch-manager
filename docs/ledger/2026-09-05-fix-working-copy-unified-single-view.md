@@ -612,7 +612,11 @@ C2 的 mutation 是把 `displayPath` 改回 `label`（即把缺陷放回去）�
 印了而後面接著結果列（[TEST-foreground-line-is-not-a-failure]）。
 
 推送前 PR #140 在前一個 head 上 **11 個 check 全綠**（Windows capi 10m13s、
-Flutter UI 10m3s）；這兩個 commit 會重新觸發，要重看。
+Flutter UI 10m3s）。這一輪的四顆 commit 推上去之後重跑，**11 個 check 再次全綠**
+（`3677b84`，Windows capi 10m55s、Flutter UI 9m40s）。
+
+上機目視檢查由使用者跑完並裁定通過（「看過ok」），第三輪列在「沒做的」旁邊的那項
+待辦到此關閉。這一行是在 CI 綠了之後補的，所以它自己會再觸發一次 CI。
 
 ## 沒做的
 

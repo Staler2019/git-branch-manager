@@ -417,16 +417,25 @@ at a real commit. This is a user-requested addition like
   `panel_file_diff_detail`. Tree mode nested the row under a folder row and then spelled the
   prefix again on the leaf, so 「摺成樹狀」 cost indentation and bought nothing. P03 item 10's own
   wording is 「平鋪完整路徑，或依資料夾摺成樹狀」 — full path is what *list* mode is for.
-- **Rule**: the second half is `FileTreeNode`'s. `_collapseIfSingleChild` must keep the whole
-  concatenated prefix in `name` when it collapses a chain down to a **file** — P03-10's own
-  example is 「只有一個子項的資料夾會自動串接成 `lib/app/views` 一列」, and the file branch was
-  doing `leafPath!.split('/').last`, throwing away the very prefix the collapse existed to show.
-  The directory branch was already correct, which is what made it look right in every fixture
-  whose collapsed chain ended in a folder.
+- **Rule**: ~~the second half is `FileTreeNode`'s. `_collapseIfSingleChild` must keep the whole
+  concatenated prefix in `name` when it collapses a chain down to a **file**~~ — **overruled the
+  next day, 使用者裁定**: 「樹狀模式下，我想要的是像 vscode 一樣，folder 可以堆疊名稱，但是檔案
+  不會有 folder」. A chain of single-child *folders* still stacks into one row (that is P03-10's
+  own 「只有一個子項的資料夾會自動串接成 `lib/app/views` 一列」, untouched); the collapse now
+  **stops at the file**, which gets a real folder row above it and draws its bare basename. What
+  was retired is the previous round's extension of the spec's example to a file child, not the
+  example. VS Code's `explorer.compactFolders` is the same rule.
+- **Rule**: a folder's `displayPath` is **root-anchored** (`parentPath/label`) while its `name` is
+  only the label it draws. `FileTreeList` keys expand/collapse on `displayPath`, so a level-local
+  prefix made `lib/features` and `test/features` share one key and open together.
 - **Do**: fix this at the switcher, never at one call site. Six call sites each deciding what a
   leaf label is are six chances to disagree ([CULT-single-source-of-truth]); the parameter makes
   it a compile error instead.
-- **Do**: **the discriminating fixture needs a folder with more than one child.** A single-child
-  folder collapses into its parent, so the leaf's label and its full path are the same string and
-  the two modes are indistinguishable.
-- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Do**: ~~the discriminating fixture needs a folder with more than one child~~ — that was true
+  only while a lone file collapsed into its parent. Now **any** nested file tells the two modes
+  apart, because tree mode draws its basename and list mode its full path. The multi-child fixture
+  is still what the *`displayPath`* rule needs: a single-child folder is collapsed into its parent,
+  which anchors its prefix as a side effect and hides the shared-key defect
+  ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md);
+  [ledger: 追加三，樹狀模式改成 VS Code 語意](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)

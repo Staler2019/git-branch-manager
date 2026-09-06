@@ -503,6 +503,117 @@ two` 就是為了這一個 mutation 存在的。
 `Failed to foreground app; open returned 1` 兩次都印了，兩次都全綠
 （[TEST-foreground-line-is-not-a-failure]）。
 
+## 追加三：樹狀模式改成 VS Code 語意，資料夾才堆疊名稱
+
+使用者在驗收 W10（上一輪 `feat/working-copy-vertical-file-lists` 的
+`leafBuilder(context, item, label)` 契約）時回報：
+
+> w10我覺得共用沒錯，但是需要修一下，樹狀模式下，我想要的是像vscode一樣，folder
+> 可以堆疊名稱，但是檔案不會有folder。我現在驗收看到這個：
+> ▾ docs / ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md /
+> rules/fn-flutter-layout.md
+
+**「共用沒錯」是對 W10 範圍的裁定 —— 那個共用元件留著。** 要改的是行為。
+
+```
+驗收看到的                                          要的
+▾ docs                                              ▾ docs
+    ledger/2026-09-05-feat-worktree-…-redesign.md     ▾ ledger
+    rules/fn-flutter-layout.md                            2026-09-05-feat-worktree-…-redesign.md
+                                                      ▾ rules
+                                                          fn-flutter-layout.md
+```
+
+### C1 —— 收合停在資料夾
+
+`_collapseIfSingleChild` 上一輪連「單一子項是**檔案**」也一起串接進去
+（commit `7f37f55`）。`docs` 底下兩個資料夾各只有一個檔案，於是兩個資料夾整個
+消失，只剩兩列帶前綴的檔案 —— 摺成樹狀付了縮排卻沒買到東西，和 W10 修掉的症狀
+是同一句話，只是換成從模型這一端造成的。
+
+改成只在單一子項本身是資料夾時才遞迴。**這推翻的是上一輪自己的延伸，不是 spec**：
+P03 item 10 的例子「只有一個子項的資料夾會自動串接成 `lib/app/views` 一列」講的是
+三層**資料夾**，那半邊原封不動（`collapses a full single-child chain (lib -> app
+-> views)` 全程綠）。VS Code 的 `explorer.compactFolders` 就是這條規則。
+
+遞迴刻意 gate 在 `!childData.isLeaf`，不是把舊分支刪掉了事：讓它遞迴進一個 leaf，
+會走到函式底部回一個「名字是檔名的空資料夾」，檔案從樹上**和 `getAllLeafPaths()`
+一起消失** —— 而 `getAllLeafPaths()` 正是 Working Copy 拖整個資料夾在讀的東西。
+
+### C2 —— 資料夾的展開鍵本來就會撞，而 C1 放大了它
+
+`FileTreeList` 用 `node.displayPath` 當展開／收合的鍵，而資料夾的 `displayPath`
+只是**從它自己這一層**累積起來的前綴。`lib/` 與 `test/` 底下各一個 `features`
+都拿到 `'features'`，共用一個鍵，展開一個另一個跟著開。
+
+這個缺陷 C1 之前就在了，不是 C1 造成的；但 C1 讓「單一子項是檔案」的資料夾重新
+長出自己的列，會放大它的觸及面，所以照 standing rule 1 同一次推送一起修，分成
+自己的 commit。改法是把兩件事拆開：`name` 是這一列畫出來的字（含摺疊鏈，例如
+`app/views`），`displayPath` 從根算起（`lib/app/views`），全樹唯一。
+
+`FileTreeNode.displayPath` 的讀者只有兩個 —— switcher 的 `byPath` 查表（只查
+**檔案**，檔案的 displayPath 沒變）與 `FileTreeList` 的展開鍵。`FileTreeFolderRow`
+畫的是 `node.name`，Working Copy 的資料夾列讀的是 `node.name` 與
+`getAllLeafPaths()`，所以**畫面上的字一個都沒動**。
+
+### 鑑別 fixture
+
+| 主張 | 看不見它的 fixture | 看得見它的 |
+|---|---|---|
+| C1 | 收合鏈結尾是**資料夾**（W10 自己的 `lib/app/views` 就是） | 結尾是檔案，也就是使用者回報的那一個 |
+| C2 | 父節點只有一個子項 —— 會被 C1 摺成 `lib/features`，前綴順帶被錨定，缺陷就消失了 | 兩個父節點**各有多個**子項 |
+
+C2 那一列是 [TEST-fixture-cannot-disagree]「fixture 沒辦法表達失敗條件」的形狀，
+而且它同時是 [STRUCT-leaf-label-from-switcher] 原本那句「鑑別 fixture 需要一個
+有多個子項的資料夾」的**新用途**：那句話對 C1 已經不成立（現在任何巢狀檔案都分得
+出兩個模式），對 C2 才成立，所以就地改寫成兩句而不是刪掉。
+
+### 數字
+
+| | mutations run | tests reddened |
+|---|---|---|
+| C1 | 2 | 5 + 5（同一組五個，含新測試） |
+| C2 | 1 | 2 |
+
+C1 的兩次 mutation：一是拿掉 `!childData.isLeaf` 讓它遞迴進 leaf（檔案消失），
+二是把上一輪那個「串接到檔案」的分支整段裝回去。兩次都紅同樣五個，其中包含新測試。
+C2 的 mutation 是把 `displayPath` 改回 `label`（即把缺陷放回去），紅 2 個。
+數字是**用眼睛讀進度列的 `-N`** 讀的（`+18 -5`、`+24 -2`），不是 grep 出來的
+（[TEST-mutation-check-every-test]）。
+
+四個前提被推翻的測試**就地改寫**，劃掉舊主張再寫新的，不是刪掉重寫一份：
+`single file in deeply nested single-child folders`、
+`a folder holding one file collapses into it, prefix and all`（連標題一起改成
+`… keeps its own row`）、`leaf node reports correct displayPath`、
+`a partly-collapsed tree reports the right leaves at every level` 的 `modelsLeaf`
+那一半。加上 `viewsNode.displayPath` 由 `'app/views'` 改成 `'lib/app/views'` ——
+那一行紅正是 C2 落地的證據。
+
+### 就地更正的紀錄
+
+- `[STRUCT-leaf-label-from-switcher]` 第二條 Rule（「檔案那一支要保留整段前綴」）劃掉
+  重寫；同一條 pin 的「鑑別 fixture 需要多子項資料夾」那條 Do 也已經過期，改寫成
+  「對 C1 不再成立、對 displayPath 那條才成立」；新增一條 root-anchored displayPath 的
+  Rule。
+- `docs/reports/spec-conformance-matrix.md` P03 item 10 那一列的 `_collapseIfSingleChild`
+  那半句，補上 2026-09-06 的裁定與現在的判準。
+- `docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md`「同一個 note 裡還藏著
+  第二個缺陷」那一節，加一段就地更正的引言。
+
+### 驗證
+
+`flutter analyze` 0 issue、`dart format` 無變更、全套 **2916 綠**。
+
+裝置層：`pumpRealAppOn` 會清掉 `fileListViewMode`（[TEST-pumprealappon-clears-prefs]），
+所以每個 device test 都跑在 **list 模式**，而 list 模式在 `FileListModeSwitcher` 裡
+是早退的那一支，根本不會建 `FileTree`。照
+[TEST-grep-misses-intent-driven-device-tests]「跑一次比論證便宜」，還是跑了
+`commit_flow_test.dart` 當對照組：**1/1 綠，9s**，`Failed to foreground app` 照樣
+印了而後面接著結果列（[TEST-foreground-line-is-not-a-failure]）。
+
+推送前 PR #140 在前一個 head 上 **11 個 check 全綠**（Windows capi 10m13s、
+Flutter UI 10m3s）；這兩個 commit 會重新觸發，要重看。
+
 ## 沒做的
 
 - U9（模式切換器的 `檢視方式` 標籤與兩個 11px SVG 圖示）—— 使用者裁定「不應動，照既有模

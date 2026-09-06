@@ -127,6 +127,22 @@ tree 傳 `node.name`。六個 call site 各自決定葉節點的字，就是六�
 
 `lib/app/views` 就是串接後的完整前綴。spec 舉的例子正是被丟掉的那個東西。
 
+> **就地更正（2026-09-06，使用者裁定）。** 上面那一段的診斷對了一半，修法多做了一步：
+> 這一輪把串接**也套到「單一子項是檔案」**的情況上，於是 `docs/ledger/x.md` 與
+> `docs/rules/y.md` 畫成
+>
+> ```
+> ▾ docs
+>     ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md
+>     rules/fn-flutter-layout.md
+> ```
+>
+> 使用者驗收時回報：「樹狀模式下，我想要的是像 vscode 一樣，folder 可以堆疊名稱，但是
+> 檔案不會有 folder」。~~檔案那一支要保留整段前綴~~ 已被推翻：收合**停在資料夾**，檔案
+> 只畫 basename，上面一定有一列真的資料夾列。spec 那句舉的是**資料夾**鏈（`lib/app/views`
+> 是三層資料夾），那半邊原封不動；被退掉的是本輪把它延伸到檔案子項的那一步。
+> 見 [ledger: 追加三，樹狀模式改成 VS Code 語意](2026-09-05-fix-working-copy-unified-single-view.md)。
+
 ### 為什麼 conformance matrix 沒抓到
 
 matrix 的 P03 item 10 那一列判 **符合**，證據是五個 `ref.watch(fileListViewModeProvider)`

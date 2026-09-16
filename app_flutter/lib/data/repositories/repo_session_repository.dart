@@ -916,6 +916,28 @@ class RefreshFlags {
   );
 }
 
+/// How long [RepoSessionController.refreshRepoStatus] waits for
+/// `GBM_EVENT_WORKING_COPY_STATUS_UPDATED` before dispatching tier 2 anyway.
+/// Safety net for the path that never sends that event -- a failed status
+/// read reports `GBM_EVENT_ERROR_OCCURRED` instead
+/// ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson) -- not a
+/// schedule: on the normal path the real reply lands well inside this and
+/// [publishWorkingCopyStatus] cancels it before it ever fires.
+///
+/// No relationship to `kFocusRefreshThrottle` (`workspace_screen.dart`, 2s)
+/// is required or asserted: each [refreshRepoStatus] call arms its own
+/// fresh copy of this timer via [_armTier2Fallback], which cancels whatever
+/// was pending first, so a throttled-away bounce never even calls
+/// [refreshRepoStatus] and a genuine new sweep always starts this timer from
+/// zero regardless of how long the previous one had left to run. An earlier
+/// draft of this round's plan asserted `kDeferredRefreshFallback <
+/// kFocusRefreshThrottle` as a unit-test invariant; there is no correctness
+/// reason for that relationship (see above), it contradicted the plan's own
+/// prose value of 3 seconds, and it is not implemented -- corrected in place
+/// per the ledger rather than carried into a test asserting a made-up
+/// constraint.
+const Duration kDeferredRefreshFallback = Duration(seconds: 3);
+
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
@@ -965,6 +987,30 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
+
+  /// The one live timer for tier 2 of the current sweep -- either the
+  /// fallback armed by [refreshRepoStatus], or the fast dispatch armed by
+  /// [publishWorkingCopyStatus] once the status reply lands (which cancels
+  /// and replaces the fallback). Never two timers at once: every arming
+  /// site cancels this one first, which is also what makes repeated F5
+  /// coalesce into a single tier-2 dispatch -- see [_armTier2Fallback].
+  Timer? _tier2Timer;
+
+  /// Whether tier 2 has already been dispatched for the sweep currently in
+  /// flight (or, with no sweep in flight, for the last one that finished).
+  /// Starts `true` so `_open()`'s direct `refreshWorkingCopy()` call --
+  /// which bypasses [refreshRepoStatus] entirely -- cannot arm a tier-2
+  /// dispatch from [publishWorkingCopyStatus] on session open, and so an
+  /// ordinary stage/unstage/discard/commit's own status reply cannot either:
+  /// [refreshRepoStatus] is the only place this is set back to `false`, so
+  /// [publishWorkingCopyStatus] only arms tier 2 while a sweep it started is
+  /// still waiting on one. This is also what stops a late status reply
+  /// arriving after the fallback already fired (a very slow repository,
+  /// past [kDeferredRefreshFallback]) from dispatching a second time in the
+  /// same sweep -- [publishWorkingCopyStatus] finds this already `true` and
+  /// arms nothing, so [_dispatchTier2Members] itself needs no guard of its
+  /// own against being entered twice.
+  bool _tier2DispatchedThisSweep = true;
 
   /// Attributes each GBM_EVENT_OPERATION_FINISHED outcome to the
   /// checkout()/deleteBranch() call that produced it, keyed by the "kind"
@@ -1422,6 +1468,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Consumes `refreshFlags.keepDiffDuringRefresh` -- off reproduces the
   /// wholesale clear this replaced, for an on-machine A/B.
   ///
+  /// Also consumes `refreshFlags.tieredRefresh`: this is
+  /// `GBM_EVENT_WORKING_COPY_STATUS_UPDATED`'s handler, and tier 2 of
+  /// [refreshRepoStatus] is event-chained off exactly this method rather
+  /// than off the `workingCopyStatusUpdated` case in [_onEvent] -- the fake
+  /// seam's `emit()` bypasses `_onEvent()` entirely, so consuming it there
+  /// would make a test that drives this method believe it is exercising the
+  /// event path when it is really exercising the fallback timer instead.
+  /// Arming is gated on [_tier2DispatchedThisSweep] being still `false`,
+  /// which is only true while a sweep [refreshRepoStatus] started is still
+  /// waiting on tier 2 -- an ordinary stage/unstage/discard/commit's own
+  /// status reply, with no sweep in flight, arms nothing.
+  ///
   /// Split out of [_readWorkingCopyStatus] for the same reason
   /// [publishWorktrees] is split out of [_readWorktrees]: everything above
   /// that line is the FFI read, which the fake seam can never exercise, and
@@ -1446,6 +1504,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
     if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
       debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
+    }
+    // Deliberately after the state publish above: the diff pane's own
+    // `ref.listen` reacts to *that* copyWith synchronously and re-requests
+    // its two diffs via `postFront()` ([CPP-interactive-reads-go-to-the-front]),
+    // which queues them before this schedules anything. Timer.zero, not a
+    // bare microtask, is what actually delays tier 2 behind that -- both
+    // fire on the event loop rather than the microtask queue, so ordering
+    // between them is real queue order, not a race against Riverpod's own
+    // listener-notification timing.
+    if (refreshFlags.tieredRefresh && !_tier2DispatchedThisSweep) {
+      _tier2Timer?.cancel();
+      _tier2Timer = Timer(Duration.zero, _dispatchTier2Members);
     }
   }
 
@@ -2125,6 +2195,43 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshHasCommitGraph();
     refreshHistory();
     refreshWorkingCopy();
+    if (!refreshFlags.tieredRefresh) {
+      // Off reproduces exactly what shipped before tiering: all twelve,
+      // inline, in the same order they always ran in. No timer, no
+      // [RefreshTimings.backgroundDoneAt] stamp -- that field stays null,
+      // which is the pre-tiering behaviour this flag exists to restore.
+      _callTier2Members();
+      return;
+    }
+    // Tier 2 does not run here. It waits for
+    // GBM_EVENT_WORKING_COPY_STATUS_UPDATED (consumed in
+    // [publishWorkingCopyStatus], one microtask/Timer.zero after it lands --
+    // see that method's own doc comment for why), with this fallback as the
+    // safety net for the path that never fires that event: a failed status
+    // read reports GBM_EVENT_ERROR_OCCURRED instead
+    // ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson, one
+    // layer up).
+    _tier2DispatchedThisSweep = false;
+    _armTier2Fallback();
+  }
+
+  /// Arms (or re-arms) the tier-2 fallback timer -- cancels whatever timer
+  /// is currently pending for this sweep and replaces it with a fresh
+  /// [kDeferredRefreshFallback]-long one. Repeated F5 before the status
+  /// reply lands therefore keeps re-cancelling and re-arming this same
+  /// single timer rather than queuing a second one, which is what keeps
+  /// three rapid sweeps down to one eventual tier-2 dispatch.
+  void _armTier2Fallback() {
+    _tier2Timer?.cancel();
+    _tier2Timer = Timer(kDeferredRefreshFallback, _dispatchTier2Members);
+  }
+
+  /// The eight tier-2 refreshes, in the same relative order they always ran
+  /// in before tiering. Bare list with no stamping or dispatch bookkeeping
+  /// of its own -- both the untiered fallback in [refreshRepoStatus] and the
+  /// real tiered path in [_dispatchTier2Members] call this, so there is one
+  /// place that names the eight rather than two lists that can drift apart.
+  void _callTier2Members() {
     refreshStashes();
     refreshWorktrees();
     refreshRemotes();
@@ -2133,6 +2240,40 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshLfs();
     refreshLocalIdentity();
     refreshEffectiveIdentity();
+  }
+
+  /// Actually dispatches tier 2 for the sweep in flight, from whichever
+  /// timer got there first -- the fast one armed by
+  /// [publishWorkingCopyStatus], or, on a very slow repository, the
+  /// fallback armed by [refreshRepoStatus] itself. No early-return guard of
+  /// its own: [_tier2Timer] is a single field and every arming site cancels
+  /// it before replacing it ([_armTier2Fallback], and
+  /// [publishWorkingCopyStatus]'s own arming), so there is structurally
+  /// never more than one live timer aimed at this method for a given sweep
+  /// -- a guard here would be defensive code with no reachable path to
+  /// exercise it, which is what an earlier draft of this method had before
+  /// its own test proved unable to tell it apart from removing it.
+  /// [_tier2DispatchedThisSweep] does the real work of preventing a second
+  /// dispatch: it is what [publishWorkingCopyStatus] itself checks before
+  /// arming again, so a late status reply arriving after the fallback
+  /// already fired finds that check `true` and arms nothing at all.
+  ///
+  /// Stamps [RefreshTimings.backgroundDoneAt] at *dispatch*, not at
+  /// completion of the eight replies it triggers -- a true per-member
+  /// completion signal would need a generation-scoped counter distinguishing
+  /// this sweep's own eight replies from an unrelated manual refresh (e.g.
+  /// `Tools -> Worktrees` while a sweep is also in flight) landing on the
+  /// same session, which is out of this round's scope. So the stamp answers
+  /// "tier 2 has been asked for", not "tier 2's data has all arrived".
+  void _dispatchTier2Members() {
+    _tier2DispatchedThisSweep = true;
+    _tier2Timer = null;
+    _callTier2Members();
+    state = state.copyWith(
+      refreshTimings: state.refreshTimings.stampBackgroundDoneIfAbsent(
+        DateTime.now(),
+      ),
+    );
   }
 
   /// Re-reads which multi-step git operation, if any, is part-way through.
@@ -4079,6 +4220,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     unawaited(_subscription?.cancel());
     _events?.dispose();
     closeNativeSession();
+    // Without this, a pending fallback or fast-dispatch timer would fire
+    // after disposal and write to `state` on a StateNotifier that is gone --
+    // the guard each refresh* member already has
+    // (`if (_session == nullptr) return;`) is the backstop, not the fix,
+    // since `state =` inside [_dispatchTier2Members] itself runs first.
+    _tier2Timer?.cancel();
     // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
     // whatever is still pending.
     _pending.clear();

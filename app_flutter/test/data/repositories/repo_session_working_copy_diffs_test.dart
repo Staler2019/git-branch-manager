@@ -434,4 +434,105 @@ void main() {
       );
     });
   });
+
+  group('tiered refresh gating (C4)', () {
+    const List<String> tier2Members = <String>[
+      'refreshStashes',
+      'refreshWorktrees',
+      'refreshRemotes',
+      'refreshSubmodules',
+      'refreshBisectStatus',
+      'refreshLfs',
+      'refreshLocalIdentity',
+      'refreshEffectiveIdentity',
+    ];
+
+    test('an ordinary status update with no sweep pending fires none of the '
+        'eight tier-2 members', () async {
+      final FakeRepoSessionController c = _controller();
+      // An unrelated stage/unstage/discard/commit publishes a status too,
+      // with no refreshRepoStatus() sweep in flight -- this is the
+      // negative case a status event alone must not trip.
+      c.publishWorkingCopyStatus(_status(<Map<String, dynamic>>[]));
+      // Defensive only: no timer is armed on this path at all, so nothing
+      // here actually needs a turn of the event loop to observe.
+      await Future<void>.delayed(Duration.zero);
+
+      for (final String name in tier2Members) {
+        expect(
+          c.commandLog.where((FakeCommand cmd) => cmd.name == name).length,
+          0,
+          reason: '$name must not fire without a sweep having started',
+        );
+      }
+    });
+
+    test('once a sweep is in flight, the same status update dispatches all '
+        'eight tier-2 members and stamps backgroundDoneAt', () async {
+      final FakeRepoSessionController c = _controller();
+
+      c.refreshRepoStatus();
+      c.publishWorkingCopyStatus(_status(<Map<String, dynamic>>[]));
+      await Future<void>.delayed(Duration.zero);
+
+      for (final String name in tier2Members) {
+        expect(
+          c.commandLog.where((FakeCommand cmd) => cmd.name == name).length,
+          1,
+          reason: '$name must fire exactly once for the sweep in flight',
+        );
+      }
+      expect(c.state.refreshTimings.backgroundDoneAt, isNotNull);
+    });
+
+    test('a second status update in the same sweep, after tier 2 already '
+        'dispatched, fires nothing a second time', () async {
+      final FakeRepoSessionController c = _controller();
+
+      c.refreshRepoStatus();
+      c.publishWorkingCopyStatus(_status(<Map<String, dynamic>>[]));
+      await Future<void>.delayed(Duration.zero);
+      c.publishWorkingCopyStatus(_status(<Map<String, dynamic>>[]));
+      await Future<void>.delayed(Duration.zero);
+
+      for (final String name in tier2Members) {
+        expect(
+          c.commandLog.where((FakeCommand cmd) => cmd.name == name).length,
+          1,
+          reason:
+              "$name must not fire a second time for a diff reply that's "
+              'part of the same, already-dispatched sweep',
+        );
+      }
+    });
+
+    test('appPrefs.tieredRefresh off dispatches all twelve inline, with no '
+        'backgroundDoneAt stamp', () {
+      final FakeRepoSessionController c = _controller();
+      c.refreshFlags = const RefreshFlags(tieredRefresh: false);
+
+      c.refreshRepoStatus();
+
+      for (final String name in tier2Members) {
+        expect(
+          c.commandLog.where((FakeCommand cmd) => cmd.name == name).length,
+          1,
+          reason: '$name must fire inline when tiering is off',
+        );
+      }
+      expect(
+        c.state.refreshTimings.backgroundDoneAt,
+        isNull,
+        reason:
+            'off reproduces the pre-tiering behaviour, which never had '
+            'this field to stamp',
+      );
+    });
+
+    test('kDeferredRefreshFallback is the safety-net duration this round '
+        "chose -- see refreshRepoStatus()'s own doc comment for what "
+        'terminal path it is guarding', () {
+      expect(kDeferredRefreshFallback, const Duration(seconds: 3));
+    });
+  });
 }

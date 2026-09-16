@@ -150,15 +150,14 @@ class AppPreferences {
   /// reads it once and pushes every later change via `ref.listen`).
   final bool keepDiffDuringRefresh;
 
-  /// Developer. **Stored and live-wired onto `RefreshFlags` the same way as
-  /// [keepDiffDuringRefresh] above, and not yet read by anything that
-  /// changes behaviour** -- same disclaimer, same reason. The intended
-  /// meaning, once wired: gate whether `refreshRepoStatus()` splits into an
-  /// immediate tier (repo state, commit graph, history, working copy) and a
-  /// tier deferred until the working-copy status event arrives (stashes,
-  /// worktrees, remotes, submodules, bisect, LFS, both identities), or fires
-  /// all twelve members at once the way it always has. Default `true` for
-  /// the same reason.
+  /// Developer. Gates whether `RepoSessionController.refreshRepoStatus()`
+  /// splits into an immediate tier (repo state, commit graph, history,
+  /// working copy) and a tier deferred until the working-copy status event
+  /// arrives (stashes, worktrees, remotes, submodules, bisect, LFS, both
+  /// identities), or fires all twelve members inline the way it always has.
+  /// Default `true`; off reproduces the pre-fix/refresh-ui-first-tiering
+  /// behaviour for an on-machine A/B, the same way [keepDiffDuringRefresh]
+  /// does. Read live off `RepoSessionController.refreshFlags`.
   final bool tieredRefresh;
 
   AppPreferences copyWith({

@@ -41,16 +41,26 @@ Future<void> _pressCtrl(
   await tester.pumpAndSettle();
 }
 
-/// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept
-/// here rather than imported from the focus-refresh test so that a change to
-/// the sweep has to be acknowledged in both places -- these two files assert
-/// the same composition arriving down two entirely different paths (a
-/// lifecycle event, and a keypress/menu selection).
-const List<String> _sweepCommands = <String>[
+/// The four tier-1 members of [RepoSessionController.refreshRepoStatus]'s
+/// sweep -- dispatched inline, before tier 2 waits on the working-copy
+/// status event (or, on this file's fake-backed paths, on
+/// `kDeferredRefreshFallback`; see `workspace_focus_refresh_test.dart` for
+/// why the fake's `refreshWorkingCopy()` override never delivers a real
+/// status reply).
+const List<String> _tier1Commands = <String>[
   'refreshRepoState',
   'refreshHasCommitGraph',
   'refreshHistory',
   'refreshWorkingCopy',
+];
+
+/// The eight tier-2 members. Split from [_tier1Commands] rather than one
+/// flat list for the same reason `workspace_focus_refresh_test.dart` splits
+/// its own sweep assertion: asserting all twelve right after a keypress,
+/// with nothing having driven tier 2, would either be a false claim about
+/// the eight or a fixture-dependent pass -- see that file's "before pump"
+/// test for the same shape.
+const List<String> _tier2Commands = <String>[
   'refreshStashes',
   'refreshWorktrees',
   'refreshRemotes',
@@ -59,6 +69,16 @@ const List<String> _sweepCommands = <String>[
   'refreshLfs',
   'refreshLocalIdentity',
   'refreshEffectiveIdentity',
+];
+
+/// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept
+/// here rather than imported from the focus-refresh test so that a change to
+/// the sweep has to be acknowledged in both places -- these two files assert
+/// the same composition arriving down two entirely different paths (a
+/// lifecycle event, and a keypress/menu selection).
+const List<String> _sweepCommands = <String>[
+  ..._tier1Commands,
+  ..._tier2Commands,
 ];
 
 int _count(List<FakeCommand> log, String name) =>
@@ -169,6 +189,10 @@ void main() {
           .where((FakeCommand c) => c.name == 'refreshHistory')
           .length;
       expect(after - before, 1);
+      // Drains the tier-2 fallback F5 armed (fix/refresh-ui-first-tiering,
+      // C4) -- flutter_test's own _verifyInvariants() fails the test on a
+      // pending Timer regardless of what the test asserted.
+      await tester.pump(const Duration(seconds: 3));
     });
 
     // F5 used to refresh only the history, so pressing it after editing a
@@ -179,8 +203,51 @@ void main() {
     // tests are what stop the two drifting apart again.
     //
     // Deltas, not absolutes: opening a session refreshes on its own.
+    //
+    // Split tier 1 / tier 2 rather than one flat sweep assertion
+    // (fix/refresh-ui-first-tiering, C4): tier 2 waits on
+    // GBM_EVENT_WORKING_COPY_STATUS_UPDATED, which the fake's
+    // refreshWorkingCopy() override never actually sends, so on this
+    // fake-backed path tier 2 only ever arrives via kDeferredRefreshFallback
+    // -- asserting all twelve right after `pumpAndSettle()` would either be
+    // a false claim about the eight, or (worse) pass by accident if
+    // `pumpAndSettle()` happened to burn through the fallback's real time.
+    testWidgets('F5 (Refresh) immediately re-reads the four tier-1 facts', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: identity,
+      );
+      final Map<String, int> before = _tally(pumped.controller.commandLog);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
+      await tester.pumpAndSettle();
+
+      final Map<String, int> after = _tally(pumped.controller.commandLog);
+      for (final String name in _tier1Commands) {
+        expect(
+          after[name]! - before[name]!,
+          1,
+          reason: 'F5 must dispatch $name exactly once, immediately',
+        );
+      }
+      for (final String name in _tier2Commands) {
+        expect(
+          after[name]! - before[name]!,
+          0,
+          reason:
+              '$name is tier 2 and must not fire before the status event '
+              '(or its fallback) lands',
+        );
+      }
+      await tester.pump(const Duration(seconds: 3)); // drain tier 2's fallback
+    });
+
     testWidgets(
-      'F5 (Refresh) re-reads every local git fact, not just history',
+      'F5 (Refresh), once tier 2 is dispatched, re-reads every local git '
+      'fact exactly once',
       (WidgetTester tester) async {
         final PumpedWorkspace pumped = await pumpWorkspace(
           tester,
@@ -191,6 +258,7 @@ void main() {
         await tester.sendKeyDownEvent(LogicalKeyboardKey.f5);
         await tester.sendKeyUpEvent(LogicalKeyboardKey.f5);
         await tester.pumpAndSettle();
+        await tester.pump(const Duration(seconds: 3));
 
         final Map<String, int> after = _tally(pumped.controller.commandLog);
         for (final String name in _sweepCommands) {
@@ -229,6 +297,9 @@ void main() {
         final Map<String, int> before = _tally(pumped.controller.commandLog);
         item.onSelected!();
         await tester.pumpAndSettle();
+        // See the F5 test pair above for why tier 2 needs the fallback
+        // driven explicitly on this fake-backed path.
+        await tester.pump(const Duration(seconds: 3));
 
         final Map<String, int> after = _tally(pumped.controller.commandLog);
         for (final String name in _sweepCommands) {

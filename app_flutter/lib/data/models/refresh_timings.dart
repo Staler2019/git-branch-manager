@@ -29,8 +29,15 @@ class RefreshTimings {
   /// the money number: how long until the diff pane is readable again.
   final DateTime? firstDiffAt;
 
-  /// The deferred (tier 2) half of the sweep finished -- see
-  /// `RepoSessionController`'s tiering. Null until tiering lands.
+  /// Tier 2 of the sweep was *dispatched* -- see
+  /// `RepoSessionController.refreshRepoStatus`'s tiering. Deliberately not
+  /// "tier 2's eight replies have all arrived": that would need a
+  /// generation-scoped counter distinguishing this sweep's own replies from
+  /// an unrelated manual refresh landing on the same session, which is out
+  /// of scope for now (`RepoSessionController._dispatchTier2Members`'s own
+  /// doc comment states the same limitation). Null while
+  /// `appPrefs.tieredRefresh` is off, which restores the pre-tiering
+  /// behaviour this field did not exist to describe.
   final DateTime? backgroundDoneAt;
 
   RefreshTimings copyWith({

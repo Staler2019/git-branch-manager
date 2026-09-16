@@ -1183,10 +1183,8 @@ class _DeveloperSection extends ConsumerWidget {
         _SettingSwitch(
           title: '分層刷新',
           subtitle:
-              '存值並即時同步到 refreshFlags，但尚未接上任何實際行為 —— '
-              '現在開關看不出差異。機制（切回視窗先刷目前分支與 working '
-              'copy，其餘八支等 working copy 狀態到齊後才發）在本輪後續 '
-              'commit 接上這個旗標後才會生效。',
+              '切回視窗先刷目前分支與 working copy，其餘八支等 working '
+              'copy 狀態到齊後才發；關掉還原成十二支一次發出。',
           value: prefs.tieredRefresh,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(tieredRefresh: v),

@@ -1173,10 +1173,7 @@ class _DeveloperSection extends ConsumerWidget {
         const _SectionHeading('刷新分層（fix/refresh-ui-first-tiering）'),
         _SettingSwitch(
           title: '刷新期間保留舊的 diff',
-          subtitle:
-              '存值並即時同步到 refreshFlags，但尚未接上任何實際行為 —— '
-              '現在開關看不出差異。機制（依每側指紋決定是否保留 diff 快取）'
-              '在本輪後續 commit 接上這個旗標後才會生效。',
+          subtitle: '依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。',
           value: prefs.keepDiffDuringRefresh,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(keepDiffDuringRefresh: v),

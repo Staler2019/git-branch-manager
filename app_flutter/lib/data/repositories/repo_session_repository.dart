@@ -93,6 +93,74 @@ class WorkingCopyDiffReply {
 String workingCopyDiffKey(String path, {required bool staged}) =>
     '$staged:$path';
 
+/// Upper bound on [RepoSessionState.workingCopyDiffs]' size.
+///
+/// Before fix/refresh-ui-first-tiering this map was implicitly bounded by
+/// every status publish clearing it outright -- see
+/// [RepoSessionController.publishWorkingCopyStatus]'s doc comment for why
+/// that clear is gone and what replaced it. Two entries cover the file
+/// currently selected (its unstaged and staged side); four lets the user
+/// click back to the file they were just looking at without a re-fetch.
+const int kMaxCachedWorkingCopyDiffs = 4;
+
+/// One fingerprint string per (path, side) key reachable from [status],
+/// built from exactly the fields a diff *reply*'s content depends on.
+///
+/// [RepoSessionController.publishWorkingCopyStatus] compares this against
+/// the previous status's fingerprints to decide which cached
+/// [RepoSessionState.workingCopyDiffs] entries are still valid -- a changed
+/// fingerprint (or a key absent from the new map entirely) means the old
+/// reply may reference hunks or line numbers that no longer exist. "The
+/// path is still present" is deliberately not the condition: staging one
+/// hunk renumbers the *other* side's hunks too, so a survived path can
+/// still carry a stale reply.
+///
+/// An untracked entry whose [WorkingCopyEntry.untrackedSize] and
+/// [WorkingCopyEntry.untrackedMtimeTicks] are **both** 0 gets no key on the
+/// unstaged side at all. That pair means "not measured" (see their own doc
+/// comment) -- treating "not measured" as "unchanged" would keep a stale
+/// diff for a file whose stat failed or whose size crossed the byte cap,
+/// which is the same mistake [GIT-zero-means-unmeasured] warns against one
+/// layer down.
+@visibleForTesting
+Map<String, String> workingCopyDiffFingerprints(WorkingCopyStatus status) {
+  final Map<String, String> fingerprints = <String, String>{};
+  for (final WorkingCopyEntry entry in status.entriesWithUnstagedSide) {
+    if (entry.untracked &&
+        entry.untrackedSize == 0 &&
+        entry.untrackedMtimeTicks == 0) {
+      continue;
+    }
+    fingerprints[workingCopyDiffKey(entry.path, staged: false)] = <Object>[
+      entry.hasUnstagedChange,
+      entry.untracked,
+      entry.worktreeStatus.value,
+      entry.unstagedAdded,
+      entry.unstagedRemoved,
+      entry.isConflicted,
+      entry.conflict.value,
+      entry.ancestorBlob,
+      entry.oursBlob,
+      entry.theirsBlob,
+      entry.isSubmodule,
+      entry.untrackedSize,
+      entry.untrackedMtimeTicks,
+    ].join('|');
+  }
+  for (final WorkingCopyEntry entry in status.staged) {
+    fingerprints[workingCopyDiffKey(entry.path, staged: true)] = <Object>[
+      entry.staged,
+      entry.indexStatus.value,
+      entry.stagedAdded,
+      entry.stagedRemoved,
+      entry.oldPath,
+      entry.similarity,
+      entry.isSubmodule,
+    ].join('|');
+  }
+  return fingerprints;
+}
+
 /// Reply to [RepoSessionController.requestWorkingTreeContent]: mirrors
 /// GBM_EVENT_WORKING_TREE_CONTENT_READY's payload shape.
 class WorkingTreeContentReply {
@@ -1019,19 +1087,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
           // Merged, never replaced wholesale: the other side of the same
           // file is usually in flight at the same moment and dropping it
-          // here is exactly the race the map exists to end.
+          // here is exactly the race the map exists to end. Bounded to
+          // [kMaxCachedWorkingCopyDiffs] -- removing the key before
+          // re-inserting it moves it to the end of the (insertion-ordered)
+          // map, so the eviction below drops the *least recently answered*
+          // entry rather than an arbitrary one.
           final bool isFirstStampOfSweep =
               state.refreshTimings.firstDiffAt == null;
           final RefreshTimings timings = state.refreshTimings
               .stampFirstDiffIfAbsent(DateTime.now());
+          final String key = workingCopyDiffKey(
+            reply.path,
+            staged: reply.staged,
+          );
+          final Map<String, WorkingCopyDiffReply> updatedDiffs =
+              <String, WorkingCopyDiffReply>{...state.workingCopyDiffs}
+                ..remove(key)
+                ..[key] = reply;
+          while (updatedDiffs.length > kMaxCachedWorkingCopyDiffs) {
+            updatedDiffs.remove(updatedDiffs.keys.first);
+          }
           state = state.copyWith(
-            workingCopyDiffs: <String, WorkingCopyDiffReply>{
-              ...state.workingCopyDiffs,
-              workingCopyDiffKey(reply.path, staged: reply.staged): reply,
-            },
+            workingCopyDiffs: updatedDiffs,
             refreshTimings: timings,
           );
-          if (isFirstStampOfSweep) {
+          if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
             debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
           }
         }
@@ -1298,24 +1378,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
     // on a later refs publish within the same sweep, and printing then would
     // just repeat the same numbers. See refreshTimingsLabel's doc comment
-    // for why this is the same formatter the status bar paints.
-    if (isFirstStampOfSweep) {
+    // for why this is the same formatter the status bar paints. Gated on a
+    // non-empty label too: session-open calls refreshHistory()/
+    // refreshWorkingCopy() directly, without going through
+    // refreshRepoStatus(), so focusAt is null and the label would otherwise
+    // be an empty "refresh timings: " line.
+    if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
       debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
     }
   }
 
-  /// Reads the new status **and drops every cached diff**.
-  ///
-  /// - Key: [workingCopyDiffKey], one entry per (path, side).
-  /// - Invalidated by: `GBM_EVENT_WORKING_COPY_STATUS_UPDATED`, the single
-  ///   event every stage/unstage/discard/commit ends with. Nothing finer is
-  ///   safe -- staging one hunk renumbers the *other* side's hunks too.
-  /// - If it were not invalidated: the pane would keep painting the diff
-  ///   from before the stage, with hunk indices that now point at different
-  ///   lines, so the next "Stage 3 lines" would stage three other lines.
-  ///
-  /// Clearing here is also what bounds the map: it cannot outgrow one
-  /// selected file's two sides.
+  /// Reads the new status and republishes it via [publishWorkingCopyStatus],
+  /// which decides -- per (path, side) fingerprint, not "is the path still
+  /// present" -- which of [RepoSessionState.workingCopyDiffs]' entries
+  /// survive. See that function's own doc comment for the retention rule.
   void _readWorkingCopyStatus() {
     if (_bindings.workingCopyStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
@@ -1327,28 +1403,81 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  /// Publishes [next] and stamps [RefreshTimings.statusAt].
+  /// Publishes [next], stamps [RefreshTimings.statusAt], and decides which
+  /// of the previous [RepoSessionState.workingCopyDiffs] survive.
+  ///
+  /// Cache, per [CULT-cache-documents-three-things]:
+  /// - Key: [workingCopyDiffKey], one entry per (path, side).
+  /// - Invalidated by: [workingCopyDiffFingerprints] disagreeing between
+  ///   the previous status and [next] for that key -- not by the path
+  ///   merely leaving the status, and not by
+  ///   `GBM_EVENT_WORKING_COPY_STATUS_UPDATED` alone the way every publish
+  ///   used to invalidate the whole map. Also bounded to
+  ///   [kMaxCachedWorkingCopyDiffs], enforced where a fresh reply is merged
+  ///   in (the `workingCopyDiffReady` case in [_onEvent]).
+  /// - Symptom if invalidation is missed: the pane keeps painting a diff
+  ///   whose hunk indices point at lines that no longer exist there, so the
+  ///   next "Stage 3 lines" stages three different lines.
+  ///
+  /// Consumes `refreshFlags.keepDiffDuringRefresh` -- off reproduces the
+  /// wholesale clear this replaced, for an on-machine A/B.
   ///
   /// Split out of [_readWorkingCopyStatus] for the same reason
   /// [publishWorktrees] is split out of [_readWorktrees]: everything above
-  /// this line is the FFI read, which the fake seam can never exercise, and
-  /// everything below is real state and therefore real to test. See
-  /// [_readWorkingCopyStatus]'s own doc comment for what invalidates the
-  /// diff cache and why.
+  /// that line is the FFI read, which the fake seam can never exercise, and
+  /// everything below is real state and therefore real to test.
   @visibleForTesting
   void publishWorkingCopyStatus(WorkingCopyStatus next) {
     final bool isFirstStampOfSweep = state.refreshTimings.statusAt == null;
     final RefreshTimings timings = state.refreshTimings.stampStatusIfAbsent(
       DateTime.now(),
     );
+    final Map<String, WorkingCopyDiffReply> retainedDiffs =
+        refreshFlags.keepDiffDuringRefresh
+        ? _retainedWorkingCopyDiffs(
+            previous: state.workingCopyStatus,
+            next: next,
+          )
+        : const <String, WorkingCopyDiffReply>{};
     state = state.copyWith(
       workingCopyStatus: next,
-      workingCopyDiffs: const <String, WorkingCopyDiffReply>{},
+      workingCopyDiffs: retainedDiffs,
       refreshTimings: timings,
     );
-    if (isFirstStampOfSweep) {
+    if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
       debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
     }
+  }
+
+  /// Which entries of `state.workingCopyDiffs` survive a status transition
+  /// from [previous] to [next] -- every key whose fingerprint (see
+  /// [workingCopyDiffFingerprints]) is present and identical in both. A key
+  /// absent from either side's fingerprint map is dropped rather than
+  /// treated as "no evidence of change": the untracked-both-zero case in
+  /// particular means "not measured", never "unchanged".
+  Map<String, WorkingCopyDiffReply> _retainedWorkingCopyDiffs({
+    required WorkingCopyStatus previous,
+    required WorkingCopyStatus next,
+  }) {
+    final Map<String, WorkingCopyDiffReply> current = state.workingCopyDiffs;
+    if (current.isEmpty) return current;
+    final Map<String, String> oldFingerprints = workingCopyDiffFingerprints(
+      previous,
+    );
+    final Map<String, String> newFingerprints = workingCopyDiffFingerprints(
+      next,
+    );
+    final Map<String, WorkingCopyDiffReply> retained =
+        <String, WorkingCopyDiffReply>{};
+    for (final MapEntry<String, WorkingCopyDiffReply> entry
+        in current.entries) {
+      final String? oldFingerprint = oldFingerprints[entry.key];
+      if (oldFingerprint != null &&
+          oldFingerprint == newFingerprints[entry.key]) {
+        retained[entry.key] = entry.value;
+      }
+    }
+    return retained;
   }
 
   void _readStashes() {

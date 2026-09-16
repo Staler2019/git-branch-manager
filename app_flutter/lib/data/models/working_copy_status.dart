@@ -178,4 +178,23 @@ class WorkingCopyStatus {
       entries.where((e) => e.untracked).toList(growable: false);
   List<WorkingCopyEntry> get conflicted =>
       entries.where((e) => e.isConflicted).toList(growable: false);
+
+  /// Every entry that has something to show on the Working Copy diff pane's
+  /// *unstaged* side -- [unstaged] plus [untrackedFiles], which may overlap
+  /// (an untracked file with `hasUnstagedChange: true` appears in both).
+  ///
+  /// Shared between `working_copy_view.dart`'s `_selectedSides` (which path
+  /// to request a diff for) and `repo_session_repository.dart`'s
+  /// `workingCopyDiffFingerprints` (whether a cached diff is still valid),
+  /// so "which side is this entry on" is answered in exactly one place
+  /// ([CULT-single-source-of-truth]).
+  ///
+  /// Deliberately **not** the file board's display list -- `_buildFileBoard`
+  /// filters `untrackedFiles` down to `!e.hasUnstagedChange` to avoid a
+  /// double row, which answers a different question (how many rows to
+  /// draw) from this one (does this entry have an unstaged-side diff).
+  List<WorkingCopyEntry> get entriesWithUnstagedSide => <WorkingCopyEntry>[
+    ...unstaged,
+    ...untrackedFiles,
+  ];
 }

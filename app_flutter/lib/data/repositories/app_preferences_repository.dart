@@ -140,18 +140,14 @@ class AppPreferences {
   /// a debugging aid, not something every user wants painted there.
   final bool showRefreshTimings;
 
-  /// Developer. **Stored and live-wired onto
+  /// Developer. Gates whether `RepoSessionController.publishWorkingCopyStatus`
+  /// keeps a cached working-copy diff whose per-side fingerprint
+  /// (`workingCopyDiffFingerprints`) is unchanged across a status publish,
+  /// or drops the whole `workingCopyDiffs` map the way every publish used
+  /// to. Default `true`; off reproduces the pre-fix/refresh-ui-first-tiering
+  /// behaviour for an on-machine A/B. Read live off
   /// `RepoSessionController.refreshFlags` (`repoSessionProvider`'s builder
-  /// reads it once and pushes every later change via `ref.listen`), but not
-  /// yet read by anything that changes behaviour** -- same
-  /// `[CULT-orphan-wiring]` shape `autoFetchEnabled` above already records,
-  /// and the same reason: an admittedly-unwired flag beats a doc comment
-  /// that claims a mechanism ahead of the commit that builds it. The
-  /// intended meaning, once wired: gate whether a
-  /// `WORKING_COPY_STATUS_UPDATED` publish keeps a cached working-copy diff
-  /// whose per-side fingerprint is unchanged, or drops the whole map the
-  /// way it always has. Default `true` because that is the intended
-  /// post-fix behaviour, not because the fix is live yet.
+  /// reads it once and pushes every later change via `ref.listen`).
   final bool keepDiffDuringRefresh;
 
   /// Developer. **Stored and live-wired onto `RefreshFlags` the same way as

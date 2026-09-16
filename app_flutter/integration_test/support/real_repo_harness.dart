@@ -154,6 +154,16 @@ Future<SharedPreferences> _pumpRealApp(
     'fileListViewMode',
     'diffViewMode',
     'appPrefs.softWrapEnabled',
+    // fix/refresh-ui-first-tiering, C1/C4: a developer who has flipped one
+    // of these three in their own real app would otherwise have every
+    // later device test in the session silently measuring the other
+    // behaviour on just their machine -- [TEST-pumprealappon-clears-prefs]'s
+    // own point, restated: a prefix filter never catches a flat key.
+    // showRefreshTimings also paints an extra segment on the status bar,
+    // which is enough to make a text finder there ambiguous.
+    'appPrefs.showRefreshTimings',
+    'appPrefs.keepDiffDuringRefresh',
+    'appPrefs.tieredRefresh',
   };
   for (final String key in prefs.getKeys().where(
     (String k) =>

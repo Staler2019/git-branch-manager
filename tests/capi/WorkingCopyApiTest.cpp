@@ -1,10 +1,14 @@
 // Integration tests for the M2 working-copy/diff/commit slice of the
 // extern "C" surface (gbm_capi.h), against a real repository with
 // uncommitted changes -- the working-copy analog of SessionApiTest.cpp.
+#include "capi/Session.h"
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
+#include "core/workers/ThreadPool.h"
 #include "support/GitCli.h"
 
+#include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
@@ -14,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace gbm::capi {
@@ -47,6 +52,46 @@ struct EventLog {
         }
         return out;
     }
+};
+
+/// Occupies `n` shared-read-pool workers, each independently releasable, so
+/// a test can free exactly one worker at a time and get a fully
+/// deterministic single-worker execution order. Freeing every worker at
+/// once would let them race concurrently for whatever is queued, which is
+/// exactly the ambiguity fix/refresh-ui-first-tiering C3's ordering claim
+/// cannot tolerate.
+class PoolBlockade {
+public:
+    explicit PoolBlockade(std::size_t n) : mayFinish_(n) {
+        for (auto& flag : mayFinish_) flag = std::make_unique<std::atomic_bool>(false);
+    }
+
+    void fill(ThreadPool& pool) {
+        for (auto& flag : mayFinish_) {
+            std::atomic_bool* raw = flag.get();
+            pool.post([this, raw] {
+                started_.fetch_add(1);
+                while (!raw->load()) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+            });
+        }
+        while (started_.load() < mayFinish_.size()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    }
+
+    void releaseOne() { mayFinish_.front()->store(true); }
+
+    void releaseRest() {
+        for (std::size_t i = 1; i < mayFinish_.size(); ++i) {
+            mayFinish_[i]->store(true);
+        }
+    }
+
+private:
+    std::atomic<std::size_t> started_{0};
+    std::vector<std::unique_ptr<std::atomic_bool>> mayFinish_;
 };
 
 void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, int32_t payloadLen, void* userData) {
@@ -135,6 +180,50 @@ protected:
         });
         if (!arrived) return "";
         return log_.payloadsOfType(GBM_EVENT_WORKING_COPY_DIFF_READY).back();
+    }
+
+    /// Proves that `fire()` reaches the front of the shared read pool's
+    /// queue ahead of already-queued sweep-shaped work, per
+    /// fix/refresh-ui-first-tiering C3. Fills every worker, queues a marker
+    /// behind them, calls `fire()` (which must call postFront(), not
+    /// post()), then frees exactly one worker at a time -- freeing all of
+    /// them at once would let the freed workers race concurrently and the
+    /// ordering claim would no longer be checkable. `eventArrived` reports
+    /// whether `log_` already holds the reply `fire()` is expected to
+    /// produce. See CoreBasicsTest.cpp's
+    /// ThreadPool.PostFrontRunsBeforeAlreadyQueuedWork for the primitive
+    /// this relies on, decisively and without any of this machinery.
+    using EventList = const std::vector<std::pair<int32_t, std::string>>&;
+
+    void expectRequestJumpsAheadOfQueuedWork(const std::function<void()>& fire,
+                                             const std::function<bool(EventList)>& eventArrived) {
+        ThreadPool& pool = sharedReadPool();
+        PoolBlockade blockade(pool.threadCount());
+        blockade.fill(pool);
+
+        std::atomic_bool markerRan{false};
+        std::atomic_bool requestAlreadyAnsweredWhenMarkerRan{false};
+        pool.post([this, &markerRan, &requestAlreadyAnsweredWhenMarkerRan, &eventArrived] {
+            {
+                std::lock_guard<std::mutex> lock(log_.mutex);
+                requestAlreadyAnsweredWhenMarkerRan.store(eventArrived(log_.events));
+            }
+            markerRan.store(true);
+        });
+
+        fire();
+        blockade.releaseOne();
+
+        while (!markerRan.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        blockade.releaseRest();
+        pool.drain();
+
+        ASSERT_TRUE(log_.waitFor(eventArrived)) << "the request must still get its reply";
+        EXPECT_TRUE(requestAlreadyAnsweredWhenMarkerRan.load())
+            << "postFront() must let this request jump ahead of the marker "
+               "that was already queued behind a full pool";
     }
 
     bool waitForWorkingCopyOperationFinished() {
@@ -535,6 +624,30 @@ TEST_F(WorkingCopyApiTest, StageHunkFailsCleanlyWhenTheHunkIndexNoLongerExists) 
     const std::vector<std::string> outcomes = log_.payloadsOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
     ASSERT_FALSE(outcomes.empty());
     EXPECT_NE(outcomes.back().find("\"succeeded\":false"), std::string::npos) << outcomes.back();
+}
+
+// --- fix/refresh-ui-first-tiering C3: interactive reads jump the queue -----
+
+TEST_F(WorkingCopyApiTest, DiffRequestJumpsAheadOfAlreadyQueuedReadWork) {
+    expectRequestJumpsAheadOfQueuedWork(
+        [this] { gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0); },
+        [](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_COPY_DIFF_READY) return true;
+            }
+            return false;
+        });
+}
+
+TEST_F(WorkingCopyApiTest, WorkingTreeContentRequestJumpsAheadOfAlreadyQueuedReadWork) {
+    expectRequestJumpsAheadOfQueuedWork(
+        [this] { gbm_request_working_tree_content(session_, "committed.txt"); },
+        [](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_TREE_CONTENT_READY) return true;
+            }
+            return false;
+        });
 }
 
 }  // namespace

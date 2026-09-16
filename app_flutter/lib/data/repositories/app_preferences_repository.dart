@@ -35,6 +35,9 @@ class AppPreferences {
     this.autoUpdateCheckEnabled = true,
     this.skippedVersion = '',
     this.softWrapEnabled = false,
+    this.showRefreshTimings = false,
+    this.keepDiffDuringRefresh = true,
+    this.tieredRefresh = true,
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -126,6 +129,42 @@ class AppPreferences {
   /// with the line-number gutter pinned at the left edge.
   final bool softWrapEnabled;
 
+  /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
+  /// seventh the user asked for to A/B the three flags below on real
+  /// hardware. See [STRUCT-soft-wrap-preference] for the precedent of a
+  /// user-requested addition recorded as such rather than as a conformance
+  /// item.
+  ///
+  /// Paints the focus-regain timing readout (focus -> refs -> status ->
+  /// first diff readable -> tier 2 done) on the status bar. Off by default:
+  /// a debugging aid, not something every user wants painted there.
+  final bool showRefreshTimings;
+
+  /// Developer. **Stored and live-wired onto
+  /// `RepoSessionController.refreshFlags` (`repoSessionProvider`'s builder
+  /// reads it once and pushes every later change via `ref.listen`), but not
+  /// yet read by anything that changes behaviour** -- same
+  /// `[CULT-orphan-wiring]` shape `autoFetchEnabled` above already records,
+  /// and the same reason: an admittedly-unwired flag beats a doc comment
+  /// that claims a mechanism ahead of the commit that builds it. The
+  /// intended meaning, once wired: gate whether a
+  /// `WORKING_COPY_STATUS_UPDATED` publish keeps a cached working-copy diff
+  /// whose per-side fingerprint is unchanged, or drops the whole map the
+  /// way it always has. Default `true` because that is the intended
+  /// post-fix behaviour, not because the fix is live yet.
+  final bool keepDiffDuringRefresh;
+
+  /// Developer. **Stored and live-wired onto `RefreshFlags` the same way as
+  /// [keepDiffDuringRefresh] above, and not yet read by anything that
+  /// changes behaviour** -- same disclaimer, same reason. The intended
+  /// meaning, once wired: gate whether `refreshRepoStatus()` splits into an
+  /// immediate tier (repo state, commit graph, history, working copy) and a
+  /// tier deferred until the working-copy status event arrives (stashes,
+  /// worktrees, remotes, submodules, bisect, LFS, both identities), or fires
+  /// all twelve members at once the way it always has. Default `true` for
+  /// the same reason.
+  final bool tieredRefresh;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -142,6 +181,9 @@ class AppPreferences {
     bool? autoUpdateCheckEnabled,
     String? skippedVersion,
     bool? softWrapEnabled,
+    bool? showRefreshTimings,
+    bool? keepDiffDuringRefresh,
+    bool? tieredRefresh,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -163,6 +205,10 @@ class AppPreferences {
           autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
       skippedVersion: skippedVersion ?? this.skippedVersion,
       softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
+      showRefreshTimings: showRefreshTimings ?? this.showRefreshTimings,
+      keepDiffDuringRefresh:
+          keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
+      tieredRefresh: tieredRefresh ?? this.tieredRefresh,
     );
   }
 }
@@ -221,6 +267,14 @@ class AppPreferencesRepository {
       softWrapEnabled:
           _prefs.getBool('${_kPrefix}softWrapEnabled') ??
           defaults.softWrapEnabled,
+      showRefreshTimings:
+          _prefs.getBool('${_kPrefix}showRefreshTimings') ??
+          defaults.showRefreshTimings,
+      keepDiffDuringRefresh:
+          _prefs.getBool('${_kPrefix}keepDiffDuringRefresh') ??
+          defaults.keepDiffDuringRefresh,
+      tieredRefresh:
+          _prefs.getBool('${_kPrefix}tieredRefresh') ?? defaults.tieredRefresh,
     );
   }
 
@@ -255,6 +309,12 @@ class AppPreferencesRepository {
     );
     await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
     await _prefs.setBool('${_kPrefix}softWrapEnabled', p.softWrapEnabled);
+    await _prefs.setBool('${_kPrefix}showRefreshTimings', p.showRefreshTimings);
+    await _prefs.setBool(
+      '${_kPrefix}keepDiffDuringRefresh',
+      p.keepDiffDuringRefresh,
+    );
+    await _prefs.setBool('${_kPrefix}tieredRefresh', p.tieredRefresh);
   }
 }
 

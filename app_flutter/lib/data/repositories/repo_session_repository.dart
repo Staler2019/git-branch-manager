@@ -29,6 +29,7 @@ import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
+import '../models/refresh_timings.dart';
 import '../models/remote_counterpart.dart';
 import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
@@ -408,6 +409,7 @@ class RepoSessionState {
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
+    this.refreshTimings = const RefreshTimings(),
   });
 
   final bool isOpen;
@@ -572,6 +574,11 @@ class RepoSessionState {
   /// request is in flight can't be mistaken for a stale previous reply.
   final String? originalOperationMessage;
 
+  /// The current focus-regain sweep's stamps -- see [RefreshTimings]'s own
+  /// doc comment. Reset to a fresh instance at the start of every
+  /// [RepoSessionController.refreshRepoStatus] call.
+  final RefreshTimings refreshTimings;
+
   /// Single source of truth for "is this repo in a conflict state" --
   /// every conflict-aware surface (banner, toolbar, branch switching,
   /// working copy's Conflicted section, commit box, status bar) must read
@@ -637,6 +644,7 @@ class RepoSessionState {
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
+    RefreshTimings? refreshTimings,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -694,6 +702,7 @@ class RepoSessionState {
       originalOperationMessage: clearOriginalOperationMessage
           ? null
           : (originalOperationMessage ?? this.originalOperationMessage),
+      refreshTimings: refreshTimings ?? this.refreshTimings,
     );
   }
 
@@ -819,6 +828,26 @@ class RepoSessionState {
   }
 }
 
+/// Runtime-settable behaviour flags for the refresh pipeline -- the
+/// Developer tab's two toggles (`appPrefs.keepDiffDuringRefresh`,
+/// `appPrefs.tieredRefresh`). Both default to the new behaviour; turning
+/// either off reproduces what shipped before fix/refresh-ui-first-tiering,
+/// for an on-machine A/B.
+class RefreshFlags {
+  const RefreshFlags({
+    this.keepDiffDuringRefresh = true,
+    this.tieredRefresh = true,
+  });
+
+  final bool keepDiffDuringRefresh;
+  final bool tieredRefresh;
+
+  factory RefreshFlags.fromPreferences(AppPreferences prefs) => RefreshFlags(
+    keepDiffDuringRefresh: prefs.keepDiffDuringRefresh,
+    tieredRefresh: prefs.tieredRefresh,
+  );
+}
+
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
@@ -856,6 +885,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// tests that need a small cap to exercise eviction pass it explicitly
   /// instead of feeding thousands of events.
   final int maxOperationLogEntries;
+
+  /// See [RefreshFlags]. Deliberately a plain settable field, not a
+  /// constructor parameter read once: the Developer tab has to reach an
+  /// already-open session live, so `repoSessionProvider` sets this once
+  /// right after construction and again on every `appPreferencesProvider`
+  /// change via `ref.listen` -- `ref.read` alone would miss the value
+  /// already present when the listener registers
+  /// ([FLU-listen-misses-the-current-value]).
+  RefreshFlags refreshFlags = const RefreshFlags();
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -982,12 +1020,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           // Merged, never replaced wholesale: the other side of the same
           // file is usually in flight at the same moment and dropping it
           // here is exactly the race the map exists to end.
+          final bool isFirstStampOfSweep =
+              state.refreshTimings.firstDiffAt == null;
+          final RefreshTimings timings = state.refreshTimings
+              .stampFirstDiffIfAbsent(DateTime.now());
           state = state.copyWith(
             workingCopyDiffs: <String, WorkingCopyDiffReply>{
               ...state.workingCopyDiffs,
               workingCopyDiffKey(reply.path, staged: reply.staged): reply,
             },
+            refreshTimings: timings,
           );
+          if (isFirstStampOfSweep) {
+            debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
+          }
         }
       case GbmEventType.fileAtRevisionExported:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1229,10 +1275,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_bindings.refsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          refs: RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
+        publishRefs(
+          RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
         );
       }
+    }
+  }
+
+  /// Publishes [refs] and stamps [RefreshTimings.refsAt] -- see
+  /// [publishWorkingCopyStatus]'s doc comment for why this is split out of
+  /// [_readRefs] the same way [publishWorktrees] is split out of
+  /// [_readWorktrees]: everything above this line is the FFI read, which the
+  /// fake seam can never exercise, and everything below is real state and
+  /// therefore real to test.
+  @visibleForTesting
+  void publishRefs(RefSnapshot refs) {
+    final bool isFirstStampOfSweep = state.refreshTimings.refsAt == null;
+    final RefreshTimings timings = state.refreshTimings.stampRefsIfAbsent(
+      DateTime.now(),
+    );
+    state = state.copyWith(refs: refs, refreshTimings: timings);
+    // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
+    // on a later refs publish within the same sweep, and printing then would
+    // just repeat the same numbers. See refreshTimingsLabel's doc comment
+    // for why this is the same formatter the status bar paints.
+    if (isFirstStampOfSweep) {
+      debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
     }
   }
 
@@ -1252,13 +1320,34 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_bindings.workingCopyStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          workingCopyStatus: WorkingCopyStatus.fromJson(
-            jsonDecode(json) as Map<String, dynamic>,
-          ),
-          workingCopyDiffs: const <String, WorkingCopyDiffReply>{},
+        publishWorkingCopyStatus(
+          WorkingCopyStatus.fromJson(jsonDecode(json) as Map<String, dynamic>),
         );
       }
+    }
+  }
+
+  /// Publishes [next] and stamps [RefreshTimings.statusAt].
+  ///
+  /// Split out of [_readWorkingCopyStatus] for the same reason
+  /// [publishWorktrees] is split out of [_readWorktrees]: everything above
+  /// this line is the FFI read, which the fake seam can never exercise, and
+  /// everything below is real state and therefore real to test. See
+  /// [_readWorkingCopyStatus]'s own doc comment for what invalidates the
+  /// diff cache and why.
+  @visibleForTesting
+  void publishWorkingCopyStatus(WorkingCopyStatus next) {
+    final bool isFirstStampOfSweep = state.refreshTimings.statusAt == null;
+    final RefreshTimings timings = state.refreshTimings.stampStatusIfAbsent(
+      DateTime.now(),
+    );
+    state = state.copyWith(
+      workingCopyStatus: next,
+      workingCopyDiffs: const <String, WorkingCopyDiffReply>{},
+      refreshTimings: timings,
+    );
+    if (isFirstStampOfSweep) {
+      debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
     }
   }
 
@@ -1892,6 +1981,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// nothing on screen waiting for it, so it runs unconditionally like the
   /// rest. Measurements are in docs/ledger.md.
   void refreshRepoStatus() {
+    // A fresh sweep starts a fresh timing record -- see [RefreshTimings]'s
+    // own doc comment for why the later stamps are "first one wins": without
+    // this reset, a stamp from the *previous* sweep would still be sitting
+    // there and `stamp*IfAbsent` would refuse to overwrite it with this
+    // sweep's real timing.
+    state = state.copyWith(
+      refreshTimings: RefreshTimings(focusAt: DateTime.now()),
+    );
     // The two synchronous ones go first: they publish through copyWith
     // rather than waiting on an event, so the conflict badge corrects on
     // this very frame instead of after ten git subprocesses return.
@@ -3892,11 +3989,26 @@ repoSessionProvider =
       final int maxOperationLogEntries = ref
           .read(appPreferencesProvider)
           .logMemoryLimit;
-      return RepoSessionController(
+      final RepoSessionController controller = RepoSessionController(
         bindings,
         identity,
         recents,
         maxOperationLogEntries: maxOperationLogEntries,
         openSessions: ref.read(openRepoSessionsProvider),
       );
+      // Same reasoning as `maxOperationLogEntries` above for reading rather
+      // than watching -- but this value has to keep tracking Preferences for
+      // the whole life of the session (the Developer tab's point is a live
+      // A/B), so the one-time read is paired with a `ref.listen` that never
+      // rebuilds this provider, only pushes into the already-open controller.
+      controller.refreshFlags = RefreshFlags.fromPreferences(
+        ref.read(appPreferencesProvider),
+      );
+      ref.listen<AppPreferences>(appPreferencesProvider, (
+        AppPreferences? previous,
+        AppPreferences next,
+      ) {
+        controller.refreshFlags = RefreshFlags.fromPreferences(next);
+      });
+      return controller;
     });

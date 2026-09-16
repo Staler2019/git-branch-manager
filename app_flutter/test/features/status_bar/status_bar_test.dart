@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/refresh_timings.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/status_bar/background_task.dart';
@@ -964,6 +965,87 @@ void main() {
       await pump(tester, upstreamGone: true, ahead: 0, behind: 0);
 
       expect(find.text('upstream gone'), findsOneWidget);
+    });
+  });
+
+  group('showRefreshTimings', () {
+    Future<void> pumpWithTimings(
+      WidgetTester tester, {
+      required bool showRefreshTimings,
+      RefreshTimings refreshTimings = const RefreshTimings(),
+    }) {
+      return tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 3,
+              lastScanDuration: const Duration(milliseconds: 10),
+              graphLaneCapacity: 4,
+              backgroundTasks: const [],
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+              showRefreshTimings: showRefreshTimings,
+              refreshTimings: refreshTimings,
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('off by default: no timing text even with landed stamps', (
+      tester,
+    ) async {
+      final DateTime focus = DateTime(2026, 1, 1, 12, 0, 0, 0);
+      await pumpWithTimings(
+        tester,
+        showRefreshTimings: false,
+        refreshTimings: RefreshTimings(
+          focusAt: focus,
+          refsAt: focus.add(const Duration(milliseconds: 7)),
+        ),
+      );
+
+      expect(find.textContaining('refs'), findsNothing);
+    });
+
+    testWidgets('on, but nothing has landed yet: draws nothing', (
+      tester,
+    ) async {
+      await pumpWithTimings(
+        tester,
+        showRefreshTimings: true,
+        refreshTimings: const RefreshTimings(),
+      );
+
+      expect(find.textContaining('refs'), findsNothing);
+      expect(find.textContaining('status'), findsNothing);
+      expect(find.textContaining('diff'), findsNothing);
+    });
+
+    testWidgets('on, with landed stamps: paints refreshTimingsLabel verbatim', (
+      tester,
+    ) async {
+      final DateTime focus = DateTime(2026, 1, 1, 12, 0, 0, 0);
+      final RefreshTimings timings = RefreshTimings(
+        focusAt: focus,
+        refsAt: focus.add(const Duration(milliseconds: 7)),
+        statusAt: focus.add(const Duration(milliseconds: 32)),
+        firstDiffAt: focus.add(const Duration(milliseconds: 118)),
+      );
+      await pumpWithTimings(
+        tester,
+        showRefreshTimings: true,
+        refreshTimings: timings,
+      );
+
+      // Asserted against the real formatter rather than a literal string, so
+      // this test cannot drift from refreshTimingsLabel's own stage order.
+      expect(find.text(refreshTimingsLabel(timings)), findsOneWidget);
     });
   });
 }

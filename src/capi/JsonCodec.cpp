@@ -345,6 +345,13 @@ std::string workingCopyEntryJson(const WorkingCopyEntry& entry) {
     jsonAppendBool(out, entry.isSubmodule);
     out += ",\"isConflicted\":";
     jsonAppendBool(out, entry.isConflicted());
+    // 0/0 for a tracked file, or an untracked one whose stat failed -- see
+    // WorkingCopyEntry's own doc comment for why unstagedAdded alone cannot
+    // tell an in-place same-line-count edit from no edit at all.
+    out += ",\"untrackedSize\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(entry.untrackedSize));
+    out += ",\"untrackedMtimeTicks\":";
+    jsonAppendInt(out, entry.untrackedMtimeTicks);
     out += '}';
     return out;
 }

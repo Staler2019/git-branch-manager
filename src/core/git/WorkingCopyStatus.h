@@ -89,6 +89,22 @@ struct WorkingCopyEntry {
     int similarity = 0;  ///< Rename/copy score, 0-100.
     bool isSubmodule = false;
 
+    /// The size and modification time [countUntrackedLines] stat()ed this file
+    /// at, valid only when [untracked] is true and the stat succeeded -- both
+    /// stay 0 for a tracked file, and for an untracked one over
+    /// [kUntrackedLineCountByteCap] or whose `file_size()`/`last_write_time()`
+    /// failed (0/0 is indistinguishable from "not measured" on purpose, the
+    /// same convention [unstagedAdded] already uses).
+    ///
+    /// These exist because [unstagedAdded]/[unstagedRemoved] for an untracked
+    /// file are the file's own line count, **not a diff** -- an in-place edit
+    /// that keeps the line count (replace one word with another of a
+    /// different length, say) leaves both fields identical across two
+    /// refreshes. A consumer that needs to know "did the content actually
+    /// change" has nothing else here to compare.
+    std::uint64_t untrackedSize = 0;
+    std::int64_t untrackedMtimeTicks = 0;
+
     bool isConflicted() const noexcept { return conflict != ConflictKind::None; }
 };
 

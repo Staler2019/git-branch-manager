@@ -208,6 +208,46 @@ TEST_F(WorkingCopyApiTest, StatusJsonCarriesPerFileLineCounts) {
     EXPECT_NE(untrackedEntry.find("\"unstagedRemoved\":0"), std::string::npos) << untrackedEntry;
 }
 
+// The end-to-end half of fix/refresh-ui-first-tiering's C2a: proves the real
+// WorkingCopyStatusReader -> JsonCodec pipeline actually fills and sends
+// these two fields for a real untracked file, not just that JsonCodec echoes
+// a hand-set struct (JsonCodecTest.WorkingCopyEntryEncodesUntrackedSizeAndMtime
+// covers that half, and cannot see a bug in the production assignment --
+// [TEST-fixture-cannot-disagree]'s "hand-sets a field production never sets"
+// shape).
+TEST_F(WorkingCopyApiTest, StatusJsonCarriesUntrackedSizeAndMtimeForARealFile) {
+    gbm_working_copy_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return !events.empty() && events.back().first == GBM_EVENT_WORKING_COPY_STATUS_UPDATED;
+    }));
+
+    const std::string json = statusJson();
+
+    const std::size_t untracked = json.find("\"path\":\"untracked.txt\"");
+    ASSERT_NE(untracked, std::string::npos) << json;
+    const std::size_t untrackedEnd = json.find("}", untracked);
+    const std::string untrackedEntry = json.substr(untracked, untrackedEnd - untracked);
+    // No legitimate non-zero value's digits ever start with '0', so this
+    // substring can only match the literal "not measured" zero -- there is
+    // no false positive to guard against from a value like 10 or 209.
+    EXPECT_NE(untrackedEntry.find("\"untrackedSize\":"), std::string::npos)
+        << "the key must be present: " << untrackedEntry;
+    EXPECT_EQ(untrackedEntry.find("\"untrackedSize\":0"), std::string::npos)
+        << "'new file\\n' is 9 bytes -- must not be the unmeasured 0: " << untrackedEntry;
+    EXPECT_EQ(untrackedEntry.find("\"untrackedMtimeTicks\":0"), std::string::npos)
+        << "must not be the unmeasured 0: " << untrackedEntry;
+
+    // committed.txt is tracked -- both fields stay at the "not measured"
+    // default even though it too has unstaged changes.
+    const std::size_t committed = json.find("\"path\":\"committed.txt\"");
+    ASSERT_NE(committed, std::string::npos) << json;
+    const std::size_t committedEnd = json.find("}", committed);
+    const std::string committedEntry = json.substr(committed, committedEnd - committed);
+    EXPECT_NE(committedEntry.find("\"untrackedSize\":0"), std::string::npos) << committedEntry;
+    EXPECT_NE(committedEntry.find("\"untrackedMtimeTicks\":0"), std::string::npos)
+        << committedEntry;
+}
+
 TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAddedLine) {
     gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0);
 

@@ -127,6 +127,49 @@ TEST(JsonCodecTest, WorkingCopyEntryStillEmitsTheKeysWhenEveryCountIsZero) {
     EXPECT_NE(json.find("\"stagedRemoved\":0"), std::string::npos) << json;
 }
 
+// [GIT-zero-means-unmeasured]'s neighbour, for the one thing an untracked
+// file's numstat-shaped fields cannot tell apart from no edit at all: an
+// in-place rewrite that keeps the same line count leaves unstagedAdded/
+// unstagedRemoved identical across two refreshes. size + mtime are the
+// signal a consumer needing "did the content actually change" has to read
+// instead -- see fix/refresh-ui-first-tiering's C2b for the consumer.
+TEST(JsonCodecTest, WorkingCopyEntryEncodesUntrackedSizeAndMtime) {
+    WorkingCopyEntry untracked;
+    untracked.path = "fresh.txt";
+    untracked.untracked = true;
+    untracked.hasUnstagedChange = true;
+    untracked.unstagedAdded = 3;
+    untracked.untrackedSize = 42;
+    untracked.untrackedMtimeTicks = 1234567890123456789LL;
+
+    WorkingCopyStatus status;
+    status.entries.push_back(untracked);
+
+    const std::string json = toJson(status);
+
+    EXPECT_NE(json.find("\"untrackedSize\":42"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"untrackedMtimeTicks\":1234567890123456789"), std::string::npos)
+        << json;
+}
+
+// Absent for a tracked file (or an untracked one whose stat failed): both
+// fields default to 0, the same "not measured" convention every other
+// zero-means-unmeasured field in this struct already uses.
+TEST(JsonCodecTest, WorkingCopyEntryLeavesUntrackedSizeAndMtimeAtZeroForATrackedFile) {
+    WorkingCopyEntry tracked;
+    tracked.path = "a.txt";
+    tracked.hasUnstagedChange = true;
+    tracked.unstagedAdded = 5;
+
+    WorkingCopyStatus status;
+    status.entries.push_back(tracked);
+
+    const std::string json = toJson(status);
+
+    EXPECT_NE(json.find("\"untrackedSize\":0"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"untrackedMtimeTicks\":0"), std::string::npos) << json;
+}
+
 TEST(JsonCodecTest, RepoRecordArrayEncodesMultipleEntries) {
     RepoRecord a;
     a.id = 1;

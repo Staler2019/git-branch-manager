@@ -48,8 +48,11 @@ Working Copy 頁時把視窗切回來，刷新期間讀不到檔案內容。
   `postFront()`，比照既有的 blame/commit meta/commit files。
 - **C4**（`91a2c50`）`refreshRepoStatus()` 分兩批：tier 1（`refreshRepoState`/
   `refreshHasCommitGraph`/`refreshHistory`/`refreshWorkingCopy`）立即發；tier 2（其餘八支）
-  等 `WORKING_COPY_STATUS_UPDATED`（含 fallback timer）再發，且晚一個 microtask，讓
-  `working_copy_view` 的 `ref.listen` 同步重發的兩支 diff 請求先進佇列。
+  等 `WORKING_COPY_STATUS_UPDATED`（含 fallback timer）再發，且用 `Timer(Duration.zero)`
+  延後——**不是** `scheduleMicrotask`，因為 Riverpod 的 listener 通知本身可能走微任務佇列，
+  兩個微任務誰先誰後要靠推理；`Timer.zero` 排進事件佇列，保證整條微任務佇列（含
+  `working_copy_view` 的 `ref.listen` 同步重發的兩支 diff 請求）都清空之後才輪到它，順序
+  因此是佇列順序本身，不是賭贏一場微任務競賽。
 - 一支 lint 漂移修正（`c79e6db`）。
 - **C5**（`874bd3d`）`real_repo_harness.dart` 的 `flatKeysToClear` 補上三個新扁平 key。
 
@@ -145,7 +148,7 @@ repo 的 status/diff 本身也會更大——這裡量的是分層省下的**排
 | 4 | 171 | 61 | 113 | 61 |
 
 `bg ≈ status + 1~6ms`，五輪一致——這是 C4 設計的「tier 2 在 `WORKING_COPY_STATUS_UPDATED`
-之後一個 microtask 就發」確實照設計運作的直接證據。
+之後、`Timer(Duration.zero)` 一輪事件迴圈就發」確實照設計運作的直接證據。
 
 **`refs` 反而是四個戳記裡最晚落地的一個，五輪一致（171–199ms，晚於 status 的 61–92ms，
 也晚於 diff 的 113–186ms）。** 這和使用者裁定 1 的前提（「目前分支本來就是最早落地的東西

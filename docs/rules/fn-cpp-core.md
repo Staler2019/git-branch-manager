@@ -291,7 +291,8 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   meaning anything.
 - **Do**: `postFront()` jumps the queue but cannot preempt work **already running** — with a
   2–6 thread pool, a `postFront()`'d request can still queue behind whatever grabbed a worker
-  first. This is *why* [STATE-refresh-entry-point]'s tier 2 has to be deferred by a microtask
+  first. This is *why* [STATE-refresh-entry-point]'s tier 2 has to be deferred (by
+  `Timer(Duration.zero)`, deliberately not `scheduleMicrotask` -- see that pin's own note)
   rather than merely posted at a lower priority: the two techniques are not substitutes for
   each other, and using only one (deferral without `postFront`, or `postFront` without
   deferral) leaves the interactive request racing the sweep for a worker slot instead of

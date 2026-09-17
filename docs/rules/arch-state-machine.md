@@ -193,9 +193,13 @@ per-event-type interpretation — which of the 34 event types updates which
   `refreshHistory()`, `refreshWorkingCopy()` — dispatches immediately, every sweep, no
   exceptions. Tier 2 — the other eight — waits for `WORKING_COPY_STATUS_UPDATED` (consumed
   inside C2b's `publishWorkingCopyStatus` reducer, not the raw event arm, so the fake session
-  seam exercises the real decision) **and** one extra microtask/`Timer(Duration.zero)`, so that
-  `working_copy_view`'s `ref.listen`-driven diff re-requests land in the shared read pool's
-  FIFO queue first. A `kDeferredRefreshFallback` (3s) timer is the safety net for a status read
+  seam exercises the real decision) **and** one extra `Timer(Duration.zero)` — deliberately
+  **not** `scheduleMicrotask`, since Riverpod's own listener notification may itself be
+  microtask-scheduled and two microtasks would race for queue position; `Timer.zero` waits for
+  the whole microtask queue to drain first, so `working_copy_view`'s `ref.listen`-driven diff
+  re-requests land in the shared read pool's FIFO queue (via `postFront()`,
+  [CPP-interactive-reads-go-to-the-front]) strictly before tier 2 by construction, not by luck.
+  A `kDeferredRefreshFallback` (3s) timer is the safety net for a status read
   that errors instead of succeeding — `[CPP-coalescer-terminal-paths]`'s lesson applied here:
   every terminal path must arm it, or tier 2 never fires at all. Every sweep still dispatches
   all twelve; the split changes *when*, never *whether*.

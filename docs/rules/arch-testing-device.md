@@ -82,6 +82,12 @@ Format: [README.md](README.md).
   finder ambiguous or miss.
 - **Do**: a new app-wide preference means adding its key here. **A prefix filter will not
   catch a flat one.**
+- **Rule**: **`appPrefs.showRefreshTimings`, `appPrefs.keepDiffDuringRefresh`,
+  `appPrefs.tieredRefresh`** joined `flatKeysToClear` in fix/refresh-ui-first-tiering's C5 —
+  same hazard, same shape: a developer who has flipped any of the three in their own real app
+  would otherwise have every later device test in the session silently measuring the other
+  behaviour, on just their machine. `showRefreshTimings` additionally paints an extra segment
+  on the status bar, which is enough on its own to make a text finder there ambiguous.
 
 ## [TEST-design-system-swap-breaks-finders] Swapping a widget for a design-system one breaks device-tier finders
 

@@ -22,7 +22,7 @@ applies to the Flutter layer too).
 | `isRefreshing` | `bool` | history/graph fetch in flight |
 | `lastError` | `GitError?` | most recent operation error |
 | `workingCopyStatus` | `WorkingCopyStatus` | staged/unstaged/untracked/conflicted paths |
-| `workingCopyDiffs` | `Map<String, WorkingCopyDiffReply>` | diffs keyed by `workingCopyDiffKey(path, staged:)`; merged, never replaced wholesale. **Not reducible back to a single `lastDiff` slot** — P03 shows unstaged and staged at once, and two replies to one selection race |
+| `workingCopyDiffs` | `Map<String, WorkingCopyDiffReply>` | diffs keyed by `workingCopyDiffKey(path, staged:)`; merged, never replaced wholesale. **Not reducible back to a single `lastDiff` slot** — P03 shows unstaged and staged at once, and two replies to one selection race. **No longer cleared wholesale on every status refresh** (fix/refresh-ui-first-tiering, C2b) — see [FLU-diff-cache-keeps-by-fingerprint] for what it keeps and why |
 | `lastWorkingTreeContent` | `WorkingTreeContentReply?` | file content incl. conflict markers |
 | `stashes` | `List<StashEntry>` | all stash entries |
 | `lastStashDiff` | `StashDiffReply?` | diff of a stash |
@@ -188,9 +188,36 @@ per-event-type interpretation — which of the 34 event types updates which
   `isActionEnabled()` gates frozen until the app itself ran an operation. `refreshRepoState()`
   is the one synchronous member (`RepoState::read()` only stats a handful of `.git/` paths),
   which is why the conflict badge corrects on the same frame.
-- **Note**: **not verified on real hardware** — the tests drive
-  `handleAppLifecycleStateChanged` directly, which proves the wiring but not that macOS emits
-  inactive/resumed on window focus changes.
+- **Rule**: **membership is unchanged, but dispatch is now tiered in two batches**
+  (fix/refresh-ui-first-tiering, C4). Tier 1 — `refreshRepoState()`, `refreshHasCommitGraph()`,
+  `refreshHistory()`, `refreshWorkingCopy()` — dispatches immediately, every sweep, no
+  exceptions. Tier 2 — the other eight — waits for `WORKING_COPY_STATUS_UPDATED` (consumed
+  inside C2b's `publishWorkingCopyStatus` reducer, not the raw event arm, so the fake session
+  seam exercises the real decision) **and** one extra microtask/`Timer(Duration.zero)`, so that
+  `working_copy_view`'s `ref.listen`-driven diff re-requests land in the shared read pool's
+  FIFO queue first. A `kDeferredRefreshFallback` (3s) timer is the safety net for a status read
+  that errors instead of succeeding — `[CPP-coalescer-terminal-paths]`'s lesson applied here:
+  every terminal path must arm it, or tier 2 never fires at all. Every sweep still dispatches
+  all twelve; the split changes *when*, never *whether*.
+- **Rule**: **the split is a policy statement, not a hand-picked list** — see
+  [CPP-interactive-reads-go-to-the-front] for the rule the C++ side of this same decision
+  follows (who gets `postFront()` vs `post()`).
+- **Rule**: repeated F5 is idempotent — one pending tier-2 flag and one timer, not one per
+  press. The sweeps that get folded in are not lost; the *last* one wins, and its data is never
+  staler than what an unfolded sweep would have produced.
+- **Note**: **not verified on real hardware** — the tests (and this rule's own C6 measurement,
+  see [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md))
+  drive `handleAppLifecycleStateChanged` directly, which proves the wiring but not that macOS
+  emits inactive/resumed on window focus changes.
+- **Note**: **measured, not merely designed** — matched-instrument (wall-clock, both sides) C6
+  numbers on a small fixture (1 file, half-staged, zero submodules/stashes/remotes): focus→diff
+  readable median dropped from 322ms to 194ms; a no-change refocus's blank interval dropped
+  from 46ms to 0ms. A larger real repository's own status/diff work is not covered by this
+  number — what's measured here is the queueing time this tiering removes, not git itself
+  getting faster. One observation is flagged, not yet diagnosed: `refsAt` lands *after* both
+  `statusAt` and `firstDiffAt` in all five measured cycles (171–199ms vs 61–92ms / 113–186ms),
+  which sits awkwardly next to this round's own ruling that the current branch "本來就是最早
+  落地的東西之一" — left for a ruling on whether it matters, see the ledger.
 
 ## [STATE-never-guess-what-git-would-say] Never gate a refresh on a predicate that guesses what git would answer
 

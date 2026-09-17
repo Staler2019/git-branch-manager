@@ -276,3 +276,28 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   `CommitMetaStoreStopsIssuingRequestsOnceCancelled`），三者都在工作開始**之前**取消，
   所以是決定性的。寫在測試檔頂端，不是留白（[SPEC-absent-not-faked]）。
 - **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CPP-interactive-reads-go-to-the-front] The shared read pool is FIFO, so which lane a request takes is a one-sentence policy, not a per-call-site judgment call
+
+- **Rule**: `ThreadPool` is a `std::deque`; `post()` pushes to the back, `postFront()` to the
+  front (`ThreadPool.h:32-35, 78`). The policy is: **work the user is actively waiting on takes
+  `postFront()`; a background sweep member takes `post()`.** Blame, commit metadata, commit
+  files were already `postFront()` before this round; `requestWorkingCopyDiff` and
+  `requestWorkingTreeContent` joined them in fix/refresh-ui-first-tiering's C3 — the latter is
+  the conflict window's file read, and sitting behind an 79ms `submodule status` call was
+  literally "cannot reading file content" from the user's own report.
+- **Rule**: `refreshWorkingCopy()` and `dispatchRefresh()` themselves stay on `post()`, on
+  purpose — putting a sweep member on the interactive lane would make "interactive" stop
+  meaning anything.
+- **Do**: `postFront()` jumps the queue but cannot preempt work **already running** — with a
+  2–6 thread pool, a `postFront()`'d request can still queue behind whatever grabbed a worker
+  first. This is *why* [STATE-refresh-entry-point]'s tier 2 has to be deferred by a microtask
+  rather than merely posted at a lower priority: the two techniques are not substitutes for
+  each other, and using only one (deferral without `postFront`, or `postFront` without
+  deferral) leaves the interactive request racing the sweep for a worker slot instead of
+  strictly ahead of it.
+- **Note**: `postFront()`'d requests do not preserve their *relative* order against each other
+  — two diff requests posted in immediate succession can complete in either order. This must
+  never be asserted on: each reply is merged into `workingCopyDiffs` independently, keyed by
+  its own `workingCopyDiffKey`, with its own `*Loading` flag.
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

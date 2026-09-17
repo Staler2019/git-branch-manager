@@ -88,3 +88,36 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: keep both layers and say why in the comment — the `.timeout` is the only half a test
   can reach, the watchdog is the only half that helps on real hardware. Neither subsumes the other.
 - **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
+
+## [FLU-diff-cache-keeps-by-fingerprint] A state refresh must not clear a diff cache wholesale, and the retention condition cannot be "the path is still there"
+
+- **Rule**: `workingCopyDiffs` used to be reset to `const {}` on every `workingCopyStatusUpdated`
+  event, which forced the diff pane's spinner and re-fetch on *every* focus-regain refresh, not
+  just one that actually changed anything the user was looking at. `publishWorkingCopyStatus()`
+  (`repo_session_repository.dart`, fix/refresh-ui-first-tiering C2b) now keeps an entry when
+  the path's own per-side fingerprint is unchanged, and drops it otherwise.
+- **Rule**: **the retention condition is "this side's fingerprint is unchanged", never "this
+  path is still present in `WorkingCopyStatus`".** The obvious-looking condition is wrong:
+  staging a hunk leaves both sides' paths present in the status, but the diff itself is stale —
+  the old doc comment on this exact code already documented why ("the next 'Stage 3 lines'
+  would stage three other lines"). A path staying in the status proves nothing about whether
+  *its diff* is still correct.
+- **Rule**: the fingerprint is computed by `workingCopyDiffFingerprints()`, deliberately kept
+  next to `workingCopyDiffKey()` so both read the same key-construction logic. Unstaged side:
+  `hasUnstagedChange`, `untracked`, `worktreeStatus`, `unstagedAdded`, `unstagedRemoved`,
+  `isConflicted`, `conflict`, the three blob oids, **and** `untrackedSize`/`untrackedMtimeTicks`
+  (see [GIT-untracked-numstat-is-not-a-diff] for why the last two are required, not optional).
+  Staged side: `staged`, `indexStatus`, `stagedAdded`, `stagedRemoved`, `oldPath`, `similarity`.
+  Both sides include `isSubmodule`.
+- **Rule**: an untracked entry whose `untrackedSize`/`untrackedMtimeTicks` are both `0` is
+  dropped unconditionally, never compared — that pair reads `0` when the stat failed or the
+  file exceeded the 1 MiB cap ([GIT-zero-means-unmeasured]'s "absorbs two conditions" shape), so
+  "not measured" must never be read as "unchanged".
+- **Rule**: the cache now has an explicit, tighter bound — `kMaxCachedWorkingCopyDiffs = 4` —
+  rather than relying on the wholesale clear to be its own bound. The old bound was a myth: it
+  only fired on the *next* refresh, so between two refreshes a user could accumulate an
+  unbounded number of entries by clicking through files.
+- **Do**: side attribution for the fingerprint map must **not** be re-derived at the call site —
+  `entriesWithUnstagedSide` on `WorkingCopyStatus` is the one list, shared with
+  `_selectedSides()`, per [CULT-single-source-of-truth].
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

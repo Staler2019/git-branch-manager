@@ -37,6 +37,14 @@ void main() {
       // before this field existed, because a bare `Text` defaults to
       // `softWrap: true`. See the field's own doc comment.
       expect(p.softWrapEnabled, isFalse);
+      // Developer flags (fix/refresh-ui-first-tiering): the two behaviour
+      // flags default to the new behaviour so a fresh profile gets it
+      // without visiting Preferences; the timing readout defaults off since
+      // it is a debugging aid, not something every user wants painted on
+      // the status bar.
+      expect(p.showRefreshTimings, isFalse);
+      expect(p.keepDiffDuringRefresh, isTrue);
+      expect(p.tieredRefresh, isTrue);
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -60,6 +68,9 @@ void main() {
         autoUpdateCheckEnabled: false,
         skippedVersion: '9.9.9',
         softWrapEnabled: true,
+        showRefreshTimings: true,
+        keepDiffDuringRefresh: false,
+        tieredRefresh: false,
       );
       await repo.write(written);
 
@@ -79,6 +90,9 @@ void main() {
       expect(read.autoUpdateCheckEnabled, isFalse);
       expect(read.skippedVersion, '9.9.9');
       expect(read.softWrapEnabled, isTrue);
+      expect(read.showRefreshTimings, isTrue);
+      expect(read.keepDiffDuringRefresh, isFalse);
+      expect(read.tieredRefresh, isFalse);
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

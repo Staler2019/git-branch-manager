@@ -188,6 +188,65 @@ void main() {
     });
   });
 
+  group('PreferencesDialogContent - Developer', () {
+    testWidgets('the two behaviour flags default on, timings default off', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      final AppPreferences prefs = result.container.read(
+        appPreferencesProvider,
+      );
+      expect(prefs.keepDiffDuringRefresh, isTrue);
+      expect(prefs.tieredRefresh, isTrue);
+      expect(prefs.showRefreshTimings, isFalse);
+    });
+
+    testWidgets('turning off "刷新期間保留舊的 diff" flips the preference', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      await tester.ensureVisible(find.text('刷新期間保留舊的 diff'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('刷新期間保留舊的 diff'));
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).keepDiffDuringRefresh,
+        isFalse,
+      );
+    });
+
+    testWidgets('turning off "分層刷新" flips the preference', (tester) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      await tester.ensureVisible(find.text('分層刷新'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('分層刷新'));
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).tieredRefresh,
+        isFalse,
+      );
+    });
+
+    testWidgets('turning on "在狀態列顯示刷新耗時" flips the preference', (tester) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      await tester.ensureVisible(find.text('在狀態列顯示刷新耗時'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('在狀態列顯示刷新耗時'));
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).showRefreshTimings,
+        isTrue,
+      );
+    });
+  });
+
   group('PreferencesDialogContent - General, updates', () {
     testWidgets('the startup check is on until it is turned off', (
       tester,

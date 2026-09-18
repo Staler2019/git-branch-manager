@@ -2067,6 +2067,49 @@ TEST_F(RealRepoTest, WorkingCopyStatusRereadsAnUntrackedFileEditedToTheSameSize)
     EXPECT_EQ(reader.untrackedLineCounts().hits(), 0u);
 }
 
+/// unstagedAdded/unstagedRemoved for an untracked file are the file's own
+/// line count, not a diff (see WorkingCopyEntry's own doc comment) -- so an
+/// in-place edit that keeps the line count is invisible to them, the same
+/// same-size-different-content shape the test above pins for the cache key.
+/// untrackedMtimeTicks exists to be the signal that survives that case.
+TEST_F(RealRepoTest, WorkingCopyStatusMtimeTicksChangeOnAnInPlaceEditThatKeepsTheLineCount) {
+    commitFile("a.txt", "l1\n", "base");
+    const std::filesystem::path fresh = repo_ / "fresh.txt";
+    {
+        std::ofstream out(fresh);
+        out << "aaa\nbbb\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-10));
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto first = reader.read(CancellationToken{});
+    ASSERT_TRUE(first) << first.error().message;
+    ASSERT_EQ((*first)->untracked().size(), 1u);
+    const auto& firstEntry = *(*first)->untracked()[0];
+    ASSERT_EQ(firstEntry.unstagedAdded, 2u);
+    EXPECT_GT(firstEntry.untrackedSize, 0u);
+    EXPECT_NE(firstEntry.untrackedMtimeTicks, 0);
+    const std::int64_t firstTicks = firstEntry.untrackedMtimeTicks;
+
+    {
+        // Same 2 lines, different text -- unstagedAdded cannot see this edit.
+        std::ofstream out(fresh);
+        out << "ccc\nddd\n";
+    }
+    setMtimeOffset(fresh, std::chrono::seconds(-5));
+
+    auto second = reader.read(CancellationToken{});
+    ASSERT_TRUE(second) << second.error().message;
+    ASSERT_EQ((*second)->untracked().size(), 1u);
+    const auto& secondEntry = *(*second)->untracked()[0];
+    EXPECT_EQ(secondEntry.unstagedAdded, 2u)
+        << "same line count on both sides of the edit -- numstat-shaped "
+           "fields cannot tell this apart from no edit at all";
+    EXPECT_NE(secondEntry.untrackedMtimeTicks, firstTicks)
+        << "content changed even though the line count did not -- this is "
+           "the signal that tells the two apart";
+}
+
 /// git's "racily clean" rule, which is the whole reason [store] takes the
 /// pass's start time. A file whose mtime is not strictly older than the pass
 /// may have been written again after this pass read it, so it must not be

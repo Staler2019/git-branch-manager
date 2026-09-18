@@ -35,6 +35,9 @@ class AppPreferences {
     this.autoUpdateCheckEnabled = true,
     this.skippedVersion = '',
     this.softWrapEnabled = false,
+    this.showRefreshTimings = false,
+    this.keepDiffDuringRefresh = true,
+    this.tieredRefresh = true,
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -126,6 +129,37 @@ class AppPreferences {
   /// with the line-number gutter pinned at the left edge.
   final bool softWrapEnabled;
 
+  /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
+  /// seventh the user asked for to A/B the three flags below on real
+  /// hardware. See [STRUCT-soft-wrap-preference] for the precedent of a
+  /// user-requested addition recorded as such rather than as a conformance
+  /// item.
+  ///
+  /// Paints the focus-regain timing readout (focus -> refs -> status ->
+  /// first diff readable -> tier 2 done) on the status bar. Off by default:
+  /// a debugging aid, not something every user wants painted there.
+  final bool showRefreshTimings;
+
+  /// Developer. Gates whether `RepoSessionController.publishWorkingCopyStatus`
+  /// keeps a cached working-copy diff whose per-side fingerprint
+  /// (`workingCopyDiffFingerprints`) is unchanged across a status publish,
+  /// or drops the whole `workingCopyDiffs` map the way every publish used
+  /// to. Default `true`; off reproduces the pre-fix/refresh-ui-first-tiering
+  /// behaviour for an on-machine A/B. Read live off
+  /// `RepoSessionController.refreshFlags` (`repoSessionProvider`'s builder
+  /// reads it once and pushes every later change via `ref.listen`).
+  final bool keepDiffDuringRefresh;
+
+  /// Developer. Gates whether `RepoSessionController.refreshRepoStatus()`
+  /// splits into an immediate tier (repo state, commit graph, history,
+  /// working copy) and a tier deferred until the working-copy status event
+  /// arrives (stashes, worktrees, remotes, submodules, bisect, LFS, both
+  /// identities), or fires all twelve members inline the way it always has.
+  /// Default `true`; off reproduces the pre-fix/refresh-ui-first-tiering
+  /// behaviour for an on-machine A/B, the same way [keepDiffDuringRefresh]
+  /// does. Read live off `RepoSessionController.refreshFlags`.
+  final bool tieredRefresh;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -142,6 +176,9 @@ class AppPreferences {
     bool? autoUpdateCheckEnabled,
     String? skippedVersion,
     bool? softWrapEnabled,
+    bool? showRefreshTimings,
+    bool? keepDiffDuringRefresh,
+    bool? tieredRefresh,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -163,6 +200,10 @@ class AppPreferences {
           autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
       skippedVersion: skippedVersion ?? this.skippedVersion,
       softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
+      showRefreshTimings: showRefreshTimings ?? this.showRefreshTimings,
+      keepDiffDuringRefresh:
+          keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
+      tieredRefresh: tieredRefresh ?? this.tieredRefresh,
     );
   }
 }
@@ -221,6 +262,14 @@ class AppPreferencesRepository {
       softWrapEnabled:
           _prefs.getBool('${_kPrefix}softWrapEnabled') ??
           defaults.softWrapEnabled,
+      showRefreshTimings:
+          _prefs.getBool('${_kPrefix}showRefreshTimings') ??
+          defaults.showRefreshTimings,
+      keepDiffDuringRefresh:
+          _prefs.getBool('${_kPrefix}keepDiffDuringRefresh') ??
+          defaults.keepDiffDuringRefresh,
+      tieredRefresh:
+          _prefs.getBool('${_kPrefix}tieredRefresh') ?? defaults.tieredRefresh,
     );
   }
 
@@ -255,6 +304,12 @@ class AppPreferencesRepository {
     );
     await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
     await _prefs.setBool('${_kPrefix}softWrapEnabled', p.softWrapEnabled);
+    await _prefs.setBool('${_kPrefix}showRefreshTimings', p.showRefreshTimings);
+    await _prefs.setBool(
+      '${_kPrefix}keepDiffDuringRefresh',
+      p.keepDiffDuringRefresh,
+    );
+    await _prefs.setBool('${_kPrefix}tieredRefresh', p.tieredRefresh);
   }
 }
 

@@ -439,3 +439,18 @@ at a real commit. This is a user-requested addition like
   ([TEST-fixture-cannot-disagree]).
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md);
   [ledger: 追加三，樹狀模式改成 VS Code 語意](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [STRUCT-developer-preferences-tab] Preferences has a seventh, Developer section, and it has no spec basis
+
+- **Rule**: `PreferencesSection` (`preferences_dialog.dart`) has a seventh value, `developer`,
+  rendering `_DeveloperSection` — three toggles for this round's own feature flags
+  (`showRefreshTimings`, `keepDiffDuringRefresh`, `tieredRefresh`) so the old and new
+  refresh behaviour can be compared on real hardware without rebuilding.
+- **Note**: **no spec entry.** `PREFNAV` lists six sections; a seventh Developer tab is a
+  user-requested addition, same category as [STRUCT-soft-wrap-preference] — not a conformance
+  item, and not something a future spec audit should expect to find quoted anywhere in the 21
+  pages.
+- **Do**: all three toggles reuse the section's existing `_SectionHeading`/`_NavItem`/toggle-row
+  widgets — no new drawn value was invented for this section, which is why a `spec-auditor` pass
+  before this shipped had nothing new to audit beyond confirming that.
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

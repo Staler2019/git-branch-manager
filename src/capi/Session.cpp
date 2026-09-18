@@ -549,7 +549,10 @@ WorkingCopyStatusPtr Session::currentWorkingCopyStatus() const {
 }
 
 void Session::requestWorkingCopyDiff(std::string path, bool staged) {
-    sharedReadPool().post([this, path = std::move(path), staged]() {
+    // postFront, like requestBlame(): the user is looking at this exact file
+    // right now, and the diff pane must not sit behind a refreshRepoStatus()
+    // sweep's other members -- [CPP-interactive-reads-go-to-the-front].
+    sharedReadPool().postFront([this, path = std::move(path), staged]() {
         const DiffOptions options;
         const GitResult<DiffService::ParsedDiffPtr> result =
             diffs_->workingTreeDiff(staged, {path}, options, CancellationToken{});
@@ -789,7 +792,11 @@ void Session::requestOriginalOperationMessage() {
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
-    sharedReadPool().post([this, path = std::move(path)]() {
+    // postFront, like requestWorkingCopyDiff(): this is the conflict
+    // window's own file read, and it must not sit behind a
+    // refreshRepoStatus() sweep's other members either --
+    // [CPP-interactive-reads-go-to-the-front].
+    sharedReadPool().postFront([this, path = std::move(path)]() {
         // Above this, a conflicted file is treated the same as binary: shown
         // as "not editable" rather than loaded whole into the resolve
         // editor -- mirrors RepositorySession::requestWorkingTreeContent's

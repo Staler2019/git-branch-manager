@@ -303,6 +303,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           s.workingCopyStatus,
           s.operationLog,
           s.gonePendingByRemote,
+          // Every refreshRepoStatus() stamp (refs/status/first-diff/
+          // background-done) republishes this field alongside whichever
+          // other field the same event carries -- except the first-diff
+          // stamp, which lands on workingCopyDiffReady and touches nothing
+          // else in this tuple. Without it here, the status bar's "diff
+          // Nms" segment (showRefreshTimings) would never repaint.
+          s.refreshTimings,
         ),
       ),
     );
@@ -599,6 +606,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               commitCount: session.graph.rows.length,
               lastScanDuration: _lastScanDuration ?? Duration.zero,
               graphLaneCapacity: session.graph.laneCount,
+              showRefreshTimings: ref.watch(
+                appPreferencesProvider.select(
+                  (AppPreferences p) => p.showRefreshTimings,
+                ),
+              ),
+              refreshTimings: session.refreshTimings,
               backgroundTasks: _backgroundTasks(session),
               hasUnreadLog: hasUnreadLog,
               repoState: session.repoState,

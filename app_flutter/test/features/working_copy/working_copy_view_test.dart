@@ -1,9 +1,13 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
+import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
@@ -706,5 +710,96 @@ void main() {
             'staged side under the new one',
       );
     });
+
+    // fix/refresh-ui-first-tiering C2b: a status publish with no relevant
+    // field changed must not clear the cached reply, or the pane spends a
+    // focus-regain sweep painting a spinner over content it already has.
+    // Unlike the tests above, this one deliberately does **not** override
+    // repoWorkingCopyStatusProvider/repoWorkingCopyDiffsProvider -- both
+    // must derive live off the fake controller's real state for a second
+    // publishWorkingCopyStatus() call to have anything to prove.
+    testWidgets(
+      'republishing an unchanged status keeps the diff pane free of a '
+      'loading spinner',
+      (tester) async {
+        const WorkingCopyEntry entry = WorkingCopyEntry(
+          path: 'lib/main.dart',
+          oldPath: '',
+          untracked: false,
+          staged: false,
+          indexStatus: FileChangeKind.modified,
+          hasUnstagedChange: true,
+          worktreeStatus: FileChangeKind.modified,
+          unstagedAdded: 3,
+          unstagedRemoved: 0,
+          stagedAdded: 0,
+          stagedRemoved: 0,
+          conflict: ConflictKind.none,
+          ancestorBlob: '',
+          oursBlob: '',
+          theirsBlob: '',
+          similarity: 0,
+          isSubmodule: false,
+          isConflicted: false,
+        );
+        const WorkingCopyStatus status = WorkingCopyStatus(
+          entries: <WorkingCopyEntry>[entry],
+        );
+        final FakeRepoSessionController fake = FakeRepoSessionController(
+          identity,
+          const RepoSessionState(workingCopyStatus: status),
+        );
+
+        await pumpGbmWidget(
+          tester,
+          child: SizedBox(
+            width: 800,
+            height: 600,
+            child: WorkingCopyView(identity: identity),
+          ),
+          overrides: [
+            repoSessionProvider(identity).overrideWith((ref) => fake),
+          ],
+        );
+
+        await tester.tap(find.text('lib/main.dart'));
+        await tester.pump();
+
+        // Seed the cached unstaged-side reply through the real event
+        // handler -- [TEST-fake-session-seam]: debugHandleEvent runs the
+        // production _onEvent(), not a shortcut.
+        fake.debugHandleEvent(
+          GbmEvent(
+            GbmEventType.workingCopyDiffReady,
+            utf8.encode(
+              jsonEncode(<String, dynamic>{
+                'path': 'lib/main.dart',
+                'staged': false,
+                'diff': <String, dynamic>{
+                  'files': <dynamic>[],
+                  'truncated': false,
+                  'inputBytes': 0,
+                },
+              }),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+
+        // The status transition under test: same entry, same values.
+        fake.publishWorkingCopyStatus(status);
+
+        // [TEST-no-pumpandsettle-with-spinner]: a fixed number of plain
+        // pump()s, never pumpAndSettle -- an indeterminate spinner schedules
+        // frames forever and pumpAndSettle would just time out, telling
+        // nothing apart from a real hang.
+        for (int i = 0; i < 5; i++) {
+          await tester.pump();
+          expect(find.byType(CircularProgressIndicator), findsNothing);
+        }
+      },
+    );
   });
 }

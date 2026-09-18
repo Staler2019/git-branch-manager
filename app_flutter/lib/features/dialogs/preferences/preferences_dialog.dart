@@ -23,7 +23,11 @@ import '../../../widgets/gbm_kbd_chip.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
 import '../../update/auto_update_check.dart';
 
-/// The six sections of spec page 11's `PREFNAV`, in the spec's own order.
+/// The six sections of spec page 11's `PREFNAV`, in the spec's own order,
+/// plus a seventh -- [PreferencesSection.developer] is a user-requested
+/// addition (fix/refresh-ui-first-tiering), not a conformance item. Same
+/// category as [STRUCT-soft-wrap-preference]'s wrap toggle: `PREFNAV` names
+/// exactly six sections and this is not one of them.
 enum PreferencesSection {
   general,
   repositorySources,
@@ -31,6 +35,7 @@ enum PreferencesSection {
   appearance,
   shortcuts,
   advanced,
+  developer,
 }
 
 /// File → Preferences… (Ctrl/Cmd+,).
@@ -65,6 +70,7 @@ class _PreferencesDialogContentState
     PreferencesSection.appearance => 'Appearance',
     PreferencesSection.shortcuts => 'Shortcuts',
     PreferencesSection.advanced => 'Advanced',
+    PreferencesSection.developer => 'Developer',
   };
 
   @override
@@ -116,6 +122,7 @@ class _PreferencesDialogContentState
                     PreferencesSection.appearance => const _AppearanceSection(),
                     PreferencesSection.shortcuts => const _ShortcutsSection(),
                     PreferencesSection.advanced => const _AdvancedSection(),
+                    PreferencesSection.developer => const _DeveloperSection(),
                   },
                 ),
               ),
@@ -1138,6 +1145,59 @@ class _AdvancedSection extends ConsumerWidget {
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,
             height: GbmTypography.leadingNormal,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Not from the spec -- [PreferencesSection.developer]'s own doc comment
+/// records why. Every switch here reuses [_SectionHeading]/[_SettingSwitch]
+/// verbatim with no new geometry, spacing, or numeric value of any kind --
+/// the whole surface is copy text and boolean wiring, so there is nothing
+/// here for a spec citation to trace.
+class _DeveloperSection extends ConsumerWidget {
+  const _DeveloperSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AppPreferences prefs = ref.watch(appPreferencesProvider);
+    final AppPreferencesNotifier notifier = ref.read(
+      appPreferencesProvider.notifier,
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const _SectionHeading('刷新分層（fix/refresh-ui-first-tiering）'),
+        _SettingSwitch(
+          title: '刷新期間保留舊的 diff',
+          subtitle: '依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。',
+          value: prefs.keepDiffDuringRefresh,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(keepDiffDuringRefresh: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        _SettingSwitch(
+          title: '分層刷新',
+          subtitle:
+              '切回視窗先刷目前分支與 working copy，其餘八支等 working '
+              'copy 狀態到齊後才發；關掉還原成十二支一次發出。',
+          value: prefs.tieredRefresh,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(tieredRefresh: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space4),
+        const _SectionHeading('除錯'),
+        _SettingSwitch(
+          title: '在狀態列顯示刷新耗時',
+          subtitle: '切回視窗到目前分支、working copy 狀態、diff 各自到齊的毫秒數。',
+          value: prefs.showRefreshTimings,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(showRefreshTimings: v),
           ),
         ),
       ],

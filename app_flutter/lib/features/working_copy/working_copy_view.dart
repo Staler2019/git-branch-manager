@@ -471,10 +471,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     }
 
     return (
-      unstaged: pathIn(<WorkingCopyEntry>[
-        ...status.unstaged,
-        ...status.untrackedFiles,
-      ]),
+      unstaged: pathIn(status.entriesWithUnstagedSide),
       staged: pathIn(status.staged),
     );
   }

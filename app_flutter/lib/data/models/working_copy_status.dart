@@ -62,6 +62,8 @@ class WorkingCopyEntry {
     required this.similarity,
     required this.isSubmodule,
     required this.isConflicted,
+    this.untrackedSize = 0,
+    this.untrackedMtimeTicks = 0,
   });
 
   factory WorkingCopyEntry.fromJson(Map<String, dynamic> json) {
@@ -84,6 +86,12 @@ class WorkingCopyEntry {
       similarity: json['similarity'] as int,
       isSubmodule: json['isSubmodule'] as bool,
       isConflicted: json['isConflicted'] as bool,
+      // Optional and defaulted, deliberately not `required` -- a raw-JSON
+      // fixture built before this field existed is invisible to a grep for
+      // this constructor ([CULT-stage-by-file]'s worked example), and a
+      // missing key must not become `null as int`.
+      untrackedSize: (json['untrackedSize'] as int?) ?? 0,
+      untrackedMtimeTicks: (json['untrackedMtimeTicks'] as int?) ?? 0,
     );
   }
 
@@ -116,6 +124,21 @@ class WorkingCopyEntry {
   final int similarity;
   final bool isSubmodule;
   final bool isConflicted;
+
+  /// The size and mtime (nanoseconds, filesystem-clock-relative -- not a
+  /// portable epoch) `countUntrackedLines()` stat()ed this file at. Valid
+  /// only when [untracked] is true and the stat succeeded; both stay 0
+  /// otherwise (a tracked file, or an untracked one over the byte cap /
+  /// whose stat failed) -- the same "0 means not measured" convention
+  /// [unstagedAdded] already uses.
+  ///
+  /// These exist because [unstagedAdded]/[unstagedRemoved] for an untracked
+  /// file are the file's own line count, **not a diff** -- an in-place edit
+  /// that keeps the line count leaves both identical across two refreshes.
+  /// A consumer needing "did the content actually change" reads these
+  /// instead. See `docs/rules/fn-git-commands.md`.
+  final int untrackedSize;
+  final int untrackedMtimeTicks;
 }
 
 /// Mirrors `gbm::WorkingCopyStatus` as serialized by
@@ -155,4 +178,23 @@ class WorkingCopyStatus {
       entries.where((e) => e.untracked).toList(growable: false);
   List<WorkingCopyEntry> get conflicted =>
       entries.where((e) => e.isConflicted).toList(growable: false);
+
+  /// Every entry that has something to show on the Working Copy diff pane's
+  /// *unstaged* side -- [unstaged] plus [untrackedFiles], which may overlap
+  /// (an untracked file with `hasUnstagedChange: true` appears in both).
+  ///
+  /// Shared between `working_copy_view.dart`'s `_selectedSides` (which path
+  /// to request a diff for) and `repo_session_repository.dart`'s
+  /// `workingCopyDiffFingerprints` (whether a cached diff is still valid),
+  /// so "which side is this entry on" is answered in exactly one place
+  /// ([CULT-single-source-of-truth]).
+  ///
+  /// Deliberately **not** the file board's display list -- `_buildFileBoard`
+  /// filters `untrackedFiles` down to `!e.hasUnstagedChange` to avoid a
+  /// double row, which answers a different question (how many rows to
+  /// draw) from this one (does this entry have an unstaged-side diff).
+  List<WorkingCopyEntry> get entriesWithUnstagedSide => <WorkingCopyEntry>[
+    ...unstaged,
+    ...untrackedFiles,
+  ];
 }

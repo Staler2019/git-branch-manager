@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/refresh_timings.dart';
 import '../../data/models/repo_state.dart' as model;
 import '../../data/models/working_copy_status.dart';
 import '../../theme/gbm_theme.dart';
@@ -41,6 +42,8 @@ class StatusBar extends StatefulWidget {
     this.workingCopyStatus,
     this.conflictActive = false,
     this.selectionSummary,
+    this.showRefreshTimings = false,
+    this.refreshTimings = const RefreshTimings(),
   });
 
   final String currentBranch;
@@ -83,6 +86,16 @@ class StatusBar extends StatefulWidget {
   /// sequencer is the one thing that must be readable at a glance, and a
   /// selection is recoverable information (the rows are still highlighted).
   final String? selectionSummary;
+
+  /// `appPrefs.showRefreshTimings` (Preferences → Developer). Not from the
+  /// spec -- a debugging aid for fix/refresh-ui-first-tiering.
+  final bool showRefreshTimings;
+
+  /// The current focus-regain sweep's stamps -- see
+  /// [RepoSessionState.refreshTimings]. Rendered through
+  /// [refreshTimingsLabel] so the status bar and the controller's
+  /// `debugPrint` read identically.
+  final RefreshTimings refreshTimings;
 
   @override
   State<StatusBar> createState() => _StatusBarState();
@@ -292,6 +305,27 @@ class _StatusBarState extends State<StatusBar> {
                             ),
                           ),
                         ],
+                        if (widget.showRefreshTimings)
+                          if (refreshTimingsLabel(widget.refreshTimings)
+                              case final String label
+                              when label.isNotEmpty) ...[
+                            const SizedBox(width: GbmSpacing.space2),
+                            Text(
+                              '·',
+                              style: TextStyle(
+                                fontSize: GbmTypography.textXs,
+                                color: colors.borderDefault,
+                              ),
+                            ),
+                            const SizedBox(width: GbmSpacing.space2),
+                            Text(
+                              label,
+                              style: TextStyle(
+                                fontSize: GbmTypography.textXs,
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
                       ],
                     ),
                   ),

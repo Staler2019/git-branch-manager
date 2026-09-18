@@ -366,3 +366,23 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   `StagesSelectedLinesOfAnUntrackedFile` and no unstage mirror
   ([TEST-fixture-cannot-disagree]).
 - **Evidence**: [ledger: unified 合成單一清單，未追蹤 unstage 回到 Untracked](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+
+## [GIT-untracked-numstat-is-not-a-diff] An untracked `WorkingCopyEntry`'s `unstagedAdded` is the whole file's line count, not a diff, and `unstagedRemoved` is always 0
+
+- **Rule**: `WorkingCopyStatus.cpp:271-288` reports an untracked path's `unstagedAdded` as the
+  entire file's line count and `unstagedRemoved` as a constant `0` — there is no "old side" to
+  diff against, so this is not `git diff --numstat` output, it only looks like it.
+- **Consequence**: any code asking "did this untracked file's content change?" by comparing
+  `unstagedAdded`/`unstagedRemoved` across two reads gets the wrong answer for the single most
+  common edit: an in-place change that keeps the line count the same. Both numbers read
+  identical before and after, so a numstat-shaped fingerprint silently treats the edit as "no
+  change" — see [FLU-diff-cache-keeps-by-fingerprint], where this was caught only because a
+  reviewer asked what the untracked side's fingerprint fields actually meant.
+- **Do**: to ask "did an untracked file's *content* change", read `untrackedSize` and
+  `untrackedMtimeTicks` (wired onto the wire in fix/refresh-ui-first-tiering's C2a) — these
+  mirror the `(size, last_write_time)` pair `UntrackedLineCountCache` already keys on
+  internally, they were just never sent across the FFI boundary before this round.
+- **See also**: [GIT-zero-means-unmeasured] — the same "a sentinel can't tell 'not measured'
+  from 'really zero'" shape one level up: here it's line counts that are structurally incapable
+  of expressing "changed", there it's counts that read 0 when unmeasured.
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

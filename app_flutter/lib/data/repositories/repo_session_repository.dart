@@ -29,6 +29,7 @@ import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
 import '../models/ref_snapshot.dart';
+import '../models/refresh_timings.dart';
 import '../models/remote_counterpart.dart';
 import '../models/reflog_entry.dart';
 import '../models/remote_info.dart';
@@ -91,6 +92,74 @@ class WorkingCopyDiffReply {
 /// overwrite each other -- which is the single-slot behaviour this replaced.
 String workingCopyDiffKey(String path, {required bool staged}) =>
     '$staged:$path';
+
+/// Upper bound on [RepoSessionState.workingCopyDiffs]' size.
+///
+/// Before fix/refresh-ui-first-tiering this map was implicitly bounded by
+/// every status publish clearing it outright -- see
+/// [RepoSessionController.publishWorkingCopyStatus]'s doc comment for why
+/// that clear is gone and what replaced it. Two entries cover the file
+/// currently selected (its unstaged and staged side); four lets the user
+/// click back to the file they were just looking at without a re-fetch.
+const int kMaxCachedWorkingCopyDiffs = 4;
+
+/// One fingerprint string per (path, side) key reachable from [status],
+/// built from exactly the fields a diff *reply*'s content depends on.
+///
+/// [RepoSessionController.publishWorkingCopyStatus] compares this against
+/// the previous status's fingerprints to decide which cached
+/// [RepoSessionState.workingCopyDiffs] entries are still valid -- a changed
+/// fingerprint (or a key absent from the new map entirely) means the old
+/// reply may reference hunks or line numbers that no longer exist. "The
+/// path is still present" is deliberately not the condition: staging one
+/// hunk renumbers the *other* side's hunks too, so a survived path can
+/// still carry a stale reply.
+///
+/// An untracked entry whose [WorkingCopyEntry.untrackedSize] and
+/// [WorkingCopyEntry.untrackedMtimeTicks] are **both** 0 gets no key on the
+/// unstaged side at all. That pair means "not measured" (see their own doc
+/// comment) -- treating "not measured" as "unchanged" would keep a stale
+/// diff for a file whose stat failed or whose size crossed the byte cap,
+/// which is the same mistake [GIT-zero-means-unmeasured] warns against one
+/// layer down.
+@visibleForTesting
+Map<String, String> workingCopyDiffFingerprints(WorkingCopyStatus status) {
+  final Map<String, String> fingerprints = <String, String>{};
+  for (final WorkingCopyEntry entry in status.entriesWithUnstagedSide) {
+    if (entry.untracked &&
+        entry.untrackedSize == 0 &&
+        entry.untrackedMtimeTicks == 0) {
+      continue;
+    }
+    fingerprints[workingCopyDiffKey(entry.path, staged: false)] = <Object>[
+      entry.hasUnstagedChange,
+      entry.untracked,
+      entry.worktreeStatus.value,
+      entry.unstagedAdded,
+      entry.unstagedRemoved,
+      entry.isConflicted,
+      entry.conflict.value,
+      entry.ancestorBlob,
+      entry.oursBlob,
+      entry.theirsBlob,
+      entry.isSubmodule,
+      entry.untrackedSize,
+      entry.untrackedMtimeTicks,
+    ].join('|');
+  }
+  for (final WorkingCopyEntry entry in status.staged) {
+    fingerprints[workingCopyDiffKey(entry.path, staged: true)] = <Object>[
+      entry.staged,
+      entry.indexStatus.value,
+      entry.stagedAdded,
+      entry.stagedRemoved,
+      entry.oldPath,
+      entry.similarity,
+      entry.isSubmodule,
+    ].join('|');
+  }
+  return fingerprints;
+}
 
 /// Reply to [RepoSessionController.requestWorkingTreeContent]: mirrors
 /// GBM_EVENT_WORKING_TREE_CONTENT_READY's payload shape.
@@ -408,6 +477,7 @@ class RepoSessionState {
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
+    this.refreshTimings = const RefreshTimings(),
   });
 
   final bool isOpen;
@@ -572,6 +642,11 @@ class RepoSessionState {
   /// request is in flight can't be mistaken for a stale previous reply.
   final String? originalOperationMessage;
 
+  /// The current focus-regain sweep's stamps -- see [RefreshTimings]'s own
+  /// doc comment. Reset to a fresh instance at the start of every
+  /// [RepoSessionController.refreshRepoStatus] call.
+  final RefreshTimings refreshTimings;
+
   /// Single source of truth for "is this repo in a conflict state" --
   /// every conflict-aware surface (banner, toolbar, branch switching,
   /// working copy's Conflicted section, commit box, status bar) must read
@@ -637,6 +712,7 @@ class RepoSessionState {
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
+    RefreshTimings? refreshTimings,
   }) {
     return RepoSessionState(
       isOpen: isOpen ?? this.isOpen,
@@ -694,6 +770,7 @@ class RepoSessionState {
       originalOperationMessage: clearOriginalOperationMessage
           ? null
           : (originalOperationMessage ?? this.originalOperationMessage),
+      refreshTimings: refreshTimings ?? this.refreshTimings,
     );
   }
 
@@ -819,6 +896,48 @@ class RepoSessionState {
   }
 }
 
+/// Runtime-settable behaviour flags for the refresh pipeline -- the
+/// Developer tab's two toggles (`appPrefs.keepDiffDuringRefresh`,
+/// `appPrefs.tieredRefresh`). Both default to the new behaviour; turning
+/// either off reproduces what shipped before fix/refresh-ui-first-tiering,
+/// for an on-machine A/B.
+class RefreshFlags {
+  const RefreshFlags({
+    this.keepDiffDuringRefresh = true,
+    this.tieredRefresh = true,
+  });
+
+  final bool keepDiffDuringRefresh;
+  final bool tieredRefresh;
+
+  factory RefreshFlags.fromPreferences(AppPreferences prefs) => RefreshFlags(
+    keepDiffDuringRefresh: prefs.keepDiffDuringRefresh,
+    tieredRefresh: prefs.tieredRefresh,
+  );
+}
+
+/// How long [RepoSessionController.refreshRepoStatus] waits for
+/// `GBM_EVENT_WORKING_COPY_STATUS_UPDATED` before dispatching tier 2 anyway.
+/// Safety net for the path that never sends that event -- a failed status
+/// read reports `GBM_EVENT_ERROR_OCCURRED` instead
+/// ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson) -- not a
+/// schedule: on the normal path the real reply lands well inside this and
+/// [publishWorkingCopyStatus] cancels it before it ever fires.
+///
+/// No relationship to `kFocusRefreshThrottle` (`workspace_screen.dart`, 2s)
+/// is required or asserted: each [refreshRepoStatus] call arms its own
+/// fresh copy of this timer via [_armTier2Fallback], which cancels whatever
+/// was pending first, so a throttled-away bounce never even calls
+/// [refreshRepoStatus] and a genuine new sweep always starts this timer from
+/// zero regardless of how long the previous one had left to run. An earlier
+/// draft of this round's plan asserted `kDeferredRefreshFallback <
+/// kFocusRefreshThrottle` as a unit-test invariant; there is no correctness
+/// reason for that relationship (see above), it contradicted the plan's own
+/// prose value of 3 seconds, and it is not implemented -- corrected in place
+/// per the ledger rather than carried into a test asserting a made-up
+/// constraint.
+const Duration kDeferredRefreshFallback = Duration(seconds: 3);
+
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
@@ -856,9 +975,42 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// tests that need a small cap to exercise eviction pass it explicitly
   /// instead of feeding thousands of events.
   final int maxOperationLogEntries;
+
+  /// See [RefreshFlags]. Deliberately a plain settable field, not a
+  /// constructor parameter read once: the Developer tab has to reach an
+  /// already-open session live, so `repoSessionProvider` sets this once
+  /// right after construction and again on every `appPreferencesProvider`
+  /// change via `ref.listen` -- `ref.read` alone would miss the value
+  /// already present when the listener registers
+  /// ([FLU-listen-misses-the-current-value]).
+  RefreshFlags refreshFlags = const RefreshFlags();
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
+
+  /// The one live timer for tier 2 of the current sweep -- either the
+  /// fallback armed by [refreshRepoStatus], or the fast dispatch armed by
+  /// [publishWorkingCopyStatus] once the status reply lands (which cancels
+  /// and replaces the fallback). Never two timers at once: every arming
+  /// site cancels this one first, which is also what makes repeated F5
+  /// coalesce into a single tier-2 dispatch -- see [_armTier2Fallback].
+  Timer? _tier2Timer;
+
+  /// Whether tier 2 has already been dispatched for the sweep currently in
+  /// flight (or, with no sweep in flight, for the last one that finished).
+  /// Starts `true` so `_open()`'s direct `refreshWorkingCopy()` call --
+  /// which bypasses [refreshRepoStatus] entirely -- cannot arm a tier-2
+  /// dispatch from [publishWorkingCopyStatus] on session open, and so an
+  /// ordinary stage/unstage/discard/commit's own status reply cannot either:
+  /// [refreshRepoStatus] is the only place this is set back to `false`, so
+  /// [publishWorkingCopyStatus] only arms tier 2 while a sweep it started is
+  /// still waiting on one. This is also what stops a late status reply
+  /// arriving after the fallback already fired (a very slow repository,
+  /// past [kDeferredRefreshFallback]) from dispatching a second time in the
+  /// same sweep -- [publishWorkingCopyStatus] finds this already `true` and
+  /// arms nothing, so [_dispatchTier2Members] itself needs no guard of its
+  /// own against being entered twice.
+  bool _tier2DispatchedThisSweep = true;
 
   /// Attributes each GBM_EVENT_OPERATION_FINISHED outcome to the
   /// checkout()/deleteBranch() call that produced it, keyed by the "kind"
@@ -981,13 +1133,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
           // Merged, never replaced wholesale: the other side of the same
           // file is usually in flight at the same moment and dropping it
-          // here is exactly the race the map exists to end.
-          state = state.copyWith(
-            workingCopyDiffs: <String, WorkingCopyDiffReply>{
-              ...state.workingCopyDiffs,
-              workingCopyDiffKey(reply.path, staged: reply.staged): reply,
-            },
+          // here is exactly the race the map exists to end. Bounded to
+          // [kMaxCachedWorkingCopyDiffs] -- removing the key before
+          // re-inserting it moves it to the end of the (insertion-ordered)
+          // map, so the eviction below drops the *least recently answered*
+          // entry rather than an arbitrary one.
+          final bool isFirstStampOfSweep =
+              state.refreshTimings.firstDiffAt == null;
+          final RefreshTimings timings = state.refreshTimings
+              .stampFirstDiffIfAbsent(DateTime.now());
+          final String key = workingCopyDiffKey(
+            reply.path,
+            staged: reply.staged,
           );
+          final Map<String, WorkingCopyDiffReply> updatedDiffs =
+              <String, WorkingCopyDiffReply>{...state.workingCopyDiffs}
+                ..remove(key)
+                ..[key] = reply;
+          while (updatedDiffs.length > kMaxCachedWorkingCopyDiffs) {
+            updatedDiffs.remove(updatedDiffs.keys.first);
+          }
+          state = state.copyWith(
+            workingCopyDiffs: updatedDiffs,
+            refreshTimings: timings,
+          );
+          if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
+            debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
+          }
         }
       case GbmEventType.fileAtRevisionExported:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1229,37 +1401,153 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_bindings.refsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          refs: RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
+        publishRefs(
+          RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
         );
       }
     }
   }
 
-  /// Reads the new status **and drops every cached diff**.
-  ///
-  /// - Key: [workingCopyDiffKey], one entry per (path, side).
-  /// - Invalidated by: `GBM_EVENT_WORKING_COPY_STATUS_UPDATED`, the single
-  ///   event every stage/unstage/discard/commit ends with. Nothing finer is
-  ///   safe -- staging one hunk renumbers the *other* side's hunks too.
-  /// - If it were not invalidated: the pane would keep painting the diff
-  ///   from before the stage, with hunk indices that now point at different
-  ///   lines, so the next "Stage 3 lines" would stage three other lines.
-  ///
-  /// Clearing here is also what bounds the map: it cannot outgrow one
-  /// selected file's two sides.
+  /// Publishes [refs] and stamps [RefreshTimings.refsAt] -- see
+  /// [publishWorkingCopyStatus]'s doc comment for why this is split out of
+  /// [_readRefs] the same way [publishWorktrees] is split out of
+  /// [_readWorktrees]: everything above this line is the FFI read, which the
+  /// fake seam can never exercise, and everything below is real state and
+  /// therefore real to test.
+  @visibleForTesting
+  void publishRefs(RefSnapshot refs) {
+    final bool isFirstStampOfSweep = state.refreshTimings.refsAt == null;
+    final RefreshTimings timings = state.refreshTimings.stampRefsIfAbsent(
+      DateTime.now(),
+    );
+    state = state.copyWith(refs: refs, refreshTimings: timings);
+    // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
+    // on a later refs publish within the same sweep, and printing then would
+    // just repeat the same numbers. See refreshTimingsLabel's doc comment
+    // for why this is the same formatter the status bar paints. Gated on a
+    // non-empty label too: session-open calls refreshHistory()/
+    // refreshWorkingCopy() directly, without going through
+    // refreshRepoStatus(), so focusAt is null and the label would otherwise
+    // be an empty "refresh timings: " line.
+    if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
+      debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
+    }
+  }
+
+  /// Reads the new status and republishes it via [publishWorkingCopyStatus],
+  /// which decides -- per (path, side) fingerprint, not "is the path still
+  /// present" -- which of [RepoSessionState.workingCopyDiffs]' entries
+  /// survive. See that function's own doc comment for the retention rule.
   void _readWorkingCopyStatus() {
     if (_bindings.workingCopyStatusJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
-        state = state.copyWith(
-          workingCopyStatus: WorkingCopyStatus.fromJson(
-            jsonDecode(json) as Map<String, dynamic>,
-          ),
-          workingCopyDiffs: const <String, WorkingCopyDiffReply>{},
+        publishWorkingCopyStatus(
+          WorkingCopyStatus.fromJson(jsonDecode(json) as Map<String, dynamic>),
         );
       }
     }
+  }
+
+  /// Publishes [next], stamps [RefreshTimings.statusAt], and decides which
+  /// of the previous [RepoSessionState.workingCopyDiffs] survive.
+  ///
+  /// Cache, per [CULT-cache-documents-three-things]:
+  /// - Key: [workingCopyDiffKey], one entry per (path, side).
+  /// - Invalidated by: [workingCopyDiffFingerprints] disagreeing between
+  ///   the previous status and [next] for that key -- not by the path
+  ///   merely leaving the status, and not by
+  ///   `GBM_EVENT_WORKING_COPY_STATUS_UPDATED` alone the way every publish
+  ///   used to invalidate the whole map. Also bounded to
+  ///   [kMaxCachedWorkingCopyDiffs], enforced where a fresh reply is merged
+  ///   in (the `workingCopyDiffReady` case in [_onEvent]).
+  /// - Symptom if invalidation is missed: the pane keeps painting a diff
+  ///   whose hunk indices point at lines that no longer exist there, so the
+  ///   next "Stage 3 lines" stages three different lines.
+  ///
+  /// Consumes `refreshFlags.keepDiffDuringRefresh` -- off reproduces the
+  /// wholesale clear this replaced, for an on-machine A/B.
+  ///
+  /// Also consumes `refreshFlags.tieredRefresh`: this is
+  /// `GBM_EVENT_WORKING_COPY_STATUS_UPDATED`'s handler, and tier 2 of
+  /// [refreshRepoStatus] is event-chained off exactly this method rather
+  /// than off the `workingCopyStatusUpdated` case in [_onEvent] -- the fake
+  /// seam's `emit()` bypasses `_onEvent()` entirely, so consuming it there
+  /// would make a test that drives this method believe it is exercising the
+  /// event path when it is really exercising the fallback timer instead.
+  /// Arming is gated on [_tier2DispatchedThisSweep] being still `false`,
+  /// which is only true while a sweep [refreshRepoStatus] started is still
+  /// waiting on tier 2 -- an ordinary stage/unstage/discard/commit's own
+  /// status reply, with no sweep in flight, arms nothing.
+  ///
+  /// Split out of [_readWorkingCopyStatus] for the same reason
+  /// [publishWorktrees] is split out of [_readWorktrees]: everything above
+  /// that line is the FFI read, which the fake seam can never exercise, and
+  /// everything below is real state and therefore real to test.
+  @visibleForTesting
+  void publishWorkingCopyStatus(WorkingCopyStatus next) {
+    final bool isFirstStampOfSweep = state.refreshTimings.statusAt == null;
+    final RefreshTimings timings = state.refreshTimings.stampStatusIfAbsent(
+      DateTime.now(),
+    );
+    final Map<String, WorkingCopyDiffReply> retainedDiffs =
+        refreshFlags.keepDiffDuringRefresh
+        ? _retainedWorkingCopyDiffs(
+            previous: state.workingCopyStatus,
+            next: next,
+          )
+        : const <String, WorkingCopyDiffReply>{};
+    state = state.copyWith(
+      workingCopyStatus: next,
+      workingCopyDiffs: retainedDiffs,
+      refreshTimings: timings,
+    );
+    if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
+      debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
+    }
+    // Deliberately after the state publish above: the diff pane's own
+    // `ref.listen` reacts to *that* copyWith synchronously and re-requests
+    // its two diffs via `postFront()` ([CPP-interactive-reads-go-to-the-front]),
+    // which queues them before this schedules anything. Timer.zero, not a
+    // bare microtask, is what actually delays tier 2 behind that -- both
+    // fire on the event loop rather than the microtask queue, so ordering
+    // between them is real queue order, not a race against Riverpod's own
+    // listener-notification timing.
+    if (refreshFlags.tieredRefresh && !_tier2DispatchedThisSweep) {
+      _tier2Timer?.cancel();
+      _tier2Timer = Timer(Duration.zero, _dispatchTier2Members);
+    }
+  }
+
+  /// Which entries of `state.workingCopyDiffs` survive a status transition
+  /// from [previous] to [next] -- every key whose fingerprint (see
+  /// [workingCopyDiffFingerprints]) is present and identical in both. A key
+  /// absent from either side's fingerprint map is dropped rather than
+  /// treated as "no evidence of change": the untracked-both-zero case in
+  /// particular means "not measured", never "unchanged".
+  Map<String, WorkingCopyDiffReply> _retainedWorkingCopyDiffs({
+    required WorkingCopyStatus previous,
+    required WorkingCopyStatus next,
+  }) {
+    final Map<String, WorkingCopyDiffReply> current = state.workingCopyDiffs;
+    if (current.isEmpty) return current;
+    final Map<String, String> oldFingerprints = workingCopyDiffFingerprints(
+      previous,
+    );
+    final Map<String, String> newFingerprints = workingCopyDiffFingerprints(
+      next,
+    );
+    final Map<String, WorkingCopyDiffReply> retained =
+        <String, WorkingCopyDiffReply>{};
+    for (final MapEntry<String, WorkingCopyDiffReply> entry
+        in current.entries) {
+      final String? oldFingerprint = oldFingerprints[entry.key];
+      if (oldFingerprint != null &&
+          oldFingerprint == newFingerprints[entry.key]) {
+        retained[entry.key] = entry.value;
+      }
+    }
+    return retained;
   }
 
   void _readStashes() {
@@ -1892,6 +2180,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// nothing on screen waiting for it, so it runs unconditionally like the
   /// rest. Measurements are in docs/ledger.md.
   void refreshRepoStatus() {
+    // A fresh sweep starts a fresh timing record -- see [RefreshTimings]'s
+    // own doc comment for why the later stamps are "first one wins": without
+    // this reset, a stamp from the *previous* sweep would still be sitting
+    // there and `stamp*IfAbsent` would refuse to overwrite it with this
+    // sweep's real timing.
+    state = state.copyWith(
+      refreshTimings: RefreshTimings(focusAt: DateTime.now()),
+    );
     // The two synchronous ones go first: they publish through copyWith
     // rather than waiting on an event, so the conflict badge corrects on
     // this very frame instead of after ten git subprocesses return.
@@ -1899,6 +2195,43 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshHasCommitGraph();
     refreshHistory();
     refreshWorkingCopy();
+    if (!refreshFlags.tieredRefresh) {
+      // Off reproduces exactly what shipped before tiering: all twelve,
+      // inline, in the same order they always ran in. No timer, no
+      // [RefreshTimings.backgroundDoneAt] stamp -- that field stays null,
+      // which is the pre-tiering behaviour this flag exists to restore.
+      _callTier2Members();
+      return;
+    }
+    // Tier 2 does not run here. It waits for
+    // GBM_EVENT_WORKING_COPY_STATUS_UPDATED (consumed in
+    // [publishWorkingCopyStatus], one microtask/Timer.zero after it lands --
+    // see that method's own doc comment for why), with this fallback as the
+    // safety net for the path that never fires that event: a failed status
+    // read reports GBM_EVENT_ERROR_OCCURRED instead
+    // ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson, one
+    // layer up).
+    _tier2DispatchedThisSweep = false;
+    _armTier2Fallback();
+  }
+
+  /// Arms (or re-arms) the tier-2 fallback timer -- cancels whatever timer
+  /// is currently pending for this sweep and replaces it with a fresh
+  /// [kDeferredRefreshFallback]-long one. Repeated F5 before the status
+  /// reply lands therefore keeps re-cancelling and re-arming this same
+  /// single timer rather than queuing a second one, which is what keeps
+  /// three rapid sweeps down to one eventual tier-2 dispatch.
+  void _armTier2Fallback() {
+    _tier2Timer?.cancel();
+    _tier2Timer = Timer(kDeferredRefreshFallback, _dispatchTier2Members);
+  }
+
+  /// The eight tier-2 refreshes, in the same relative order they always ran
+  /// in before tiering. Bare list with no stamping or dispatch bookkeeping
+  /// of its own -- both the untiered fallback in [refreshRepoStatus] and the
+  /// real tiered path in [_dispatchTier2Members] call this, so there is one
+  /// place that names the eight rather than two lists that can drift apart.
+  void _callTier2Members() {
     refreshStashes();
     refreshWorktrees();
     refreshRemotes();
@@ -1907,6 +2240,40 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshLfs();
     refreshLocalIdentity();
     refreshEffectiveIdentity();
+  }
+
+  /// Actually dispatches tier 2 for the sweep in flight, from whichever
+  /// timer got there first -- the fast one armed by
+  /// [publishWorkingCopyStatus], or, on a very slow repository, the
+  /// fallback armed by [refreshRepoStatus] itself. No early-return guard of
+  /// its own: [_tier2Timer] is a single field and every arming site cancels
+  /// it before replacing it ([_armTier2Fallback], and
+  /// [publishWorkingCopyStatus]'s own arming), so there is structurally
+  /// never more than one live timer aimed at this method for a given sweep
+  /// -- a guard here would be defensive code with no reachable path to
+  /// exercise it, which is what an earlier draft of this method had before
+  /// its own test proved unable to tell it apart from removing it.
+  /// [_tier2DispatchedThisSweep] does the real work of preventing a second
+  /// dispatch: it is what [publishWorkingCopyStatus] itself checks before
+  /// arming again, so a late status reply arriving after the fallback
+  /// already fired finds that check `true` and arms nothing at all.
+  ///
+  /// Stamps [RefreshTimings.backgroundDoneAt] at *dispatch*, not at
+  /// completion of the eight replies it triggers -- a true per-member
+  /// completion signal would need a generation-scoped counter distinguishing
+  /// this sweep's own eight replies from an unrelated manual refresh (e.g.
+  /// `Tools -> Worktrees` while a sweep is also in flight) landing on the
+  /// same session, which is out of this round's scope. So the stamp answers
+  /// "tier 2 has been asked for", not "tier 2's data has all arrived".
+  void _dispatchTier2Members() {
+    _tier2DispatchedThisSweep = true;
+    _tier2Timer = null;
+    _callTier2Members();
+    state = state.copyWith(
+      refreshTimings: state.refreshTimings.stampBackgroundDoneIfAbsent(
+        DateTime.now(),
+      ),
+    );
   }
 
   /// Re-reads which multi-step git operation, if any, is part-way through.
@@ -3853,6 +4220,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     unawaited(_subscription?.cancel());
     _events?.dispose();
     closeNativeSession();
+    // Without this, a pending fallback or fast-dispatch timer would fire
+    // after disposal and write to `state` on a StateNotifier that is gone --
+    // the guard each refresh* member already has
+    // (`if (_session == nullptr) return;`) is the backstop, not the fix,
+    // since `state =` inside [_dispatchTier2Members] itself runs first.
+    _tier2Timer?.cancel();
     // No further GBM_EVENT_OPERATION_FINISHED events will arrive to consume
     // whatever is still pending.
     _pending.clear();
@@ -3892,11 +4265,26 @@ repoSessionProvider =
       final int maxOperationLogEntries = ref
           .read(appPreferencesProvider)
           .logMemoryLimit;
-      return RepoSessionController(
+      final RepoSessionController controller = RepoSessionController(
         bindings,
         identity,
         recents,
         maxOperationLogEntries: maxOperationLogEntries,
         openSessions: ref.read(openRepoSessionsProvider),
       );
+      // Same reasoning as `maxOperationLogEntries` above for reading rather
+      // than watching -- but this value has to keep tracking Preferences for
+      // the whole life of the session (the Developer tab's point is a live
+      // A/B), so the one-time read is paired with a `ref.listen` that never
+      // rebuilds this provider, only pushes into the already-open controller.
+      controller.refreshFlags = RefreshFlags.fromPreferences(
+        ref.read(appPreferencesProvider),
+      );
+      ref.listen<AppPreferences>(appPreferencesProvider, (
+        AppPreferences? previous,
+        AppPreferences next,
+      ) {
+        controller.refreshFlags = RefreshFlags.fromPreferences(next);
+      });
+      return controller;
     });

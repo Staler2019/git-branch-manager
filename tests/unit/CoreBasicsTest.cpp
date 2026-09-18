@@ -17,6 +17,7 @@
 #include <atomic>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -305,6 +306,51 @@ TEST(ThreadPool, CancelQueuedAndDrainDiscardsQueuedWorkButWaitsForTheActiveTask)
     pool.post([&total] { ++total; });
     pool.drain();
     EXPECT_EQ(total.load(), 1);
+}
+
+TEST(ThreadPool, PostFrontRunsBeforeAlreadyQueuedWork) {
+    // fix/refresh-ui-first-tiering C3: requestWorkingCopyDiff() and
+    // requestWorkingTreeContent() switched from post() to postFront() so the
+    // file the user is looking at right now does not sit behind a
+    // refreshRepoStatus() sweep's other members. This pins the primitive
+    // those two calls rely on, deterministically and with no production
+    // state -- see WorkingCopyApiTest for the capi-level version of the
+    // same claim.
+    ThreadPool pool("test", 1);  // One worker: makes ordering deterministic.
+    std::atomic_bool activeTaskStarted{false};
+    std::atomic_bool activeTaskMayFinish{false};
+
+    pool.post([&] {
+        activeTaskStarted.store(true);
+        while (!activeTaskMayFinish.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+    });
+
+    // Wait until the pool has actually picked up the blocker, so the two
+    // posts below land in the queue behind it rather than racing to start.
+    while (!activeTaskStarted.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    std::mutex orderMutex;
+    std::vector<std::string> order;
+    pool.post([&] {
+        std::lock_guard<std::mutex> lock(orderMutex);
+        order.push_back("queued");
+    });
+    pool.postFront([&] {
+        std::lock_guard<std::mutex> lock(orderMutex);
+        order.push_back("urgent");
+    });
+
+    activeTaskMayFinish.store(true);
+    pool.drain();
+
+    std::lock_guard<std::mutex> lock(orderMutex);
+    ASSERT_EQ(order.size(), 2u);
+    EXPECT_EQ(order[0], "urgent");
+    EXPECT_EQ(order[1], "queued");
 }
 
 // --- busy token --------------------------------------------------------------

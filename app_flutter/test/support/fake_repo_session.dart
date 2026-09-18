@@ -22,7 +22,6 @@ import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
-import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
 /// One recorded call into [FakeRepoSessionController] -- a name plus
@@ -53,15 +52,9 @@ class FakeRepoSessionController extends RepoSessionController {
     RepoIdentity identity,
     RepoSessionState initialState, {
     ParsedConflictFile? parsedFile,
-    int maxOperationLogEntries = 2000,
-    OpenRepoSessions? openSessions,
-  }) : super(
-         FakeGbmBindings(),
-         identity,
-         FakeRecentsRepository(),
-         maxOperationLogEntries: maxOperationLogEntries,
-         openSessions: openSessions,
-       ) {
+    super.maxOperationLogEntries = 2000,
+    super.openSessions,
+  }) : super(FakeGbmBindings(), identity, FakeRecentsRepository()) {
     _parsedFile = parsedFile;
     state = initialState;
   }

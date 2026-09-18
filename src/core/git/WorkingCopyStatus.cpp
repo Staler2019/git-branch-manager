@@ -255,6 +255,8 @@ void countUntrackedLines(const RepoPaths& paths,
         }
 
         const UntrackedLineCountCache::Stat stat{size, modified};
+        entry.untrackedSize = size;
+        entry.untrackedMtimeTicks = static_cast<std::int64_t>(modified.time_since_epoch().count());
         if (const std::optional<std::uint32_t> remembered = cache.lookup(entry.path, stat)) {
             entry.unstagedAdded = *remembered;
             entry.unstagedRemoved = 0;

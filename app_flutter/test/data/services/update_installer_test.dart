@@ -776,6 +776,61 @@ void main() {
       );
     });
 
+    // The executable's name is cut with the separators of the OS being
+    // updated, not of the host running this code. On a real machine the two
+    // are the same, which is why it went unseen: a Windows host handed a
+    // POSIX-shaped path (every fixture in this file, and the golden's) cut
+    // nothing at all and baked the whole path into `Join-Path $target '...'`.
+    group('the executable name in the relaunch command', () {
+      Future<String> scriptFor(String os, String exe) async {
+        await UpdateInstaller(
+          operatingSystem: os,
+          executablePath: exe,
+          exitProcess: (int code) => events.add('exit:$code'),
+          armWatchdog: (Duration after) async => true,
+          start: (String e, List<String> a, {String? workingDirectory}) async =>
+              const DetachedStart.ok(),
+        ).launchUpdater(
+          staged: staged,
+          scriptDir: scriptDir,
+          processId: 999999,
+          beforeExit: () async {},
+        );
+        return File(
+          '${scriptDir.path}/gbm-update.${os == 'windows' ? 'ps1' : 'sh'}',
+        ).readAsStringSync();
+      }
+
+      for (final String exe in <String>[
+        r'C:\Program Files\gbm\gbm_flutter.exe',
+        '/opt/gbm/gbm_flutter.exe',
+      ]) {
+        test('is cut out of $exe for Windows, either separator', () async {
+          expect(
+            await scriptFor('windows', exe),
+            contains(r"(Join-Path $target 'gbm_flutter.exe')"),
+          );
+        });
+      }
+
+      test('is cut out of a POSIX path for Linux', () async {
+        expect(
+          await scriptFor('linux', '/opt/gbm/gbm_flutter'),
+          contains(r'"$TARGET/gbm_flutter" >/dev/null 2>&1 &'),
+        );
+      });
+
+      // The counterpart that stops the lazy fix -- splitting on both
+      // separators everywhere. A backslash is an ordinary character in a
+      // POSIX file name, so cutting on it would relaunch the wrong binary.
+      test('keeps a backslash inside a Linux file name', () async {
+        expect(
+          await scriptFor('linux', r'/opt/gbm/my\app'),
+          contains(r'"$TARGET/my\app" >/dev/null 2>&1 &'),
+        );
+      });
+    });
+
     // The relaunched build must land back in its install directory rather
     // than in system temp, where the script itself now stands.
     test(

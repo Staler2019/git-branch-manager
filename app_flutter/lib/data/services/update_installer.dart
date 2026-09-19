@@ -864,7 +864,12 @@ class UpdateInstaller {
       r'Start-Process -WorkingDirectory $target -FilePath (Join-Path $target '
       "'${_executableName()}')";
 
-  String _executableName() => _exe.split(Platform.pathSeparator).last;
+  /// Cut with the separators of the OS being updated, not of the host: the
+  /// two coincide on a real machine, and diverge only where a test hands a
+  /// foreign-shaped path to a foreign [operatingSystem]. Windows accepts both
+  /// separators; a POSIX file name may contain a backslash.
+  String _executableName() =>
+      _exe.split(_os == 'windows' ? RegExp(r'[/\\]') : '/').last;
 }
 
 /// The `sh` updater, as a pure function of its inputs.

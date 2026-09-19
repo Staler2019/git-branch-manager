@@ -20,12 +20,7 @@ void main() {
   });
 
   tearDown(() {
-    if (root.existsSync()) {
-      // A test that made a directory read-only has to hand write permission
-      // back before the tree can be removed.
-      Process.runSync('chmod', <String>['-R', 'u+w', root.path]);
-      root.deleteSync(recursive: true);
-    }
+    if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
   group('installTarget', () {
@@ -89,13 +84,12 @@ void main() {
     });
 
     // Probed by writing rather than by reading a mode bit, so this test has
-    // to make a directory genuinely unwritable rather than fake a stat.
+    // to fail a real write rather than fake a stat. A parent that does not
+    // exist does that for every user on every OS -- where a `chmod 555`
+    // fixture is ignored by root and means nothing on Windows.
     test('blocks when the install directory cannot be written', () {
-      final Directory parent = Directory('${root.path}/readonly')
-        ..createSync(recursive: true);
-      final Directory install = Directory('${parent.path}/gbm')
-        ..createSync(recursive: true);
-      Process.runSync('chmod', <String>['555', parent.path]);
+      final Directory install = Directory('${root.path}/gone/gbm');
+      expect(install.parent.existsSync(), isFalse);
 
       final String? reason = installerFor(install).selfInstallBlocker();
 

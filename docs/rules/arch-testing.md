@@ -237,3 +237,25 @@ One row per shape — when you find a thirteenth, append a row.
 - **Do**: `gbm_code_hscroll_test.dart` pins the premise with a mouse-kind drag that must
   **not** scroll.
 - **Evidence**: ledger: soft-warp
+
+## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, has never been run on Windows
+
+- **Rule**: `ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
+  whatever a developer's own machine says. The first run on one (Windows 11, Flutter 3.47.5)
+  was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that stayed red with
+  Git's `usr\bin` added.
+- **Consequence**: a `chmod 555` fixture is not merely unavailable there, it is **silently
+  inert** — NTFS ignores the mode bits — so with coreutils installed the test goes green
+  having never met a failing write or delete. The same fixture is inert for uid 0 on POSIX.
+- **Do**: make «cannot write» a **missing parent directory**: it fails a real write for every
+  user on every OS, root included (`update_log_test.dart` had already made this argument).
+- **Do**: age a directory by **moving the injected clock**, never by setting its mtime —
+  `File.setLastModified` on a directory throws errno 50 on Windows, and `Directory` has no
+  setter at all. Only `now - mtime` decides anything.
+- **Do**: where a delete has to fail, choose the mechanism **per OS** and prove it bites with a
+  mutation that lets the delete throw: Windows refuses a tree holding an open file (errno 32,
+  measured), POSIX refuses an unwritable directory, and each is a no-op on the other.
+- **Do**: a path is cut with the separators of the **OS being simulated**, not the host's
+  (`UpdateInstaller._executableName`). The two coincide on a real machine, so only a test
+  handing a foreign-shaped path can see it.
+- **Evidence**: [ledger: fix/windows-host-updater-tests](../ledger/2026-09-19-fix-windows-host-updater-tests.md)

@@ -20,12 +20,7 @@ void main() {
   });
 
   tearDown(() {
-    if (root.existsSync()) {
-      // A test that made a directory read-only has to hand write permission
-      // back before the tree can be removed.
-      Process.runSync('chmod', <String>['-R', 'u+w', root.path]);
-      root.deleteSync(recursive: true);
-    }
+    if (root.existsSync()) root.deleteSync(recursive: true);
   });
 
   group('installTarget', () {
@@ -89,13 +84,12 @@ void main() {
     });
 
     // Probed by writing rather than by reading a mode bit, so this test has
-    // to make a directory genuinely unwritable rather than fake a stat.
+    // to fail a real write rather than fake a stat. A parent that does not
+    // exist does that for every user on every OS -- where a `chmod 555`
+    // fixture is ignored by root and means nothing on Windows.
     test('blocks when the install directory cannot be written', () {
-      final Directory parent = Directory('${root.path}/readonly')
-        ..createSync(recursive: true);
-      final Directory install = Directory('${parent.path}/gbm')
-        ..createSync(recursive: true);
-      Process.runSync('chmod', <String>['555', parent.path]);
+      final Directory install = Directory('${root.path}/gone/gbm');
+      expect(install.parent.existsSync(), isFalse);
 
       final String? reason = installerFor(install).selfInstallBlocker();
 
@@ -774,6 +768,61 @@ void main() {
         File('${scriptDir.path}/gbm-update.ps1').readAsStringSync(),
         contains(nonAscii.path),
       );
+    });
+
+    // The executable's name is cut with the separators of the OS being
+    // updated, not of the host running this code. On a real machine the two
+    // are the same, which is why it went unseen: a Windows host handed a
+    // POSIX-shaped path (every fixture in this file, and the golden's) cut
+    // nothing at all and baked the whole path into `Join-Path $target '...'`.
+    group('the executable name in the relaunch command', () {
+      Future<String> scriptFor(String os, String exe) async {
+        await UpdateInstaller(
+          operatingSystem: os,
+          executablePath: exe,
+          exitProcess: (int code) => events.add('exit:$code'),
+          armWatchdog: (Duration after) async => true,
+          start: (String e, List<String> a, {String? workingDirectory}) async =>
+              const DetachedStart.ok(),
+        ).launchUpdater(
+          staged: staged,
+          scriptDir: scriptDir,
+          processId: 999999,
+          beforeExit: () async {},
+        );
+        return File(
+          '${scriptDir.path}/gbm-update.${os == 'windows' ? 'ps1' : 'sh'}',
+        ).readAsStringSync();
+      }
+
+      for (final String exe in <String>[
+        r'C:\Program Files\gbm\gbm_flutter.exe',
+        '/opt/gbm/gbm_flutter.exe',
+      ]) {
+        test('is cut out of $exe for Windows, either separator', () async {
+          expect(
+            await scriptFor('windows', exe),
+            contains(r"(Join-Path $target 'gbm_flutter.exe')"),
+          );
+        });
+      }
+
+      test('is cut out of a POSIX path for Linux', () async {
+        expect(
+          await scriptFor('linux', '/opt/gbm/gbm_flutter'),
+          contains(r'"$TARGET/gbm_flutter" >/dev/null 2>&1 &'),
+        );
+      });
+
+      // The counterpart that stops the lazy fix -- splitting on both
+      // separators everywhere. A backslash is an ordinary character in a
+      // POSIX file name, so cutting on it would relaunch the wrong binary.
+      test('keeps a backslash inside a Linux file name', () async {
+        expect(
+          await scriptFor('linux', r'/opt/gbm/my\app'),
+          contains(r'"$TARGET/my\app" >/dev/null 2>&1 &'),
+        );
+      });
     });
 
     // The relaunched build must land back in its install directory rather

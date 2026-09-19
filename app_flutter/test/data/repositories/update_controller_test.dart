@@ -140,20 +140,16 @@ UpdateInstaller _installableInstaller({
   );
 }
 
-/// Pointed at a directory whose parent this user cannot write, so
+/// Pointed at a directory whose parent cannot be written, so
 /// `selfInstallBlocker()` reaches its real answer rather than a stubbed one.
+///
+/// The parent does not exist, which fails a real write for every user on
+/// every OS -- where a `chmod 555` fixture is ignored by root and means
+/// nothing on Windows.
 UpdateInstaller _blockedInstaller() {
-  final Directory parent = Directory('${_tempDir().path}/readonly')
-    ..createSync(recursive: true);
-  final Directory install = Directory('${parent.path}/gbm')
-    ..createSync(recursive: true);
-  Process.runSync('chmod', <String>['555', parent.path]);
-  // A 555 parent cannot be emptied, so without this the directory survives
-  // every run and accumulates in the system temp directory forever.
-  addTearDown(() {
-    Process.runSync('chmod', <String>['u+w', parent.path]);
-    parent.deleteSync(recursive: true);
-  });
+  final Directory root = _tempDir();
+  addTearDown(() => root.deleteSync(recursive: true));
+  final Directory install = Directory('${root.path}/gone/gbm');
   return UpdateInstaller(
     operatingSystem: 'linux',
     executablePath: '${install.path}/gbm_flutter',

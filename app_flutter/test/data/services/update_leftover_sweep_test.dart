@@ -27,26 +27,41 @@ import 'package:gbm_flutter/data/services/update_installer.dart';
 
 DateTime _now() => DateTime.utc(2026, 8, 23, 12);
 
-/// Dart's [Directory] has no mtime setter -- only [File] does -- so the age
-/// guard can only be exercised through `touch`. Present on macOS and Linux,
-/// which is every platform this suite runs on (`ci.yml`'s Flutter job is
-/// ubuntu-only).
+/// A clock reading [age] after [entry]'s real modification time.
 ///
-/// `touch -t` reads its argument as local time, so the instant is converted
-/// first; `statSync().modified` comes back local too, and `isAfter`
-/// compares absolute instants either way.
-void _setMtime(Directory dir, DateTime at) {
-  final DateTime local = at.toLocal();
-  String two(int v) => v.toString().padLeft(2, '0');
-  final String stamp =
-      '${local.year}${two(local.month)}${two(local.day)}'
-      '${two(local.hour)}${two(local.minute)}.${two(local.second)}';
-  final ProcessResult result = Process.runSync('touch', <String>[
-    '-t',
-    stamp,
-    dir.path,
-  ]);
-  expect(result.exitCode, 0, reason: result.stderr.toString());
+/// Dart's [Directory] has no mtime setter -- only [File] does, and on Windows
+/// even `File.setLastModified` refuses a directory (measured, errno 50) -- so
+/// the age guard cannot be exercised by aging the entry. Only the difference
+/// between `now` and the entry's mtime decides anything, so the clock moves
+/// instead, and no `touch` (or its local-time argument format) is needed.
+DateTime Function() _clockAfter(FileSystemEntity entry, Duration age) {
+  final DateTime at = entry.statSync().modified.add(age);
+  return () => at;
+}
+
+/// Makes `deleteSync(recursive: true)` on [dir] fail for this user, and returns
+/// what puts it back so the fixture can be removed afterwards.
+///
+/// The mechanism is the OS's own, so it is chosen per OS. POSIX refuses to
+/// remove an entry from a directory the user cannot write, which is `chmod
+/// 555`. That means nothing to NTFS; what Windows refuses instead is deleting
+/// a tree that holds a file another handle has open (ERROR_SHARING_VIOLATION,
+/// errno 32 -- measured: `deleteSync(recursive: true)` throws). POSIX has the
+/// opposite rule, so neither mechanism is portable, and a `chmod` that
+/// silently does nothing would leave the test below passing without ever
+/// having met a delete that fails.
+void Function() _makeUndeletable(Directory dir) {
+  if (Platform.isWindows) {
+    final RandomAccessFile held = File(
+      '${dir.path}/held',
+    ).openSync(mode: FileMode.write);
+    return held.closeSync;
+  }
+  Directory('${dir.path}/inner').createSync();
+  Process.runSync('chmod', <String>['555', dir.path]);
+  return () {
+    Process.runSync('chmod', <String>['u+w', dir.path]);
+  };
 }
 
 void main() {
@@ -77,13 +92,9 @@ void main() {
     // away, is not this process's problem to report.
     test('survives a backup it cannot delete', () async {
       final f = _fixture();
-      final Directory parent = Directory('${f.target.path}.gbm-old')
+      final Directory backup = Directory('${f.target.path}.gbm-old')
         ..createSync(recursive: true);
-      Directory('${parent.path}/inner').createSync();
-      Process.runSync('chmod', <String>['555', parent.path]);
-      addTearDown(() {
-        Process.runSync('chmod', <String>['u+w', parent.path]);
-      });
+      addTearDown(_makeUndeletable(backup));
 
       await expectLater(
         f.installer.sweepUpdateLeftovers(tempDir: f.temp, now: _now),
@@ -97,9 +108,11 @@ void main() {
         final Directory stale = Directory('${f.temp.path}/gbm-update-abc')
           ..createSync();
         File('${stale.path}/bundle.tar.gz').writeAsStringSync('x');
-        _setMtime(stale, _now().subtract(const Duration(days: 2)));
 
-        await f.installer.sweepUpdateLeftovers(tempDir: f.temp, now: _now);
+        await f.installer.sweepUpdateLeftovers(
+          tempDir: f.temp,
+          now: _clockAfter(stale, const Duration(days: 2)),
+        );
 
         expect(stale.existsSync(), isFalse);
       });
@@ -112,9 +125,11 @@ void main() {
         final f = _fixture();
         final Directory fresh = Directory('${f.temp.path}/gbm-update-xyz')
           ..createSync();
-        _setMtime(fresh, _now().subtract(const Duration(minutes: 5)));
 
-        await f.installer.sweepUpdateLeftovers(tempDir: f.temp, now: _now);
+        await f.installer.sweepUpdateLeftovers(
+          tempDir: f.temp,
+          now: _clockAfter(fresh, const Duration(minutes: 5)),
+        );
 
         expect(fresh.existsSync(), isTrue);
       });
@@ -123,12 +138,13 @@ void main() {
         final f = _fixture();
         final Directory other = Directory('${f.temp.path}/some-other-tool')
           ..createSync();
-        _setMtime(other, _now().subtract(const Duration(days: 30)));
         final File loose = File('${f.temp.path}/gbm-update-not-a-dir')
-          ..writeAsStringSync('x')
-          ..setLastModifiedSync(_now().subtract(const Duration(days: 30)));
+          ..writeAsStringSync('x');
 
-        await f.installer.sweepUpdateLeftovers(tempDir: f.temp, now: _now);
+        await f.installer.sweepUpdateLeftovers(
+          tempDir: f.temp,
+          now: _clockAfter(other, const Duration(days: 30)),
+        );
 
         expect(other.existsSync(), isTrue);
         // A *file* with the prefix is not a download directory; deleting by

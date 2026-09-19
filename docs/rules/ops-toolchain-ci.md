@@ -187,3 +187,15 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   `target_include_directories` line makes `tests/` vanish from it, which is the mutation that
   proves the line is load-bearing rather than decorative.
 - **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-newer-flutter-dirties-tracked-files] A Flutter SDK newer than CI's pin rewrites two tracked files
+
+- **Rule**: with 3.47.5 against CI's 3.44.9, `flutter pub get` re-resolves `pubspec.lock`
+  (matcher, meta, test_api, vector_math) and prepends an `analyzer: exclude:` block to
+  `app_flutter/analysis_options.yaml` («Upgrading analysis_options.yaml to exclude build and
+  platform directories»). A later `flutter test` put the second back after it had been reverted.
+- **Consequence**: `git status` shows both as modified after any local run, and a `git add -A`
+  or `git commit -a` ships an SDK-version artefact as part of an unrelated change.
+- **Do**: stage by file ([CULT-stage-by-file]). Save `git diff` of the two files to the scratchpad
+  first and undo with `git apply -R` from that patch — never `git checkout -- <file>`.
+- **Evidence**: [ledger: fix/windows-host-updater-tests](../ledger/2026-09-19-fix-windows-host-updater-tests.md)

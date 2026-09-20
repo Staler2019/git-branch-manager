@@ -186,6 +186,18 @@ Session::~Session() {
     // again once its teardown has started.
     unregisterLiveSession(this);
 
+    // Cancel before draining, not merely alongside it: cancelOperations(0)
+    // trips every in-flight/queued operation's token, so operations_->drain()
+    // below waits on work this session's own cancellation already told to
+    // stop instead of waiting for it to finish naturally -- unbounded for
+    // the ~28 commands GitCommand runs with no deadline
+    // (docs/rules/fn-cpp-core.md's [CPP-idle-not-total]). A cancelled
+    // operation takes the failure branch, so it never reaches the onSuccess
+    // path that chains a new sharedReadPool() post -- the ordering
+    // invariant the comment below describes is unaffected by cancelling
+    // first.
+    cancelOperations(0);
+
     // operations_->drain() MUST run before historyCancel_/sharedReadPool()
     // below, not after: OperationRunner::drain() only returns once its
     // worker thread is idle, and that thread runs a submitted operation's
@@ -230,6 +242,12 @@ Session::~Session() {
         std::lock_guard<std::mutex> lock(refreshMutex_);
         historyCancel_.cancel();
     }
+    // Cancels every background read this session posted to the shared pool,
+    // for the same reason cancelOperations(0) above precedes
+    // operations_->drain(): without it, cancelQueuedAndDrain() below waits
+    // for this session's own in-flight reads to finish naturally rather than
+    // being told to stop. See readCancel_'s own doc comment in Session.h.
+    readCancel_.cancel();
     sharedReadPool().cancelQueuedAndDrain();
 
     askpass_.stop();
@@ -530,7 +548,7 @@ void Session::resetTo(ResetRequest request) {
 void Session::refreshWorkingCopy() {
     sharedReadPool().post([this]() {
         const GitResult<WorkingCopyStatusPtr> result =
-            workingCopyStatusReader_->read(CancellationToken{});
+            workingCopyStatusReader_->read(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -555,7 +573,7 @@ void Session::requestWorkingCopyDiff(std::string path, bool staged) {
     sharedReadPool().postFront([this, path = std::move(path), staged]() {
         const DiffOptions options;
         const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->workingTreeDiff(staged, {path}, options, CancellationToken{});
+            diffs_->workingTreeDiff(staged, {path}, options, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -842,7 +860,7 @@ void Session::exportFileAtRevision(std::string revision, std::string path, std::
         request.path = path;
         request.destination = std::filesystem::path(destPath);
         const GitResult<std::uint64_t> result =
-            blobStore_->exportFileAtRevision(std::move(request), CancellationToken{});
+            blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
 
         // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
         // caller is waiting on this specific export to decide whether to
@@ -869,7 +887,7 @@ void Session::exportFileAtRevision(std::string revision, std::string path, std::
 
 void Session::refreshStashes() {
     sharedReadPool().post([this]() {
-        const GitResult<std::vector<StashEntry>> result = stashStore_->list(CancellationToken{});
+        const GitResult<std::vector<StashEntry>> result = stashStore_->list(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -921,7 +939,7 @@ void Session::branchFromStash(StashBranchRequest request) {
 void Session::requestStashDiff(int index) {
     sharedReadPool().post([this, index]() {
         const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->stashDiff(index, /*includeUntracked=*/true, DiffOptions{}, CancellationToken{});
+            diffs_->stashDiff(index, /*includeUntracked=*/true, DiffOptions{}, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -964,7 +982,7 @@ void Session::pushTag(PushTagRequest request) {
 void Session::refreshWorktrees() {
     sharedReadPool().post([this]() {
         const GitResult<std::vector<WorktreeInfo>> result =
-            worktreeStore_->list(CancellationToken{});
+            worktreeStore_->list(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -979,7 +997,7 @@ void Session::refreshWorktrees() {
 
 void Session::requestWorktreePendingCounts() {
     sharedReadPool().post([this]() {
-        GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(CancellationToken{});
+        GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -988,7 +1006,7 @@ void Session::requestWorktreePendingCounts() {
         // snapshot may be several operations old, and attaching counts to a
         // path that has since been removed would publish a number for a row
         // that no longer exists.
-        attachPendingCounts(*runner_, result.value(), CancellationToken{});
+        attachPendingCounts(*runner_, result.value(), readCancel_.token());
         {
             std::lock_guard<std::mutex> lock(auxMutex_);
             worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
@@ -1031,7 +1049,7 @@ void Session::unlockWorktree(UnlockWorktreeRequest request) {
 
 void Session::refreshRemotes() {
     sharedReadPool().post([this]() {
-        const GitResult<std::vector<RemoteInfo>> result = remoteStore_->list(CancellationToken{});
+        const GitResult<std::vector<RemoteInfo>> result = remoteStore_->list(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1079,7 +1097,7 @@ void Session::pushChanges(PushRequest request) {
 void Session::requestRemotePrunePreview(std::string remoteName) {
     sharedReadPool().postFront([this, remoteName = std::move(remoteName)]() {
         const GitResult<std::vector<RemotePrunePreviewEntry>> result =
-            remoteStore_->prunePreview(remoteName, CancellationToken{});
+            remoteStore_->prunePreview(remoteName, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1164,7 +1182,7 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
     sharedReadPool().postFront(
         [this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
             const GitResult<BlameResultPtr> result =
-                blameStore_->blame(path, revision, startLine, endLine, CancellationToken{});
+                blameStore_->blame(path, revision, startLine, endLine, readCancel_.token());
             if (!result) {
                 callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
                 return;
@@ -1182,7 +1200,7 @@ void Session::requestCommitMeta(std::vector<std::string> oids) {
         for (const std::string& oid : oids) {
             parsed.push_back(ObjectId::fromHex(oid));
         }
-        const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, CancellationToken{});
+        const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, readCancel_.token());
         callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
     });
 }
@@ -1197,7 +1215,7 @@ void Session::requestCommitFileCounts(std::vector<std::string> oids) {
             parsed.push_back(ObjectId::fromHex(oid));
         }
         const GitResult<std::vector<CommitFileCount>> result =
-            diffs_->commitFileCounts(parsed, DiffOptions{}, CancellationToken{});
+            diffs_->commitFileCounts(parsed, DiffOptions{}, readCancel_.token());
         if (!result) {
             // Deliberately not an error event. This backs a column that is off
             // by default and shows a number; failing the whole session's error
@@ -1230,7 +1248,7 @@ void Session::requestCommitFiles(std::string oid) {
     sharedReadPool().postFront([this, oid = std::move(oid)]() {
         const ObjectId commitOid = ObjectId::fromHex(oid);
         const GitResult<DiffService::ChangedFilesPtr> result =
-            diffs_->changedFiles(commitOid, DiffOptions{}, CancellationToken{});
+            diffs_->changedFiles(commitOid, DiffOptions{}, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1248,7 +1266,7 @@ void Session::requestCommitFileDiff(std::string oid, std::string path) {
     sharedReadPool().postFront([this, oid = std::move(oid), path = std::move(path)]() {
         const ObjectId commitOid = ObjectId::fromHex(oid);
         const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->commitFileDiff(commitOid, path, DiffOptions{}, CancellationToken{});
+            diffs_->commitFileDiff(commitOid, path, DiffOptions{}, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1272,7 +1290,7 @@ void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool
             request.rightRef = rightRef;
             request.threeDot = threeDot;
             const GitResult<CompareResult> result =
-                compareStore_->compare(std::move(request), CancellationToken{});
+                compareStore_->compare(std::move(request), readCancel_.token());
             if (!result) {
                 callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
                 return;
@@ -1309,7 +1327,7 @@ void Session::requestCompareFileDiff(std::string leftRef,
         request.threeDot = threeDot;
         request.path = path;
         const GitResult<ParsedDiff> result =
-            compareStore_->compareFileDiff(std::move(request), CancellationToken{});
+            compareStore_->compareFileDiff(std::move(request), readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1331,13 +1349,13 @@ void Session::requestCompareFileDiff(std::string leftRef,
 
 void Session::requestCompareWithWorkingCopy(std::string ref) {
     sharedReadPool().postFront([this, ref = std::move(ref)]() {
-        const GitResult<ObjectId> resolved = refStore_->resolveRevision(ref, CancellationToken{});
+        const GitResult<ObjectId> resolved = refStore_->resolveRevision(ref, readCancel_.token());
         if (!resolved) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(resolved.error()));
             return;
         }
         const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, CancellationToken{});
+            diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1355,7 +1373,7 @@ void Session::requestFileHistory(std::string path, std::string startRevision) {
     sharedReadPool().postFront(
         [this, path = std::move(path), startRevision = std::move(startRevision)]() {
             const GitResult<std::vector<FileHistoryEntry>> result =
-                fileHistoryStore_->fileHistory(path, startRevision, CancellationToken{});
+                fileHistoryStore_->fileHistory(path, startRevision, readCancel_.token());
             if (!result) {
                 callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
                 return;
@@ -1374,7 +1392,7 @@ void Session::requestLineHistory(std::string path,
                                 endLine,
                                 startRevision = std::move(startRevision)]() {
         const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
-            path, startLine, endLine, startRevision, CancellationToken{});
+            path, startLine, endLine, startRevision, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1390,7 +1408,7 @@ void Session::requestReflog(std::string ref) {
     // the Qt original draws that line here).
     sharedReadPool().post([this, ref = std::move(ref)]() {
         const GitResult<std::vector<ReflogEntry>> result =
-            reflogStore_->list(ref, CancellationToken{});
+            reflogStore_->list(ref, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1439,7 +1457,7 @@ void Session::requestCleanPreview(bool includeIgnored) {
     sharedReadPool().post([this, includeIgnored]() {
         CleanPreviewer previewer(*runner_, paths_);
         const GitResult<std::vector<CleanEntry>> result =
-            previewer.preview(includeIgnored, CancellationToken{});
+            previewer.preview(includeIgnored, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1459,7 +1477,7 @@ void Session::requestRebasePlan(std::string upstream) {
     sharedReadPool().post([this, upstream = std::move(upstream)]() {
         RebasePlanner planner(*runner_, paths_);
         const GitResult<std::vector<RebaseTodoEntry>> result =
-            planner.plan(upstream, CancellationToken{});
+            planner.plan(upstream, readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1499,7 +1517,7 @@ void Session::abortRebase() {
 void Session::refreshSubmodules() {
     sharedReadPool().post([this]() {
         const GitResult<std::vector<SubmoduleInfo>> result =
-            submoduleStore_->list(CancellationToken{});
+            submoduleStore_->list(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1558,7 +1576,7 @@ void Session::deinitSubmodules(DeinitSubmodulesRequest request) {
 
 void Session::refreshBisectStatus() {
     sharedReadPool().post([this]() {
-        const GitResult<BisectStatus> result = bisectStore_->status(CancellationToken{});
+        const GitResult<BisectStatus> result = bisectStore_->status(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1614,7 +1632,7 @@ void Session::refreshLfs() {
             // result, not an error -- see its doc comment), so there is no
             // error branch to handle here.
             const LfsInstallation installation =
-                detectLfs(*runner_, paths_, CancellationToken{}).value();
+                detectLfs(*runner_, paths_, readCancel_.token()).value();
             std::lock_guard<std::mutex> lock(auxMutex_);
             lfsInstallation_ = installation;
             available = installation.available;
@@ -1636,8 +1654,8 @@ void Session::refreshLfs() {
         // failing here is not fatal to the refresh as a whole -- whichever
         // of patterns/files succeeded is still published.
         const GitResult<std::vector<std::string>> patterns =
-            lfsStore_->trackedPatterns(CancellationToken{});
-        const GitResult<std::vector<LfsFileInfo>> files = lfsStore_->listFiles(CancellationToken{});
+            lfsStore_->trackedPatterns(readCancel_.token());
+        const GitResult<std::vector<LfsFileInfo>> files = lfsStore_->listFiles(readCancel_.token());
         {
             std::lock_guard<std::mutex> lock(auxMutex_);
             if (patterns) {
@@ -1737,7 +1755,7 @@ void Session::abortImport() {
 
 void Session::refreshLocalIdentity() {
     sharedReadPool().post([this]() {
-        const GitResult<LocalIdentity> result = localIdentityStore_->read(CancellationToken{});
+        const GitResult<LocalIdentity> result = localIdentityStore_->read(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
@@ -1758,7 +1776,7 @@ LocalIdentityPtr Session::currentLocalIdentity() const {
 void Session::refreshEffectiveIdentity() {
     sharedReadPool().post([this]() {
         const GitResult<EffectiveIdentity> result =
-            localIdentityStore_->readEffective(CancellationToken{});
+            localIdentityStore_->readEffective(readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;

@@ -40,8 +40,52 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
 
 ## [CPP-session-dtor-order] `~Session()` ordering is load-bearing
 
-- **Rule**: `operations_->drain()` → `refreshTimer_.stop()` →
+- **Rule**: `cancelOperations(0)` → `operations_->drain()` → `refreshTimer_.stop()` →
+  `historyCancel_.cancel()` → `readCancel_.cancel()` →
   `sharedReadPool().cancelQueuedAndDrain()`.
+- **Rule**: **cancel before waiting, not merely alongside it.** Before
+  fix/quit-crash-session-shutdown, both waits were passive drains — a queued-but-
+  not-started operation, or an in-flight background read, was awaited to its
+  natural completion rather than told to stop. For the ~28 commands `GitCommand`
+  runs with no deadline ([CPP-idle-not-total]), that made closing a session
+  unbounded. `cancelOperations(0)` (already existed, previously reachable only
+  through the deliberately-unwired `gbm_cancel_operation()` capi entry point —
+  see [DRIFT-cancel-capi-unwired]) and the new `readCancel_` now bound both
+  waits to however long `ProcessRunner` takes to kill an already-cancelled git
+  process tree, not to the operation's own natural duration.
+- **Consequence**: a cancelled operation takes the failure branch, so it never
+  reaches the `onSuccess` path that chains a new `sharedReadPool()` post — the
+  reason `operations_->drain()` must still run before the read-pool drain (a
+  prior ASan-confirmed use-after-free; see the comment in `~Session()`) is
+  unaffected by cancelling first.
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
+
+## [CPP-read-pool-tasks-need-live-token] Every `sharedReadPool()`-posted read must carry `readCancel_.token()`, never a default `CancellationToken{}`
+
+- **Rule**: a default-constructed `CancellationToken` has a null `state_`
+  (`CancellationToken.h`), so its `onCancel()` is an unconditional no-op —
+  passing one to a reader makes that read **permanently uncancellable**, no
+  matter what later calls `cancel()` on anything. All 31 `sharedReadPool()`
+  lambdas in `Session.cpp` did exactly this until fix/quit-crash-session-shutdown.
+- **Consequence**: `~Session()`'s `sharedReadPool().cancelQueuedAndDrain()` could
+  only wait out whichever read a worker thread happened to be running — it had
+  no way to shorten that wait, however long the read's own command took.
+- **Do**: a new background read posted to `sharedReadPool()` from inside
+  `Session` passes `readCancel_.token()`, the same per-session source
+  `~Session()` cancels right before the pool drain. A read posted anywhere
+  else (a different owner, a different lifetime) needs its own source — this
+  one is scoped to one `Session`'s lifetime and is cancelled exactly once, at
+  its destructor.
+- **Note**: **known, accepted residual, not closed by this pin.**
+  `sharedReadPool()` is one pool shared by every open `Session`
+  ([STATE-lifecycle] — sessions are not auto-disposed and can be several at
+  once). `closeAll()` closes them one at a time, so session A's
+  `cancelQueuedAndDrain()` can still block on session B's in-flight read if B
+  has not been cancelled yet at that moment. Each session's own dominant case
+  is bounded; a sibling's is not, until every open session's `readCancel_` is
+  cancelled before any of them starts draining — a two-phase shutdown, not
+  built this round.
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
 
 ## [CPP-ascii-renderer-is-reference] `GraphAsciiRenderer.cpp` is the reference renderer
 

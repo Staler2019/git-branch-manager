@@ -224,6 +224,11 @@ historical the moment they are written.
 - **Rule**: the capi entry point and its C++ registration landed together; **Dart and UI were
   deliberately not wired** (使用者裁定:「開 capi cancellation token 然後先不接線」). It is a
   recorded orphan, not a missing one — see [CPP-cancel-is-registered-not-returned].
+- **Rule**: `Session::cancelOperations()` gained a second caller in
+  fix/quit-crash-session-shutdown — `~Session()` itself calls `cancelOperations(0)`, entirely
+  inside C++, to bound its own drain (see [CPP-session-dtor-order]). This is **not** a partial
+  close of this drift entry: it never touches `gbm_cancel_operation`, `dart:ffi`, or any Dart
+  code, so the Dart/UI-facing feature this entry tracks is exactly as unwired as before.
 - **Consequence**: the 28 commands that run with `timeout = 0` now have a floor
   ([CPP-idle-not-total]'s `kHangCeiling`) but still **no user-reachable way to stop one that is
   still making progress** — which is the case those commands' own comments say cancel is for.

@@ -688,6 +688,23 @@ private:
     /// is what stops them terminating each other's git processes.
     CancellationSource historyCancel_;
 
+    /// Cancels every background read this session has posted to
+    /// sharedReadPool() (refreshWorkingCopy(), blame, compare, worktree/
+    /// remote/reflog/... reads -- every CancellationToken{} in Session.cpp
+    /// used to be a dead, default-constructed one, so none of these could
+    /// ever be cancelled). Only one caller: ~Session(), right before
+    /// sharedReadPool().cancelQueuedAndDrain(), so that call waits on a
+    /// git process this session's own token has already told to stop
+    /// rather than one it must wait out to its natural completion.
+    ///
+    /// Unlike historyCancel_, never cancel-then-replaced -- this session
+    /// gets exactly one readCancel_ for its whole lifetime, cancelled
+    /// exactly once at teardown, so no mutex is needed around it: cancel()
+    /// is idempotent/thread-safe on its own, and a token handed out by
+    /// token() holds its own shared_ptr to the cancellation state,
+    /// independent of this member's lifetime once posted.
+    CancellationSource readCancel_;
+
     /// Which dispatch last wrote refs_/graph_, so a superseded walk cannot
     /// publish over a newer one's snapshot. Guarded by graphMutex_ (not
     /// refreshMutex_) because it is read and written in the same critical

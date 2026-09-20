@@ -234,5 +234,51 @@ TEST_F(CancelOperationApiTest, OperationsStillQueuedAreRegisteredAndCancellable)
     EXPECT_EQ(failures, kOperations - 1);
 }
 
+// Session::~Session() used to only drain (wait for every queued operation to
+// run to completion naturally) -- closing a session with a backlog of queued
+// writes blocked for as long as the backlog took to finish, unbounded for
+// the network commands GitCommand runs with no deadline. It now cancels
+// (Session::cancelOperations(0)) *before* draining, so a queued-but-not-yet-
+// -started operation is skipped rather than awaited -- OperationRunner's
+// worker checks the token before starting, same as
+// OperationsStillQueuedAreRegisteredAndCancellable above.
+//
+// Deterministic for the same reason as that test: the worker is serial and
+// calls onDone synchronously from inside workerLoop(), so at most the one
+// operation already running when gbm_session_close() is called can finish
+// normally -- the rest are still queued and provably cancellable.
+TEST_F(CancelOperationApiTest, SessionCloseCancelsQueuedOperationsInsteadOfDraining) {
+    constexpr int kOperations = 20;
+    for (int i = 0; i < kOperations; ++i) {
+        gbm_reset_to(session_, "HEAD", /*mode=*/1);
+    }
+
+    // Close immediately -- do not wait for completion first. TearDown() must
+    // not close a second time.
+    gbm_session_close(session_);
+    session_ = nullptr;
+
+    int succeeded = 0;
+    int cancelled = 0;
+    {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        for (const auto& [type, payload] : log_.events) {
+            if (type != GBM_EVENT_OPERATION_FINISHED) {
+                continue;
+            }
+            if (payload.find("\"succeeded\":false") != std::string::npos) {
+                ++cancelled;
+            } else {
+                ++succeeded;
+            }
+        }
+    }
+    EXPECT_LE(succeeded, 1) << "at most the operation already running when "
+                                "gbm_session_close() was called should "
+                                "complete normally";
+    EXPECT_GE(cancelled, kOperations - 1)
+        << "every other queued operation must be cancelled, not drained";
+}
+
 }  // namespace
 }  // namespace gbm::capi

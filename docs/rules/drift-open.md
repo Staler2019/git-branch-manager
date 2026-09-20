@@ -262,6 +262,20 @@ historical the moment they are written.
   what surfaced all three.
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
+## [DRIFT-hover-cursor-not-reproduced] Drag-boundary hover cursor sometimes shows no icon, or sticks after a drag — unreproduced
+
+- **Rule**: 使用者回報 History 的 `_ColumnResizeStrip` 與 `GbmSplitPane` 分隔線兩種症狀：
+  hover 不顯示可拖曳游標（拖曳本身正常，游標只在拖曳開始後才變圖示），以及拖曳結束移開
+  之後游標停在拖曳圖示不變回箭頭。症狀在能現場驗證前自行恢復，目前**無法重現**。
+- **Rule**: [FLU-mouse-tracking-key-window-only] 記錄了一個 engine 層級已確認存在、但**未經
+  現場測試證實**是這次症狀成因的機制——macOS 的 hover 事件預設只在視窗是 key window 時才
+  送進 Flutter。程式碼面已排除：受影響的兩個游標相關檔案，一個近期改動完全沒碰
+  `cursor:`/`MouseRegion`，另一個完全沒被近期改動過，只有視窗層級的成因能同時解釋兩者。
+- **Do**: 下次症狀出現時，先點視窗標題列（確保 key、且不構成拖曳）再重試拖曳，藉此判別
+  是否是 [FLU-mouse-tracking-key-window-only] 的完整成因；診斷紀錄與完整測試協定見 ledger。
+- **Note**: 未開 issue 追蹤——依標準規則 #3，開 issue 需要使用者同意，本輪只問過、未決定。
+- **Evidence**: [ledger: 拖動邊界 hover 游標異常，無法重現](../ledger/2026-09-20-docs-diag-hover-cursor-key-window.md)
+
 ## [DRIFT-open-issues] Open issues
 
 - **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**

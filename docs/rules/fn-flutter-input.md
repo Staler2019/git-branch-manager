@@ -154,6 +154,32 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: submenus open on tap, and the parent is popped *before* the child's action runs (menu
   items routinely push a dialog). **#87**.
 
+## [FLU-mouse-tracking-key-window-only] macOS only delivers hover to Flutter while the window is key
+
+- **Rule**: `FlutterViewController`'s mouse tracking mode defaults to
+  `kFlutterMouseTrackingModeInKeyWindow` (`FlutterViewController.mm`, macOS embedder) —
+  `mouseMoved`/hover events reach Flutter's `MouseTracker` only while the window is the key
+  window. `mouseDragged` is not gated the same way: once a view has received `mouseDown` it
+  keeps receiving drag events regardless of key status. `AppDelegate.swift` and
+  `MainFlutterWindow.swift` are both minimal `FlutterAppDelegate`/window subclasses — neither
+  overrides `mouseTrackingMode` (`setMouseTrackingMode:`), so this default applies unmodified.
+- **Consequence**: while the window is not key (e.g. focus sitting on a terminal during a
+  `flutter run` session), a `MouseRegion`'s hover cursor (`SystemMouseCursors.resizeColumn` and
+  similar) never updates from plain hover — the first update arrives only once a drag's
+  `mouseDown` makes the window key. If the window loses key status again between mouse-up and
+  the pointer leaving the region, the cursor stays on whatever it was last set to, because no
+  further `mouseMoved` ever reaches `MouseTracker` to revert it.
+- **Do**: before treating a "hover cursor doesn't update" report as an app-code bug, check
+  whether the window was key at the time — `FlutterMouseCursorPlugin.mm` confirms native-side
+  `activateSystemCursor:` unconditionally calls `[cursorObject set]` on every invocation (no
+  native caching of "did the kind change"), so a stuck or missing cursor traces back to whether
+  Flutter ever decided to re-evaluate hover, not to a dropped native call.
+- **Note**: switching to `.inActiveApp` is a product-level trade-off (widens when the cursor
+  tracks), not a bug fix — `InKeyWindow` matches AppKit's own native cursor-rects convention —
+  and any `macos/Runner/*.swift` edit is uncompiled by PR CI until a release tag
+  ([CI-linux-only]).
+- **Evidence**: [ledger: 拖動邊界 hover 游標異常，無法重現](../ledger/2026-09-20-docs-diag-hover-cursor-key-window.md)
+
 ## [FLU-widget-hit-test-gotchas] Three hit-test gotchas that cost a click
 
 - **Rule**: `RadioListTile` needs a `Material` ancestor.

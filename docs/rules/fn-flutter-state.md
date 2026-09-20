@@ -121,3 +121,37 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `entriesWithUnstagedSide` on `WorkingCopyStatus` is the one list, shared with
   `_selectedSides()`, per [CULT-single-source-of-truth].
 - **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
+
+## [FLU-app-exit-closes-every-session] Every open session must be closed before the process is allowed to quit
+
+- **Rule**: `repoSessionProvider` is not `autoDispose` ([STATE-lifecycle]), so nothing closes a
+  session while the app keeps running, and Flutter never pops a route on Cmd+Q, the window's
+  close button, or File → Exit's `SystemNavigator.pop()` — there is no route to pop. Without an
+  explicit close, `~Session()`'s process-wide background work (the shared read pool, in-flight
+  operations) is still touching a `Session` when the OS proceeds to tear the process down,
+  racing the Dart engine's own shutdown of the `NativeCallable` trampolines those background
+  threads call back into on completion. That race is what produced the SIGSEGV in crash report
+  `gbm_flutter` 0.48.1 build 77.
+- **Do**: `AppExitSessionCleanup` (`lib/features/app_lifecycle/app_exit_session_cleanup.dart`) is
+  the one thing that closes every open session before quitting — it wires Flutter's
+  `AppLifecycleListener(onExitRequested:)` (the single entry point `WidgetsBinding
+  .handleRequestAppExit()` fans every quit path out to) to the already-existing, already-tested
+  `openRepoSessionsProvider.closeAll()` ([open_repo_sessions.dart](../../app_flutter/lib/data/repositories/open_repo_sessions.dart),
+  built for the self-install flow and now a second caller of it too), and returns
+  `AppExitResponse.exit`. It sits in `app.dart`'s `MaterialApp.router` builder chain, above the
+  router like `AutoUpdateCheck`/`UpdateLeftoverSweep`, so it still runs from `WelcomeScreen` with
+  no repository open.
+- **Do**: `AppDelegate.swift` already extends `FlutterAppDelegate`, so this needed no native
+  Swift/Cocoa change — Flutter's built-in `applicationShouldTerminate:` → Dart `onExitRequested`
+  interception was already available.
+- **Do**: test this with `tester.binding.handleRequestAppExit()`, not by reaching into
+  `AppLifecycleListener`'s private state — it is the exact call the engine makes on every real
+  quit path, so it exercises the real dispatch (`WidgetsBinding.handleRequestAppExit()` fans out
+  to every registered `WidgetsBindingObserver.didRequestAppExit()`, and `AppLifecycleListener` is
+  one such observer).
+- **Note**: **known, accepted residual, not closed by this pin.** `closeAll()`'s per-session
+  wait is now bounded by cancellation rather than natural completion
+  ([CPP-read-pool-tasks-need-live-token]'s own Note records the multi-session caveat this
+  inherits), but there is still no UI affordance to close *one* repository while the app keeps
+  running — every session accumulates until the whole app quits.
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)

@@ -20,6 +20,15 @@ abstract interface class ClosableRepoSession {
 /// repository the user still has open -- and the next launch, of the *new*
 /// build, opens onto "Another Git process appears to be running".
 ///
+/// A second caller joined it later: `repoSessionProvider` is a plain
+/// (non-autoDispose) family, and Flutter never pops a route on Cmd+Q, the
+/// window's close button, or File -> Exit -- so nothing ever calls
+/// `RepoSessionController.dispose()` on the ordinary quit path either,
+/// which left every open session's background reads and operations racing
+/// the Dart engine's own teardown at process exit (crash report:
+/// gbm_flutter 0.48.1 build 77). `AppExitSessionCleanup`
+/// (`features/app_lifecycle/`) is that second caller.
+///
 /// Riverpod cannot enumerate a family's live instances, so each controller
 /// registers itself on construction and unregisters on dispose rather than
 /// this reaching in to find them.

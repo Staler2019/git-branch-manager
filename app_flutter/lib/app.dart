@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'features/app_lifecycle/app_exit_session_cleanup.dart';
 import 'features/update/auto_update_check.dart';
 import 'features/update/update_leftover_sweep.dart';
 import 'routing/app_router.dart';
@@ -29,7 +30,13 @@ class GbmApp extends ConsumerWidget {
             ref.read(appRouterProvider).push(RoutePaths.updateDialog),
         // Nested rather than a second builder: the sweep is unconditional
         // where the check is not, so they are two jobs, not one.
-        child: UpdateLeftoverSweep(child: child ?? const SizedBox.shrink()),
+        // AppExitSessionCleanup is innermost only because nesting order
+        // does not matter here -- neither wraps the other's work, they
+        // just both need to sit above the router for the same reason
+        // AutoUpdateCheck does (see above).
+        child: UpdateLeftoverSweep(
+          child: AppExitSessionCleanup(child: child ?? const SizedBox.shrink()),
+        ),
       ),
     );
   }

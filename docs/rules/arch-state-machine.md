@@ -89,8 +89,8 @@ disagree about whether a branch is gone.
 ```
 closed --(RepoSessionController ctor calls sessionOpen())--> opening
 opening --(handle allocated, event stream subscribed)--> open
-open --(last watcher unmounts, e.g. every child route under the repo's
-         ShellRoute is popped)--> disposed (sessionClose())
+open --(AppExitSessionCleanup.closeAll() before the process is
+         allowed to quit)--> disposed (sessionClose())
 ```
 
 `isOpen`, `isRefreshing`, `repoState`, `workingCopyStatus.conflicted`,
@@ -99,8 +99,25 @@ independent flags layered on top of `open`, not separate top-level phases —
 e.g. a session can be `open`, not refreshing, mid-merge
 (`workingCopyStatus.conflicted` non-empty) *and* have `credentialPrompt` set
 (a push during conflict resolution asked for a password) at the same time.
-The provider is a Riverpod family keyed by `RepoIdentity`; disposal is
-automatic, not manually triggered by any view.
+
+**Correction, fix/quit-crash-session-shutdown: disposal is not automatic.**
+This previously read "the provider is a Riverpod family keyed by
+`RepoIdentity`; disposal is automatic, not manually triggered by any view" —
+wrong. `repoSessionProvider` is a plain `StateNotifierProvider.family`, not
+`.autoDispose.family` (`repo_session_repository.dart`'s own declaration),
+and grepping every one of its ~150 call sites under `app_flutter/lib` finds
+no `ref.invalidate`/removal of a family entry anywhere. Once a `RepoIdentity`
+is opened, its `RepoSessionController` — and the `gbm_capi` session handle
+under it — stays alive in the provider container for the rest of the
+process's life, however many *other* repositories are opened afterwards or
+however long the last watcher has been gone. Opening repository A, then
+repository B, leaves both open at once (crash report:
+`gbm_flutter` 0.48.1 build 77 shows three concurrent
+`OperationRunner::workerLoop`/`DelayTimer::run` pairs, one per open session).
+The only thing that closes a session today is
+[FLU-app-exit-closes-every-session]'s `AppExitSessionCleanup`, right before
+the process is allowed to quit — there is still no UI action that closes one
+repository while the app keeps running.
 
 ## [STATE-ffi-events] FFI events → state (`GbmEventType`, `gbm_bindings.dart`, values 0–33)
 

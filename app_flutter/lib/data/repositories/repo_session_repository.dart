@@ -1421,6 +1421,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       DateTime.now(),
     );
     state = state.copyWith(refs: refs, refreshTimings: timings);
+    // After the state write, so the claim check reads the refs that just
+    // landed. Returns immediately when nothing was ever deferred, which is
+    // every refresh in a session that has not fetched.
+    _pruneDeferredGoneRefsNowUnclaimed();
     // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
     // on a later refs publish within the same sweep, and printing then would
     // just repeat the same numbers. See refreshTimingsLabel's doc comment
@@ -1884,6 +1888,24 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// reply clear a marker that still covers another request in flight.
   final Map<String, int> _autoPrunePreviewsInFlight = <String, int>{};
 
+  /// remote -> the full ref names on that remote which a **fetch-triggered**
+  /// prune preview reported gone and which [_autoPruneUnclaimedRefs] left
+  /// alone *only* because a local branch still claimed them.
+  ///
+  /// Skipping a claimed ref is a **deferred** decision, not a closed one: the
+  /// claim disappears the moment the user deletes that local branch, and no
+  /// second preview runs to notice. Without this, the stale remote-tracking
+  /// ref stays on disk and the sidebar goes on drawing it as a remote-only
+  /// row until the *next* fetch -- which is exactly the reported bug.
+  ///
+  /// Populated only from a preview this class asked for after a fetch. A
+  /// dialog-initiated preview must never feed it: `gonePendingByRemote` is
+  /// written for every preview regardless of source, so keying the sweep off
+  /// that map instead would delete the rows the Prune dialog is listing out
+  /// from under the user ([REF-fetch-auto-prunes]'s own Do).
+  final Map<String, Set<String>> _goneRefsDeferredByClaim =
+      <String, Set<String>>{};
+
   /// True when [error] is a failed `git remote prune --dry-run` for a remote
   /// this class asked about itself, in which case it must not reach
   /// [RepoSessionState.lastError] -- `workspace_screen.dart` renders that as
@@ -1989,6 +2011,42 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// there by the prune's own success path.
   void _autoPruneUnclaimedRefs(RemotePrunePreview preview) {
     if (preview.refs.isEmpty) return;
+    final Set<String> claimed = _claimedCounterparts();
+
+    final List<String> unclaimed = <String>[];
+    final Set<String> deferred = <String>{};
+    for (final RemotePrunePreviewEntry entry in preview.refs) {
+      if (claimed.contains(entry.fullRefName)) {
+        deferred.add(entry.fullRefName);
+      } else {
+        unclaimed.add(entry.fullRefName);
+      }
+    }
+
+    // The claimed half is remembered rather than forgotten -- see
+    // [_goneRefsDeferredByClaim] for why, and
+    // [_pruneDeferredGoneRefsNowUnclaimed] for what comes due.
+    if (deferred.isNotEmpty) {
+      _goneRefsDeferredByClaim
+          .putIfAbsent(preview.remote, () => <String>{})
+          .addAll(deferred);
+    }
+
+    if (unclaimed.isEmpty) return;
+    // Full names in, short names out: pruneRemote normalises at the wire.
+    pruneRemote(preview.remote, unclaimed, automatic: true);
+  }
+
+  /// Every remote-tracking ref (full name) some local branch currently claims
+  /// as its counterpart.
+  ///
+  /// One derivation, two readers: [_autoPruneUnclaimedRefs] decides what a
+  /// fresh preview may prune, [_pruneDeferredGoneRefsNowUnclaimed] decides
+  /// whether a deferred decision has come due. The sidebar's own gone marking
+  /// resolves counterparts through the same [RemoteBranchIndex], so a second
+  /// copy of this loop could disagree with what the user is looking at
+  /// ([CULT-single-source-of-truth]).
+  Set<String> _claimedCounterparts() {
     final RemoteBranchIndex index = RemoteBranchIndex.from(
       state.refs.remoteBranches,
     );
@@ -1997,14 +2055,75 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       final String counterpart = index.counterpartOf(local);
       if (counterpart.isNotEmpty) claimed.add(counterpart);
     }
+    return claimed;
+  }
 
-    final List<String> unclaimed = <String>[
-      for (final RemotePrunePreviewEntry entry in preview.refs)
-        if (!claimed.contains(entry.fullRefName)) entry.fullRefName,
-    ];
-    if (unclaimed.isEmpty) return;
-    // Full names in, short names out: pruneRemote normalises at the wire.
-    pruneRemote(preview.remote, unclaimed, automatic: true);
+  /// Prunes the refs in [_goneRefsDeferredByClaim] whose claiming local branch
+  /// has since been deleted -- the other half of [_autoPruneUnclaimedRefs].
+  ///
+  /// Called from [publishRefs] *after* the state write, the same
+  /// "state lands first, then dispatch" order [_autoPruneUnclaimedRefs]
+  /// follows. Hooked on refs rather than on the delete operation's own
+  /// outcome because at that moment refs have not been re-read yet, so
+  /// `state.refs.localBranches` still holds the branch that was just deleted
+  /// and the claim check answers the old question. Going through refs also
+  /// makes this self-maintaining: a single delete, the sidebar's bulk delete,
+  /// a delete in a terminal and a `git branch -m` followed by
+  /// `--unset-upstream` all arrive the same way.
+  ///
+  /// Four conditions, but only two kinds of miss, and telling them apart is
+  /// the whole of this function:
+  ///
+  /// * **Still claimed** -> keep the entry. This is the deferred ref's normal
+  ///   state on every refresh until the user actually deletes the branch, and
+  ///   `GBM_EVENT_REFS_UPDATED` is emitted unconditionally after every
+  ///   coalesced refresh (`Session::onRefreshTimerFired`), so F5 and every
+  ///   focus regain land here. Dropping the entry would mean one intervening
+  ///   refresh between the fetch and the delete silently restores the bug.
+  /// * **Gone from `refs.remoteBranches`, or no longer in
+  ///   `gonePendingByRemote`** -> drop it. The first means something else
+  ///   already deleted the ref, and sending it would only earn
+  ///   "remote-tracking branch not found" (exit 1); the second means a newer
+  ///   preview stopped calling it gone, i.e. it came back. Both are
+  ///   structurally final, and a reversal arrives as a fresh preview that
+  ///   recreates the entry.
+  ///
+  /// A ref that is actually dispatched is removed **before** the dispatch, so
+  /// the gate is "this ref has not been tried", never "this ref is prunable"
+  /// -- [GIT-worktree-prune-has-no-expire]'s rule, and what makes the
+  /// prune's own refs refresh a no-op rather than a loop. A failed prune is
+  /// therefore not retried until the next fetch re-previews it; the row keeps
+  /// its gone marking meanwhile.
+  void _pruneDeferredGoneRefsNowUnclaimed() {
+    if (_goneRefsDeferredByClaim.isEmpty) return;
+    final Set<String> claimed = _claimedCounterparts();
+    final Set<String> present = <String>{
+      for (final RefInfo remote in state.refs.remoteBranches) remote.fullName,
+    };
+
+    for (final String remote in _goneRefsDeferredByClaim.keys.toList()) {
+      final Set<String> deferred = _goneRefsDeferredByClaim[remote]!;
+      final Set<String> stillMarked =
+          (state.gonePendingByRemote[remote] ?? const <String>[]).toSet();
+
+      final List<String> due = <String>[];
+      final Set<String> keep = <String>{};
+      for (final String ref in deferred) {
+        if (claimed.contains(ref)) {
+          keep.add(ref);
+        } else if (present.contains(ref) && stillMarked.contains(ref)) {
+          due.add(ref);
+        }
+      }
+
+      if (keep.isEmpty) {
+        _goneRefsDeferredByClaim.remove(remote);
+      } else {
+        _goneRefsDeferredByClaim[remote] = keep;
+      }
+      if (due.isEmpty) continue;
+      pruneRemote(remote, due, automatic: true);
+    }
   }
 
   /// Consumes the `kind` stamp on a working-copy completion outcome.
@@ -4230,6 +4349,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // whatever is still pending.
     _pending.clear();
     _autoPrunePreviewsInFlight.clear();
+    _goneRefsDeferredByClaim.clear();
     super.dispose();
   }
 }

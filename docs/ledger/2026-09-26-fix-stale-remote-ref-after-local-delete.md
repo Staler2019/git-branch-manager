@@ -327,3 +327,44 @@ mutation 搬到新實作的對應位置，必須紅到同一顆測試** —— �
 `app.dart` 的啟動更新檢查沒有 `BuildContext`（它拿的是 `ref.read(appRouterProvider)`），所以
 另有一個 `pushDialogRouteOn(GoRouter, String)` 入口，`pushDialogRoute` 是它的 `BuildContext`
 便利版。
+
+## 驗收
+
+`pushDialogRoute` 動到每一個對話框入口，所以裝置層 **十四檔全跑**（計畫寫十檔，實際數是
+十四），一檔一次 `-d macos`，跑前 `build_capi.sh` 並 `pkill`：
+
+| 檔 | 結果 | 檔 | 結果 |
+|---|---|---|---|
+| commit_file_counts | 2/2 | stage_lines_flow | 7/7 |
+| commit_flow | 1/1 | untracked_unstage_flow | 1/1 |
+| conflict_flow | 1/1 | update_check_flow | 2/2 |
+| context_menu_flows | 5/5 | working_copy_line_counts | 1/1 |
+| history_filter | 2/2 | worktree_pending_counts | 1/1 |
+| multi_push_flow | 2/2 | operation_log_benign_exit | 1/1 |
+| rename_branch_flow | 2/2 | repo_lifecycle | 1/1 |
+
+`update_check_flow` 是 `pushDialogRouteOn(GoRouter, …)` 那條沒有 `BuildContext` 的路徑，
+其餘十三檔涵蓋的是 `pushDialogRoute` 的一般路徑。
+
+其餘閘門：全套 `flutter test` **+2989 ~1 -12**，12 顆紅全是既有的
+`gbm_widgets_golden_test.dart`（本機 Flutter 3.47.5 對 CI 3.44.9），本輪沒有新增任何紅；
+`flutter analyze` 零；`check-rule-pins.py` 209 條規則／172 個交叉引用／懸空 0；
+`dart format` 只格式化本輪碰到的檔案，另外 5 個既有漂移檔照
+[CI-formatter-version-drift] 不動。
+
+Orphan-wiring 雙向 grep 全部有生產者也有讀者：`goneRefsDeferredByClaim`（controller 寫、
+notifier 讀）、`withGoneRefsDeferredFor`、`PruneAudience`／`holdsRemote`／
+`addReleaseListener`（port 有實作也有呼叫端）、`deferredPruneProvider`（`WorkspaceScreen`
+那一行 watch 是它的掛載點）、`claimedRemoteCounterparts`（三個讀者）、`heldRemotes`
+（`@visibleForTesting`，四處斷言）。`lib/` 底下唯一剩下的裸 `.push(` 在
+`pushDialogRouteOn` 自己裡面。
+
+## 還沒做的，以及為什麼
+
+- **推送與 PR #145 敘述更正**：PR 敘述現在仍寫著 P3／P4 是 deferred residual，那已經是假的，
+  依標準規則 4 要就地更正。但這一片的 commit 還沒推，先改敘述會變成描述 PR 裡沒有的東西，
+  所以順序是先推再改，而推送要等指示。
+- **真機手測四條**（原始回報流程；fetch → F5 → 刪分支；Prune 對話框開著時於外部刪掉占用分支，
+  列表不被抽掉、關窗才消失；同一選單項連點兩次只開一個對話框）需要使用者的機器與眼睛。
+- **本片沒有任何審查裁決**（送出的 `plan-verifier` 被使用者中止），第一片 blocker 3 的修正
+  也沒有 fresh reviewer。不當作 READY。

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/remote_info.dart';
 import '../../../data/repositories/repo_identity.dart';
+import '../../../data/repositories/prune_audience.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -56,19 +57,22 @@ class _PruneRemoteBranchesDialogContentState
   /// the element is already unmounted by then.
   late final RepoSessionController _session;
 
-  /// The remote this dialog last declared itself to be listing, so [dispose]
-  /// releases exactly that one. Null until the picker has resolved, which is
-  /// the case for a repository with no remotes at all.
-  String? _declaredRemote;
+  /// Ditto, for the same reason.
+  late final PruneAudienceRegistry _audience;
 
   @override
   void initState() {
     super.initState();
     _session = ref.read(repoSessionProvider(widget.identity).notifier);
+    _audience = ref.read(pruneAudienceProvider(widget.identity));
+    // Synchronously, before this dialog knows which remote it will show.
+    // Registering first is what makes a late declaration refusable: a dialog
+    // dismissed before the microtask below runs is already released, so its
+    // in-flight callback cannot leave a hold nothing will release. `mounted`
+    // still guards the `ref.read` (a disposed element throws), but it is no
+    // longer what keeps the gate honest.
+    _audience.register(this);
     Future.microtask(() {
-      // The microtask outlives a dialog dismissed before it runs, and
-      // declaring a remote from a dead dialog would hold the auto-prune gate
-      // shut for the rest of the session -- nothing would ever release it.
       if (!mounted) return;
       final List<RemoteInfo> remotes = ref.read(
         repoSessionProvider(widget.identity).select((state) => state.remotes),
@@ -82,12 +86,11 @@ class _PruneRemoteBranchesDialogContentState
 
   @override
   void dispose() {
-    final String? declared = _declaredRemote;
-    // `StateNotifier.mounted`, not this widget's -- the session can be gone
-    // before the dialog is (app exit closes every session).
-    if (declared != null && _session.mounted) {
-      _session.endPruneDialogPreview(declared);
-    }
+    // Unconditional, and safe: the registry is a plain object captured in
+    // [initState], so it needs no liveness check, and releasing a token that
+    // never declared a remote is a no-op -- which is the ordinary path for a
+    // repository with no remotes at all.
+    _audience.release(this);
     super.dispose();
   }
 
@@ -98,8 +101,7 @@ class _PruneRemoteBranchesDialogContentState
     // focus regain, a branch deleted in a terminal) can prune a row out of
     // the list the user is about to confirm, and their own Prune button then
     // fails against a ref that no longer exists.
-    _declaredRemote = remoteName;
-    _session.beginPruneDialogPreview(remoteName);
+    _audience.declare(this, remoteName);
     _session.requestRemotePrunePreview(remoteName);
   }
 

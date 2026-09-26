@@ -12,6 +12,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/repositories/prune_audience.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
@@ -34,9 +35,14 @@ Future<(FakeRepoSessionController, GoRouter)> _pump(
 ) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
+  // The dialog reads this registry and the controller gates on it, so both
+  // sides must be handed the *same* instance -- an override, not two objects
+  // that happen to have the same type.
+  final PruneAudienceRegistry audience = PruneAudienceRegistry();
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
     state,
+    pruneAudience: audience,
   );
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -59,6 +65,7 @@ Future<(FakeRepoSessionController, GoRouter)> _pump(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(prefs),
         repoSessionProvider(_identity).overrideWith((ref) => controller),
+        pruneAudienceProvider(_identity).overrideWithValue(audience),
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(GbmThemeVariant.darkTechnical),

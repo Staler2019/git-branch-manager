@@ -15,6 +15,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/repositories/prune_audience.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
@@ -116,7 +117,12 @@ void main() {
   // origin/orphan has no local branch; origin/mine is claimed by a local
   // branch that never set an upstream (`git push origin HEAD`), which is the
   // case the whole round is about.
-  FakeRepoSessionController controller() {
+  /// The real port, not a stub: the gate under test is
+  /// `PruneAudience.holdsRemote`, and a hand-written stand-in would let the
+  /// token semantics drift out of reach of these tests.
+  PruneAudienceRegistry audience() => PruneAudienceRegistry();
+
+  FakeRepoSessionController controller({PruneAudience? withAudience}) {
     final FakeRepoSessionController c = FakeRepoSessionController(
       _identity,
       RepoSessionState(
@@ -126,6 +132,7 @@ void main() {
           _remote('refs/remotes/origin/orphan'),
         ]),
       ),
+      pruneAudience: withAudience,
     );
     addTearDown(c.dispose);
     return c;
@@ -411,35 +418,42 @@ void main() {
       expect(_prunes(c).length, 1);
     });
 
-    test('Prune 對話框開著時暫緩，關掉之後才派工', () {
+    test('有 UI 正在列這個 remote 時暫緩，放開之後才派工', () {
       // 閘門 1 管的是「哪個 preview 可以餵延後表」；這一個管的是時機。sweep 的觸發
       // （publishRefs）是另一條獨立的路，所以對話框開著時它照樣會開火 -- 把使用者正
       // 要確認的那一列從底下抽掉，他們自己的 Prune 按鈕接著就撞 not found。
-      final FakeRepoSessionController c = controller();
+      final PruneAudienceRegistry a = audience();
+      final FakeRepoSessionController c = controller(withAudience: a);
+      final Object surface = Object();
+      a.register(surface);
+      a.declare(surface, 'origin');
       deferOriginMine(c);
-      c.beginPruneDialogPreview('origin');
 
       c.publishRefs(withoutLocalMine());
-      expect(_prunes(c).length, 0, reason: '對話框正在列它');
+      expect(_prunes(c).length, 0, reason: '有 UI 正在列它');
 
-      c.endPruneDialogPreview('origin');
+      // 只放開 hold，不再動 refs 也不手動催 sweep：controller 在建構時就訂閱了
+      // audience 的釋放，所以這一顆同時釘住閘門與「放開之後誰來重跑」。接線若退回
+      // 由 provider body 組裝，這一顆就會紅。
+      a.release(surface);
 
-      // 暫緩不消耗延後項，所以關窗時就做掉，而不是等到下一次 fetch。只斷言前半的話，
+      // 暫緩不消耗延後項，所以放開時就做掉，而不是等到下一次 fetch。只斷言前半的話，
       // 「開過一次對話框就永久關掉 sweep」也會綠。
       expect(_prunes(c).length, 1);
     });
 
-    test('關掉另一個 remote 的對話框不會開錯閘門', () {
-      // 換上來的對話框可能在舊的 dispose 之前就宣告自己，所以帶著過期 remote 的
-      // end 必須被忽略。
-      final FakeRepoSessionController c = controller();
+    test('別的 remote 被列著不會擋到這個 remote', () {
+      // 閘門是 per-remote 的。少了這一顆，一個「任何 hold 都擋全部」的實作會全綠。
+      final PruneAudienceRegistry a = audience();
+      final FakeRepoSessionController c = controller(withAudience: a);
+      final Object surface = Object();
+      a.register(surface);
+      a.declare(surface, 'upstream');
       deferOriginMine(c);
-      c.beginPruneDialogPreview('origin');
 
-      c.endPruneDialogPreview('upstream');
       c.publishRefs(withoutLocalMine());
 
-      expect(_prunes(c).length, 0);
+      expect(_prunes(c).length, 1);
     });
   });
 }

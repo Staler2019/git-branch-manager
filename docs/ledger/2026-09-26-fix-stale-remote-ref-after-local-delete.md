@@ -189,3 +189,141 @@ reviewer**。依據（`Session.cpp:373` 無條件發事件）已親自核對原�
 
 四次都印了 `Failed to foreground app; open returned 1`，而四次都在它後面接著印出計數——
 `[TEST-foreground-line-is-not-a-failure]` 說的正是這件事，不要把那一行當成失敗訊號。
+
+---
+
+# 第二片：P3／P4 不 defer，並把決策搬出 session
+
+第一片的 verifier 回 CONFIRMED 但附兩個 advisory（P3 閘門以 remote 名稱當 key、P4 沒有
+regression 測試），我依 CLAUDE.md 的 P3/P4 處置規則 defer 了。**使用者推翻：「p3 p4 都應該要
+做，你的有問題、有疑慮，就應該確認事實＋寫測試確保它。不可 defer」**，並額外裁定 already-open
+防護要加到**全部對話框**；隨後在被問到依賴反轉時裁定 **B：連延後表與 sweep 一起搬出
+controller**，理由是「後續最好維護，而且職責乾淨」，並要求先構思**如何用整合測試確保內部邏輯
+不會因為 refactor 而壞掉**。
+
+本片送出的 `plan-verifier` 被使用者中止，**所以本片沒有任何審查裁決**。不當作 READY，也不假裝
+有審查過。
+
+## 先問對的問題：搬家的網子要建在哪個縫上
+
+「怎麼確保 refactor 沒弄壞」的答案不是多寫測試，而是**把測試放在搬家動不到的縫上，並且證明
+它在搬家之前就是綠的**。第一次我建錯了：那些測試直接建構 `FakeRepoSessionController` 並斷言
+它的 `commandLog`，於是 controller 是測試的**主體** —— 決策一搬走，controller 不再派工，整份
+測試會全紅，網子反而被搬家摧毀。
+
+對的縫是 `ProviderContainer`：
+
+```
+  IN : controller.debugRecordFetch() / debugHandleEvent(FFI 事件)
+       controller.publishRefs(snapshot)
+       audience.register / declare / release
+  OUT: commandLog 裡的 pruneRemote（次數、refs、automatic）
+       整合層：側邊欄那一列在不在
+       ▲ 決策在 controller 還是在 notifier，這兩個縫都看不出來
+```
+
+所以順序被拆成 C7（換閘門來源，決策仍在 controller）→ C7b（測試改由 container 驅動，跑綠）
+→ C8（搬家）。C7b 是多出來的一步，也是整個保證的支點。
+
+**結果**：C8 之後特徵測試 19 顆全綠，而那個檔案的 diff 只有三處、全在 `setUp`
+（一個 import、一個已不存在的建構參數、一行掛載新 provider），**斷言與 fixture 一個位元都沒
+動**；`test/integration/workspace_stale_remote_ref_after_delete_test.dart` **完全未被改動**且
+維持綠。後者是最強的證據 —— 它跑真實 `WorkspaceScreen`，從頭到尾沒有點到延後表。
+
+## 事實先於設計：查出來三件事推翻了原本的做法
+
+| 查到的事實 | 推翻了什麼 |
+|---|---|
+| `RepoSessionController` **不持有 `Ref`**，`data/` 層沒有任何 repository 持有；建構子注入是唯一慣例 | 「session 讀一個 dialog registry provider」逆著慣例。注入 port 才順，而 `ClosableRepoSession`／`OpenRepoSessions` 就是現成寫法 |
+| named optional 參數**只動 1 個生產呼叫點**（`FakeRepoSessionController` 用 `super.x` 轉發，~88 個 fake 建構點自動繼承） | 反轉的建構成本幾乎是零，不需要為了省成本妥協形狀 |
+| preview 的 provenance（`_autoPrunePreviewsInFlight`）是 controller 私有，`RepoSessionState` 沒有對應欄位 | 搬出去的 notifier 分不出 fetch-preview 與對話框 preview，也就是分不出閘門 1 —— B 的關鍵難點 |
+
+第三點的解法是**跨界線傳事實而不是命令**：controller 把延後項發布成 `RepoSessionState` 的一個
+欄位。sink port 那條路會讓 notifier 的 `pruneRemote` 回呼 controller，provider 圖成環而
+Riverpod 在 build 時就拒絕。記在 [STATE-deferred-prune-flow]。
+
+## Riverpod 的一個限制改掉了 P4 的做法
+
+P4 原本要「在 `initState` 同步 register，把 race 從構造上消掉」。第一版 `PruneAudience` 寫成
+`StateNotifier<Set<String>>`，**對話框測試全紅**：
+
+> Tried to modify a provider while the widget tree was building.
+
+Riverpod 禁止在任何 widget life-cycle（含 `initState`）改動 provider。所以改成 **plain class +
+純 `Provider`**，也就是 `OpenRepoSessions` 的同一個形狀。這不是偏好而是限制，而且回頭看，
+`StateNotifier` 本來就是錯的工具：沒有任何 widget 需要 watch 它，卻換來那個限制。
+
+同一輪還學到第二件事：**接線放在 provider body 是不夠的**。訂閱原本寫在 `repoSessionProvider`
+的 body，而覆寫 `repoSessionProvider` 的測試**繞過那段組裝**，於是拿到閘門卻沒有開啟閘門的路
+—— 半個行為，靜悄悄的。閘門與它的釋放是同一個行為，所以 `addReleaseListener` 進了 port、訂閱
+進了 controller 建構子。
+
+P4 的鑑別測試因此不必贏任何 race：`register` 與 `declare` 分開之後，「已釋放的 token 遲到宣告
+不成立」是一顆確定性的測試，而那正是原本 `mounted` 守衛在擋的東西。
+
+## 保真度檢查：mutation 換一個用途
+
+一般 mutation check 是問「新測試的紅夠不夠窄」。搬家時它還有第二個用途：**把第一片的每條
+mutation 搬到新實作的對應位置，必須紅到同一顆測試** —— 這是唯一能抓到「行為消失、測試也跟著
+改、所以全綠」的機制。
+
+| mutation | 紅 | 應紅的那顆 |
+|---|---|---|
+| 拿掉 audience 閘門 | 1 | 有 UI 正在列這個 remote 時暫緩 |
+| 拿掉「仍在 remoteBranches」 | 1 | ref 已經不在 remoteBranches 裡就不送 |
+| 拿掉「仍在 gonePendingByRemote」 | 1 | ref 又回到 remote 上就不送 |
+| 拿掉「沒試過」 | 1 | 只試一次 |
+| claimed 視為終局 | 4 | 中間一次無關的 refresh 不會讓延後項失效（＋三顆同形狀） |
+| provenance 閘門拿掉 | 4 | 對話框來源的 preview 不會餵進延後表（＋三顆同形狀） |
+| **`_dispatched` 的清除規則拿掉** | **0** | ← 搬家新增的規則，沒有測試釘住 |
+
+**跑了 7 個、紅了 12 顆、1 個無紅。** 那個無紅的就是 B 帶進來的新複雜度：remove-before-dispatch
+原本是「派工前從表裡移掉」，而表現在是 controller 的 state、notifier 寫不到，所以「已試過」改
+由 notifier 的 `_dispatched` 持有，並多出一條規則 —— 某 remote 的延後集合被新 preview 整片替換
+時要清掉該 remote 的 `_dispatched`。
+
+**補那顆測試立刻抓到一個真缺陷**：`_autoPruneUnclaimedRefs` 對空 preview 提早 return，所以延後
+表根本不會被清。搬家前這是條件 3 順手處理的（表在 controller 手上，不符合就**移除**）；搬家
+後 notifier 只能跳過不能寫表，清除必須發生在 controller 那一端。後果具體：ref 回到 remote 上、
+後來又被刪掉，會以一筆**全新的**延後項到達，而 notifier 仍記著上一次已經試過，於是第二次消失
+永遠 prune 不掉。
+
+### 一次假的綠，和一次假的紅
+
+兩個都記下來，因為兩個都是照著規則才發現的：
+
+- **假的綠**：第一次做「claimed 視為終局」那條 mutation 時我把它插在 `if (due.isEmpty) return;`
+  **之後**，而那個 fixture 在那一刻 `due` 正好是空的 —— mutation 在到不了的路徑上，回報全綠。
+  依 [TEST-mutation-check-every-test] 的 Note，沒真正套用的 mutation 不算證據；移到 early
+  return 之前重做，紅 4。
+- **假的紅**：跑 mutation 時用 `flutter test $T`（`T` 帶兩個路徑）被當成**單一引數**，四個
+  mutation 全部回報 `+0 -1` —— 那是 loading 失敗不是真的紅。路徑寫死重跑，才拿到 2/3/1/1。
+
+## P3b：already-open 防護，48 個呼叫點
+
+使用者裁定「全部 26 個對話框都加」。實際掃出來是 **48 個呼叫點、14 個檔案**（單行 26、多行
+22，所以只用單行 grep 會少數一半）。
+
+`pushDialogRoute` 放在 `lib/routing/dialog_route.dart` —— 「這個對話框已經開著了嗎」是 **router**
+的事實，與 session 無關，所以它完全獨立於上面的反轉。三個量到的事實各否決一個看起來合理的
+寫法：
+
+- `currentConfiguration.uri` **停在 base location**，不反映被 push 的對話框 → 不能用
+  `GoRouterState.of(context).uri`。
+- 被 push 的是 `ImperativeRouteMatch`，只有它的 `matches.uri` 留著 query；`matchedLocation`
+  丟掉 → 不能用後者，否則 `?remote=origin` 與 `?remote=upstream` 會被當成同一個對話框。
+- pop／barrier 點擊／`Navigator.pop` 三條關閉路徑都清掉那筆 match → 防護不會永久擋住重開，
+  這是它能成立的前提。
+
+**又一次「測試證明不了它看起來在證明的事」**：我先寫的「query 不同要都能開」在
+`matchedLocation` 版本下**照樣全綠** —— `/first` 與 `/first?remote=origin` 本來就不等，閘門
+根本不觸發，兩個都開，斷言成立。真正會被弄壞的是**帶 query 的同一個 URI 推兩次不去重**，補
+了那一顆才紅。[TEST-fixture-cannot-disagree] 的原形。
+
+規則用 `dialog_push_single_source_test.dart` 機械化：掃 `lib/` 底下 `.push(` 接
+`RoutePaths.…Dialog…` 的形狀（`dotAll`，所以多行也吃到），必須 0 命中。沒有這顆，第 49 個呼叫
+點會靜靜繞過去，而症狀只在使用者連點時出現。
+
+`app.dart` 的啟動更新檢查沒有 `BuildContext`（它拿的是 `ref.read(appRouterProvider)`），所以
+另有一個 `pushDialogRouteOn(GoRouter, String)` 入口，`pushDialogRoute` 是它的 `BuildContext`
+便利版。

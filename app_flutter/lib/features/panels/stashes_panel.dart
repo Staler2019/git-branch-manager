@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/repo_identity.dart';
@@ -16,6 +15,7 @@ import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_file_diff_detail.dart';
 import 'panel_widgets.dart';
+import '../../routing/dialog_route.dart';
 
 /// `manage-stashes` as a tab (spec page 14 `IAMAP`), laid out on page 19's
 /// shared template.
@@ -146,7 +146,8 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
           GbmButton(
             label: 'Create…',
             kind: GbmButtonKind.primary,
-            onPressed: () => context.push(
+            onPressed: () => pushDialogRoute(
+              context,
               RoutePaths.stashChangesDialogFor(
                 Uri.encodeComponent(widget.identity.workDir),
               ),

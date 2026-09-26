@@ -38,6 +38,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
+import '../../routing/dialog_route.dart';
 
 /// Minimum popover width. The spec has the popover follow the sidebar's
 /// width; below this the repository names stop being readable, so a narrow
@@ -859,7 +860,8 @@ class RepoSwitcherRow extends StatelessWidget {
       GbmMenuItem(
         label: 'Settings…',
         icon: Icons.settings_outlined,
-        onTap: () => context.push(
+        onTap: () => pushDialogRoute(
+          context,
           RoutePaths.repositorySettingsDialogFor(
             Uri.encodeComponent(entry.workDir),
           ),

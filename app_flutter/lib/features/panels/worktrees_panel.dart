@@ -23,6 +23,7 @@ import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_widgets.dart';
+import '../../routing/dialog_route.dart';
 
 /// `manage-worktrees` as a tab, and spec page 19's **reference instance**:
 /// the other eleven panels "只換欄位不換造型", so this is the one to copy.
@@ -262,7 +263,8 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           GbmButton(
             label: 'Add worktree…',
             kind: GbmButtonKind.primary,
-            onPressed: () => context.push(
+            onPressed: () => pushDialogRoute(
+              context,
               RoutePaths.addWorktreeDialogFor(
                 repoIdFor(widget.identity.workDir),
               ),
@@ -374,7 +376,8 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                       ? null
                       : () => selected.isLocked
                             ? _session.unlockWorktree(selected.path)
-                            : context.push(
+                            : pushDialogRoute(
+                                context,
                                 RoutePaths.lockWorktreeDialogFor(
                                   repoIdFor(widget.identity.workDir),
                                   path: selected.path,
@@ -408,7 +411,8 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                   kind: GbmButtonKind.danger,
                   onPressed: selected.isPrimary || selected.isPrunable
                       ? null
-                      : () => context.push(
+                      : () => pushDialogRoute(
+                          context,
                           RoutePaths.removeWorktreeDialogFor(
                             repoIdFor(widget.identity.workDir),
                             path: selected.path,

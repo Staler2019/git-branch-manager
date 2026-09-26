@@ -8,6 +8,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import 'branch_tree_builder.dart';
+import '../../routing/dialog_route.dart';
 
 /// Everything a single branch row, remote-only row or folder row can do to
 /// one ref: the 05-B / 05-C / 05-J context-menu actions plus New branch.
@@ -35,7 +36,7 @@ class BranchRowActions {
   /// `promptText`'s single-field box, which has none of P17's other three
   /// fields (起點／建立後 checkout／同時 push 並設為 upstream) at all.
   void createBranch(BuildContext context) =>
-      context.push(RoutePaths.newBranchDialogFor(_repoId));
+      pushDialogRoute(context, RoutePaths.newBranchDialogFor(_repoId));
 
   /// 05-B's "New branch from here…".
   ///
@@ -44,17 +45,20 @@ class BranchRowActions {
   /// said the new branch would start there, and the field a user might look
   /// for to change it did not exist. `startPoint` here is what the real
   /// dialog shows and lets you pick something else instead of.
-  void createBranchFrom(BuildContext context, RefInfo branch) => context.push(
-    RoutePaths.newBranchDialogFor(_repoId, startPoint: branch.shortName),
-  );
+  void createBranchFrom(BuildContext context, RefInfo branch) =>
+      pushDialogRoute(
+        context,
+        RoutePaths.newBranchDialogFor(_repoId, startPoint: branch.shortName),
+      );
 
   void openMergeDialog(BuildContext context) =>
-      context.push(RoutePaths.mergeDialogFor(_repoId));
+      pushDialogRoute(context, RoutePaths.mergeDialogFor(_repoId));
 
   /// 05-B's "Rename branch". Unlike the Branch menu and F2, this names the
   /// clicked branch rather than letting the dialog fall back to HEAD.
   void renameBranch(BuildContext context, RefInfo branch) {
-    context.push(
+    pushDialogRoute(
+      context,
       RoutePaths.renameBranchDialogFor(_repoId, branch: branch.shortName),
     );
   }
@@ -66,7 +70,8 @@ class BranchRowActions {
   /// only place the user can ask for the remote copy to go with it (spec page
   /// 18's 「可勾選一併刪遠端」, default unchecked), which after this round is
   /// the sole way a branch's remote side is deleted from the sidebar.
-  void deleteSingle(BuildContext context, RefInfo branch) => context.push(
+  void deleteSingle(BuildContext context, RefInfo branch) => pushDialogRoute(
+    context,
     RoutePaths.deleteBranchDialogFor(_repoId, branch: branch.shortName),
   );
 
@@ -75,7 +80,10 @@ class BranchRowActions {
   /// action bar as this used to do.
   void deleteSelected(BuildContext context, List<String> names) {
     if (names.isEmpty) return;
-    context.push(RoutePaths.deleteBranchesDialogFor(_repoId, names: names));
+    pushDialogRoute(
+      context,
+      RoutePaths.deleteBranchesDialogFor(_repoId, names: names),
+    );
   }
 
   // 05-B "Compare with…" -- same `left: <ref string>` mechanism as the tag
@@ -92,7 +100,8 @@ class BranchRowActions {
   // 05-B "Rebase current onto here" -- the repository-level rebase dialog,
   // pre-selected on this branch, rather than a second per-branch dialog
   // that would duplicate its stash-first handling and commit-count preview.
-  void rebaseOnto(BuildContext context, RefInfo branch) => context.push(
+  void rebaseOnto(BuildContext context, RefInfo branch) => pushDialogRoute(
+    context,
     RoutePaths.rebaseOntoDialogFor(_repoId, target: branch.shortName),
   );
 
@@ -150,7 +159,8 @@ class BranchRowActions {
     final (String remoteName, String branchName) = remoteBranchParts(
       remoteRef.fullName,
     );
-    context.push(
+    pushDialogRoute(
+      context,
       RoutePaths.deleteRemoteBranchDialogFor(
         _repoId,
         remote: remoteName,

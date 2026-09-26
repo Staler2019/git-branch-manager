@@ -22,6 +22,7 @@ import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../routing/dialog_route.dart';
 
 /// What to do with an export once its bytes land on disk. The capi echoes
 /// the destination back, so a listener keys on that to tell one in-flight
@@ -268,7 +269,8 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       // identical, so a second dialog would be the same dialog.
       onRestoreToThisState: selectedCommitOid == null
           ? null
-          : (String path) => context.push(
+          : (String path) => pushDialogRoute(
+              context,
               RoutePaths.restoreFileDialogFor(
                 Uri.encodeComponent(identity.workDir),
                 path: path,
@@ -277,7 +279,8 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
             ),
       onRestoreAndStage: selectedCommitOid == null
           ? null
-          : (String path) => context.push(
+          : (String path) => pushDialogRoute(
+              context,
               RoutePaths.restoreFileDialogFor(
                 Uri.encodeComponent(identity.workDir),
                 path: path,

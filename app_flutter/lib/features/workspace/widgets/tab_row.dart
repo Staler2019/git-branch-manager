@@ -9,6 +9,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'workspace_tab.dart';
+import '../../../routing/dialog_route.dart';
 
 /// Builds the [WorkspaceTab] a [CompareTabSpec] renders as in the tab strip
 /// -- closable, unlike the two fixed tabs (see [WorkspaceTab.closable]'s
@@ -197,7 +198,10 @@ class TabRow extends StatelessWidget {
           TextButton(
             onPressed: conflictActive
                 ? null
-                : () => context.push(RoutePaths.cherryPickDialogFor(repoId)),
+                : () => pushDialogRoute(
+                    context,
+                    RoutePaths.cherryPickDialogFor(repoId),
+                  ),
             child: Text(
               'Cherry-pick…',
               style: TextStyle(
@@ -266,12 +270,17 @@ class _MoreMenu extends StatelessWidget {
       items: <GbmMenuItem>[
         GbmMenuItem(
           label: 'Create tag…',
-          onTap: () =>
-              buttonContext.push(RoutePaths.createTagDialogFor(repoId)),
+          onTap: () => pushDialogRoute(
+            buttonContext,
+            RoutePaths.createTagDialogFor(repoId),
+          ),
         ),
         GbmMenuItem(
           label: 'Undo last operation…',
-          onTap: () => buttonContext.push(RoutePaths.undoLastDialogFor(repoId)),
+          onTap: () => pushDialogRoute(
+            buttonContext,
+            RoutePaths.undoLastDialogFor(repoId),
+          ),
         ),
       ],
     );

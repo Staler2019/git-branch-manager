@@ -447,6 +447,33 @@ void main() {
       expect(_prunes(c).length, 1);
     });
 
+    test('離開延後表又再度被延後的 ref，會重新派工', () {
+      // 「已試過」的記憶必須跟著延後表一起失效。延後表是 per-remote 整片替換的，所以
+      // 「ref 回到 remote 上、後來又被刪掉」會以一筆**全新的**延後項到達；記著上一次
+      // 的嘗試就會讓第二次消失永遠 prune 不掉。
+      //
+      // 搬家之前這條規則不存在：那時「派工前先從表裡移掉」與表是同一個物件的事，
+      // 表換位置之後才分成兩半，所以這是本片新增的成本而不是既有行為。
+      deferOriginMine();
+      c.publishRefs(withoutLocalMine());
+      expect(_prunes(c).length, 1);
+
+      // 它又回到 remote 上：較新的 fetch-preview 不再列它，於是整片延後項被替換成空。
+      c.debugRecordFetch(remoteName: 'origin');
+      c.debugHandleEvent(_fetchFinished());
+      c.debugHandleEvent(_previewReady('origin', const <String>[]));
+      expect(c.state.goneRefsDeferredByClaim, isEmpty);
+
+      // 使用者把本機分支建回來（於是它又被占用），remote 那邊又刪掉它。
+      c.publishRefs(withLocalMine());
+      deferOriginMine();
+      expect(_prunes(c).length, 1, reason: '又被占用了，這一刻不該派工');
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 2);
+    });
+
     test('別的 remote 被列著不會擋到這個 remote', () {
       // 閘門是 per-remote 的。少了這一顆，一個「任何 hold 都擋全部」的實作會全綠。
       final Object surface = Object();

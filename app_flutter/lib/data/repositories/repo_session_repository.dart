@@ -2032,7 +2032,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// stay in `gonePendingByRemote`, and the ones it does are removed from
   /// there by the prune's own success path.
   void _autoPruneUnclaimedRefs(RemotePrunePreview preview) {
-    if (preview.refs.isEmpty) return;
+    if (preview.refs.isEmpty) {
+      // Not a no-op, and it used to be one. An empty preview says nothing on
+      // this remote is gone, so any deferral recorded for it is stale and must
+      // be dropped -- otherwise a ref that came back and later went away again
+      // arrives as a deferral `DeferredPruneNotifier` still remembers having
+      // tried. While the table was this class's own field, dropping it fell out
+      // of the sweep's own 「still in `gonePendingByRemote`」 condition, which
+      // *removed* the entry; the notifier can only skip, so the clearing has to
+      // happen here ([STATE-deferred-prune-flow]).
+      state = state.withGoneRefsDeferredFor(preview.remote, const <String>{});
+      return;
+    }
     final Set<String> claimed = claimedRemoteCounterparts(state.refs);
 
     final List<String> unclaimed = <String>[];

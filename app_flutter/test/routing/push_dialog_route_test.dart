@@ -41,9 +41,8 @@ class _BodyState extends State<_Body> {
 
   @override
   // 小方塊而非填滿的 Text：barrier 那一顆要點得到內容以外的地方。
-  Widget build(BuildContext context) => Center(
-    child: SizedBox(width: 60, height: 60, child: Text(widget.label)),
-  );
+  Widget build(BuildContext context) =>
+      Center(child: SizedBox(width: 60, height: 60, child: Text(widget.label)));
 }
 
 /// The live stack, in the only form that carries the query string.

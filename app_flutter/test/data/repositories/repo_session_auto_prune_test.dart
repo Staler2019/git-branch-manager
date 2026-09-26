@@ -289,4 +289,157 @@ void main() {
       expect(c.state.lastError?.message, 'something the user was reading');
     });
   });
+
+  group('刪掉占用的本機分支之後，補 prune 先前被延後的 ref', () {
+    // fetch 的 preview 說 origin/mine 已經 gone，但那時本機 mine 還占用著它，所以
+    // 自動 prune 照裁定放過它。放過是一個**延後的決定**，不是終局：占用會消失（使用者
+    // 刪掉那個本機分支），而 preview 不會再跑一次。
+    void deferOriginMine(FakeRepoSessionController c) {
+      c.debugRecordFetch(remoteName: 'origin');
+      c.debugHandleEvent(_fetchFinished());
+      c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
+    }
+
+    // 本機 mine 被刪掉之後的 refs 快照。origin/mine 仍在磁碟上 -- 那就是使用者回報
+    // 的「又以 remote 分支的樣子留在側邊欄」的那一列。
+    RefSnapshot withoutLocalMine() => _snapshot(<RefInfo>[
+      _remote('refs/remotes/origin/mine'),
+      _remote('refs/remotes/origin/orphan'),
+    ]);
+
+    RefSnapshot withLocalMine() => _snapshot(<RefInfo>[
+      _local('mine'),
+      _remote('refs/remotes/origin/mine'),
+      _remote('refs/remotes/origin/orphan'),
+    ]);
+
+    test('占用消失之後把它 prune 掉', () {
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      expect(_prunes(c).length, 0, reason: '延後階段本身不該派工');
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 1);
+      expect(_prunes(c).single.args['remoteName'], 'origin');
+      expect(_prunes(c).single.args['refs'], <String>[
+        'refs/remotes/origin/mine',
+      ]);
+      // 背景做掉，所以失敗不會升 banner -- 走的是既有的 automatic 抑制路徑。
+      expect(_prunes(c).single.args['automatic'], isTrue);
+    });
+
+    test('本機分支還在就不動它', () {
+      // 對照組。沒有它，上一顆可能是因為亂 prune 而綠。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+
+      c.publishRefs(withLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('對話框來源的 preview 不會餵進延後表', () {
+      // 沒有 fetch，所以這個 preview 不是自動的。gonePendingByRemote 無論來源都會被
+      // 寫（現有行為，不動），但延後表不該被它填 -- 否則之後任何一次 refs 更新都會把
+      // Prune 對話框正在列的 ref 刪掉，使用者的 Prune 按鈕就撞 not found。
+      final FakeRepoSessionController c = controller();
+      c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
+      expect(c.state.gonePendingRefs, <String>{'refs/remotes/origin/mine'});
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('只試一次', () {
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+
+      c.publishRefs(withoutLocalMine());
+      c.publishRefs(withoutLocalMine());
+
+      // 數而不是 any：第二次派工會對已經刪掉的 ref 再跑一次，拿到 not found。
+      expect(_prunes(c).length, 1);
+    });
+
+    test('ref 已經不在 remoteBranches 裡就不送', () {
+      // 別人（終端機、另一個 client）已經把它刪掉了。送過去只會拿到
+      // 「remote-tracking branch not found」exit 1。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+
+      c.publishRefs(
+        _snapshot(<RefInfo>[_remote('refs/remotes/origin/orphan')]),
+      );
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('ref 又回到 remote 上就不送', () {
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      // 較新的 preview 不再列它 -- withGonePendingFor 的空 entries 會把整片 slice
+      // 移掉，這就是「它又回來了」的退場路徑。非 fetch 來源，所以不會重新延後。
+      c.debugHandleEvent(_previewReady('origin', const <String>[]));
+      expect(c.state.gonePendingRefs, isEmpty);
+
+      // ref 仍在 remoteBranches 裡，所以「已經不在 remoteBranches」那一關過得去 --
+      // 這一顆只能由「仍在 gonePendingByRemote 裡」擋下來。
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('中間一次無關的 refresh 不會讓延後項失效', () {
+      // publishRefs 的頻率遠高於「使用者剛刪掉這個分支」：refreshHistory() 是
+      // refreshRepoStatus() 的 Tier 1 成員，而 C++ 端 Session::onRefreshTimerFired()
+      // 在每次 coalesced refresh 之後**無條件** emit GBM_EVENT_REFS_UPDATED，沒有
+      // 「有沒有變」的閘門。所以「還被占用」是延後項在刪除之前的常態，不是可以把它
+      // 逐出的理由 -- 逐出的話，fetch 與刪除之間按過一次 F5 就讓整個修正失效。
+      //
+      // 上面「本機分支還在就不動它」只有單次 observation，分不出「已逐出」與「留著
+      // 還沒派工」：兩者在那一刻都是 0。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+
+      c.publishRefs(withLocalMine());
+      expect(_prunes(c).length, 0);
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 1);
+    });
+
+    test('Prune 對話框開著時暫緩，關掉之後才派工', () {
+      // 閘門 1 管的是「哪個 preview 可以餵延後表」；這一個管的是時機。sweep 的觸發
+      // （publishRefs）是另一條獨立的路，所以對話框開著時它照樣會開火 -- 把使用者正
+      // 要確認的那一列從底下抽掉，他們自己的 Prune 按鈕接著就撞 not found。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      c.beginPruneDialogPreview('origin');
+
+      c.publishRefs(withoutLocalMine());
+      expect(_prunes(c).length, 0, reason: '對話框正在列它');
+
+      c.endPruneDialogPreview('origin');
+
+      // 暫緩不消耗延後項，所以關窗時就做掉，而不是等到下一次 fetch。只斷言前半的話，
+      // 「開過一次對話框就永久關掉 sweep」也會綠。
+      expect(_prunes(c).length, 1);
+    });
+
+    test('關掉另一個 remote 的對話框不會開錯閘門', () {
+      // 換上來的對話框可能在舊的 dispose 之前就宣告自己，所以帶著過期 remote 的
+      // end 必須被忽略。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      c.beginPruneDialogPreview('origin');
+
+      c.endPruneDialogPreview('upstream');
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+  });
 }

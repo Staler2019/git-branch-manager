@@ -51,10 +51,25 @@ class _PruneRemoteBranchesDialogContentState
   final Set<String> _selectedRefs = <String>{};
   String? _previewedForRemote;
 
+  /// Captured in [initState] because [dispose] may not touch `ref` --
+  /// `_assertNotDisposed()` gates every `ref` member on `context.mounted`, and
+  /// the element is already unmounted by then.
+  late final RepoSessionController _session;
+
+  /// The remote this dialog last declared itself to be listing, so [dispose]
+  /// releases exactly that one. Null until the picker has resolved, which is
+  /// the case for a repository with no remotes at all.
+  String? _declaredRemote;
+
   @override
   void initState() {
     super.initState();
+    _session = ref.read(repoSessionProvider(widget.identity).notifier);
     Future.microtask(() {
+      // The microtask outlives a dialog dismissed before it runs, and
+      // declaring a remote from a dead dialog would hold the auto-prune gate
+      // shut for the rest of the session -- nothing would ever release it.
+      if (!mounted) return;
       final List<RemoteInfo> remotes = ref.read(
         repoSessionProvider(widget.identity).select((state) => state.remotes),
       );
@@ -65,11 +80,27 @@ class _PruneRemoteBranchesDialogContentState
     });
   }
 
+  @override
+  void dispose() {
+    final String? declared = _declaredRemote;
+    // `StateNotifier.mounted`, not this widget's -- the session can be gone
+    // before the dialog is (app exit closes every session).
+    if (declared != null && _session.mounted) {
+      _session.endPruneDialogPreview(declared);
+    }
+    super.dispose();
+  }
+
   void _pickRemote(String remoteName) {
     setState(() => _selectedRemote = remoteName);
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .requestRemotePrunePreview(remoteName);
+    // Declared so the background auto-prune leaves this remote alone while
+    // its candidates are on screen -- otherwise a refs update (an F5, a
+    // focus regain, a branch deleted in a terminal) can prune a row out of
+    // the list the user is about to confirm, and their own Prune button then
+    // fails against a ref that no longer exists.
+    _declaredRemote = remoteName;
+    _session.beginPruneDialogPreview(remoteName);
+    _session.requestRemotePrunePreview(remoteName);
   }
 
   @override

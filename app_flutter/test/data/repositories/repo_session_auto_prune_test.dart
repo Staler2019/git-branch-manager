@@ -10,6 +10,7 @@
 // longer exist.
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
@@ -117,13 +118,23 @@ void main() {
   // origin/orphan has no local branch; origin/mine is claimed by a local
   // branch that never set an upstream (`git push origin HEAD`), which is the
   // case the whole round is about.
+  // Driven through a real `ProviderContainer`, not a bare controller. The
+  // seam these tests must survive is 「FFI events / publishRefs / audience in,
+  // `pruneRemote` out」, and that has to stay true wherever the decision lives
+  // -- a suite that names the controller as its subject would have to be
+  // rewritten the moment the decision moved, which would destroy the very net
+  // it exists to be.
+  late ProviderContainer container;
+  late FakeRepoSessionController c;
+
   /// The real port, not a stub: the gate under test is
   /// `PruneAudience.holdsRemote`, and a hand-written stand-in would let the
   /// token semantics drift out of reach of these tests.
-  PruneAudienceRegistry audience() => PruneAudienceRegistry();
+  late PruneAudienceRegistry a;
 
-  FakeRepoSessionController controller({PruneAudience? withAudience}) {
-    final FakeRepoSessionController c = FakeRepoSessionController(
+  setUp(() {
+    a = PruneAudienceRegistry();
+    c = FakeRepoSessionController(
       _identity,
       RepoSessionState(
         refs: _snapshot(<RefInfo>[
@@ -132,15 +143,20 @@ void main() {
           _remote('refs/remotes/origin/orphan'),
         ]),
       ),
-      pruneAudience: withAudience,
+      pruneAudience: a,
     );
-    addTearDown(c.dispose);
-    return c;
-  }
+    container = ProviderContainer(
+      overrides: <Override>[
+        repoSessionProvider(_identity).overrideWith((Ref ref) => c),
+        pruneAudienceProvider(_identity).overrideWithValue(a),
+      ],
+    );
+    // Disposes the overridden controller too, so it is not torn down twice.
+    addTearDown(container.dispose);
+  });
 
   group('a fetch-triggered preview prunes what no local branch claims', () {
     test('prunes exactly the unclaimed ref', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -160,7 +176,6 @@ void main() {
       // 使用者裁定：「有本機分支的保留 cloud-off，因為使用者還能 repush」.
       // Deleting the tracking ref would throw away the only thing telling
       // them the branch used to be on the remote.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -171,7 +186,6 @@ void main() {
     });
 
     test('splits a mixed preview, keeping the claimed half marked', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -192,7 +206,6 @@ void main() {
     });
 
     test('an empty preview prunes nothing', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -205,7 +218,6 @@ void main() {
       // One fetch, one automatic preview. The marker is consumed by the
       // first reply, so a later dialog-initiated reply for the same remote
       // must not inherit it.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -221,7 +233,6 @@ void main() {
       // prune_remote_branches_dialog.dart calls requestRemotePrunePreview on
       // mount. If this fired, it would delete the rows out from under the
       // list the user opened the dialog to look at.
-      final FakeRepoSessionController c = controller();
 
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
 
@@ -232,7 +243,6 @@ void main() {
     test('a preview for a remote nobody fetched is not automatic', () {
       // Per remote, not "any preview is in flight": fetching origin must not
       // arm an auto-prune for upstream.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -248,7 +258,6 @@ void main() {
       // interrupt them. The failure is still in the operation log -- every
       // git invocation is recorded there with its exit code, which is where
       // this whole bug report came from.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
@@ -261,7 +270,6 @@ void main() {
     test('a user-initiated prune failing still raises it', () {
       // The control. Without this, "lastError is null" could just as well
       // mean the outcome never reached the reducer.
-      final FakeRepoSessionController c = controller();
       c.debugRecordPruneRemote(
         remoteName: 'origin',
         refs: <String>['origin/orphan'],
@@ -274,7 +282,6 @@ void main() {
 
     test('an unrelated error already on screen survives', () {
       // Suppression means "do not write", not "write null".
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
@@ -301,7 +308,7 @@ void main() {
     // fetch 的 preview 說 origin/mine 已經 gone，但那時本機 mine 還占用著它，所以
     // 自動 prune 照裁定放過它。放過是一個**延後的決定**，不是終局：占用會消失（使用者
     // 刪掉那個本機分支），而 preview 不會再跑一次。
-    void deferOriginMine(FakeRepoSessionController c) {
+    void deferOriginMine() {
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
       c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
@@ -321,8 +328,7 @@ void main() {
     ]);
 
     test('占用消失之後把它 prune 掉', () {
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
       expect(_prunes(c).length, 0, reason: '延後階段本身不該派工');
 
       c.publishRefs(withoutLocalMine());
@@ -338,8 +344,7 @@ void main() {
 
     test('本機分支還在就不動它', () {
       // 對照組。沒有它，上一顆可能是因為亂 prune 而綠。
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(withLocalMine());
 
@@ -350,7 +355,6 @@ void main() {
       // 沒有 fetch，所以這個 preview 不是自動的。gonePendingByRemote 無論來源都會被
       // 寫（現有行為，不動），但延後表不該被它填 -- 否則之後任何一次 refs 更新都會把
       // Prune 對話框正在列的 ref 刪掉，使用者的 Prune 按鈕就撞 not found。
-      final FakeRepoSessionController c = controller();
       c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
       expect(c.state.gonePendingRefs, <String>{'refs/remotes/origin/mine'});
 
@@ -360,8 +364,7 @@ void main() {
     });
 
     test('只試一次', () {
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(withoutLocalMine());
       c.publishRefs(withoutLocalMine());
@@ -373,8 +376,7 @@ void main() {
     test('ref 已經不在 remoteBranches 裡就不送', () {
       // 別人（終端機、另一個 client）已經把它刪掉了。送過去只會拿到
       // 「remote-tracking branch not found」exit 1。
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(
         _snapshot(<RefInfo>[_remote('refs/remotes/origin/orphan')]),
@@ -384,8 +386,7 @@ void main() {
     });
 
     test('ref 又回到 remote 上就不送', () {
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
       // 較新的 preview 不再列它 -- withGonePendingFor 的空 entries 會把整片 slice
       // 移掉，這就是「它又回來了」的退場路徑。非 fetch 來源，所以不會重新延後。
       c.debugHandleEvent(_previewReady('origin', const <String>[]));
@@ -407,8 +408,7 @@ void main() {
       //
       // 上面「本機分支還在就不動它」只有單次 observation，分不出「已逐出」與「留著
       // 還沒派工」：兩者在那一刻都是 0。
-      final FakeRepoSessionController c = controller();
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(withLocalMine());
       expect(_prunes(c).length, 0);
@@ -422,12 +422,10 @@ void main() {
       // 閘門 1 管的是「哪個 preview 可以餵延後表」；這一個管的是時機。sweep 的觸發
       // （publishRefs）是另一條獨立的路，所以對話框開著時它照樣會開火 -- 把使用者正
       // 要確認的那一列從底下抽掉，他們自己的 Prune 按鈕接著就撞 not found。
-      final PruneAudienceRegistry a = audience();
-      final FakeRepoSessionController c = controller(withAudience: a);
       final Object surface = Object();
       a.register(surface);
       a.declare(surface, 'origin');
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(withoutLocalMine());
       expect(_prunes(c).length, 0, reason: '有 UI 正在列它');
@@ -444,12 +442,10 @@ void main() {
 
     test('別的 remote 被列著不會擋到這個 remote', () {
       // 閘門是 per-remote 的。少了這一顆，一個「任何 hold 都擋全部」的實作會全綠。
-      final PruneAudienceRegistry a = audience();
-      final FakeRepoSessionController c = controller(withAudience: a);
       final Object surface = Object();
       a.register(surface);
       a.declare(surface, 'upstream');
-      deferOriginMine(c);
+      deferOriginMine();
 
       c.publishRefs(withoutLocalMine());
 

@@ -151,8 +151,22 @@ reviewer**。依據（`Session.cpp:373` 無條件發事件）已親自核對原�
 
 - **真機未驗證。** 三條手測（原始步驟、對話框暫緩、F5 之後再刪）都還沒在真實硬體上跑過。
 
-- 閘門 2 假設「Prune 對話框同時只有一個」，這由它是 route 保證；若哪天改成可並存的面板
-  分頁，`_remoteShownByPruneDialog` 要從單一欄位改成集合。
+- ~~閘門 2 假設「Prune 對話框同時只有一個」，這由它是 route 保證；若哪天改成可並存的面板
+  分頁，`_remoteShownByPruneDialog` 要從單一欄位改成集合。~~ **就地更正（後驗審查指出）：
+  「由它是 route 保證」不成立，而風險不在未來的面板改版，在今天。** `remotePruneRemoteBranches`
+  的 handler 是無條件的 `context.push(...)`，沒有「已經開著」的防護；`dialogRoute()` 的 barrier
+  會擋住非 macOS 的 in-window `MenuBarRow` 第二次點擊，但 macOS 的原生 `PlatformMenuBar` 在
+  Flutter 的 hit-testing 之外，barrier 擋不到它。所以在 macOS 上快速點兩次同一個選單項，可以在
+  第一個 dispose 之前推出**同一個 remote** 的第二個實例；此時第一個的 `dispose()` 會呼叫
+  `endPruneDialogPreview(remote)`，而守衛是比對 **remote 名稱**而非對話框實例，於是閘門在第二個
+  實例眼前被打開、sweep 照跑——正好重現這個修正要防的「使用者自己的 Prune 按鈕撞 not found」。
+  未實際重現（需要真實 macOS 原生選單與 Flutter overlay 的競態，腳本測試搆不到），評為 P3：
+  有界、無資料損失、機率低，且該錯誤在自動 prune 路徑上本來就被抑制。**依 CLAUDE.md 的處置
+  規則，P3 預設 defer/report，不為它改動已 CONFIRMED 的候選**——要修的話是把閘門從 remote 名稱
+  改成對話框實例的 token，並重跑驗收與一次新的 verifier。
+- **沒有針對 microtask-before-dispose 守衛的回歸測試**（P4）。後驗審查嘗試用
+  `router.push` 緊接 `router.pop` 逼出那個競態，但 `pumpWidget`/`push` 內部本來就會讓出
+  microtask queue，構造不出窗口；守衛本身以程式碼檢視確認正確。
 
 ## 裝置層
 

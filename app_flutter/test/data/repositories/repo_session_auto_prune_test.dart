@@ -410,5 +410,36 @@ void main() {
 
       expect(_prunes(c).length, 1);
     });
+
+    test('Prune 對話框開著時暫緩，關掉之後才派工', () {
+      // 閘門 1 管的是「哪個 preview 可以餵延後表」；這一個管的是時機。sweep 的觸發
+      // （publishRefs）是另一條獨立的路，所以對話框開著時它照樣會開火 -- 把使用者正
+      // 要確認的那一列從底下抽掉，他們自己的 Prune 按鈕接著就撞 not found。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      c.beginPruneDialogPreview('origin');
+
+      c.publishRefs(withoutLocalMine());
+      expect(_prunes(c).length, 0, reason: '對話框正在列它');
+
+      c.endPruneDialogPreview('origin');
+
+      // 暫緩不消耗延後項，所以關窗時就做掉，而不是等到下一次 fetch。只斷言前半的話，
+      // 「開過一次對話框就永久關掉 sweep」也會綠。
+      expect(_prunes(c).length, 1);
+    });
+
+    test('關掉另一個 remote 的對話框不會開錯閘門', () {
+      // 換上來的對話框可能在舊的 dispose 之前就宣告自己，所以帶著過期 remote 的
+      // end 必須被忽略。
+      final FakeRepoSessionController c = controller();
+      deferOriginMine(c);
+      c.beginPruneDialogPreview('origin');
+
+      c.endPruneDialogPreview('upstream');
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
   });
 }

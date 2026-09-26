@@ -1906,6 +1906,17 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   final Map<String, Set<String>> _goneRefsDeferredByClaim =
       <String, Set<String>>{};
 
+  /// Which remote the Prune dialog is currently listing candidates for, or
+  /// null when that dialog is not open.
+  ///
+  /// Declared by the dialog itself ([beginPruneDialogPreview]), because this
+  /// class cannot tell who called [requestRemotePrunePreview] -- the capi
+  /// carries no request origin. An explicit signal rather than "a manual
+  /// preview arrived recently": [RepoSessionState.lastRemotePrunePreview] is
+  /// last-write-wins and never cleared, so keying off it would disable the
+  /// deferred sweep permanently once the dialog had been opened once.
+  String? _remoteShownByPruneDialog;
+
   /// True when [error] is a failed `git remote prune --dry-run` for a remote
   /// this class asked about itself, in which case it must not reach
   /// [RepoSessionState.lastError] -- `workspace_screen.dart` renders that as
@@ -2102,6 +2113,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     };
 
     for (final String remote in _goneRefsDeferredByClaim.keys.toList()) {
+      // The Prune dialog is listing this remote's candidates right now.
+      // Pruning one of them empties the list under the user, and their own
+      // Prune button then fails against a ref that is already gone
+      // ([REF-fetch-auto-prunes]). Held back, not discarded: the entry stays,
+      // and [endPruneDialogPreview] re-runs this sweep on close.
+      if (remote == _remoteShownByPruneDialog) continue;
+
       final Set<String> deferred = _goneRefsDeferredByClaim[remote]!;
       final Set<String> stillMarked =
           (state.gonePendingByRemote[remote] ?? const <String>[]).toSet();
@@ -2124,6 +2142,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       if (due.isEmpty) continue;
       pruneRemote(remote, due, automatic: true);
     }
+  }
+
+  /// The Prune dialog has begun listing [remote]'s candidates.
+  ///
+  /// Called again with a different remote when the user switches the dialog's
+  /// picker -- one field, because the dialog is a route and only one can be
+  /// open at a time.
+  void beginPruneDialogPreview(String remote) {
+    _remoteShownByPruneDialog = remote;
+  }
+
+  /// The Prune dialog listing [remote] has closed, so the gate opens again --
+  /// and the sweep runs immediately, so a prune it held back lands on close
+  /// rather than waiting for the next fetch.
+  ///
+  /// A stale [remote] is ignored: a replacement dialog can declare itself
+  /// before the outgoing one is disposed, and clearing then would open the
+  /// gate for a remote that is still on screen.
+  void endPruneDialogPreview(String remote) {
+    if (_remoteShownByPruneDialog != remote) return;
+    _remoteShownByPruneDialog = null;
+    _pruneDeferredGoneRefsNowUnclaimed();
   }
 
   /// Consumes the `kind` stamp on a working-copy completion outcome.
@@ -4350,6 +4390,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _pending.clear();
     _autoPrunePreviewsInFlight.clear();
     _goneRefsDeferredByClaim.clear();
+    _remoteShownByPruneDialog = null;
     super.dispose();
   }
 }

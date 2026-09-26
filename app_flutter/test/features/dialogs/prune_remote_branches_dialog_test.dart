@@ -12,6 +12,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/remote_info.dart';
+import 'package:gbm_flutter/data/repositories/deferred_prune_repository.dart';
 import 'package:gbm_flutter/data/repositories/prune_audience.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -42,7 +43,6 @@ Future<(FakeRepoSessionController, GoRouter)> _pump(
   final FakeRepoSessionController controller = FakeRepoSessionController(
     _identity,
     state,
-    pruneAudience: audience,
   );
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -67,9 +67,17 @@ Future<(FakeRepoSessionController, GoRouter)> _pump(
         repoSessionProvider(_identity).overrideWith((ref) => controller),
         pruneAudienceProvider(_identity).overrideWithValue(audience),
       ],
-      child: MaterialApp.router(
-        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-        routerConfig: router,
+      // Mounts the deferred prune the way `WorkspaceScreen` does -- this test
+      // never builds that screen, and the provider is never built unless
+      // something reads it ([STATE-deferred-prune-flow]).
+      child: Consumer(
+        builder: (BuildContext context, WidgetRef ref, Widget? child) {
+          ref.watch(deferredPruneProvider(_identity));
+          return MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          );
+        },
       ),
     ),
   );

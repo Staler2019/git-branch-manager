@@ -23,6 +23,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/panel_layout_repository.dart';
+import '../../data/repositories/deferred_prune_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../data/services/desktop_launcher.dart';
@@ -259,6 +260,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   @override
   Widget build(BuildContext context) {
     final RepoIdentity identity = widget.identity;
+    // Mounts the deferred prune. Watched for no value -- the provider holds
+    // none -- because a provider nothing reads is never built, and this one
+    // has to be alive to hear the refs update that says the branch claiming a
+    // gone remote-tracking ref has been deleted. Deleting this line deletes
+    // that feature with no compile error ([STATE-deferred-prune-flow]).
+    // Measured: removing this line reddens
+    // `test/integration/workspace_stale_remote_ref_after_delete_test.dart`
+    // and nothing else, which is why that file is the mount's only guard and
+    // no separate mount test exists.
+    ref.watch(deferredPruneProvider(identity));
     // Rebuild on the nine session fields this shell actually consumes --
     // NOT on the whole RepoSessionState.
     //

@@ -54,7 +54,6 @@ class FakeRepoSessionController extends RepoSessionController {
     ParsedConflictFile? parsedFile,
     super.maxOperationLogEntries = 2000,
     super.openSessions,
-    super.pruneAudience,
   }) : super(FakeGbmBindings(), identity, FakeRecentsRepository()) {
     _parsedFile = parsedFile;
     state = initialState;

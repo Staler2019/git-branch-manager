@@ -75,3 +75,26 @@ class RemoteBranchIndex {
 /// 500 local + 500 remote branches against 0.1ms for the indexed form.
 String remoteCounterpartOf(RefInfo local, List<RefInfo> remoteBranches) =>
     RemoteBranchIndex.from(remoteBranches).counterpartOf(local);
+
+/// Every remote-tracking ref (full name) that some local branch in [refs]
+/// currently claims as its counterpart.
+///
+/// **One derivation, three readers**, which is why it is here rather than
+/// private to any of them: the post-fetch auto-prune decides what a fresh
+/// preview may prune, `DeferredPruneNotifier` decides whether a deferred
+/// decision has come due, and the sidebar's gone marking resolves the same
+/// counterparts to draw a row. A second copy of this loop could disagree with
+/// what the user is looking at ([CULT-single-source-of-truth]).
+///
+/// Resolution is [RemoteBranchIndex.counterpartOf]'s, so a branch name carried
+/// by two remotes claims nothing at all — guessing a counterpart from a name
+/// is worse than not guessing ([REF-remote-side-not-upstream]).
+Set<String> claimedRemoteCounterparts(RefSnapshot refs) {
+  final RemoteBranchIndex index = RemoteBranchIndex.from(refs.remoteBranches);
+  final Set<String> claimed = <String>{};
+  for (final RefInfo local in refs.localBranches) {
+    final String counterpart = index.counterpartOf(local);
+    if (counterpart.isNotEmpty) claimed.add(counterpart);
+  }
+  return claimed;
+}

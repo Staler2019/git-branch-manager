@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/repositories/deferred_prune_repository.dart';
 import 'package:gbm_flutter/data/repositories/prune_audience.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -143,7 +144,6 @@ void main() {
           _remote('refs/remotes/origin/orphan'),
         ]),
       ),
-      pruneAudience: a,
     );
     container = ProviderContainer(
       overrides: <Override>[
@@ -153,6 +153,13 @@ void main() {
     );
     // Disposes the overridden controller too, so it is not torn down twice.
     addTearDown(container.dispose);
+    // Mounts the deferred prune, the same way `WorkspaceScreen` does: the
+    // provider holds no value and is never built unless something reads it
+    // ([STATE-deferred-prune-flow]). This is the only line this suite gained
+    // when the decision moved out of the controller -- every assertion and
+    // fixture below is byte-identical, which is what makes it a net rather
+    // than a mirror of the new implementation.
+    container.read(deferredPruneProvider(_identity));
   });
 
   group('a fetch-triggered preview prunes what no local branch claims', () {

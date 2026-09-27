@@ -201,8 +201,9 @@ regression 測試），我依 CLAUDE.md 的 P3/P4 處置規則 defer 了。**使
 controller**，理由是「後續最好維護，而且職責乾淨」，並要求先構思**如何用整合測試確保內部邏輯
 不會因為 refactor 而壞掉**。
 
-本片送出的 `plan-verifier` 被使用者中止，**所以本片沒有任何審查裁決**。不當作 READY，也不假裝
-有審查過。
+~~本片送出的 `plan-verifier` 被使用者中止，所以本片沒有任何審查裁決。不當作 READY，也不假裝
+有審查過。~~ **就地更正**：實作完成後使用者指示「那你跑一下 plan-verifier 跟 reviewer」，兩者
+都跑了，裁決見文末〈審查裁決〉。
 
 ## 先問對的問題：搬家的網子要建在哪個縫上
 
@@ -366,5 +367,54 @@ notifier 讀）、`withGoneRefsDeferredFor`、`PruneAudience`／`holdsRemote`／
   所以順序是先推再改，而推送要等指示。
 - **真機手測四條**（原始回報流程；fetch → F5 → 刪分支；Prune 對話框開著時於外部刪掉占用分支，
   列表不被抽掉、關窗才消失；同一選單項連點兩次只開一個對話框）需要使用者的機器與眼睛。
-- **本片沒有任何審查裁決**（送出的 `plan-verifier` 被使用者中止），第一片 blocker 3 的修正
-  也沒有 fresh reviewer。不當作 READY。
+- ~~**本片沒有任何審查裁決**（送出的 `plan-verifier` 被使用者中止），第一片 blocker 3 的修正
+  也沒有 fresh reviewer。不當作 READY。~~ **就地更正**：兩者都跑了，見下一節。
+
+## 審查裁決
+
+實作完成後補跑，使用者指示「那你跑一下 plan-verifier 跟 reviewer」。兩者同時送出，讀取範圍不
+重疊（`plan-verifier` 唯讀，只有 `verifier` 跑測試）。
+
+**`plan-verifier`：READY**（bare，符合角色契約）。送審的是 plan 檔的第二片，並明確告知它「這一
+片已經實作了、上次送審被中止、所以沒有任何裁決」，要它就設計本身裁決。點名七處請它挑，包含
+「sink port 會讓 provider 圖成環」這個我拿來否決另一條路的主張是否成立、`_dispatched` 失效規則
+是否完整、`deferredPruneProvider` 的掛載有沒有靜悄悄關掉功能的路徑、有沒有哪個 dialog route 的
+URI 不是每個實例唯一（那樣防護會誤擋合法的第二個對話框）。第一片 blocker 3 的保留規則標成
+「未經審查」，因為它確實沒有。
+
+**`verifier`：CONFIRMED**，四個部分逐一獨立重現，無可重現的 P0–P2。
+
+| 部分 | 它自己下的 mutation | 紅 |
+|---|---|---|
+| A 搬家後行為不變 | 拿掉 audience 閘門 | 1（正確那顆） |
+| A | 拿掉 provenance 閘門 | 4（與本輪紀錄同一組） |
+| A | claimed 視為終局 | 5（它的變體比本輪的嚴，連第一次 sweep 也吃到；claim-critical 那顆兩邊都在紅裡） |
+| A | 拿掉 `_forgetDispatchedOutside` | 1 —— **本輪記的「1 個 mutation 無紅」確實被補起來了，不只是宣稱補了** |
+| B | `release` 改成連同 remote 的其他 token 一起丟（模擬 P3 的舊 bug） | 2，正是 P3 要防的那兩顆 |
+| C | 比對基準改回 `matchedLocation` | 1 ——「帶 query 的同一個 URI 第二次也是 no-op」紅，而「query 不同都能開」**維持綠**，與測試檔自己的註解一字不差 |
+
+D 它自己跑了全套：`+2989 ~1 -12`，與本輪報的數字逐字相同；12 紅全在
+`gbm_widgets_golden_test.dart`，每顆是 `0.04%, ~194px` 的次像素差。它額外做了一個本輪沒做的
+交叉檢查：**本 diff 一個 widget／theme／golden 檔都沒碰**，所以那 12 顆在有無此 diff 之下
+結構上必然相同 —— 比「兩邊都跑一次比對」更強的論證。`flutter analyze` 零。
+
+**它自己列出的三個缺口與失誤，照抄不美化**：
+
+- 「仍在 `remoteBranches`」「仍在 `gonePendingByRemote`」與 `_dispatched.contains` 這三個單行條件
+  **它沒有獨立下 mutation**，只靠讀碼加全套綠。它自己標記這是它覆蓋率比本輪窄的一處。
+- 它改 `repo_session_repository.dart` 前**沒有先複製到 scratchpad**，事後用
+  `git show HEAD:<path> >` 還原（不是被禁的 `git checkout -- <file>`）並以 `git diff --stat` 確認
+  byte-identical。其餘五次 mutation 都有備份。
+- 它一度用 `&` detach 跑全套（該角色不許），同一輪內自己抓到、殺掉、改成前景重跑；也一度把 log
+  寫到 `/tmp` 而非 scratchpad，用完即刪。
+
+**第一次送出的 `verifier` 撞到 session rate limit 中途死掉，而它死的時候手上還握著一個沒還原的
+mutation** —— `workspace_screen.dart` 的 `ref.watch(deferredPruneProvider(identity));` 被換成註解，
+也就是功能被關掉的狀態。主 session 從 `HEAD` 還原（先存副本、用 `git show` 而非
+`git checkout --`）並以 32 顆測試確認。它斷氣前最後一句是「Confirmed.」，**那不是裁決** —— 沒有
+分部證據、沒有 CONFIRMED／REFUTED／INCONCLUSIVE 那一行，所以整次跑當作沒有產出，重跑時明確
+告知它這件事，要它自己得出結論而不是替一個垂死 agent 的字背書。重跑多加一條約束：**每個
+mutation 讀完結果就立刻還原，不要累積到最後才還**，那正是上一次崩潰留下誤導狀態的原因。
+
+第一片的 blocker 3 修正**現在有 fresh reviewer 了** —— 它是 `verifier` (A) 那條「claimed 視為終局」
+mutation 的主體，紅在 claim-critical 的那顆上。

@@ -8,6 +8,7 @@ import 'routing/app_router.dart';
 import 'routing/route_paths.dart';
 import 'theme/gbm_theme.dart';
 import 'theme/theme_mode_provider.dart';
+import 'routing/dialog_route.dart';
 
 class GbmApp extends ConsumerWidget {
   const GbmApp({super.key});
@@ -26,8 +27,10 @@ class GbmApp extends ConsumerWidget {
         // Pushed through the router instance rather than `context.push`:
         // this builder sits above the Navigator the route resolves against,
         // so its context has no GoRouter of its own to reach.
-        onUpdateAvailable: () =>
-            ref.read(appRouterProvider).push(RoutePaths.updateDialog),
+        onUpdateAvailable: () => pushDialogRouteOn(
+          ref.read(appRouterProvider),
+          RoutePaths.updateDialog,
+        ),
         // Nested rather than a second builder: the sweep is unconditional
         // where the check is not, so they are two jobs, not one.
         // AppExitSessionCleanup is innermost only because nesting order

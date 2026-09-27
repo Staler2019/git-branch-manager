@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../actions/gbm_action_id.dart';
 import '../../../data/models/remote_info.dart';
 import '../../../data/repositories/repo_identity.dart';
+import '../../../data/repositories/prune_audience.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -51,10 +52,28 @@ class _PruneRemoteBranchesDialogContentState
   final Set<String> _selectedRefs = <String>{};
   String? _previewedForRemote;
 
+  /// Captured in [initState] because [dispose] may not touch `ref` --
+  /// `_assertNotDisposed()` gates every `ref` member on `context.mounted`, and
+  /// the element is already unmounted by then.
+  late final RepoSessionController _session;
+
+  /// Ditto, for the same reason.
+  late final PruneAudienceRegistry _audience;
+
   @override
   void initState() {
     super.initState();
+    _session = ref.read(repoSessionProvider(widget.identity).notifier);
+    _audience = ref.read(pruneAudienceProvider(widget.identity));
+    // Synchronously, before this dialog knows which remote it will show.
+    // Registering first is what makes a late declaration refusable: a dialog
+    // dismissed before the microtask below runs is already released, so its
+    // in-flight callback cannot leave a hold nothing will release. `mounted`
+    // still guards the `ref.read` (a disposed element throws), but it is no
+    // longer what keeps the gate honest.
+    _audience.register(this);
     Future.microtask(() {
+      if (!mounted) return;
       final List<RemoteInfo> remotes = ref.read(
         repoSessionProvider(widget.identity).select((state) => state.remotes),
       );
@@ -65,11 +84,25 @@ class _PruneRemoteBranchesDialogContentState
     });
   }
 
+  @override
+  void dispose() {
+    // Unconditional, and safe: the registry is a plain object captured in
+    // [initState], so it needs no liveness check, and releasing a token that
+    // never declared a remote is a no-op -- which is the ordinary path for a
+    // repository with no remotes at all.
+    _audience.release(this);
+    super.dispose();
+  }
+
   void _pickRemote(String remoteName) {
     setState(() => _selectedRemote = remoteName);
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .requestRemotePrunePreview(remoteName);
+    // Declared so the background auto-prune leaves this remote alone while
+    // its candidates are on screen -- otherwise a refs update (an F5, a
+    // focus regain, a branch deleted in a terminal) can prune a row out of
+    // the list the user is about to confirm, and their own Prune button then
+    // fails against a ref that no longer exists.
+    _audience.declare(this, remoteName);
+    _session.requestRemotePrunePreview(remoteName);
   }
 
   @override

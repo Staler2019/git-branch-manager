@@ -474,6 +474,7 @@ class RepoSessionState {
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
     this.gonePendingByRemote = const <String, List<String>>{},
+    this.goneRefsDeferredByClaim = const <String, List<String>>{},
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
@@ -621,6 +622,25 @@ class RepoSessionState {
   /// remote, no accumulation wanted there.
   final Map<String, List<String>> gonePendingByRemote;
 
+  /// remote -> the subset of [gonePendingByRemote] that a **fetch-triggered**
+  /// preview called gone and that a local branch still claimed, so the
+  /// automatic prune left it alone.
+  ///
+  /// The seam between the two halves of the deferred prune
+  /// ([STATE-deferred-prune-flow]): written only by this controller, which is
+  /// the only thing that knows whether a preview reply was one it asked for
+  /// after a fetch, and read only by `DeferredPruneNotifier`, which owns every
+  /// rule about when a deferred decision comes due. What crosses is a *fact*,
+  /// never a command -- the alternative, pushing the deferral into the
+  /// notifier, needs the notifier's `pruneRemote` call back here and makes the
+  /// provider graph circular.
+  ///
+  /// **Replaced per remote, wholesale**, by [withGoneRefsDeferredFor] --
+  /// unlike [gonePendingByRemote], which accumulates. This one is the latest
+  /// preview's *decision*, so a ref a newer preview no longer defers must stop
+  /// being deferred.
+  final Map<String, List<String>> goneRefsDeferredByClaim;
+
   /// Every gone-pending ref across all remotes, flattened -- the only thing
   /// UI code should read.
   Set<String> get gonePendingRefs =>
@@ -709,6 +729,7 @@ class RepoSessionState {
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
     Map<String, List<String>>? gonePendingByRemote,
+    Map<String, List<String>>? goneRefsDeferredByClaim,
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
@@ -765,6 +786,8 @@ class RepoSessionState {
       lastRemotePrunePreview:
           lastRemotePrunePreview ?? this.lastRemotePrunePreview,
       gonePendingByRemote: gonePendingByRemote ?? this.gonePendingByRemote,
+      goneRefsDeferredByClaim:
+          goneRefsDeferredByClaim ?? this.goneRefsDeferredByClaim,
       compareWithWorkingCopyResults:
           compareWithWorkingCopyResults ?? this.compareWithWorkingCopyResults,
       originalOperationMessage: clearOriginalOperationMessage
@@ -801,6 +824,27 @@ class RepoSessionState {
     }
     return copyWith(
       gonePendingByRemote: Map<String, List<String>>.unmodifiable(next),
+    );
+  }
+
+  /// Replaces [remote]'s slice of [goneRefsDeferredByClaim] with [refs].
+  ///
+  /// Wholesale per remote, and an empty [refs] drops the remote entirely --
+  /// see that field's doc comment. The difference from [withGonePendingFor] is
+  /// the difference between a decision and an observation: a newer preview
+  /// that defers nothing means nothing is deferred, whereas gone *marking*
+  /// accumulates because `fetch --all`'s per-remote replies race.
+  RepoSessionState withGoneRefsDeferredFor(String remote, Set<String> refs) {
+    final Map<String, List<String>> next = <String, List<String>>{
+      ...goneRefsDeferredByClaim,
+    };
+    if (refs.isEmpty) {
+      next.remove(remote);
+    } else {
+      next[remote] = refs.toList(growable: false);
+    }
+    return copyWith(
+      goneRefsDeferredByClaim: Map<String, List<String>>.unmodifiable(next),
     );
   }
 
@@ -1988,20 +2032,37 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// stay in `gonePendingByRemote`, and the ones it does are removed from
   /// there by the prune's own success path.
   void _autoPruneUnclaimedRefs(RemotePrunePreview preview) {
-    if (preview.refs.isEmpty) return;
-    final RemoteBranchIndex index = RemoteBranchIndex.from(
-      state.refs.remoteBranches,
-    );
-    final Set<String> claimed = <String>{};
-    for (final RefInfo local in state.refs.localBranches) {
-      final String counterpart = index.counterpartOf(local);
-      if (counterpart.isNotEmpty) claimed.add(counterpart);
+    if (preview.refs.isEmpty) {
+      // Not a no-op, and it used to be one. An empty preview says nothing on
+      // this remote is gone, so any deferral recorded for it is stale and must
+      // be dropped -- otherwise a ref that came back and later went away again
+      // arrives as a deferral `DeferredPruneNotifier` still remembers having
+      // tried. While the table was this class's own field, dropping it fell out
+      // of the sweep's own 「still in `gonePendingByRemote`」 condition, which
+      // *removed* the entry; the notifier can only skip, so the clearing has to
+      // happen here ([STATE-deferred-prune-flow]).
+      state = state.withGoneRefsDeferredFor(preview.remote, const <String>{});
+      return;
+    }
+    final Set<String> claimed = claimedRemoteCounterparts(state.refs);
+
+    final List<String> unclaimed = <String>[];
+    final Set<String> deferred = <String>{};
+    for (final RemotePrunePreviewEntry entry in preview.refs) {
+      if (claimed.contains(entry.fullRefName)) {
+        deferred.add(entry.fullRefName);
+      } else {
+        unclaimed.add(entry.fullRefName);
+      }
     }
 
-    final List<String> unclaimed = <String>[
-      for (final RemotePrunePreviewEntry entry in preview.refs)
-        if (!claimed.contains(entry.fullRefName)) entry.fullRefName,
-    ];
+    // The claimed half is published rather than forgotten. Wholesale for this
+    // remote, the empty case included: this preview's answer supersedes the
+    // previous one's, so a ref it no longer defers must stop being deferred.
+    // What comes due, and when, is `DeferredPruneNotifier`'s
+    // ([STATE-deferred-prune-flow]).
+    state = state.withGoneRefsDeferredFor(preview.remote, deferred);
+
     if (unclaimed.isEmpty) return;
     // Full names in, short names out: pruneRemote normalises at the wire.
     pruneRemote(preview.remote, unclaimed, automatic: true);

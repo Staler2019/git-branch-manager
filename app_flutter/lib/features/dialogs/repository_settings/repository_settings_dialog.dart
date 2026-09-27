@@ -14,6 +14,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../routing/dialog_route.dart';
 import '../../workspace/workspace_screen.dart' show repoIdForRoute;
 
 /// Repository → Settings…
@@ -289,7 +290,8 @@ class _GeneralTab extends StatelessWidget {
             ),
             GbmButton(
               label: 'Clean untracked files…',
-              onPressed: () => context.push(
+              onPressed: () => pushDialogRoute(
+                context,
                 RoutePaths.cleanUntrackedDialogFor(repoIdForRoute(identity)),
               ),
             ),
@@ -370,7 +372,8 @@ class _RemotesTab extends StatelessWidget {
             const SizedBox(width: GbmSpacing.space2),
             GbmButton(
               label: 'Prune remote branches…',
-              onPressed: () => context.push(
+              onPressed: () => pushDialogRoute(
+                context,
                 RoutePaths.pruneRemoteBranchesDialogFor(
                   repoIdForRoute(identity),
                 ),

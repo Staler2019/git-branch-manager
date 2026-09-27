@@ -38,6 +38,7 @@ import 'widgets/commit_message_box.dart';
 import 'widgets/working_copy_board.dart';
 import 'widgets/working_copy_diff_pane.dart';
 import 'widgets/working_copy_file_menu_items.dart';
+import '../../routing/dialog_route.dart';
 
 /// Changed-file list (staged/unstaged/untracked) + diff pane + commit box.
 /// The Dart analog of `WorkingCopyView` (src/app/views/pages/
@@ -793,7 +794,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// destructive call now lives behind `DiscardChangesDialogContent`.
   void _discardFiles(List<String> paths) {
     if (paths.isEmpty) return;
-    context.push(
+    pushDialogRoute(
+      context,
       RoutePaths.discardChangesDialogFor(
         Uri.encodeComponent(widget.identity.workDir),
         paths: paths,
@@ -805,7 +807,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// [_discardFiles], in its line mode.
   void _discardLines(int hunkIndex, List<int> lineIndices) {
     if (_selectedPath == null || lineIndices.isEmpty) return;
-    context.push(
+    pushDialogRoute(
+      context,
       RoutePaths.discardLinesDialogFor(
         Uri.encodeComponent(widget.identity.workDir),
         path: _selectedPath!,

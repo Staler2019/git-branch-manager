@@ -10,11 +10,14 @@
 // longer exist.
 import 'dart:convert';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/repositories/deferred_prune_repository.dart';
+import 'package:gbm_flutter/data/repositories/prune_audience.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
@@ -116,8 +119,23 @@ void main() {
   // origin/orphan has no local branch; origin/mine is claimed by a local
   // branch that never set an upstream (`git push origin HEAD`), which is the
   // case the whole round is about.
-  FakeRepoSessionController controller() {
-    final FakeRepoSessionController c = FakeRepoSessionController(
+  // Driven through a real `ProviderContainer`, not a bare controller. The
+  // seam these tests must survive is 「FFI events / publishRefs / audience in,
+  // `pruneRemote` out」, and that has to stay true wherever the decision lives
+  // -- a suite that names the controller as its subject would have to be
+  // rewritten the moment the decision moved, which would destroy the very net
+  // it exists to be.
+  late ProviderContainer container;
+  late FakeRepoSessionController c;
+
+  /// The real port, not a stub: the gate under test is
+  /// `PruneAudience.holdsRemote`, and a hand-written stand-in would let the
+  /// token semantics drift out of reach of these tests.
+  late PruneAudienceRegistry a;
+
+  setUp(() {
+    a = PruneAudienceRegistry();
+    c = FakeRepoSessionController(
       _identity,
       RepoSessionState(
         refs: _snapshot(<RefInfo>[
@@ -127,13 +145,25 @@ void main() {
         ]),
       ),
     );
-    addTearDown(c.dispose);
-    return c;
-  }
+    container = ProviderContainer(
+      overrides: <Override>[
+        repoSessionProvider(_identity).overrideWith((Ref ref) => c),
+        pruneAudienceProvider(_identity).overrideWithValue(a),
+      ],
+    );
+    // Disposes the overridden controller too, so it is not torn down twice.
+    addTearDown(container.dispose);
+    // Mounts the deferred prune, the same way `WorkspaceScreen` does: the
+    // provider holds no value and is never built unless something reads it
+    // ([STATE-deferred-prune-flow]). This is the only line this suite gained
+    // when the decision moved out of the controller -- every assertion and
+    // fixture below is byte-identical, which is what makes it a net rather
+    // than a mirror of the new implementation.
+    container.read(deferredPruneProvider(_identity));
+  });
 
   group('a fetch-triggered preview prunes what no local branch claims', () {
     test('prunes exactly the unclaimed ref', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -153,7 +183,6 @@ void main() {
       // 使用者裁定：「有本機分支的保留 cloud-off，因為使用者還能 repush」.
       // Deleting the tracking ref would throw away the only thing telling
       // them the branch used to be on the remote.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -164,7 +193,6 @@ void main() {
     });
 
     test('splits a mixed preview, keeping the claimed half marked', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -185,7 +213,6 @@ void main() {
     });
 
     test('an empty preview prunes nothing', () {
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -198,7 +225,6 @@ void main() {
       // One fetch, one automatic preview. The marker is consumed by the
       // first reply, so a later dialog-initiated reply for the same remote
       // must not inherit it.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -214,7 +240,6 @@ void main() {
       // prune_remote_branches_dialog.dart calls requestRemotePrunePreview on
       // mount. If this fired, it would delete the rows out from under the
       // list the user opened the dialog to look at.
-      final FakeRepoSessionController c = controller();
 
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
 
@@ -225,7 +250,6 @@ void main() {
     test('a preview for a remote nobody fetched is not automatic', () {
       // Per remote, not "any preview is in flight": fetching origin must not
       // arm an auto-prune for upstream.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
 
@@ -241,7 +265,6 @@ void main() {
       // interrupt them. The failure is still in the operation log -- every
       // git invocation is recorded there with its exit code, which is where
       // this whole bug report came from.
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
@@ -254,7 +277,6 @@ void main() {
     test('a user-initiated prune failing still raises it', () {
       // The control. Without this, "lastError is null" could just as well
       // mean the outcome never reached the reducer.
-      final FakeRepoSessionController c = controller();
       c.debugRecordPruneRemote(
         remoteName: 'origin',
         refs: <String>['origin/orphan'],
@@ -267,7 +289,6 @@ void main() {
 
     test('an unrelated error already on screen survives', () {
       // Suppression means "do not write", not "write null".
-      final FakeRepoSessionController c = controller();
       c.debugRecordFetch(remoteName: 'origin');
       c.debugHandleEvent(_fetchFinished());
       c.debugHandleEvent(_previewReady('origin', <String>['origin/orphan']));
@@ -287,6 +308,182 @@ void main() {
       c.debugHandleEvent(_pruneFinished(succeeded: false));
 
       expect(c.state.lastError?.message, 'something the user was reading');
+    });
+  });
+
+  group('刪掉占用的本機分支之後，補 prune 先前被延後的 ref', () {
+    // fetch 的 preview 說 origin/mine 已經 gone，但那時本機 mine 還占用著它，所以
+    // 自動 prune 照裁定放過它。放過是一個**延後的決定**，不是終局：占用會消失（使用者
+    // 刪掉那個本機分支），而 preview 不會再跑一次。
+    void deferOriginMine() {
+      c.debugRecordFetch(remoteName: 'origin');
+      c.debugHandleEvent(_fetchFinished());
+      c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
+    }
+
+    // 本機 mine 被刪掉之後的 refs 快照。origin/mine 仍在磁碟上 -- 那就是使用者回報
+    // 的「又以 remote 分支的樣子留在側邊欄」的那一列。
+    RefSnapshot withoutLocalMine() => _snapshot(<RefInfo>[
+      _remote('refs/remotes/origin/mine'),
+      _remote('refs/remotes/origin/orphan'),
+    ]);
+
+    RefSnapshot withLocalMine() => _snapshot(<RefInfo>[
+      _local('mine'),
+      _remote('refs/remotes/origin/mine'),
+      _remote('refs/remotes/origin/orphan'),
+    ]);
+
+    test('占用消失之後把它 prune 掉', () {
+      deferOriginMine();
+      expect(_prunes(c).length, 0, reason: '延後階段本身不該派工');
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 1);
+      expect(_prunes(c).single.args['remoteName'], 'origin');
+      expect(_prunes(c).single.args['refs'], <String>[
+        'refs/remotes/origin/mine',
+      ]);
+      // 背景做掉，所以失敗不會升 banner -- 走的是既有的 automatic 抑制路徑。
+      expect(_prunes(c).single.args['automatic'], isTrue);
+    });
+
+    test('本機分支還在就不動它', () {
+      // 對照組。沒有它，上一顆可能是因為亂 prune 而綠。
+      deferOriginMine();
+
+      c.publishRefs(withLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('對話框來源的 preview 不會餵進延後表', () {
+      // 沒有 fetch，所以這個 preview 不是自動的。gonePendingByRemote 無論來源都會被
+      // 寫（現有行為，不動），但延後表不該被它填 -- 否則之後任何一次 refs 更新都會把
+      // Prune 對話框正在列的 ref 刪掉，使用者的 Prune 按鈕就撞 not found。
+      c.debugHandleEvent(_previewReady('origin', <String>['origin/mine']));
+      expect(c.state.gonePendingRefs, <String>{'refs/remotes/origin/mine'});
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('只試一次', () {
+      deferOriginMine();
+
+      c.publishRefs(withoutLocalMine());
+      c.publishRefs(withoutLocalMine());
+
+      // 數而不是 any：第二次派工會對已經刪掉的 ref 再跑一次，拿到 not found。
+      expect(_prunes(c).length, 1);
+    });
+
+    test('ref 已經不在 remoteBranches 裡就不送', () {
+      // 別人（終端機、另一個 client）已經把它刪掉了。送過去只會拿到
+      // 「remote-tracking branch not found」exit 1。
+      deferOriginMine();
+
+      c.publishRefs(
+        _snapshot(<RefInfo>[_remote('refs/remotes/origin/orphan')]),
+      );
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('ref 又回到 remote 上就不送', () {
+      deferOriginMine();
+      // 較新的 preview 不再列它 -- withGonePendingFor 的空 entries 會把整片 slice
+      // 移掉，這就是「它又回來了」的退場路徑。非 fetch 來源，所以不會重新延後。
+      c.debugHandleEvent(_previewReady('origin', const <String>[]));
+      expect(c.state.gonePendingRefs, isEmpty);
+
+      // ref 仍在 remoteBranches 裡，所以「已經不在 remoteBranches」那一關過得去 --
+      // 這一顆只能由「仍在 gonePendingByRemote 裡」擋下來。
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 0);
+    });
+
+    test('中間一次無關的 refresh 不會讓延後項失效', () {
+      // publishRefs 的頻率遠高於「使用者剛刪掉這個分支」：refreshHistory() 是
+      // refreshRepoStatus() 的 Tier 1 成員，而 C++ 端 Session::onRefreshTimerFired()
+      // 在每次 coalesced refresh 之後**無條件** emit GBM_EVENT_REFS_UPDATED，沒有
+      // 「有沒有變」的閘門。所以「還被占用」是延後項在刪除之前的常態，不是可以把它
+      // 逐出的理由 -- 逐出的話，fetch 與刪除之間按過一次 F5 就讓整個修正失效。
+      //
+      // 上面「本機分支還在就不動它」只有單次 observation，分不出「已逐出」與「留著
+      // 還沒派工」：兩者在那一刻都是 0。
+      deferOriginMine();
+
+      c.publishRefs(withLocalMine());
+      expect(_prunes(c).length, 0);
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 1);
+    });
+
+    test('有 UI 正在列這個 remote 時暫緩，放開之後才派工', () {
+      // 閘門 1 管的是「哪個 preview 可以餵延後表」；這一個管的是時機。sweep 的觸發
+      // （publishRefs）是另一條獨立的路，所以對話框開著時它照樣會開火 -- 把使用者正
+      // 要確認的那一列從底下抽掉，他們自己的 Prune 按鈕接著就撞 not found。
+      final Object surface = Object();
+      a.register(surface);
+      a.declare(surface, 'origin');
+      deferOriginMine();
+
+      c.publishRefs(withoutLocalMine());
+      expect(_prunes(c).length, 0, reason: '有 UI 正在列它');
+
+      // 只放開 hold，不再動 refs 也不手動催 sweep：controller 在建構時就訂閱了
+      // audience 的釋放，所以這一顆同時釘住閘門與「放開之後誰來重跑」。接線若退回
+      // 由 provider body 組裝，這一顆就會紅。
+      a.release(surface);
+
+      // 暫緩不消耗延後項，所以放開時就做掉，而不是等到下一次 fetch。只斷言前半的話，
+      // 「開過一次對話框就永久關掉 sweep」也會綠。
+      expect(_prunes(c).length, 1);
+    });
+
+    test('離開延後表又再度被延後的 ref，會重新派工', () {
+      // 「已試過」的記憶必須跟著延後表一起失效。延後表是 per-remote 整片替換的，所以
+      // 「ref 回到 remote 上、後來又被刪掉」會以一筆**全新的**延後項到達；記著上一次
+      // 的嘗試就會讓第二次消失永遠 prune 不掉。
+      //
+      // 搬家之前這條規則不存在：那時「派工前先從表裡移掉」與表是同一個物件的事，
+      // 表換位置之後才分成兩半，所以這是本片新增的成本而不是既有行為。
+      deferOriginMine();
+      c.publishRefs(withoutLocalMine());
+      expect(_prunes(c).length, 1);
+
+      // 它又回到 remote 上：較新的 fetch-preview 不再列它，於是整片延後項被替換成空。
+      c.debugRecordFetch(remoteName: 'origin');
+      c.debugHandleEvent(_fetchFinished());
+      c.debugHandleEvent(_previewReady('origin', const <String>[]));
+      expect(c.state.goneRefsDeferredByClaim, isEmpty);
+
+      // 使用者把本機分支建回來（於是它又被占用），remote 那邊又刪掉它。
+      c.publishRefs(withLocalMine());
+      deferOriginMine();
+      expect(_prunes(c).length, 1, reason: '又被占用了，這一刻不該派工');
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 2);
+    });
+
+    test('別的 remote 被列著不會擋到這個 remote', () {
+      // 閘門是 per-remote 的。少了這一顆，一個「任何 hold 都擋全部」的實作會全綠。
+      final Object surface = Object();
+      a.register(surface);
+      a.declare(surface, 'upstream');
+      deferOriginMine();
+
+      c.publishRefs(withoutLocalMine());
+
+      expect(_prunes(c).length, 1);
     });
   });
 }

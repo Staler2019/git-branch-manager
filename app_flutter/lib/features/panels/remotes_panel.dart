@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/remote_info.dart';
@@ -16,6 +15,7 @@ import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
+import '../../routing/dialog_route.dart';
 
 /// `manage-remotes` as a tab (spec page 14 `IAMAP`), on page 19's template.
 ///
@@ -147,7 +147,8 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
             kind: GbmButtonKind.ghost,
             onPressed: selected == null
                 ? null
-                : () => context.push(
+                : () => pushDialogRoute(
+                    context,
                     RoutePaths.pruneRemoteBranchesDialogFor(
                       Uri.encodeComponent(widget.identity.workDir),
                       remote: selected.name,

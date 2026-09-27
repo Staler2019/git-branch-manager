@@ -23,6 +23,7 @@ import '../../data/repositories/panel_tabs_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/panel_layout_repository.dart';
+import '../../data/repositories/deferred_prune_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../data/services/desktop_launcher.dart';
@@ -50,6 +51,7 @@ import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
 import 'widgets/workspace_action_shortcuts.dart';
 import 'widgets/workspace_tab.dart';
+import '../../routing/dialog_route.dart';
 
 /// The repository shell: menu bar + top bar + tab switcher + sidebar, with
 /// `child` (History or Working Copy, see routing/app_router.dart's
@@ -259,6 +261,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   @override
   Widget build(BuildContext context) {
     final RepoIdentity identity = widget.identity;
+    // Mounts the deferred prune. Watched for no value -- the provider holds
+    // none -- because a provider nothing reads is never built, and this one
+    // has to be alive to hear the refs update that says the branch claiming a
+    // gone remote-tracking ref has been deleted. Deleting this line deletes
+    // that feature with no compile error ([STATE-deferred-prune-flow]).
+    // Measured: removing this line reddens
+    // `test/integration/workspace_stale_remote_ref_after_delete_test.dart`
+    // and nothing else, which is why that file is the mount's only guard and
+    // no separate mount test exists.
+    ref.watch(deferredPruneProvider(identity));
     // Rebuild on the nine session fields this shell actually consumes --
     // NOT on the whole RepoSessionState.
     //
@@ -371,7 +383,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoSessionProvider(identity).select((state) => state.credentialPrompt),
       (previous, next) {
         if (next != null && previous == null) {
-          context.push(RoutePaths.credentialDialogFor(repoId));
+          pushDialogRoute(context, RoutePaths.credentialDialogFor(repoId));
         }
       },
     );
@@ -383,7 +395,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       repoSessionProvider(identity).select((state) => state.checkoutChoices),
       (previous, next) {
         if (next.isNotEmpty && (previous?.isEmpty ?? true)) {
-          context.push(RoutePaths.checkoutRecoveryDialogFor(repoId));
+          pushDialogRoute(
+            context,
+            RoutePaths.checkoutRecoveryDialogFor(repoId),
+          );
         }
       },
     );
@@ -396,7 +411,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ).select((state) => state.deleteBranchChoices),
       (previous, next) {
         if (next.isNotEmpty && (previous?.isEmpty ?? true)) {
-          context.push(RoutePaths.deleteBranchRecoveryDialogFor(repoId));
+          pushDialogRoute(
+            context,
+            RoutePaths.deleteBranchRecoveryDialogFor(repoId),
+          );
         }
       },
     );
@@ -787,7 +805,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // distinguishable.
       GbmActionId.fileCloseWindow: () => context.go(RoutePaths.welcome),
       GbmActionId.filePreferences: () =>
-          context.push(RoutePaths.preferencesDialog),
+          pushDialogRoute(context, RoutePaths.preferencesDialog),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow
       // Edit
       // The five clipboard/history verbs dispatch Flutter's own text-editing
@@ -973,8 +991,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
       GbmActionId.repositoryOpenInTerminal: () =>
           _openInTerminal(ref, identity),
-      GbmActionId.repositorySettings: () =>
-          context.push(RoutePaths.repositorySettingsDialogFor(repoId)),
+      GbmActionId.repositorySettings: () => pushDialogRoute(
+        context,
+        RoutePaths.repositorySettingsDialogFor(repoId),
+      ),
 
       // Branch
       //
@@ -986,38 +1006,49 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // the single source of truth for these rules.
       GbmActionId.branchNewBranch:
           isActionEnabled(GbmActionId.branchNewBranch, session)
-          ? () => context.push(RoutePaths.newBranchDialogFor(repoId))
+          ? () =>
+                pushDialogRoute(context, RoutePaths.newBranchDialogFor(repoId))
           : null,
       GbmActionId.branchCheckout:
           isActionEnabled(GbmActionId.branchCheckout, session)
-          ? () => context.push(RoutePaths.checkoutDialogFor(repoId))
+          ? () => pushDialogRoute(context, RoutePaths.checkoutDialogFor(repoId))
           : null,
       // Detached HEAD (no branch name) or mid-conflict: nothing to rename.
       // No `branch` query parameter -- the dialog reads HEAD itself, which
       // is what "the current branch" has to mean for a menu item and F2.
       GbmActionId.branchRenameCurrentBranch:
           isActionEnabled(GbmActionId.branchRenameCurrentBranch, session)
-          ? () => context.push(RoutePaths.renameBranchDialogFor(repoId))
+          ? () => pushDialogRoute(
+              context,
+              RoutePaths.renameBranchDialogFor(repoId),
+            )
           : null,
       GbmActionId.branchMergeIntoCurrent:
           isActionEnabled(GbmActionId.branchMergeIntoCurrent, session)
-          ? () => context.push(RoutePaths.mergeDialogFor(repoId))
+          ? () => pushDialogRoute(context, RoutePaths.mergeDialogFor(repoId))
           : null,
       // Branch → Rebase onto… is the plain rebase (spec page 06's Rebase
       // row), not the todo-plan editor -- that one is reached from the
       // interactive-rebase dialog's own entry point.
       GbmActionId.branchRebaseOnto:
           isActionEnabled(GbmActionId.branchRebaseOnto, session)
-          ? () => context.push(RoutePaths.rebaseOntoDialogFor(repoId))
+          ? () =>
+                pushDialogRoute(context, RoutePaths.rebaseOntoDialogFor(repoId))
           : null,
       // Stashing mid-conflict would hide the very files being resolved.
       GbmActionId.branchStashChanges:
           isActionEnabled(GbmActionId.branchStashChanges, session)
-          ? () => context.push(RoutePaths.stashChangesDialogFor(repoId))
+          ? () => pushDialogRoute(
+              context,
+              RoutePaths.stashChangesDialogFor(repoId),
+            )
           : null,
       GbmActionId.branchDeleteBranch:
           isActionEnabled(GbmActionId.branchDeleteBranch, session)
-          ? () => context.push(RoutePaths.deleteBranchDialogFor(repoId))
+          ? () => pushDialogRoute(
+              context,
+              RoutePaths.deleteBranchDialogFor(repoId),
+            )
           : null,
 
       // Remote
@@ -1038,8 +1069,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           isActionEnabled(GbmActionId.remoteFetchAllRemotes, session)
           ? () => ref.read(repoSessionProvider(identity).notifier).fetchRemote()
           : null,
-      GbmActionId.remotePruneRemoteBranches: () =>
-          context.push(RoutePaths.pruneRemoteBranchesDialogFor(repoId)),
+      GbmActionId.remotePruneRemoteBranches: () => pushDialogRoute(
+        context,
+        RoutePaths.pruneRemoteBranchesDialogFor(repoId),
+      ),
       // Same destination as Tools > Remotes… -- "同一功能不留兩條路" is
       // about carriers, not about how many menus point at one panel.
       GbmActionId.remoteManageRemotes: () => _openPanelTab(
@@ -1105,16 +1138,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.toolsBisect: () =>
           _openPanelTab(context, ref, identity, repoId, GbmPanelKind.bisect),
       GbmActionId.toolsCleanUntrackedFiles: () =>
-          context.push(RoutePaths.cleanUntrackedDialogFor(repoId)),
+          pushDialogRoute(context, RoutePaths.cleanUntrackedDialogFor(repoId)),
 
       // Help
       GbmActionId.helpDocumentation: () =>
           ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
-          context.push(RoutePaths.keyboardShortcutsDialog),
+          pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
           ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
-      GbmActionId.helpAbout: () => context.push(RoutePaths.aboutDialog),
+      GbmActionId.helpAbout: () =>
+          pushDialogRoute(context, RoutePaths.aboutDialog),
     };
   }
 
@@ -1216,7 +1250,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
 
     if (ref.read(appPreferencesProvider).confirmForcePush) {
-      context.push(RoutePaths.forcePushDialogFor(repoId));
+      pushDialogRoute(context, RoutePaths.forcePushDialogFor(repoId));
     } else {
       ref
           .read(repoSessionProvider(identity).notifier)

@@ -33,6 +33,7 @@ import 'widgets/working_copy_row.dart';
 import 'widgets/graph_columns_selector.dart';
 import 'widgets/commit_row_layout.dart';
 import 'widgets/graph_ref_chips.dart';
+import '../../routing/dialog_route.dart';
 
 /// The Fork-style commit graph, rendered from the real packed
 /// `GraphSnapshot` buffer read over FFI (`gbm_graph_snapshot_rows`/`_oids`/
@@ -167,7 +168,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
   /// oid as a picked row under COMMIT and lets it be changed before the
   /// branch is created.
   void _createBranchFromCommit(BuildContext context, String commitOid) =>
-      context.push(
+      pushDialogRoute(
+        context,
         RoutePaths.newBranchDialogFor(_repoId, startPoint: commitOid),
       );
 
@@ -705,12 +707,14 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
           onCompare: oid.isEmpty ? null : _compareSelection,
           onRebaseOntoHere: oid.isEmpty
               ? null
-              : () => context.push(
+              : () => pushDialogRoute(
+                  context,
                   RoutePaths.rebaseOntoDialogFor(_repoId, target: oid),
                 ),
           onResetBranchHere: oid.isEmpty
               ? null
-              : () => context.push(
+              : () => pushDialogRoute(
+                  context,
                   RoutePaths.resetBranchDialogFor(_repoId, target: oid),
                 ),
           onExportAsPatch: oid.isEmpty ? null : _exportSelectedPatches,

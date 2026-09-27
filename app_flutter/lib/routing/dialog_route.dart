@@ -25,3 +25,45 @@ GoRoute dialogRoute({
     ),
   );
 }
+
+/// Pushes a dialog route, unless that exact dialog is already on the
+/// navigation stack.
+///
+/// **The single way this app opens a dialog** (使用者裁定「全部 26 個對話框都加」).
+/// Every `context.push` of a [dialogRoute] path goes through here, and
+/// `dialog_push_single_source_test.dart` asserts there are no others -- without
+/// that test the 47th call site quietly bypasses the guard.
+///
+/// It exists because a duplicate push really does mount a second instance:
+/// measured, two `PruneRemoteBranchesDialogContent`s coexisted and each issued
+/// its own `git remote prune --dry-run`. Nothing in the app guarded against it,
+/// and the double-click that causes it is one keystroke or one impatient mouse.
+///
+/// Three facts decide the implementation, and each rules out an obvious
+/// alternative:
+///
+/// - `currentConfiguration.uri` stays at the *base* location and does not
+///   reflect a pushed dialog at all, so `GoRouterState.of(context).uri` cannot
+///   answer this question.
+/// - a pushed entry is an [ImperativeRouteMatch], and its `matches.uri` is the
+///   only form that keeps the query string. `matchedLocation` drops it, which
+///   would make `?remote=origin` and `?remote=upstream` the same dialog -- two
+///   legitimately coexisting ones.
+/// - `pop`, a barrier tap and `Navigator.pop` all clear the match, so the guard
+///   is never permanent. That is the premise it rests on; without it this would
+///   be a dialog that can be opened once per session.
+void pushDialogRoute(BuildContext context, String location) =>
+    pushDialogRouteOn(GoRouter.of(context), location);
+
+/// [pushDialogRoute] for a caller that holds the router but no
+/// [BuildContext] -- `app.dart`'s startup update check is the one such caller.
+void pushDialogRouteOn(GoRouter router, String location) {
+  for (final RouteMatchBase match
+      in router.routerDelegate.currentConfiguration.matches) {
+    if (match is ImperativeRouteMatch &&
+        match.matches.uri.toString() == location) {
+      return;
+    }
+  }
+  router.push<void>(location);
+}

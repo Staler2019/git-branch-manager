@@ -3,7 +3,6 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../data/models/commit_meta.dart';
 import '../../data/models/reflog_entry.dart';
@@ -18,6 +17,7 @@ import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
+import '../../routing/dialog_route.dart';
 
 /// `reflog` as a tab (spec page 14 `IAMAP`), on page 19's template.
 ///
@@ -144,7 +144,8 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
             kind: GbmButtonKind.primary,
             onPressed: selected == null
                 ? null
-                : () => context.push(
+                : () => pushDialogRoute(
+                    context,
                     RoutePaths.newBranchDialogFor(
                       Uri.encodeComponent(widget.identity.workDir),
                       startPoint: selected.oid,

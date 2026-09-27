@@ -57,6 +57,7 @@ applies to the Flutter layer too).
 | `compareWithWorkingCopyResults` | `Map<String, CompareWithWorkingCopyResult>` | Compare tab results against the working copy |
 | `originalOperationMessage` | `String?` | original commit message read mid-conflict (see `gbm_*_continue_with_message`) |
 | `gonePendingByRemote` | `Map<String, List<String>>` | remote name → full names of its remote-tracking refs that no longer exist upstream; accumulated per remote from `git remote prune --dry-run` (never replaced wholesale — `fetch --all` fires one preview per remote and the replies race). Distinct from `lastRemotePrunePreview`, which stays last-write-wins for the Prune dialog |
+| `goneRefsDeferredByClaim` | `Map<String, List<String>>` | remote name → the subset of the row above that a **fetch-triggered** preview called gone and that a local branch still claimed, so the auto-prune left it alone. **Replaced per remote, wholesale, on every such preview** — unlike `gonePendingByRemote`, because this one is the latest preview's *decision* rather than an accumulation of observations, and a ref a newer preview no longer defers must stop being deferred. Written only where provenance is known (the controller); read only by `DeferredPruneNotifier`, which is what makes this field the boundary between the two — see [STATE-deferred-prune-flow] |
 
 Plus two derived getters, not fields.
 
@@ -83,6 +84,54 @@ site: both go through `features/sidebar/gone_marking.dart`'s
 `isEffectivelyGone()`, so the sidebar rows, the bulk-select set, the status
 bar and the delete-branch dialog's 「also delete on remote」 checkbox cannot
 disagree about whether a branch is gone.
+
+## [STATE-deferred-prune-flow] The deferred prune is a three-owner flow, and `RepoSessionState` is the seam between two of them
+
+- **Rule**: 「a gone ref was skipped because a local branch claims it」 is produced by the
+  session controller, decided by `DeferredPruneNotifier`, and gated by the UI. No one of the
+  three can do another's part, and the reason is what each of them alone knows:
+
+  ```
+  ┌─ RepoSessionController ────────────────────────────────────────────────┐
+  │ knows PROVENANCE: _autoPrunePreviewsInFlight says which preview reply  │
+  │ it asked for after a fetch. Never published — so nothing downstream    │
+  │ can tell a fetch preview from the Prune dialog's own                   │
+  │   writes ▶ state.goneRefsDeferredByClaim  (per remote, wholesale)      │
+  │   serves ◀ pruneRemote(remote, refs, automatic: true)                  │
+  └────────────┬──────────────────────────────────────────▲───────────────┘
+               │ watch refs + goneRefsDeferredByClaim      │ dispatch
+  ┌────────────▼──────────────────────────────────────────┴───────────────┐
+  │ DeferredPruneNotifier                                                  │
+  │ owns the four conditions, the retention rules, and _dispatched         │
+  └────────────▲───────────────────────────────────────────────────────────┘
+               │ addReleaseListener / holdsRemote
+  ┌────────────┴───────────────────────────────────────────────────────────┐
+  │ PruneAudienceRegistry ◀── register/declare/release ── the Prune dialog │
+  │ knows WHO IS LOOKING. The capi carries no request origin, so this      │
+  │ cannot be derived anywhere else                                        │
+  └────────────────────────────────────────────────────────────────────────┘
+  ```
+
+- **Rule**: **what crosses into the state is a fact, never a command.** The alternative — the
+  controller pushing the deferral into the notifier through a sink port — puts the notifier's
+  `pruneRemote` call back on the controller and makes the *provider graph* circular, which
+  Riverpod rejects at build. Publishing the fact keeps the graph one-directional: the notifier
+  depends on `repoSessionProvider`, and the controller depends on nothing new.
+- **Rule**: **the notifier only exists while something watches it**, because a provider that
+  nothing reads is never built. `WorkspaceScreen` watches `deferredPruneProvider(identity)`
+  for no value — the watch *is* the mount. Deleting that line deletes the whole feature with
+  no compile error and no test failure outside the one that pins it, which is
+  [CULT-orphan-wiring] with the orphan on the *consumer* side.
+- **Rule**: **`_dispatched` is the notifier's own memory, and a wholesale replacement of a
+  remote's deferred set must clear that remote's entries.** The remove-before-dispatch rule
+  ([REF-claim-released-needs-resweep]) used to be 「delete from the table, then dispatch」 while
+  the controller owned the table. The notifier cannot write the controller's state, so the
+  invariant moves: the table is append-and-replace, and 「已試過」 lives beside the policy. Miss
+  the clearing and a ref that leaves and later returns is never retried.
+- **Do**: read gone-ness and claims through the existing single sources —
+  `RemoteBranchIndex.counterpartOf` for claims ([REF-remote-side-not-upstream]) and
+  `gonePendingByRemote` for marking — never by re-deriving either inside the notifier.
+- **Evidence**: [ledger: 刪掉本機分支後殘留的 remote-tracking ref](../ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)
 
 ## [STATE-lifecycle] Session lifecycle
 

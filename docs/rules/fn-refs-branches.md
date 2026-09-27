@@ -113,6 +113,10 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
 - **Do**: **only *fetch-triggered* previews may auto-prune** (`_autoPrunePreviewsInFlight`).
   The Prune dialog asks for a preview of its own, and an undiscriminated rule deletes the
   refs it is listing out from under the user.
+- **Do**: **provenance alone does not uphold that Do once the sweep has a second trigger** —
+  gating *which preview may act* leaves *when it acts* wide open. See
+  [REF-claim-released-needs-resweep] for the deferred re-check and the second, timing gate it
+  needs.
 - **Do**: an automatic prune's failure is kept out of `lastError` — nobody asked for it — but
   still reaches the operation log. Not notifying is not the same as not recording.
 - **See also**: [GIT-worktree-prune-has-no-expire] — 使用者裁定 extends this ruling to worktrees,
@@ -142,3 +146,64 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   documented both forms as coexisting.
 - **Do**: normalise with `shortRemoteRefName()` at the boundary — but keep *comparisons* on
   the full form (`fullRemoteRefName()`).
+
+## [REF-claim-released-needs-resweep] Skipping a gone ref because a local branch claims it is a deferred decision, and only a re-check on refs closes it
+
+- **Rule**: [REF-fetch-auto-prunes] leaves a gone-pending ref alone while a local branch
+  claims it. The claim disappears the moment the user deletes that branch, and **no second
+  preview runs to notice** — so `_autoPruneUnclaimedRefs` records the skipped half in
+  `RepoSessionState.goneRefsDeferredByClaim` and `DeferredPruneNotifier` re-checks it.
+  ~~`_goneRefsDeferredByClaim` … `_pruneDeferredGoneRefsNowUnclaimed` re-checks it from
+  `publishRefs`~~ — the table and every rule below it moved out of the controller; the three
+  owners and why each is irreplaceable are in [STATE-deferred-prune-flow].
+- **Consequence**: without it the stale `refs/remotes/<remote>/<name>` stays on disk, the
+  sidebar redraws the just-deleted branch as a **remote-only row** (still gone-marked), and F5
+  changes nothing because the ref really is still there. Only the *next* fetch cleared it —
+  the whole of the reported 「delete local branch, and the branch shows as still a remote
+  branch there」.
+- **Rule**: the hook is **refs, never the delete operation's own outcome**. At
+  `_handleOperationOutcome`'s `deleteBranch` arm refs have not been re-read yet, so
+  `state.refs.localBranches` still holds the deleted branch and the claim check answers the
+  old question. Going through refs also covers the bulk delete, a delete in a terminal, and
+  `git branch -m` followed by `--unset-upstream`, with no per-path wiring.
+- **Rule**: it costs no network. `pruneRemote` is `git branch --delete --remotes`
+  ([REF-delete-remotes-takes-short-name]), so re-asking `git remote prune --dry-run` would be
+  a round trip for information the first preview already gave — only *who claims it* changed.
+- **Rule**: **「still claimed」 must leave the entry in place; only 「gone from
+  `refs.remoteBranches`」 or 「no longer in `gonePendingByRemote`」 may drop it.** The first is
+  the deferred ref's normal state on every refresh until the delete actually happens, and
+  `Session::onRefreshTimerFired` emits `GBM_EVENT_REFS_UPDATED` **unconditionally** after every
+  coalesced refresh — so one F5 or one focus regain between the fetch and the delete evicts the
+  entry and restores the bug in full. The other two are structurally final, and a reversal
+  arrives as a fresh preview that recreates the entry.
+- **Rule**: **a second, timing gate is required, and provenance is not it.** Provenance
+  restricts which preview may *populate* the table; a refs update is an independent trigger that
+  fires while the Prune dialog is open. The gate is `PruneAudience.holdsRemote` — a port the
+  consumer *asks*, answered by the surface, since the capi carries no request origin — and its
+  `addReleaseListener` is what re-runs the sweep on close so the prune lands there rather than
+  waiting for the next fetch.
+- **Rule**: **the gate is keyed by surface instance, never by remote name.** ~~`_remoteShownByPruneDialog`,
+  one nullable field, because the dialog is a route and only one can be open at a time~~ — measured
+  false: pushing one dialog route twice mounts two instances, each issuing its own preview, and with
+  the remote as the key the first one's `dispose` reopened the gate in front of the second — whose
+  list is the one the user is looking at. `PruneAudienceRegistry` keys on the instance token, and
+  `register` runs synchronously before the surface knows its remote so a late `declare` from a
+  dismissed surface is refusable rather than merely unlikely.
+- **Do not** infer 「a manual preview is outstanding」 from `lastRemotePrunePreview`: it is
+  last-write-wins and never cleared, so it would disable the sweep permanently once the dialog
+  had been opened once.
+- **Do**: the gate is 「this ref has not been tried」 and not 「this ref is prunable」 —
+  [GIT-worktree-prune-has-no-expire]'s rule, and what makes the prune's own refs refresh a
+  no-op instead of a loop. A failed prune waits for the next fetch; the row keeps its marking
+  meanwhile. ~~Remove the ref from the table before dispatching~~ — that spelling assumed the
+  table and the dispatcher were the same object. They are not: the table is state the controller
+  owns, so 「已試過」 lives in `DeferredPruneNotifier._dispatched` beside the policy, and a
+  wholesale replacement of a remote's deferred set must clear that remote's entries
+  ([STATE-deferred-prune-flow]).
+- **Do**: **a single-`publishRefs` fixture cannot see the retention rule** — 「the branch is
+  still there → 0 prunes」 is satisfied both by keeping the entry and by evicting it. The
+  discriminating test publishes refs twice, with the branch present and then deleted. Likewise
+  「the ref left `refs.remoteBranches`」 already answers 0 on its own, so it cannot pin the
+  `gonePendingByRemote` intersection; that needs a ref still present in `remoteBranches` but no
+  longer marked ([TEST-fixture-cannot-disagree]).
+- **Evidence**: [ledger: 刪掉本機分支後殘留的 remote-tracking ref](../ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)

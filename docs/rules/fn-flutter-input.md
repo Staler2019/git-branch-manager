@@ -161,3 +161,33 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `deferToChild`.
 - **Rule**: `ReorderableDragStartListener` accepts at `kPrecisePointerHitSlop` (**1.0px** for a
   mouse), so a whole-row drag handle loses ordinary clicks.
+
+## [FLU-push-dialog-is-single-entry] Every dialog route is pushed through `pushDialogRoute`, and the already-open check can only read `ImperativeRouteMatch.matches.uri`
+
+- **Rule**: `pushDialogRoute(context, location)` / `pushDialogRouteOn(router, location)`
+  (`lib/routing/dialog_route.dart`) is the only way this app opens a dialog — 使用者裁定
+  「全部 26 個對話框都加」, which was 48 call sites across 14 files once counted.
+- **Consequence**: without it a duplicate push really does mount a **second instance**.
+  Measured: pushing one dialog route twice ran `initState` twice, and two
+  `PruneRemoteBranchesDialogContent`s each issued their own `git remote prune --dry-run`.
+  A double-click on one menu item is all it takes.
+- **Rule**: three measured facts each rule out an obvious implementation.
+  `currentConfiguration.uri` **stays at the base location** and does not reflect a pushed
+  dialog at all, so `GoRouterState.of(context).uri` cannot answer the question; a pushed
+  entry is an `ImperativeRouteMatch` whose **`matches.uri` is the only form that keeps the
+  query string** (`matchedLocation` drops it); and `pop`, a barrier tap and `Navigator.pop`
+  all clear the match, which is the premise that keeps the guard from being permanent.
+- **Do**: compare the **full URI including query**. `?remote=origin` and `?remote=upstream`
+  are two legitimately coexisting dialogs, so `matchedLocation` would refuse the second.
+- **Do**: **a test that only asserts 「different queries both open」 cannot pin that choice** —
+  `/first` and `/first?remote=origin` are unequal under either spelling, so the gate never
+  fires and both open. The discriminating test pushes the **same** query-carrying URI twice
+  ([TEST-fixture-cannot-disagree]).
+- **Do**: the rule is mechanised by `test/routing/dialog_push_single_source_test.dart`, which
+  scans `lib/` for `.push(` followed by `RoutePaths.…Dialog…` (with `dotAll`, because 22 of
+  the 48 sites are formatter-wrapped) and requires zero hits. Without it the 49th call site
+  bypasses the guard silently, and the symptom only appears when a user double-clicks.
+- **Note**: the three state-driven pushes ([STATE-credential-recovery]'s credential,
+  checkout-recovery and delete-branch-recovery dialogs) need this most, because a state
+  republish re-enters the same push.
+- **Evidence**: [ledger: 第二片，P3／P4 不 defer](../ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)

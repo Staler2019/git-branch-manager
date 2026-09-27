@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
 import '../../data/repositories/discovery_repository.dart';
 import '../../routing/route_paths.dart';
@@ -11,6 +10,7 @@ import '../../widgets/gbm_panel.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/theme_switcher_buttons.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
+import '../../routing/dialog_route.dart';
 
 /// What the window shows when no repository is open -- route `/`.
 ///
@@ -43,17 +43,19 @@ class WelcomeScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.tune, size: 18),
             tooltip: 'Preferences',
-            onPressed: () => context.push(RoutePaths.preferencesDialog),
+            onPressed: () =>
+                pushDialogRoute(context, RoutePaths.preferencesDialog),
           ),
           IconButton(
             icon: const Icon(Icons.keyboard_outlined, size: 18),
             tooltip: 'Keyboard shortcuts',
-            onPressed: () => context.push(RoutePaths.keyboardShortcutsDialog),
+            onPressed: () =>
+                pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
           ),
           IconButton(
             icon: const Icon(Icons.info_outline, size: 18),
             tooltip: 'About',
-            onPressed: () => context.push(RoutePaths.aboutDialog),
+            onPressed: () => pushDialogRoute(context, RoutePaths.aboutDialog),
           ),
         ],
       ),

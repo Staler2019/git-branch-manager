@@ -238,12 +238,17 @@ One row per shape — when you find a thirteenth, append a row.
   **not** scroll.
 - **Evidence**: ledger: soft-warp
 
-## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, has never been run on Windows
+## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, is inert on Windows — and until the three-OS matrix, had never been run there at all
 
-- **Rule**: `ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
-  whatever a developer's own machine says. The first run on one (Windows 11, Flutter 3.47.5)
-  was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that stayed red with
-  Git's `usr\bin` added.
+- **Rule**: ~~`ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
+  whatever a developer's own machine says.~~ **Corrected in place**: `flutter-ci` is a three-OS
+  matrix as of chore/accept-toolchain-bump ([CI-linux-only]), so the unit tier now runs on
+  `windows-latest` and `macos-26` on every PR. The first run on a real Windows host (Windows 11,
+  Flutter 3.47.5) was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that
+  stayed red with Git's `usr\bin` added.
+- **Rule**: **the rule below is unchanged by that**, and is what the matrix now enforces rather
+  than merely records: a `chmod`/`touch` fixture is still the wrong instrument, it is just no
+  longer invisible until someone happens to own a Windows machine.
 - **Consequence**: a `chmod 555` fixture is not merely unavailable there, it is **silently
   inert** — NTFS ignores the mode bits — so with coreutils installed the test goes green
   having never met a failing write or delete. The same fixture is inert for uid 0 on POSIX.

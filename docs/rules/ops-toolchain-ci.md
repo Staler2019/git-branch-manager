@@ -34,13 +34,28 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   and is safe to take.
 - **Evidence**: ledger: Known gaps
 
-## [CI-linux-only] PR CI compiles Linux only
+## [CI-linux-only] ~~PR CI compiles Linux only~~ — superseded: `flutter-ci` is a three-OS matrix
 
-- **Rule**: `flutter build linux --debug` is the only compile. `windows/runner/` and
-  `macos/Runner/` are built by nothing until a release tag.
-- **Consequence**: assume any edit there reaches `main` uncompiled (**#69**).
-  `test/platform/window_title_test.dart` asserts those runner sources as strings, which
-  catches a drifting literal but never a compile error.
+- **Rule (superseded)**: ~~`flutter build linux --debug` is the only compile. `windows/runner/`
+  and `macos/Runner/` are built by nothing until a release tag.~~ ~~Assume any edit there
+  reaches `main` uncompiled (**#69**).~~
+- **Rule**: `ci.yml`'s `flutter-ci` job is a `fail-fast: false` matrix over
+  `ubuntu-22.04` / `macos-26` / `windows-latest`, each running `flutter analyze`,
+  `flutter test`, the Phase A capi build (`build_capi.sh`, or `build_capi.ps1` on
+  Windows) and `flutter build <target> --debug`. So `windows/runner/` and
+  `macos/Runner/` are compiled on every PR now, not only at a release tag.
+- **Rule**: **what survives is the reason `test/platform/window_title_test.dart` exists** —
+  it asserts those runner sources as *strings*, which catches a drifting literal and never
+  a compile error. The matrix supplies the compile; that test still supplies the literal.
+- **Rule**: the Windows job carries `ilammy/msvc-dev-cmd@v1` for the reason
+  [CI-windows-toolchain-not-implied] gives — without it CMake's probe may take the image's
+  MinGW `g++` and the job compiles something nobody ships.
+- **Note**: **the C++ tier was never Linux-only** — `capi-build` has run the three-OS matrix
+  all along. This rule only ever described the *Flutter* job, and that is the half now closed.
+- **Note**: **still not covered**: `integration_test/` ([TEST-device-tier-not-in-ci]) and the
+  PowerShell updater's *behaviour* ([DRIFT-updater-windows-untested]) — the matrix compiles and
+  unit-tests the three platforms, it does not run the device tier on any of them.
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [CI-windows-cwd-lock] Windows refuses to rename or delete any process's CWD
 

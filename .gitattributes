@@ -7,3 +7,22 @@
 # on a prose file would silently duplicate a paragraph that both sides edited,
 # which is worse than a conflict: a conflict is visible, a duplicate is not.
 docs/ledger/INDEX.md merge=union
+
+# Byte-compared fixtures: never let git rewrite their line endings.
+#
+# Git for Windows ships `core.autocrlf=true` in its *system* config, so a
+# checkout on a Windows runner rewrites every LF in a "text" file to CRLF in
+# the working tree. `update_script_golden_test.dart` compares the generated
+# updater against this golden **as bytes** -- deliberately, because the BOM is
+# half of what it pins ([CI-ps1-needs-bom]) and a string comparison would
+# normalise that away -- while the generator always emits `\n`. So on Windows
+# the golden on disk had CRLF, the generated script had LF, and the byte
+# comparison failed at the first newline (offset 77: <10> against <13>).
+#
+# `-text`, not `binary`: `binary` is `-text -diff`, and the golden is a
+# reviewable PowerShell script whose diff is worth reading.
+#
+# Scoped to the class rather than the one path, unlike the `merge=union` line
+# above: a `.golden` file exists to be compared byte-for-byte, so eol
+# conversion is wrong for every one of them, not just this one.
+*.golden -text

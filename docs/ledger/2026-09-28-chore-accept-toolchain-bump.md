@@ -113,6 +113,59 @@ runner」，而在這個 matrix 之前**沒有任何 CI job 呼叫它**。
 兩種結果都是資訊：綠代表基準圖可攜，紅代表應該拿 CI 的輸出當新基準（那才是可重現的環境）。
 **沒有先斬後奏去重產基準圖**，因為那會讓這個 job 第一次跑就失去它唯一的診斷價值。
 
+## 三之二、CI 第一次跑的結果 —— 兩個都和預測相反
+
+| job | 預測 | 實際 |
+|---|---|---|
+| Flutter UI - macOS | 「很可能第一次就紅在 goldens」 | **全綠** |
+| Flutter UI - Windows | 沒有特別擔心 | **1 紅** |
+
+### macOS 綠：基準圖是可攜的，紅的只有那台開發機
+
+12 顆 golden 在 `macos-26` + Flutter 3.44.9 下全過。所以基準圖沒有綁到烤它的那台機器，
+**本機的 12 紅純粹是 3.47.4 這個 SDK 造成的**，和硬體、字型、機器無關。
+
+這件事直接決定了上一節三個選項的去留：
+
+- **B（重產基準圖）現在是錯的**。重產會把基準綁到 3.47.4，反而讓剛變綠的 CI 變紅。
+- **A（容差 comparator）現在沒有必要**。它要換掉的那個代價（0.5% 門檻會一起吃掉
+  「border-radius 改 1px」）現在換不到任何東西——CI 上根本沒有漂移要吸收。
+- **C（讓它進 CI）已經做完，而且它自己就是答案**。golden 現在有主人了，
+  基準圖對應的是 CI 釘的 3.44.9；開發機跑出 12 紅是本機 SDK 超前的已知結果，不是回歸。
+
+**沒有動 goldens 一根寒毛**，這是先量後決定的直接結果——如果先斬後奏重產，會親手弄壞一個
+本來就是綠的東西，而且沒有任何一層會告訴我。
+
+### Windows 1 紅：一個只有 Windows CI 看得見的真缺陷
+
+`2966 tests passed, 1 failed, 22 skipped`，唯一的紅是
+`update_script_golden_test.dart`「the generated Windows updater matches the checked-in golden」：
+
+```
+Which: at location [77] is <10> instead of <13>
+```
+
+byte 77 是第一個換行。**根因在推測之前就先本機重現了**：
+
+```
+git show HEAD:app_flutter/test/fixtures/gbm-update.ps1.golden | python3 -c "..."
+  LF blob byte77          = 10   ← generated 那一側
+  CRLF-converted byte77   = 13   ← golden 在 Windows 工作區那一側
+```
+
+兩個數字和斷言完全一樣。Git for Windows 的**系統層** config 帶 `core.autocrlf=true`，
+checkout 時把這個 LF 的 golden 在工作區改寫成 CRLF；而 `UpdateInstaller` 永遠輸出 `\n`。
+blob 沒有被動到，所以 repo 裡看不出任何不對，其他平台也看不到。
+
+**這個洞和 golden 一樣老。** `cq.yml` 的 `powershell-parse` job 確實在真的
+`windows-latest` 上讀這個檔，但 PowerShell 不在乎 CRLF，所以它一路都是綠的。
+要三 OS matrix 的**第一次跑**才會浮出來——這個 PR 開出來就是為了這個。
+
+修法是 `.gitattributes` 加 `*.golden -text`（C5）。不用 `binary`，因為那是 `-text -diff`，
+而這個 golden 是一份值得 review 的 PowerShell 腳本。不需要 `--renormalize`，
+因為 blob 本來就是 LF（實測 `tr -dc '\r' | wc -c` → 0）。
+新增規則 [CI-byte-compared-fixture-needs-notext]。
+
 ## 四、記錄更正
 
 - [CI-linux-only] 標題與 Rule 劃掉重寫（三 OS matrix），保留

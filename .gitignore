@@ -244,3 +244,7 @@ tmbootpicker.efi
 #   python3 tools/extract_design_spec.py
 /spec_raw.html
 /spec_logic.js
+
+# flutter_test golden failure output -- regenerated on every failing golden run
+# (masterImage/testImage/isolatedDiff/maskedDiff quadruples). Derived, never tracked.
+app_flutter/test/goldens/failures/

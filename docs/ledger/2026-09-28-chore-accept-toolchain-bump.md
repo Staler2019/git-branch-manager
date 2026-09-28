@@ -186,3 +186,77 @@ blob 沒有被動到，所以 repo 裡看不出任何不對，其他平台也看
 - **macOS 的 Phase B 有無**，兩段註解互相矛盾，未裁決（見上）。
 - `release.yml` 的 Linux 有一句 `mkdir -p build/native_assets/linux` 的既有 workaround，
   `ci.yml` 沒有而且一直是綠的，本輪沒有去對齊兩邊。
+
+## 五、TSan 的紅：一個只有 sanitizer 看得見的測試缺陷
+
+`.gitattributes` 那一推之後 Flutter 三個 job 全綠，但 Thread sanitizer 紅了 —— 而那一推
+**一行 C++ 都沒動**（`git diff --name-only a2e2e6b fc9ba78` 對 `src/`、`tests/`、CMake 的
+交集是空的）。同一棵樹，上一輪綠、這一輪紅。使用者裁定「這輪就診斷並修掉」。
+
+### 走過的死路，兩條，都就地更正
+
+1. **「`this` 是 null」** —— 錯。`~Session()` 跑到 228 行代表它走過了 `operations_->drain()`，
+   那一行解參考成員；`this` 若是 null 早就炸在那裡。
+2. **「是 GCC libtsan 的問題」** —— 錯，而且我為它找了兩個看似合理的理由（macOS 0/40、
+   repo 自己記過 GCC 11 在 `mutex`+`condition_variable` 上的確認誤報）。推翻它的是**第二個
+   sanitizer**：clang 的 ASan 也重現。
+
+### 量出來的四個手臂
+
+真正的錯誤訊息不是 TSan 報的，是 glibc 自己的：
+`Fatal glibc error: assertion failed: mutex->__data.__owner == 0`。
+
+| 手臂（Linux/aarch64，同源碼同容器，各 100 次） | 修法前 | 修法後 |
+|---|---|---|
+| 無 sanitizer | 0/100 | — |
+| gcc-13 TSan | **20/100** | **0/100** |
+| gcc-13 ASan | **17/100** | **0/100** |
+| clang-18 ASan | **13/100** | **0/100** |
+| clang-18 TSan | 0/100 | — |
+
+四個 sanitizer 手臂三個紅、跨兩個廠商 —— 工具鏈假說就是死在這一格。
+
+### 根因：ASan 指到了確切的一行
+
+```
+ERROR: AddressSanitizer: stack-use-after-return
+  #1 operator()  CancelOperationApiTest.cpp:206    finishes.fetch_add(1)
+  #6 logCallback CancelOperationApiTest.cpp:99
+  #7 CallbackRegistry::emit
+  #8 Session.cpp:747      submitOperation 的完成 callback
+  #13 OperationRunner::workerLoop
+```
+
+`finishes` / `trippedOnFirstFinish` 是 `TestBody()` 的 stack local，hook 用 `[&]` 抓它們並存進
+`log_` —— 而 `log_` 是 fixture 成員，活到 `TearDown()` 之後。`TearDown()` 的
+`gbm_session_close()` 會取消所有還在佇列的 operation，每個都發 `OPERATION_FINISHED` 回到
+`logCallback`，於是 hook 在死掉的 stack frame 上寫。
+
+**寫還是輕的。** hook 會**讀**那個死掉的 `finishes` 來決定要不要呼叫
+`gbm_cancel_operation(session_, 0)` —— 垃圾值讓那個分支成立，就在 `~Session()` 執行中重入一個
+正在解構的 Session。glibc 的 mutex 斷言和 `~Session()` 裡的 SEGV 都是從這裡來的。症狀離原因
+隔了兩層 frame 和一個 mutex 位址。
+
+修法一行：`TearDown()` 開頭 `log_.setHook(nullptr)`，在 `gbm_session_close()` 之前。
+**產品碼零改動。** 新增 [TEST-callback-hook-outlives-test-body]。
+
+### 自己犯的三個程序錯誤，寫出來
+
+1. **備份沒做成就往下走。** [TEST-mutation-check-every-test] 明寫「先複製到 scratchpad，絕不
+   用 `git checkout --` 還原」。那個 `cp` 落在 classifier 失效的呼叫裡沒執行，我沒檢查。
+   後來是從 `git show HEAD:` 取原檔（唯讀）補回來的。
+2. **驗證時同時動了兩個變因** —— 新增 `detect_stack_use_after_return=1`，又把 filter 從一個
+   測試換成四個，於是 `17/100 → 100/100` 這個比較毫無意義。差點讀成「修法讓情況變糟」。
+   重做成同條件對照才有上表。
+3. **100/100 裡一個 sanitizer 報告都沒有**，全是斷言失敗 —— 我一開始用退出碼數，把崩潰和
+   斷言混在一起。後來把兩者分欄才看清楚。
+
+### 沒做／開著的
+
+- **`SessionCloseCancelsQueuedOperationsInsteadOfDraining` 在快機器上時序脆弱**：斷言
+  `succeeded <= 1`，而這個容器跑出 `14 vs 1`（20 個 operation 有 14 個在 close 前跑完）。
+  它不裝 hook，所以本輪的修法不可能造成它；CI 上也沒見過。**記錄待裁定，沒有自行調整斷言。**
+- **capi 沒有擋「對正在解構的 session 再呼叫進來」**。本輪的測試是以非法方式呼叫的，但
+  `gbm_capi.h` 並沒有說那不合法。要不要補一道防線是獨立決定，未裁定。
+- 重現全在 **aarch64 Docker**；CI 是 x86_64。根因是 stack-use-after-return，與架構無關，
+  但次數不可跨架構引用。

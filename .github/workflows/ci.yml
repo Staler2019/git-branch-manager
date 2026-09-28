@@ -85,16 +85,48 @@ jobs:
           if-no-files-found: ignore
 
   flutter-ci:
-    name: Flutter UI
+    name: Flutter UI - ${{ matrix.name }}
     needs: capi-build
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 25
+    # Three OSes rather than ubuntu-22.04 alone. Two gaps closed, both of
+    # which had been recorded as open rather than unknown:
+    #
+    #   * `windows/runner/` and `macos/Runner/` were compiled by nothing
+    #     until a release tag, so an edit there reached main uncompiled
+    #     ([CI-linux-only], #69). `test/platform/window_title_test.dart`
+    #     asserts those sources as *strings*, which catches a drifting
+    #     literal and never a compile error.
+    #   * the Dart unit/widget tier had no Windows job at all, which
+    #     fix/windows-host-updater-tests named as its own open item after
+    #     finding 58 red on a real Windows host that no tier could see.
+    #
+    # It also gives test/goldens/ an owner for the first time: every group
+    # there carries `skip: !Platform.isMacOS`, so on an ubuntu-only job they
+    # were verified by no tier at all -- only by accident, on whichever
+    # developer happened to run the suite on a Mac.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux,         os: ubuntu-22.04,   target: linux }
+          - { name: macOS (arm64), os: macos-26,       target: macos }
+          - { name: Windows,       os: windows-latest, target: windows }
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - uses: lukka/get-cmake@latest
+
+      # Mandatory, not cosmetic: the GitHub Windows images ship a MinGW g++
+      # on PATH as well as MSVC, and with no toolchain step CMake's compiler
+      # probe takes whichever it finds first -- a job that omits this is not
+      # "the same as the others", it is a different toolchain
+      # ([CI-windows-toolchain-not-implied]).
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - uses: subosito/flutter-action@v2
         with:
@@ -110,33 +142,44 @@ jobs:
         working-directory: app_flutter
         run: flutter pub get
 
+      # Run on all three rather than Linux only: it costs ~25s and the
+      # alternative is an `if:` whose premise ("the analyzer never varies by
+      # host") nothing in this repo checks.
       - name: flutter analyze
         working-directory: app_flutter
         run: flutter analyze
 
-      # Pure-Dart tests only so far (see app_flutter/test/) -- no native
-      # library needed. The real-FFI integration_test/ suite the plan
-      # describes is added once Phase A's build wiring is exercised in CI
-      # (this job, next step) for more than "does it build".
+      # Pure-Dart tests: no native library needed, which is why this runs
+      # before the gbm_capi build below rather than after it.
       - name: flutter test
         working-directory: app_flutter
         run: flutter test
 
       - name: Install Linux desktop build dependencies
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build libgtk-3-dev
 
       # Proves the whole chain end to end: C++ core -> gbm_capi -> FFI
-      # bindings -> a real Flutter Linux build, not just "the Dart compiles".
-      # See app_flutter/scripts/build_capi.sh and the plan's Phase A/Phase B
-      # build-integration note.
-      - name: Build gbm_capi and bundle it
+      # bindings -> a real Flutter desktop build, not just "the Dart
+      # compiles". See app_flutter/scripts/build_capi.{sh,ps1} and the plan's
+      # Phase A/Phase B build-integration note.
+      - name: Build gbm_capi and bundle it (bash)
+        if: runner.os != 'Windows'
         run: app_flutter/scripts/build_capi.sh
 
-      - name: flutter build linux
+      # build_capi.ps1's own header says it is "PowerShell for the CI Windows
+      # runner", and until this matrix existed no CI job called it --
+      # [CULT-orphan-wiring] with the orphan on the producer side.
+      - name: Build gbm_capi and bundle it (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: app_flutter/scripts/build_capi.ps1
+
+      - name: flutter build ${{ matrix.target }}
         working-directory: app_flutter
-        run: flutter build linux --debug
+        run: flutter build ${{ matrix.target }} --debug
 
   thread-sanitizer:
     name: Thread sanitizer

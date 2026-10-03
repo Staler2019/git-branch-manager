@@ -328,7 +328,7 @@ void main() {
     await tester.pump(const Duration(seconds: 3)); // drain tier 2's fallback
   });
 
-  // [STATE-refresh-entry-point] says membership is a rule, not a list:
+  // `refreshRepoStatus()`'s doc says membership is a rule, not a list:
   // *every* zero-argument `refresh*` on the controller is in the sweep, and
   // the `request*` family is excluded because each is keyed to a user
   // selection that need not still exist when the window comes back. The

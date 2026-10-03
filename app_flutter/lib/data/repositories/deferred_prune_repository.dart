@@ -22,9 +22,9 @@ import 'repo_session_repository.dart';
 /// and the Prune dialog is the only thing that knows whether its candidate
 /// list is on screen. Neither knows *when a deferred decision comes due*, and
 /// that is all this holds. `RepoSessionState.goneRefsDeferredByClaim` is the
-/// seam on one side and [PruneAudience] the seam on the other; see
-/// [STATE-deferred-prune-flow] for why a fact crosses in that direction rather
-/// than a command coming back.
+/// seam on one side and [PruneAudience] the seam on the other; the paragraphs
+/// above say why a fact crosses in that direction rather than a command
+/// coming back.
 ///
 /// **It only exists while something watches it.** A provider nothing reads is
 /// never built, so `WorkspaceScreen` watches [deferredPruneProvider] for no

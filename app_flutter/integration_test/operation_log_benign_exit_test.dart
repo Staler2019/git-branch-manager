@@ -45,7 +45,7 @@ void main() {
     // Session open does *not* read the local identity -- verified here, by
     // this test failing on an empty record list before the refresh was added.
     // `refreshRepoStatus()` is what sweeps it in, and F5 / View → Refresh is
-    // the one entry point ([STATE-refresh-entry-point]), which is also exactly
+    // the one entry point (`refreshRepoStatus()`'s doc comment), which is also exactly
     // where the defect was reported from: 「log 在 refresh 時一直出現」.
     //
     // Dispatched from below WorkspaceActionShortcuts, since Actions.invoke

@@ -69,7 +69,7 @@ Future<(FakeRepoSessionController, GoRouter)> _pump(
       ],
       // Mounts the deferred prune the way `WorkspaceScreen` does -- this test
       // never builds that screen, and the provider is never built unless
-      // something reads it ([STATE-deferred-prune-flow]).
+      // something reads it (`DeferredPruneNotifier`'s doc).
       child: Consumer(
         builder: (BuildContext context, WidgetRef ref, Widget? child) {
           ref.watch(deferredPruneProvider(_identity));

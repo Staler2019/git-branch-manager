@@ -75,8 +75,8 @@ class _CheckoutRecoveryDialogContentState
     // `checkoutChoices` is populated by two different refusals sharing one
     // field (CheckoutOp.cpp's dirty-work-tree case, and OperationRunner's
     // preflight() -- an index.lock or an in-progress sequencer operation --
-    // see [STATE-refresh-entry-point]'s "preflight runs before every
-    // submission" and OperationRunner.cpp's workerLoop()). Only the dirty
+    // see OperationRunner.cpp's preflight(), which workerLoop() runs before
+    // every submission). Only the dirty
     // case is what the hardcoded Chinese sentence below describes; a
     // stashAndRetry/forceDiscard choice is CheckoutOp.cpp's own signature,
     // present only on that path.

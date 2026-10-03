@@ -132,7 +132,7 @@ class CommitListRender {
   final GraphSnapshotView graph;
 
   /// Row indices into [graph], in painted order -- an `UnfilteredRowIndices`
-  /// identity view whenever nothing is filtered ([STATE-unfiltered-row-indices]).
+  /// identity view whenever nothing is filtered ([UnfilteredRowIndices]'s doc).
   final List<int> visibleRows;
 
   /// The same rows as oids. Derived; see the factory.

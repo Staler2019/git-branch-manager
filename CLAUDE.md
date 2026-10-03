@@ -57,8 +57,6 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/arch-structure.md
 @docs/rules/arch-state-machine.md
 @docs/rules/arch-actions.md
-@docs/rules/arch-testing.md
-@docs/rules/arch-testing-device.md
 @docs/rules/fn-refs-branches.md
 @docs/rules/ops-ux-rubric.md
 @docs/rules/ops-spec-reading.md

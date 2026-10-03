@@ -1,7 +1,9 @@
 # How to write a rule
 
-Every file next to this one is `@import`ed by [CLAUDE.md](../../CLAUDE.md), so
-everything here is auto-loaded into every session. This file is the format;
+Rules live in two directories with one format. Every file next to this one is
+`@import`ed by [CLAUDE.md](../../CLAUDE.md) and auto-loaded into every session;
+every file in [.claude/rules/](../../.claude/rules/) carries a `paths:` frontmatter
+and is loaded only when a file matching it is read or edited. This file is the format;
 [CLAUDE.md](../../CLAUDE.md)'s own header is the filing rule that decides what
 lands here at all.
 
@@ -51,21 +53,21 @@ Numbers are what a counter hands out, and two parallel branches both take `036`
 from the content, so two branches independently naming the same rule is not a
 collision, it is agreement.
 
-| Prefix | File |
-|---|---|
-| `STRUCT-` | `arch-structure.md` |
-| `STATE-` | `arch-state-machine.md` |
-| `ACT-` | `arch-actions.md` |
-| `TEST-` | `arch-testing.md`, `arch-testing-device.md` |
-| `REF-` | `fn-refs-branches.md` |
-| `GIT-` | `fn-git-commands.md` |
-| `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-input.md` |
-| `CPP-` | `fn-cpp-core.md` |
-| `CI-` | `ops-toolchain-ci.md` |
-| `SPEC-` | `ops-spec-reading.md` |
-| `UX-` | `ops-ux-rubric.md` |
-| `CULT-` | `ops-repo-culture.md` |
-| `DRIFT-` | `drift-open.md` |
+| Prefix | File | Directory |
+|---|---|---|
+| `STRUCT-` | `arch-structure.md` | `docs/rules/` |
+| `STATE-` | `arch-state-machine.md` | `docs/rules/` |
+| `ACT-` | `arch-actions.md` | `docs/rules/` |
+| `TEST-` | `arch-testing.md`, `arch-testing-device.md` | `.claude/rules/` |
+| `REF-` | `fn-refs-branches.md` | `.claude/rules/` |
+| `GIT-` | `fn-git-commands.md` | `.claude/rules/` |
+| `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-input.md` | `.claude/rules/` |
+| `CPP-` | `fn-cpp-core.md` | `.claude/rules/` |
+| `CI-` | `ops-toolchain-ci.md` | `.claude/rules/` |
+| `SPEC-` | `ops-spec-reading.md` | `docs/rules/` |
+| `UX-` | `ops-ux-rubric.md` | `docs/rules/` |
+| `CULT-` | `ops-repo-culture.md` | `docs/rules/` |
+| `DRIFT-` | `drift-open.md` | `docs/rules/` |
 
 Rules: lower-case, hyphenated, 2–4 words, names the *claim* and not the
 symptom. A pin never changes once written — cross-references are by pin, so
@@ -84,7 +86,8 @@ evidence is on:
   in this repo already uses.
 - **A new round** — a real relative link,
   `[ledger: <name>](../ledger/<date>-<branch>.md)`. Those filenames are ours,
-  so the link can be checked.
+  so the link can be checked. From `.claude/rules/` the same link is
+  `../../docs/ledger/<date>-<branch>.md`.
 
 ## Adding or changing a rule
 
@@ -98,17 +101,24 @@ evidence is on:
    when it passes a line count. Length is a bad proxy: what causes a conflict
    is two branches editing the same *region*, and a file of independent `##`
    rules merges cleanly however long it is. Add the new file to CLAUDE.md's
-   import list; the prefix may stay the same (`TEST-` and `FLU-` each span
+   import list, or give it `paths:` under `.claude/rules/`; the prefix may stay the same (`TEST-` and `FLU-` each span
    more than one file already).
 
    The largest files today, and why each is one file:
    `arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
    route trees and field tables — reference material, edited a row at a time;
-   `arch-testing.md` (210) is dominated by one table with the same property.
+   `arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.
    `ops-spec-reading.md` (167) and `ops-repo-culture.md` (153) are prose but
    have no second group to split at. If one of these does grow a second
    group, split it then.
-4. **Superseded rule** → rewrite it in place and say what was overruled, per
+4. **Choosing the directory** → `.claude/rules/` when the whole category is
+   about one subtree and its `paths:` can be read off the code it governs;
+   `docs/rules/` when it is needed before any file is opened (layout, state,
+   spec reading, repo culture, open drift). The split exists to cut context
+   cost: importing every file loaded ~316KB into every session, and the
+   imported half is now ~125KB. Path-scoped rules trigger on Read/Write/Edit
+   only, never on a search.
+5. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.
 
@@ -117,7 +127,7 @@ evidence is on:
 Two scripts, both run from the repo root, both exit non-zero on a finding:
 
 - `scripts/check-rule-pins.py` — every `[PIN]` reference resolves to a real
-  `## [PIN]` heading, and no pin is defined twice. Run it after adding or
+  `## [PIN]` heading in either directory, and no pin is defined twice. Run it after adding or
   renaming a rule. It fences out fenced blocks and code spans, because the
   example above and the `[FLU-036]` counter-example are neither definitions
   nor references.

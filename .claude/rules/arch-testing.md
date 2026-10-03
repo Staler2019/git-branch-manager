@@ -1,6 +1,13 @@
+---
+paths:
+  - "app_flutter/test/**"
+  - "tests/**"
+  - "app_flutter/integration_test/**"
+---
+
 # Testing tiers and fixtures
 
-Pin prefix `TEST-`. Format: [README.md](README.md).
+Pin prefix `TEST-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [TEST-tiers] Testing tiers
 
@@ -127,7 +134,7 @@ One row per shape — when you find a thirteenth, append a row.
   fast container 14 of its 20 operations completed before the close (`14 vs 1`). It installs no
   hook, so this fix cannot have caused it; it is the test's own timing assumption. Not seen on
   CI. Recorded for a ruling rather than silently adjusted.
-- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../../docs/ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [TEST-mutation-check-every-test] Mutation-check every new test, and check the red is narrow
 
@@ -299,4 +306,4 @@ One row per shape — when you find a thirteenth, append a row.
 - **Do**: a path is cut with the separators of the **OS being simulated**, not the host's
   (`UpdateInstaller._executableName`). The two coincide on a real machine, so only a test
   handing a foreign-shaped path can see it.
-- **Evidence**: [ledger: fix/windows-host-updater-tests](../ledger/2026-09-19-fix-windows-host-updater-tests.md)
+- **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)

@@ -1,6 +1,11 @@
+---
+paths:
+  - "app_flutter/**"
+---
+
 # Flutter: layout, painting and scrolling
 
-Pin prefix `FLU-`. Format: [README.md](README.md).
+Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [FLU-finder-proves-existence-not-position] A finder proves existence, never position
 
@@ -120,7 +125,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   pane, where a 0 could in principle be stored and is not a sub-minimum value to be repaired.
 - **See also**: [FLU-splitpane-axis-change] — the same obligation from the other direction; there
   the stored number stops meaning anything, here it stops being reachable.
-- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md)
 
 ## [FLU-storage-id-not-tab-id] A per-tab persisted layout key is spelled from the tab's *identity*, never from its id
 
@@ -142,7 +147,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   file, the drift being removed from twelve.
 - **Note**: re-keying orphans a stored value — a read-miss falling back to the default, never a
   wrong number — which is [FLU-splitpane-axis-change]'s trade-off from a third direction.
-- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md)
 
 ## [FLU-column-nonflex-unbounded-height] A `Column` hands its non-flex children unbounded max-height, whatever its own bound is
 
@@ -157,7 +162,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: wrap the stretching `Row` in `IntrinsicHeight` when the ambient context cannot be trusted
   to hand down a bounded height — which for anything living inside a dialog body `Column` is
   always.
-- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-row-stretch-needs-intrinsic-height] `CrossAxisAlignment.stretch` on a `Row` needs a bounded cross-axis constraint to stretch into
 
@@ -172,7 +177,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   own widget test wrapped the component in `Scaffold(body: Center(child: ...))`, and `Center`
   hands its child a *bounded* constraint, so the isolated test could not see a defect that only
   reproduces once the widget is inside a `Column`.
-- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-border-uniform-color-required] `Border.paint` refuses a `borderRadius` on a non-uniform-colour border
 
@@ -185,7 +190,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `clipBehavior: Clip.antiAlias`, and the differently-coloured edge as a separate solid-colour
   `Container` inside a `Row`/`Column`, clipped to match by the outer container. `GbmDialogWarnField`
   (its 1px `border-subtle` ring plus a 2px `--warning` left rail) is the worked example.
-- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-inherited-default-scope] An `InheritedWidget` can override a widget's own constructor default without touching every call site
 
@@ -200,7 +205,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: reach for this shape whenever a shared container wants to change a descendant widget's
   *default* without asserting authority over every call site's explicit choice — never for a value
   a call site cannot legitimately override.
-- **Evidence**: [ledger: Worktree Dialogs G2–G8](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: Worktree Dialogs G2–G8](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-floating-label-overflows-fixed-height] `InputDecoration.labelText`'s floating label does not fit inside a fixed-height box
 
@@ -234,7 +239,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   and fixing it alone left the other two shipping — [FLU-input-paints-its-own-box] (the
   painted outline is shorter than the wrapper) and [FLU-fixed-height-box-excludes-subtext]
   (an error message eats the box). One cause, three symptoms, found one at a time.
-- **Evidence**: [ledger: Worktree Dialogs G2–G8, 追加](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: Worktree Dialogs G2–G8, 追加](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-input-paints-its-own-box] A `TextField`'s outline is painted by a *child* render box sized by `isDense`, not by the `SizedBox` around it
 
@@ -262,7 +267,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **See also**: [FLU-floating-label-overflows-fixed-height] and
   [FLU-fixed-height-box-excludes-subtext] are the same fixed-height wrapper's other two
   casualties; all three arrived in one change and only the first was noticed.
-- **Evidence**: [ledger: 追加二](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: 追加二](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-fixed-height-box-excludes-subtext] A fixed-height wrapper bounds the box *and* its subtext, so `errorText` eats the box
 
@@ -285,7 +290,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   button's `#30363D`. Name every state (`border`, `enabledBorder`, `disabledBorder`,
   `focusedBorder`), because a field's *resting* state is whichever one its screen leaves it in
   and Add Worktree's 位置 now rests **disabled**.
-- **Evidence**: [ledger: 追加二](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: 追加二](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-collapsed-drawer-stores-height] A `collapsedByDefault` pane's storage holds its *height*, never its open/closed state
 
@@ -317,7 +322,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **See also**: [FLU-splitpane-stored-extent-ignores-min], whose `stored[0] > 0` clamp guard
   now covers only a **non-drawer** extent pane; its 「explicit collapse」 rationale was corrected
   in place by this round.
-- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-clamp-loses-drag-overshoot] A per-step clamp destroys drag overshoot, so 「dragged past the edge」 needs its own accumulator
 
@@ -352,7 +357,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   single frame large enough to skip it leaves the previous height. Both are self-consistent, and
   forcing one would need `_reopenExtent` cleared in memory while storage kept the old number —
   which reads deterministic in-session and differs after a restart.
-- **Evidence**: [ledger: 追加六](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: 追加六](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [FLU-merged-diff-keys-by-source] A view drawing two diffs at once keys every positional row by its source, and settles direction from painted order
 
@@ -393,7 +398,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   `hunkSegments` cannot do it, because a number handed out while the blocks are still grouped
   by hunk is shuffled by the sort. Its `firstOrdinal` parameter and `DiffScopeSegment.ordinal`
   were deleted for that reason rather than rewired ([CULT-orphan-wiring]).
-- **Evidence**: [ledger: 沒寫出來的那條驗收](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Evidence**: [ledger: 沒寫出來的那條驗收](../../docs/ledger/2026-09-05-fix-working-copy-unified-single-view.md)
 - **Do**: a source that is **in flight or refused still says so** even when another source has
   rows. Writing the placeholder rule as 「only when nothing has content」 silently deletes
   「Diff too large to display」 the moment the other side has cards, which is the message
@@ -410,7 +415,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   the right side. See [FLU-index-position-is-two-part] for why the extra part exists — the
   one-part form made every inserted row of an untracked file report the *same* position, which
   is a tie the sort cannot break rather than a wrong side.
-- **Evidence**: [ledger: unified 合成單一清單](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Evidence**: [ledger: unified 合成單一清單](../../docs/ledger/2026-09-05-fix-working-copy-unified-single-view.md)
 
 ## [FLU-index-position-is-two-part] An index position is a line **and** an offset, or every inserted row collapses onto the line above it
 
@@ -430,7 +435,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: the discriminating fixture is an **untracked** file — a tracked one gives its context
   rows real index numbers, so the offset never has to carry anything and a one-part position
   answers correctly on every row ([TEST-fixture-cannot-disagree]).
-- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../../docs/ledger/2026-09-05-fix-working-copy-unified-single-view.md)
 
 ## [FLU-other-side-changes-are-barriers] In a merged diff list, a line the *other* side changes is a hard barrier the gap rule may not swallow
 
@@ -463,4 +468,4 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   side falls inside a gap of the other, so the barrier-less answer is right. The title bar's
   original test had its hunks 50 index lines apart and stayed green through the whole defect
   ([TEST-fixture-cannot-disagree]).
-- **Evidence**: [ledger: 未追蹤檔案中間那一行](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Evidence**: [ledger: 未追蹤檔案中間那一行](../../docs/ledger/2026-09-05-fix-working-copy-unified-single-view.md)

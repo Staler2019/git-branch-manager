@@ -1,6 +1,12 @@
+---
+paths:
+  - "src/**"
+  - "tests/**"
+---
+
 # Invoking git correctly
 
-Pin prefix `GIT-`. Format: [README.md](README.md).
+Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [GIT-branch-d-partially-succeeds] `git branch -d`/`-D` is per-name and partially succeeds
 
@@ -30,7 +36,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   is a decision rather than an omission.
 - **Do not** parse per-name stderr — those strings are gettext-localised, so they may inform
   a *message* but never a correctness decision.
-- **Evidence**: [ledger: 部分成功的刪除不刷新](../ledger/2026-09-05-fix-partial-branch-delete-no-refresh.md)
+- **Evidence**: [ledger: 部分成功的刪除不刷新](../../docs/ledger/2026-09-05-fix-partial-branch-delete-no-refresh.md)
 
 ## [GIT-diff-tree-ignores-first-parent] `git diff-tree` silently ignores `--first-parent`
 
@@ -113,7 +119,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   first-parent continuity does not depend on it — a lane stays occupied on `laneRefCount_`'s
   pending-edge count, so an interleaved row only makes the line longer; and streaming is not
   lost, measured at **0.010s to the first row either way** on 60,000 commits with a commit-graph.
-- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)
+- **Evidence**: [ledger: History 依 commit 時間排序](../../docs/ledger/2026-09-01-fix-history-graph-commit-date-order.md)
 
 ## [GIT-no-index-sees-untracked] `git diff` cannot see an untracked path, and `--no-index` is how one is diffed
 
@@ -141,7 +147,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   on the `capi (FFI) - Windows` job.
 - **See also**: [GIT-zero-means-unmeasured] records the *line-count* half of the same blind spot;
   this is the diff half, which went unwritten for as long as that rule has existed.
-- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../../docs/ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
 
 ## [GIT-new-file-patch-needs-dev-null] A rebuilt patch for a path not in the index needs `new file mode` and `--- /dev/null`
 
@@ -160,7 +166,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   --reverse` checks the patch's *new* side against it, and the plain `a/<path>` header is what
   matches. An intent-to-add path (`git add -N`, which `git diff` also reports as `new file mode`)
   accepts the create form on the staging side — measured, exit 0.
-- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../../docs/ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
 
 ## [GIT-apply-without-cached-follows-autocrlf] `git apply` without `--cached` writes the work tree, so its output follows `core.autocrlf`
 
@@ -181,7 +187,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **Note**: the staging mirror needs none of this, and the contrast is the evidence for the cause —
   `StagesSelectedLinesOfAnUntrackedFile` passed on Windows in the same run because it applies with
   `--cached`.
-- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../../docs/ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
 
 ## [GIT-worktree-status-is-per-path] A per-worktree pending count is one `git status` per path, and two kinds of worktree must not be asked at all
 
@@ -207,7 +213,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **Do**: cache the answer on `path@headOid` and write **`failed` into the cache too**. A gate
   reading 「some count is null」 re-asks forever on the failure path, because a reply saying
   「failed」 leaves the same null; a gate reading 「some key is absent」 terminates on every branch.
-- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md)
 
 ## [GIT-worktree-prune-has-no-expire] `git worktree prune` takes no `--expire`, so a lock is the only thing standing between a temporarily-absent worktree and deletion
 
@@ -232,7 +238,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   cannot use `PendingOperationKind` — it has no arm for a worktree prune and the capi carries no
   request identity — so match `GitError.argv` and consume one in-flight marker, exactly as the
   automatic *preview* suppressor does, so the user's own `Prune` button still reports its failures.
-- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md)
+- **Evidence**: [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md)
 
 ## [GIT-remove-locked-needs-two-forces] `git worktree remove --force` does nothing about a lock, and the capi cannot send the second `--force`
 
@@ -255,7 +261,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **Note**: a worktree whose path is already gone from disk answers `remove` with **exit 0** — git
   just drops the administrative entry. So disabling `Remove` for a prunable worktree is a UI
   routing choice (send them to Prune), **not** something git refuses.
-- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+- **Evidence**: [ledger: Worktree 面板的五個回報](../../docs/ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
 
 ## [GIT-primary-not-current-worktree] `isMain` is the worktree you are standing in; `isPrimary` is the repository's main one, and every gate must pick deliberately
 
@@ -274,7 +280,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   comment you just wrote goes stale** — the second instance here was found only because a later
   commit happened to rewrite that button anyway. [CULT-scrutinise-the-comment] runs
   comment → bug; this is the reverse direction, fixed bug → unfixed twin.
-- **Evidence**: [ledger: Worktree 面板的五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+- **Evidence**: [ledger: Worktree 面板的五個回報](../../docs/ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
 
 ## [GIT-index-lock-server-revalidates] Removing a stale `.git/index.lock` re-checks staleness on the server, and never trusts the click that asked for it
 
@@ -300,7 +306,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   function were both new — before this round `RemoveLock` was a choice `preflight()` could offer
   with **no way to act on it at all** ([ACT-recovery-choice-wire] records the sibling `Retry`
   choice's identical dead-button shape and how both were wired in the same round).
-- **Evidence**: [ledger: OperationChoice wire 精簡](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
+- **Evidence**: [ledger: OperationChoice wire 精簡](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
 
 ## [GIT-remote-pick-b-only-when-absent] Picking a remote branch means the local branch of the same name, and `-b` is correct only while that local branch does not exist
 
@@ -331,7 +337,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   local counterpart happens to exist it pins the bug. The Add Worktree test asserting `-b`
   was named 「remote-only」 while its fixture had a local `release/0.5`
   ([TEST-fixture-cannot-disagree]).
-- **Evidence**: [ledger: 追加三](../ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
+- **Evidence**: [ledger: 追加三](../../docs/ledger/2026-09-05-feat-worktree-dialogs-shell-redesign.md)
 
 ## [GIT-reverse-patch-cannot-unadd] A reverse `git apply --cached` cannot un-add a file, so unstaging *every* line of an added path needs `git restore --staged`
 
@@ -365,7 +371,7 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
   staged. A fixture that only stages cannot see any of this — `GitIntegrationTest.cpp` had
   `StagesSelectedLinesOfAnUntrackedFile` and no unstage mirror
   ([TEST-fixture-cannot-disagree]).
-- **Evidence**: [ledger: unified 合成單一清單，未追蹤 unstage 回到 Untracked](../ledger/2026-09-05-fix-working-copy-unified-single-view.md)
+- **Evidence**: [ledger: unified 合成單一清單，未追蹤 unstage 回到 Untracked](../../docs/ledger/2026-09-05-fix-working-copy-unified-single-view.md)
 
 ## [GIT-untracked-numstat-is-not-a-diff] An untracked `WorkingCopyEntry`'s `unstagedAdded` is the whole file's line count, not a diff, and `unstagedRemoved` is always 0
 
@@ -385,4 +391,4 @@ Pin prefix `GIT-`. Format: [README.md](README.md).
 - **See also**: [GIT-zero-means-unmeasured] — the same "a sentinel can't tell 'not measured'
   from 'really zero'" shape one level up: here it's line counts that are structurally incapable
   of expressing "changed", there it's counts that read 0 when unmeasured.
-- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../../docs/ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

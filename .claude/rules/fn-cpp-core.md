@@ -1,6 +1,13 @@
+---
+paths:
+  - "src/**"
+  - "tests/**"
+  - "CMakeLists.txt"
+---
+
 # C++ core
 
-Pin prefix `CPP-`. Format: [README.md](README.md).
+Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [CPP-run-not-byte-exact] `IProcessRunner::run()` is not byte-exact
 
@@ -58,7 +65,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   reason `operations_->drain()` must still run before the read-pool drain (a
   prior ASan-confirmed use-after-free; see the comment in `~Session()`) is
   unaffected by cancelling first.
-- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../../docs/ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
 
 ## [CPP-read-pool-tasks-need-live-token] Every `sharedReadPool()`-posted read must carry `readCancel_.token()`, never a default `CancellationToken{}`
 
@@ -85,7 +92,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   is bounded; a sibling's is not, until every open session's `readCancel_` is
   cancelled before any of them starts draining — a two-phase shutdown, not
   built this round.
-- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../../docs/ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
 
 ## [CPP-ascii-renderer-is-reference] `GraphAsciiRenderer.cpp` is the reference renderer
 
@@ -110,7 +117,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   of magnitude in process-spawn cost (`docs/reports/windows-process-cost.md`).
 - **Do**: a failure of this second read falls back to the original snapshot's `head.target` rather
   than failing the whole walk — a connector-only refinement must not cost the history walk.
-- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
+- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../../docs/ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
 
 ## [CPP-readhead-propagates-failure] `RefStore::readHead()` propagates a genuine process failure, and `Session::open()` never calls it
 
@@ -127,7 +134,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   scripts the two commands independently (`tests/unit/RefStoreHeadTest.cpp`), never with a
   real-repo capi integration test — one was written that way first and a mutation check caught it
   staying green regardless of the fix.
-- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
+- **Evidence**: [ledger: Windows 未提交列連不到 HEAD](../../docs/ledger/2026-09-01-claude-windows-uncommitted-changes-5z40sr.md)
 
 ## [CPP-parse-refuses-over-cap] Over its byte cap `UnifiedDiffParser::parse` returns *no* files, and every consumer owes the user a message
 
@@ -147,7 +154,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   compares an untracked file's `file_size` to the same `maxBytes` and returns `truncated` without
   spawning git. **`std::filesystem::file_size` returns `uintmax_t(-1)` on failure, not 0**, so a
   failed stat that is let through reports the file as over the cap.
-- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
+- **Evidence**: [ledger: 未追蹤檔案在 Working Copy 看不到 diff](../../docs/ledger/2026-09-01-claude-working-copy-untracked-files-qq2gnc.md)
 
 
 ## [CPP-benign-exit-is-declared] 一個「非零 exit 其實是答案」的指令，要在 `GitCommand` 上自己宣告
@@ -174,7 +181,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   並且在斷言 `benignExit` 之前先 `ASSERT` 抓到的 `exitCode`，否則 fixture 的 `SetUp()` 一改就
   靜靜變成空測試——`RealRepoTest` 和 `OperationLogApiTest` 的 `SetUp()` 都會把 `user.name` 寫進
   **`--local`** scope（沒有 `--global`），所以「乾淨的 repo」在它們裡面不存在。
-- **Evidence**: [ledger: 「回答了否」和「被拒絕」，紀錄分不出來](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 「回答了否」和「被拒絕」，紀錄分不出來](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CPP-windows-terminate-hangs-join] Windows 的 `terminate()` 必須砍整棵樹**並且**取消卡住的同步 I/O，否則 `pump()` 的 join 永遠回不來
 
@@ -260,7 +267,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
 - **Note**: 就算真的有成本也不省，兩個省法都要拿正確性換：共用一個 job 會讓 `TerminateJobObject`
   殺掉並行的其他 git；拿掉 `CREATE_SUSPENDED` 會把「孫子在 assign 之前就生出來」的競態放回去。
   Windows job 11m09s 對 25 分鐘上限，沒有人在等它。
-- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CPP-idle-not-total] 一個動作的逾時要問「還活著嗎」，不是「跑多久了」——而這兩題對 `timeout = 0` 的指令答案不同
 
@@ -292,7 +299,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   **超過** `N × 200ms`（證明產出期間沒被砍）**且**最後仍逾時收場。每一行都要 flush——stdout 對
   pipe 是 block-buffered，沒 flush 的 drip 會在結束時一次湧出，和靜默無從分辨
   ([TEST-fixture-cannot-disagree])。
-- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CPP-cancel-is-registered-not-returned] `OperationRunner::submit()` 的 `Handle` 要被存起來，不是被丟掉
 
@@ -319,7 +326,7 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   （`ProcessRunnerTest` 的 `source.cancel()`、`CancelsAReadOnlyWalkPromptly`、
   `CommitMetaStoreStopsIssuingRequestsOnceCancelled`），三者都在工作開始**之前**取消，
   所以是決定性的。寫在測試檔頂端，不是留白（[SPEC-absent-not-faked]）。
-- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加四，動作的逾時改成閒置](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CPP-interactive-reads-go-to-the-front] The shared read pool is FIFO, so which lane a request takes is a one-sentence policy, not a per-call-site judgment call
 
@@ -345,4 +352,4 @@ Pin prefix `CPP-`. Format: [README.md](README.md).
   — two diff requests posted in immediate succession can complete in either order. This must
   never be asserted on: each reply is merged into `workingCopyDiffs` independently, keyed by
   its own `workingCopyDiffKey`, with its own `*Loading` flag.
-- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../../docs/ledger/2026-09-17-fix-refresh-ui-first-tiering.md)

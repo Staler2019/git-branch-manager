@@ -1,6 +1,16 @@
+---
+paths:
+  - "app_flutter/lib/**"
+  - "app_flutter/test/**"
+  - "src/core/graph/**"
+  - "src/capi/Session.cpp"
+  - "docs/claude-design-demo/**"
+  - "docs/reports/**"
+---
+
 # Reading the spec
 
-Pin prefix `SPEC-`. Format: [README.md](README.md).
+Pin prefix `SPEC-`. Format: [README.md](../../docs/rules/README.md).
 
 The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html`.
 
@@ -195,7 +205,7 @@ The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html
 - **Do**: pass `trunkTip` only when the walk is guaranteed to contain the commit — `Session.cpp`
   gates it on `includeRefs.empty()`, because a filtered walk need not include HEAD and an
   unreachable reservation is a permanently blank column.
-- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)
+- **Evidence**: [ledger: History 依 commit 時間排序](../../docs/ledger/2026-09-01-fix-history-graph-commit-date-order.md)
 
 ## [SPEC-audit-unit-is-not-the-page] A conformance section's heading names its audit unit, and prose outside that unit was never read
 
@@ -208,4 +218,4 @@ The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html
 - **Do**: read a section heading as a *scope declaration* and ask what the page holds outside
   it. This is [SPEC-cell-names-capability]'s failure one level up: there the cell's evidence was
   the wrong thing, here there is no cell.
-- **Evidence**: [ledger: History 依 commit 時間排序](../ledger/2026-09-01-fix-history-graph-commit-date-order.md)
+- **Evidence**: [ledger: History 依 commit 時間排序](../../docs/ledger/2026-09-01-fix-history-graph-commit-date-order.md)

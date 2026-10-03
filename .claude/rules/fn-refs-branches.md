@@ -1,6 +1,22 @@
+---
+paths:
+  - "app_flutter/lib/features/sidebar/**"
+  - "app_flutter/test/features/sidebar/**"
+  - "app_flutter/lib/data/models/{remote_counterpart,ref_snapshot,remote_prune_preview_entry,app_log_events}.dart"
+  - "app_flutter/lib/data/repositories/repo_session_repository.dart"
+  - "app_flutter/lib/features/dialogs/{delete_branch,rebase_onto,remove_worktree,rename_branch,prune_remote_branches}/**"
+  - "app_flutter/lib/features/history_graph/widgets/graph_ref_chips.dart"
+  - "app_flutter/lib/features/workspace/workspace_screen.dart"
+  - "app_flutter/lib/features/status_bar/status_bar.dart"
+  - "**/*prune*"
+  - "src/core/git/RefStore.*"
+  - "src/core/git/ops/{BranchOps,RemoteOps}.*"
+  - "src/capi/JsonCodec.cpp"
+---
+
 # Refs, branches and remote counterparts
 
-Pin prefix `REF-`. Format: [README.md](README.md).
+Pin prefix `REF-`. Format: [README.md](../../docs/rules/README.md).
 
 Every *comparison* in this codebase is on the **full** ref name; short names are display
 only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the boundary.
@@ -206,4 +222,4 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   「the ref left `refs.remoteBranches`」 already answers 0 on its own, so it cannot pin the
   `gonePendingByRemote` intersection; that needs a ref still present in `remoteBranches` but no
   longer marked ([TEST-fixture-cannot-disagree]).
-- **Evidence**: [ledger: 刪掉本機分支後殘留的 remote-tracking ref](../ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)
+- **Evidence**: [ledger: 刪掉本機分支後殘留的 remote-tracking ref](../../docs/ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)

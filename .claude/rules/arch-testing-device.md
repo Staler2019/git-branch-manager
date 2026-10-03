@@ -1,7 +1,12 @@
+---
+paths:
+  - "app_flutter/integration_test/**"
+---
+
 # Device tier (`integration_test/`)
 
 Pin prefix `TEST-` (shared with [arch-testing.md](arch-testing.md)).
-Format: [README.md](README.md).
+Format: [README.md](../../docs/rules/README.md).
 
 ## [TEST-device-runs-one-file] The device tier runs one file at a time per platform
 
@@ -112,7 +117,7 @@ Format: [README.md](README.md).
   one thing it cannot reach the surface without.
 - **Do**: a run is cheaper than the reasoning — this file was 1/1 in 4 seconds. Prefer running the
   candidate to arguing it is unaffected.
-- **Evidence**: [ledger: worktree 五個回報](../ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+- **Evidence**: [ledger: worktree 五個回報](../../docs/ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
 
 ## [TEST-geometric-drop-point-is-axis-bound] A drag test that computes a drop point from the container's rect breaks when the container changes axis; one that targets another row does not
 
@@ -132,4 +137,4 @@ Format: [README.md](README.md).
   `startGesture` defaults to `PointerDeviceKind.touch`, which *is* in `_kTouchLikeDeviceTypes`
   ([TEST-dragdevices-is-not-a-guard] is about `mouse`, which is not), so a first move along the
   list's own scroll axis can be claimed by the scroller before the `Draggable` wins the arena.
-- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)

@@ -15,7 +15,7 @@ Remove `TopBar` without losing its five elements.
 | Back-to-welcome | `File → Close window` (its handler was already `go(welcome)`) |
 | Theme switch | `View → Theme` |
 | In-progress spinner | status bar's background-task zone |
-| `Refresh` | **`View → Refresh` + bare F5**, a deliberate deviation (P04's `MENUS` has no such item); dispatches `refreshRepoStatus()` ([STATE-refresh-entry-point]). The `refreshRepoHistory()` free function it once named is deleted |
+| `Refresh` | **`View → Refresh` + bare F5**, a deliberate deviation (P04's `MENUS` has no such item); dispatches `refreshRepoStatus()` (see its doc comment). The `refreshRepoHistory()` free function it once named is deleted |
 
 ## Result
 `RepoState::describe()` is on the status bar now — it was *not* there before, despite a note claiming so; `describe()` is non-empty for sequencer operations **and `indexLocked`**, and nothing rendered the latter.

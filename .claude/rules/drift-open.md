@@ -117,7 +117,7 @@ historical the moment they are written.
   「stash 後重試」。」) is deliberately **not** drawn. It was never part of what this pin
   recorded as the gap, and it describes a failure this dialog cannot predict ahead of the
   attempt — that is exactly what `checkoutChoices` and the checkout-recovery dialog
-  ([STATE-credential-recovery]) already handle once git actually refuses.
+  (`workspace_screen.dart`'s auto-push `ref.listen`s) already handle once git actually refuses.
 - **Do**: this was a UI-structure change, closed directly on the user's explicit ruling
   (「兩個落差也修掉」) rather than a fresh spec-auditor pass, since every drawn value here
   was already spec-auditor-quoted in the G1d citation table.

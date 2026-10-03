@@ -171,8 +171,8 @@ TEST_F(WorktreeApiTest, PruneRemovesAdministrativeMetadataForADeletedWorktree) {
 // The guard that keeps the per-worktree status pass *out* of the refresh set.
 //
 // `refreshWorktrees()` is a zero-argument `refresh*`, so it is a member of the
-// focus-regain (2s-throttled) and F5 refresh sets by [STATE-refresh-entry-point]'s
-// rule. Folding the status pass into it would put one `git status` process per
+// focus-regain (2s-throttled) and F5 refresh sets by the rule in
+// `RepoSessionController.refreshRepoStatus()`'s doc comment. Folding the status pass into it would put one `git status` process per
 // worktree on both of those paths, for a panel the user may not have open.
 //
 // This test passes today and is expected to: it is a regression guard, not a

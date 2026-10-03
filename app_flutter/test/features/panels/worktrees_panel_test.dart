@@ -1053,7 +1053,7 @@ void main() {
   // P19's PANELSPEC detail cell for this panel lists 待提交數, and it now has
   // a source: gbm_worktree_request_pending_counts(). The panel asks for it
   // itself, because the count is NOT part of refreshRepoStatus()'s sweep --
-  // see [STATE-refresh-entry-point] and the controller's doc comment.
+  // see `refreshRepoStatus()`'s doc comment on the controller.
   //
   // Every test below counts dispatches rather than inspecting the cache.
   // [CULT-cache-documents-three-things] requires counting precisely because

@@ -56,7 +56,7 @@ collision, it is agreement.
 | Prefix | File | Directory |
 |---|---|---|
 | `STRUCT-` | `history-graph.md` (~~`arch-structure.md`~~, retired 2026-10-04: layering moved into CLAUDE.md, the rest to `docs/records/` or deleted as restating the code) | `.claude/rules/` |
-| `STATE-` | `arch-state-machine.md` | `docs/rules/` |
+| `STATE-` | `refresh-gating.md` (~~`arch-state-machine.md`~~, retired 2026-10-04: its tables restated the code and had drifted from it) | `.claude/rules/` |
 | `ACT-` | `arch-actions.md` | `docs/rules/` |
 | `TEST-` | `arch-testing.md`, `arch-testing-device.md` | `.claude/rules/` |
 | `REF-` | `fn-refs-branches.md` | `.claude/rules/` |
@@ -105,9 +105,9 @@ evidence is on:
    more than one file already).
 
    The largest files today, and why each is one file:
-   ~~`arch-structure.md` (245) and~~ `arch-state-machine.md` (205) is mostly
-   a field table — reference material, edited a row at a time;
-   `arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.
+   ~~`arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
+   route trees and field tables — reference material, edited a row at a time;~~
+   both retired 2026-10-04. `arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.
    `ops-spec-reading.md` (167, `.claude/rules/`) and `ops-repo-culture.md` (153) are prose but
    have no second group to split at. If one of these does grow a second
    group, split it then.

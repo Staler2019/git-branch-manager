@@ -127,7 +127,7 @@ machine does not forbid this," not "this is implemented" (see
   button for it — it is the *sole* choice on that refusal, and it is what
   makes `choices` non-empty at all, which is what `WorkspaceScreen` reads to
   auto-push the checkout/delete-branch recovery dialog
-  ([STATE-credential-recovery]). Deleting it would silently stop that dialog
+  (`workspace_screen.dart`'s auto-push `ref.listen`s). Deleting it would silently stop that dialog
   from opening for a sequencer-busy refusal. `CheckoutOp.cpp`'s and
   `BranchOps.cpp`'s own `Abort` entries were deleted instead, because both
   recovery dialogs already filter `kind != OperationChoiceKind.abort` out of

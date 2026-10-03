@@ -85,7 +85,7 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
   its destructor.
 - **Note**: **known, accepted residual, not closed by this pin.**
   `sharedReadPool()` is one pool shared by every open `Session`
-  ([STATE-lifecycle] — sessions are not auto-disposed and can be several at
+  ([FLU-app-exit-closes-every-session] — sessions are not auto-disposed and can be several at
   once). `closeAll()` closes them one at a time, so session A's
   `cancelQueuedAndDrain()` can still block on session B's in-flight read if B
   has not been cancelled yet at that moment. Each session's own dominant case
@@ -342,7 +342,7 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
   meaning anything.
 - **Do**: `postFront()` jumps the queue but cannot preempt work **already running** — with a
   2–6 thread pool, a `postFront()`'d request can still queue behind whatever grabbed a worker
-  first. This is *why* [STATE-refresh-entry-point]'s tier 2 has to be deferred (by
+  first. This is *why* `refreshRepoStatus()`'s tier 2 has to be deferred (by
   `Timer(Duration.zero)`, deliberately not `scheduleMicrotask` -- see that pin's own note)
   rather than merely posted at a lower priority: the two techniques are not substitutes for
   each other, and using only one (deferral without `postFront`, or `postFront` without

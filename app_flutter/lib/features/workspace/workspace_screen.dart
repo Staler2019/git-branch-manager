@@ -265,7 +265,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // none -- because a provider nothing reads is never built, and this one
     // has to be alive to hear the refs update that says the branch claiming a
     // gone remote-tracking ref has been deleted. Deleting this line deletes
-    // that feature with no compile error ([STATE-deferred-prune-flow]).
+    // that feature with no compile error (`DeferredPruneNotifier`'s doc).
     // Measured: removing this line reddens
     // `test/integration/workspace_stale_remote_ref_after_delete_test.dart`
     // and nothing else, which is why that file is the mount's only guard and

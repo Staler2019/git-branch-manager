@@ -627,7 +627,7 @@ class RepoSessionState {
   /// automatic prune left it alone.
   ///
   /// The seam between the two halves of the deferred prune
-  /// ([STATE-deferred-prune-flow]): written only by this controller, which is
+  /// ([DeferredPruneNotifier]'s doc): written only by this controller, which is
   /// the only thing that knows whether a preview reply was one it asked for
   /// after a fetch, and read only by `DeferredPruneNotifier`, which owns every
   /// rule about when a deferred decision comes due. What crosses is a *fact*,
@@ -2040,7 +2040,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       // tried. While the table was this class's own field, dropping it fell out
       // of the sweep's own 「still in `gonePendingByRemote`」 condition, which
       // *removed* the entry; the notifier can only skip, so the clearing has to
-      // happen here ([STATE-deferred-prune-flow]).
+      // happen here (`DeferredPruneNotifier`'s doc).
       state = state.withGoneRefsDeferredFor(preview.remote, const <String>{});
       return;
     }
@@ -2060,7 +2060,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // remote, the empty case included: this preview's answer supersedes the
     // previous one's, so a ref it no longer defers must stop being deferred.
     // What comes due, and when, is `DeferredPruneNotifier`'s
-    // ([STATE-deferred-prune-flow]).
+    // (`DeferredPruneNotifier`'s doc).
     state = state.withGoneRefsDeferredFor(preview.remote, deferred);
 
     if (unclaimed.isEmpty) return;
@@ -3196,7 +3196,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// then one WORKTREES_UPDATED carrying the whole list back.
   ///
   /// **`request*`, not `refresh*`, and the name is the point.**
-  /// [STATE-refresh-entry-point] makes membership of the focus-regain / F5
+  /// [refreshRepoStatus]'s doc makes membership of the focus-regain / F5
   /// sweep a *rule* rather than a list: every zero-argument `refresh*` on
   /// this controller is in it. This call is keyed to the worktrees panel
   /// being open -- a selection that need not still exist when the window

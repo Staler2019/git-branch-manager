@@ -129,7 +129,7 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [FLU-app-exit-closes-every-session] Every open session must be closed before the process is allowed to quit
 
-- **Rule**: `repoSessionProvider` is not `autoDispose` ([STATE-lifecycle]), so nothing closes a
+- **Rule**: `repoSessionProvider` is not `autoDispose` (its declaration in `repo_session_repository.dart`), so nothing closes a
   session while the app keeps running, and Flutter never pops a route on Cmd+Q, the window's
   close button, or File → Exit's `SystemNavigator.pop()` — there is no route to pop. Without an
   explicit close, `~Session()`'s process-wide background work (the shared read pool, in-flight

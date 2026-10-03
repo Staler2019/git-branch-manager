@@ -155,7 +155,7 @@ void main() {
     addTearDown(container.dispose);
     // Mounts the deferred prune, the same way `WorkspaceScreen` does: the
     // provider holds no value and is never built unless something reads it
-    // ([STATE-deferred-prune-flow]). This is the only line this suite gained
+    // (`DeferredPruneNotifier`'s doc). This is the only line this suite gained
     // when the decision moved out of the controller -- every assertion and
     // fixture below is byte-identical, which is what makes it a net rather
     // than a mirror of the new implementation.

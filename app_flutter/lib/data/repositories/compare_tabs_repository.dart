@@ -18,7 +18,7 @@ import 'repo_identity.dart';
 /// different tab disposes the outgoing page.
 ///
 /// **The stronger form of that reason was wrong and is corrected here**
-/// ([CULT-correct-the-record]): it used to say 「anything not persisted
+/// (struck in place rather than silently redone): it used to say 「anything not persisted
 /// outside the widget tree would reset to zero」, which reads as
 /// 「PageStorage cannot work for a tab」. It can — the management panels do
 /// exactly that, by putting the bucket on `WorkspaceScreen`, which is the

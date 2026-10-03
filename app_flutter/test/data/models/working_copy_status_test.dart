@@ -48,7 +48,7 @@ void main() {
     // C2a's fields must not be `required` -- a raw-JSON fixture built before
     // this field existed (or a JSON payload from an older running app
     // during a rolling deploy, though this app has no such thing today) is
-    // exactly [CULT-stage-by-file]'s "invisible to a grep for the
+    // exactly the "invisible to a grep for the
     // constructor" case, and a missing key must not become `null as int`.
     test('defaults both fields to 0 when the keys are absent', () {
       final entry = WorkingCopyEntry.fromJson(_rawEntry(untracked: true));

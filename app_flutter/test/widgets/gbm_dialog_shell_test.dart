@@ -14,7 +14,7 @@
 // fixture is deliberately past that line so the test still reddens if
 // OverflowBar is ever reverted to Row.
 //
-// [CULT-remeasure-when-upstream-moves]: G7 moved the action row's default
+// [CULT-scrutinise-the-comment] (re-measure when upstream moves): G7 moved the action row's default
 // button size from GbmButtonSize.normal (12.5px textSm, 12px horizontal
 // padding per side) to .sm (11px textXs, 8px padding) via
 // GbmButtonSizeScope. Both real recovery labels stay well clear of the

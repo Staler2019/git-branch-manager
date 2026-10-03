@@ -88,7 +88,7 @@ class WorkingCopyEntry {
       isConflicted: json['isConflicted'] as bool,
       // Optional and defaulted, deliberately not `required` -- a raw-JSON
       // fixture built before this field existed is invisible to a grep for
-      // this constructor ([CULT-stage-by-file]'s worked example), and a
+      // this constructor, and a
       // missing key must not become `null as int`.
       untrackedSize: (json['untrackedSize'] as int?) ?? 0,
       untrackedMtimeTicks: (json['untrackedMtimeTicks'] as int?) ?? 0,

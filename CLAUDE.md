@@ -60,7 +60,6 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/arch-testing.md
 @docs/rules/arch-testing-device.md
 @docs/rules/fn-refs-branches.md
-@docs/rules/fn-git-commands.md
 @docs/rules/fn-flutter-state.md
 @docs/rules/fn-flutter-layout.md
 @docs/rules/fn-flutter-input.md
@@ -68,7 +67,6 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/ops-spec-reading.md
 @docs/rules/ops-repo-culture.md
 @docs/rules/ops-toolchain-ci.md
-@docs/rules/fn-cpp-core.md
 @docs/rules/drift-open.md
 
 ## Where the rules went, and why a source comment still says "CLAUDE.md"

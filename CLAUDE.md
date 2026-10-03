@@ -14,12 +14,25 @@ tree, which Claude Code loads by their `paths:` frontmatter when a matching
 file is read or edited. Two parallel branches still edit two different files
 instead of two regions of one 1,742-line one.
 
+## Layering
+
+```
+src/core/   headless C++20, no Qt/Dart (docs/ARCHITECTURE.md)
+  -> src/capi/                        gbm_capi.h, extern "C", JSON/event bridge
+  -> app_flutter/lib/data/ffi/        gbm_bindings.dart (dart:ffi)
+  -> app_flutter/lib/data/repositories/  Riverpod state (RepoSessionState, ...)
+  -> app_flutter/lib/features/**      views
+```
+
+Routes are `app_flutter/lib/routing/route_paths.dart`; the feature directories are
+`app_flutter/lib/features/`. Neither is restated here — the code is the list.
+
 ## Memory filing
 
 Startup-loaded text is capped by Claude Code at 150k characters, `~/.claude` included, so
 this repo gets a share of it and `scripts/check-instruction-budget.py` holds it there in CI.
 
-- **L0 ceiling**: 90,584 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
+- **L0 ceiling**: 61,591 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
 - **L0** (loaded at start): project settings that change only when the architecture does.
 - **L1** (`.claude/rules/`, `paths:`): a subtree's current constraints the code cannot show.
 - **L2** (never loaded, searched on demand): rulings and bugs in [docs/records/](docs/records/),
@@ -73,12 +86,11 @@ reached 5,900 lines with every round appending to the same end-of-file.
 ## Rules
 
 Which file a category lives in is a context-cost decision, recorded in
-[docs/rules/README.md](docs/rules/README.md)'s prefix table: the ten
+[docs/rules/README.md](docs/rules/README.md)'s prefix table: the eleven
 path-scoped ones under `.claude/rules/` are loaded only when their subtree is
 touched, the rest are imported here.
 
 @docs/rules/README.md
-@docs/rules/arch-structure.md
 @docs/rules/arch-state-machine.md
 @docs/rules/arch-actions.md
 @docs/rules/ops-ux-rubric.md

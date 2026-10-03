@@ -11,6 +11,8 @@ import '../../theme/theme_mode_provider.dart';
 /// *staged*, this one's are *old* and *new*. They look alike and mean
 /// different things, so one preference flipping both would be a surprise in
 /// whichever view the user was not looking at.
+///
+/// Ruling: `docs/records/2026-10-04-two-column-switches.md`
 enum DiffViewMode {
   /// One column, git's own unified diff. The default -- see [_kDefault].
   unified,

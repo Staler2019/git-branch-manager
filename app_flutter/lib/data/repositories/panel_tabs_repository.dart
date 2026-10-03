@@ -84,12 +84,14 @@ enum GbmPanelKind {
   ///
   /// **No spec entry.** P14's `IAMAP` says manage-worktrees hangs off the tab
   /// carrier; it says nothing about being permanent. Same category as
-  /// [STRUCT-soft-wrap-preference]: a user-requested addition, not a
+  /// `docs/records/2026-10-04-soft-wrap-off-by-default.md`: a user-requested addition, not a
   /// conformance item.
   ///
   /// Never true for an [isPerSubject] kind, and the two are not independent:
   /// seeding needs one canonical instance, and a per-subject panel is *about*
   /// a file no seed can know.
+  ///
+  /// Ruling: `docs/records/2026-10-04-worktrees-tab-pinned.md`
   bool get isPinned => this == GbmPanelKind.manageWorktrees;
 }
 

@@ -76,7 +76,7 @@ String worktreeLockWarning(WorktreeInfo worktree) {
 /// Routed as `/repo/:repoId/dialogs/remove-worktree` -- like
 /// [AddWorktreeDialogContent], not one of the spec's 22 dialogs, since the
 /// Worktrees panel itself postdates the spec's own page 06 dialog list
-/// ([STRUCT-panels-are-tabs]).
+/// (`docs/records/2026-10-04-panels-are-tabs.md`).
 class RemoveWorktreeDialogContent extends ConsumerStatefulWidget {
   const RemoveWorktreeDialogContent({
     super.key,

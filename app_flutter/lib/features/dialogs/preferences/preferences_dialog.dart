@@ -26,8 +26,10 @@ import '../../update/auto_update_check.dart';
 /// The six sections of spec page 11's `PREFNAV`, in the spec's own order,
 /// plus a seventh -- [PreferencesSection.developer] is a user-requested
 /// addition (fix/refresh-ui-first-tiering), not a conformance item. Same
-/// category as [STRUCT-soft-wrap-preference]'s wrap toggle: `PREFNAV` names
+/// category as the soft-wrap toggle (`docs/records/2026-10-04-soft-wrap-off-by-default.md`): `PREFNAV` names
 /// exactly six sections and this is not one of them.
+///
+/// Ruling: `docs/records/2026-10-04-developer-prefs-tab.md`
 enum PreferencesSection {
   general,
   repositorySources,

@@ -272,7 +272,7 @@ historical the moment they are written.
   [SPEC-mockup-is-not-prose]'s prose-wins tiebreak cannot help when both sides are prose.
   Same disposition as [DRIFT-restore-before-this-state-missing]: recorded, left open.
 - **Note**: found while correcting item 10's *other* two clauses, which really were broken
-  ([STRUCT-leaf-label-from-switcher]). Reading the whole `note` instead of the row's title is
+  ([record: file-list leaf label](../../docs/records/2026-10-04-file-list-leaf-label-and-tree-mode.md)). Reading the whole `note` instead of the row's title is
   what surfaced all three.
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 

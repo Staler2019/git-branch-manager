@@ -17,6 +17,9 @@ import '../working_copy_selection_state.dart';
 
 /// A two-column drag-and-drop board for staging/unstaging files in working copy.
 ///
+/// Ruling: no checkbox anywhere, lists stacked on the left --
+/// `docs/records/2026-10-04-working-copy-layout.md`
+///
 /// Left column: unstaged files. Right column: staged files.
 ///
 /// - **An empty column is still a drop target.** Its placeholder text is

@@ -26,7 +26,8 @@ try:
     start = next(i for i,l in enumerate(old) if l.strip()==section)
 except StopIteration:
     sys.exit(f"{oldref} 裡找不到標題 {section!r}")
-end   = next(i for i,l in enumerate(old[start+1:],start+1) if re.match(r'^#{2,4} ',l))
+# 最後一段之後沒有下一個標題，就到檔尾為止
+end   = next((i for i,l in enumerate(old[start+1:],start+1) if re.match(r'^#{2,4} ',l)), len(old))
 oldtext = '\n'.join(old[start:end])
 
 hay = open('docs/ledger.md',encoding='utf-8').read()

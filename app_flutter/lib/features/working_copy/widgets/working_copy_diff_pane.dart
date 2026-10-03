@@ -113,6 +113,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
 class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   /// `unified`, not `twoFile`. Widget state, deliberately not persisted --
   /// see [WorkingCopyDiffMode] for why this default moved.
+  /// Ruling: `docs/records/2026-10-04-working-copy-layout.md`
   WorkingCopyDiffMode _mode = WorkingCopyDiffMode.unified;
   final ScrollController _stagedScroll = ScrollController();
 

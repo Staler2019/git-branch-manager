@@ -178,6 +178,9 @@ FileTreeNode _buildDisplayNode(
 /// whole tree: `FileTreeList` keys expand/collapse on it, and two `features`
 /// folders under different parents opened and closed together while it was
 /// only the prefix accumulated from this level down.
+///
+/// Ruling: folders stack, a file never does --
+/// `docs/records/2026-10-04-file-list-leaf-label-and-tree-mode.md`
 FileTreeNode _collapseIfSingleChild(
   String label,
   _TreeNodeData data,

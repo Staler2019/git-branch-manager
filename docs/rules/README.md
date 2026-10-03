@@ -127,13 +127,16 @@ evidence is on:
 
 ## Checking your work
 
-Two scripts, both run from the repo root, both exit non-zero on a finding:
+Three scripts, all run from the repo root, all exit non-zero on a finding:
 
 - `scripts/check-rule-pins.py` — every `[PIN]` reference resolves to a real
   `## [PIN]` heading in either directory, and no pin is defined twice. Run it after adding or
   renaming a rule. It fences out fenced blocks and code spans, because the
   example above and the `[FLU-036]` counter-example are neither definitions
   nor references.
+- `scripts/check-instruction-budget.py` — the startup-loaded total stays within CLAUDE.md's
+  `L0 ceiling`, a ratchet: over it is red, and so is more than 2,000 characters under it.
+  Runs in `cq.yml`. Moving or condensing a rule means lowering the ceiling in the same commit.
 - `scripts/check-doc-migration-loss.py` — for the *next* round that shortens
   prose (the 101 frozen ledger rounds are the obvious candidate). Given the
   old text's `<ref:path>` and section heading, it asserts every code span,

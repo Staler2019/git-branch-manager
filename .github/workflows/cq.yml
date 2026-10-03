@@ -58,6 +58,14 @@ jobs:
           clang-format-version: '18'
           check-path: 'src'
 
+      # Claude Code loads CLAUDE.md, its @imports and unscoped .claude/rules/ at
+      # session start, capped at 150k characters including the user's own
+      # ~/.claude. The ceiling lives in CLAUDE.md's "Memory filing" section.
+      - name: instruction budget
+        run: |
+          python3 scripts/test_check_instruction_budget.py
+          python3 scripts/check-instruction-budget.py
+
       # The core/capi split is the load-bearing structural decision: core must
       # stay free of any UI toolkit so the whole data layer is testable
       # headless. A grep is crude but it cannot be argued with, and it fails

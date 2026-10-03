@@ -19,7 +19,7 @@ instead of two regions of one 1,742-line one.
 Startup-loaded text is capped by Claude Code at 150k characters, `~/.claude` included, so
 this repo gets a share of it and `scripts/check-instruction-budget.py` holds it there in CI.
 
-- **L0 ceiling**: 90,307 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
+- **L0 ceiling**: 90,584 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
 - **L0** (loaded at start): project settings that change only when the architecture does.
 - **L1** (`.claude/rules/`, `paths:`): a subtree's current constraints the code cannot show.
 - **L2** (never loaded, searched on demand): rulings and bugs in [docs/records/](docs/records/),

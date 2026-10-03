@@ -1,6 +1,11 @@
+---
+paths:
+  - "app_flutter/**"
+---
+
 # Flutter: frames, Riverpod and provider reads
 
-Pin prefix `FLU-`. Format: [README.md](README.md).
+Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [FLU-postframe-no-frame] `addPostFrameCallback` does not ask for a frame
 
@@ -87,7 +92,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   into a synchronous sleep). `updateWatchdogEntryPoint` is the worked example.
 - **Do**: keep both layers and say why in the comment — the `.timeout` is the only half a test
   can reach, the watchdog is the only half that helps on real hardware. Neither subsumes the other.
-- **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../../docs/ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
 
 ## [FLU-diff-cache-keeps-by-fingerprint] A state refresh must not clear a diff cache wholesale, and the retention condition cannot be "the path is still there"
 
@@ -120,7 +125,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Do**: side attribution for the fingerprint map must **not** be re-derived at the call site —
   `entriesWithUnstagedSide` on `WorkingCopyStatus` is the one list, shared with
   `_selectedSides()`, per [CULT-single-source-of-truth].
-- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
+- **Evidence**: [ledger: fix/refresh-ui-first-tiering](../../docs/ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
 
 ## [FLU-app-exit-closes-every-session] Every open session must be closed before the process is allowed to quit
 
@@ -154,4 +159,4 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   ([CPP-read-pool-tasks-need-live-token]'s own Note records the multi-session caveat this
   inherits), but there is still no UI affordance to close *one* repository while the app keeps
   running — every session accumulates until the whole app quits.
-- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
+- **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../../docs/ledger/2026-09-20-fix-quit-crash-session-shutdown.md)

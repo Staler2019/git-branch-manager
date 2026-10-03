@@ -1,6 +1,11 @@
+---
+paths:
+  - "app_flutter/**"
+---
+
 # Flutter: focus, gestures, selection and menus
 
-Pin prefix `FLU-`. Format: [README.md](README.md).
+Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [FLU-inkwell-tap-gives-no-focus] Tapping an `InkWell` does not give it focus
 
@@ -37,8 +42,8 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   token** from an explicit `MouseRegion` instead and say why in the widget's doc comment. The
   rule is about the token being visible, not about which widget supplies it.
 - **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上
-  hover/選取/選單](../ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md);
-  [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+  hover/選取/選單](../../docs/ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md);
+  [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-gesture-arena-taxes-double-tap] The gesture arena taxes double-clickable rows, and it is not local
 
@@ -58,7 +63,7 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
   and pumping a single frame dispatched **nothing** (`Expected: <1>, Actual: <0>`), because the
   ancestor holds the arena until the timeout. That is the whole tax, and it is testable exactly
   this way — one `tap`, one `pump()`, no elapsed duration.
-- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-selectionarea-gives-a-string] `SelectionArea` tells you the selected *string*, not which widgets it covers
 
@@ -190,4 +195,4 @@ Pin prefix `FLU-`. Format: [README.md](README.md).
 - **Note**: the three state-driven pushes ([STATE-credential-recovery]'s credential,
   checkout-recovery and delete-branch-recovery dialogs) need this most, because a state
   republish re-enters the same push.
-- **Evidence**: [ledger: 第二片，P3／P4 不 defer](../ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)
+- **Evidence**: [ledger: 第二片，P3／P4 不 defer](../../docs/ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)

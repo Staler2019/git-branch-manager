@@ -60,9 +60,6 @@ reached 5,900 lines with every round appending to the same end-of-file.
 @docs/rules/arch-testing.md
 @docs/rules/arch-testing-device.md
 @docs/rules/fn-refs-branches.md
-@docs/rules/fn-flutter-state.md
-@docs/rules/fn-flutter-layout.md
-@docs/rules/fn-flutter-input.md
 @docs/rules/ops-ux-rubric.md
 @docs/rules/ops-spec-reading.md
 @docs/rules/ops-repo-culture.md

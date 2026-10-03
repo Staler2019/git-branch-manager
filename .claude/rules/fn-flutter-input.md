@@ -192,7 +192,7 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
   scans `lib/` for `.push(` followed by `RoutePaths.…Dialog…` (with `dotAll`, because 22 of
   the 48 sites are formatter-wrapped) and requires zero hits. Without it the 49th call site
   bypasses the guard silently, and the symptom only appears when a user double-clicks.
-- **Note**: the three state-driven pushes ([STATE-credential-recovery]'s credential,
+- **Note**: the three state-driven pushes (`workspace_screen.dart`'s credential,
   checkout-recovery and delete-branch-recovery dialogs) need this most, because a state
   republish re-enters the same push.
 - **Evidence**: [ledger: 第二片，P3／P4 不 defer](../../docs/ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)

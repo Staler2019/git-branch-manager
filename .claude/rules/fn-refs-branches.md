@@ -171,7 +171,7 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   `RepoSessionState.goneRefsDeferredByClaim` and `DeferredPruneNotifier` re-checks it.
   ~~`_goneRefsDeferredByClaim` … `_pruneDeferredGoneRefsNowUnclaimed` re-checks it from
   `publishRefs`~~ — the table and every rule below it moved out of the controller; the three
-  owners and why each is irreplaceable are in [STATE-deferred-prune-flow].
+  owners and why each is irreplaceable are in `DeferredPruneNotifier`'s doc (`deferred_prune_repository.dart`).
 - **Consequence**: without it the stale `refs/remotes/<remote>/<name>` stays on disk, the
   sidebar redraws the just-deleted branch as a **remote-only row** (still gone-marked), and F5
   changes nothing because the ref really is still there. Only the *next* fetch cleared it —
@@ -215,7 +215,7 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   table and the dispatcher were the same object. They are not: the table is state the controller
   owns, so 「已試過」 lives in `DeferredPruneNotifier._dispatched` beside the policy, and a
   wholesale replacement of a remote's deferred set must clear that remote's entries
-  ([STATE-deferred-prune-flow]).
+  (`DeferredPruneNotifier`'s doc (`deferred_prune_repository.dart`)).
 - **Do**: **a single-`publishRefs` fixture cannot see the retention rule** — 「the branch is
   still there → 0 prunes」 is satisfied both by keeping the entry and by evicting it. The
   discriminating test publishes refs twice, with the branch present and then deleted. Likewise

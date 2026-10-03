@@ -32,7 +32,7 @@ Routes are `app_flutter/lib/routing/route_paths.dart`; the feature directories a
 Startup-loaded text is capped by Claude Code at 150k characters, `~/.claude` included, so
 this repo gets a share of it and `scripts/check-instruction-budget.py` holds it there in CI.
 
-- **L0 ceiling**: 61,591 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
+- **L0 ceiling**: 40,442 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
 - **L0** (loaded at start): project settings that change only when the architecture does.
 - **L1** (`.claude/rules/`, `paths:`): a subtree's current constraints the code cannot show.
 - **L2** (never loaded, searched on demand): rulings and bugs in [docs/records/](docs/records/),
@@ -86,12 +86,11 @@ reached 5,900 lines with every round appending to the same end-of-file.
 ## Rules
 
 Which file a category lives in is a context-cost decision, recorded in
-[docs/rules/README.md](docs/rules/README.md)'s prefix table: the eleven
+[docs/rules/README.md](docs/rules/README.md)'s prefix table: the twelve
 path-scoped ones under `.claude/rules/` are loaded only when their subtree is
 touched, the rest are imported here.
 
 @docs/rules/README.md
-@docs/rules/arch-state-machine.md
 @docs/rules/arch-actions.md
 @docs/rules/ops-ux-rubric.md
 @docs/rules/ops-repo-culture.md

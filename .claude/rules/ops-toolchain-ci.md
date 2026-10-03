@@ -1,6 +1,24 @@
+---
+paths:
+  - ".github/**"
+  - "CMakeLists.txt"
+  - "**/CMakeLists.txt"
+  - "CMakePresets.json"
+  - ".gitattributes"
+  - "app_flutter/scripts/**"
+  - "app_flutter/pubspec.yaml"
+  - "app_flutter/analysis_options.yaml"
+  - "app_flutter/windows/**"
+  - "app_flutter/macos/**"
+  - "app_flutter/linux/**"
+  - ".pre-commit-config.yaml"
+  - ".clang-format"
+  - "scripts/**"
+---
+
 # Toolchain, CI and platform
 
-Pin prefix `CI-`. Format: [README.md](README.md).
+Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [CI-dart-sdk-floor] Dart ≥ 3.12.2
 
@@ -55,7 +73,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Note**: **still not covered**: `integration_test/` ([TEST-device-tier-not-in-ci]) and the
   PowerShell updater's *behaviour* ([DRIFT-updater-windows-untested]) — the matrix compiles and
   unit-tests the three platforms, it does not run the device tier on any of them.
-- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../../docs/ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [CI-windows-cwd-lock] Windows refuses to rename or delete any process's CWD
 
@@ -109,7 +127,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **See also**: [GIT-apply-without-cached-follows-autocrlf] is the same `core.autocrlf` biting
   one layer down — there it is git rewriting a *work-tree file an operation wrote*, here it is
   git rewriting a *checked-in fixture on checkout*.
-- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../../docs/ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [CI-powershell-golden-parse] The generated `.ps1` is syntax-checked on `windows-latest`, from a golden, parse-only
 
@@ -129,7 +147,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   third step work.**
 - **Do**: regenerate with `GBM_UPDATE_GOLDEN=1 flutter test test/data/services/update_script_golden_test.dart`.
   The golden is compared as **bytes**, because the BOM is half of what it pins.
-- **Evidence**: [ledger: Install and restart 卡在 Installing…](../ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../../docs/ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
 
 ## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout at all
 
@@ -158,7 +176,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Do not** reach for `include(CTest)` to get the default back: it pulls in `BUILD_TESTING`
   (which then fights `GBM_BUILD_TESTS`) and the CDash submit targets, and 1500 seconds is far
   too long to be the instrument here.
-- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CI-windows-toolchain-not-implied] `runs-on: windows-*` names an operating system, not a compiler — CMake picks one off `PATH`
 
@@ -181,7 +199,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   rather than inferring it from `runs-on`. This is [CPP-windows-terminate-hangs-join]'s control-group
   lesson moved one step earlier: prove you are measuring the right thing before arguing about
   how precisely you measured it.
-- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CI-ctest-hides-passing-output] `ctest --output-on-failure` publishes nothing from a test that passes
 
@@ -197,7 +215,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   `verbosity: verbose` the way the Linux job does.
 - **Do**: any ctest invocation whose *product* is text from a passing test takes `-V`. Where the
   run is filtered out of a preset for cost reasons, re-state every setting that mattered.
-- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CI-platform-guarded-block-uncompiled] Code inside `#ifdef _WIN32` is compiled by exactly one CI job, so its errors arrive one per round-trip
 
@@ -233,7 +251,7 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   list for that one object. It is platform-independent evidence, and deleting the
   `target_include_directories` line makes `tests/` vanish from it, which is the mutation that
   proves the line is load-bearing rather than decorative.
-- **Evidence**: [ledger: 追加五](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [CI-newer-flutter-dirties-tracked-files] A Flutter SDK newer than CI's pin rewrites two tracked files
 
@@ -245,4 +263,4 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   or `git commit -a` ships an SDK-version artefact as part of an unrelated change.
 - **Do**: stage by file ([CULT-stage-by-file]). Save `git diff` of the two files to the scratchpad
   first and undo with `git apply -R` from that patch — never `git checkout -- <file>`.
-- **Evidence**: [ledger: fix/windows-host-updater-tests](../ledger/2026-09-19-fix-windows-host-updater-tests.md)
+- **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)

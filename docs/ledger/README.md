@@ -30,10 +30,11 @@ recorded in [../ledger.md](../ledger.md) under "Sidebar continuation":
 
 ## Shape
 
-Same shape the frozen sections use — what changed, which premises did not
-survive the source, what was found by *running* rather than reading, what was
-deliberately reduced or left open. Use `##` for the round's own sections; the
-`#` title is the round.
+~~Same shape the frozen sections use~~ — from 2026-10-03, **STAR**: `## Situation`,
+`## Task`, `## Action`, `## Result`, the same template as
+[../records/README.md](../records/README.md). Inside them the content is unchanged: what
+changed, which premises did not survive the source, what was found by *running* rather than
+reading, what was deliberately reduced or left open. The `#` title is the round.
 
 ## Then two more things
 

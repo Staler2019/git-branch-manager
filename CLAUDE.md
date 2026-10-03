@@ -14,6 +14,21 @@ tree, which Claude Code loads by their `paths:` frontmatter when a matching
 file is read or edited. Two parallel branches still edit two different files
 instead of two regions of one 1,742-line one.
 
+## Memory filing
+
+Startup-loaded text is capped by Claude Code at 150k characters, `~/.claude` included, so
+this repo gets a share of it and `scripts/check-instruction-budget.py` holds it there in CI.
+
+- **L0 ceiling**: 90,584 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
+- **L0** (loaded at start): project settings that change only when the architecture does.
+- **L1** (`.claude/rules/`, `paths:`): a subtree's current constraints the code cannot show.
+- **L2** (never loaded, searched on demand): rulings and bugs in [docs/records/](docs/records/),
+  round narratives in [docs/ledger/](docs/ledger/), both written as STAR.
+- Code and the user's current judgment win over any record. A trap that a test, type or CI
+  check can enforce is encoded there instead of written down.
+- New or migrated entries are classified by the `memory-steward` agent, read-only; the main
+  session applies its table after the user's ruling.
+
 ## Three layers, and what belongs in each
 
 ```

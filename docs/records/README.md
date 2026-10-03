@@ -11,6 +11,7 @@ fact a round produces that outlive it.
 |---|---|---|
 | `ruling` | a user decision someone might later "fix back" — a spec deviation, a rejected alternative | the sidebar does not pin the current branch |
 | `bug` | a defect worth remembering: symptom, root cause, the test that now pins it | partial `git branch -d` left the sidebar stale |
+| `history` | how a current structure came to be, kept so it is not re-litigated; the code shows the result | `TopBar` was removed and where its five elements went |
 
 ## Filename
 
@@ -25,7 +26,7 @@ Date first, as in the ledger, so the directory sorts chronologically.
 ```markdown
 # <one-line claim>
 
-- **Kind**: ruling | bug · **Pins**: <pin or id, if any> · **Code**: <path:symbol>
+- **Kind**: ruling | bug | history · **Pins**: <pin or id, if any> · **Code**: <path:symbol>
 
 ## Situation
 What was true, observed, or reported. Facts and numbers only.

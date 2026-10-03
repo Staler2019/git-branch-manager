@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""每個 [PIN] 引用都必須對到一個真的 ## [PIN] 標題；pin 不可重複定義。"""
+"""每個 [PIN] 引用（docs/rules/ 與 .claude/rules/）都必須對到一個真的 ## [PIN] 標題；pin 不可重複定義。"""
 import re, glob, sys, collections
 defined, refs = {}, collections.defaultdict(list)
-for f in sorted(glob.glob('docs/rules/*.md')):
+# 全域規則在 docs/rules/，依路徑載入的在 .claude/rules/；pin 跨兩處互相引用
+for f in sorted(glob.glob('docs/rules/*.md') + glob.glob('.claude/rules/*.md')):
     fenced = False
     for i, l in enumerate(open(f, encoding='utf-8'), 1):
         if l.startswith('```'):

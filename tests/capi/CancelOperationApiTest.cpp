@@ -130,6 +130,31 @@ protected:
     }
 
     void TearDown() override {
+        // Before gbm_session_close(), and that ordering is the whole of it.
+        //
+        // A test body's hook captures that body's own locals by reference
+        // (`finishes`, `trippedOnFirstFinish`). Those die the moment
+        // TestBody() returns -- but `log_` is a fixture member, so the hook
+        // outlives them, and gbm_session_close() below cancels every
+        // still-queued operation, each of which emits
+        // GBM_EVENT_OPERATION_FINISHED straight back into logCallback().
+        // Without this line the hook writes to a dead stack frame.
+        //
+        // Measured, not theorised: ASan reports `stack-use-after-return` on
+        // `finishes.fetch_add(1)`, with logCallback -> CallbackRegistry::emit
+        // -> OperationRunner::workerLoop above it. Worse than the write
+        // itself, the hook *reads* that dead `finishes` to decide whether to
+        // call gbm_cancel_operation(session_, 0) -- so a garbage read
+        // re-enters a Session already inside its own destructor, which is
+        // where the glibc `mutex->__data.__owner == 0` abort and the SEGV in
+        // ~Session() both came from.
+        //
+        // An unsanitised build hides it: the dead frame usually still holds
+        // the old value, the branch is not taken, and nothing re-enters.
+        // Measured over 100 runs of OperationsStillQueued...: 0/100 plain,
+        // 20/100 gcc TSan, 17/100 gcc ASan, 13/100 clang ASan.
+        log_.setHook(nullptr);
+
         if (session_ != nullptr) {
             gbm_session_close(session_);
         }

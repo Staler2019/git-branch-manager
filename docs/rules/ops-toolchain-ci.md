@@ -34,13 +34,28 @@ Pin prefix `CI-`. Format: [README.md](README.md).
   and is safe to take.
 - **Evidence**: ledger: Known gaps
 
-## [CI-linux-only] PR CI compiles Linux only
+## [CI-linux-only] ~~PR CI compiles Linux only~~ — superseded: `flutter-ci` is a three-OS matrix
 
-- **Rule**: `flutter build linux --debug` is the only compile. `windows/runner/` and
-  `macos/Runner/` are built by nothing until a release tag.
-- **Consequence**: assume any edit there reaches `main` uncompiled (**#69**).
-  `test/platform/window_title_test.dart` asserts those runner sources as strings, which
-  catches a drifting literal but never a compile error.
+- **Rule (superseded)**: ~~`flutter build linux --debug` is the only compile. `windows/runner/`
+  and `macos/Runner/` are built by nothing until a release tag.~~ ~~Assume any edit there
+  reaches `main` uncompiled (**#69**).~~
+- **Rule**: `ci.yml`'s `flutter-ci` job is a `fail-fast: false` matrix over
+  `ubuntu-22.04` / `macos-26` / `windows-latest`, each running `flutter analyze`,
+  `flutter test`, the Phase A capi build (`build_capi.sh`, or `build_capi.ps1` on
+  Windows) and `flutter build <target> --debug`. So `windows/runner/` and
+  `macos/Runner/` are compiled on every PR now, not only at a release tag.
+- **Rule**: **what survives is the reason `test/platform/window_title_test.dart` exists** —
+  it asserts those runner sources as *strings*, which catches a drifting literal and never
+  a compile error. The matrix supplies the compile; that test still supplies the literal.
+- **Rule**: the Windows job carries `ilammy/msvc-dev-cmd@v1` for the reason
+  [CI-windows-toolchain-not-implied] gives — without it CMake's probe may take the image's
+  MinGW `g++` and the job compiles something nobody ships.
+- **Note**: **the C++ tier was never Linux-only** — `capi-build` has run the three-OS matrix
+  all along. This rule only ever described the *Flutter* job, and that is the half now closed.
+- **Note**: **still not covered**: `integration_test/` ([TEST-device-tier-not-in-ci]) and the
+  PowerShell updater's *behaviour* ([DRIFT-updater-windows-untested]) — the matrix compiles and
+  unit-tests the three platforms, it does not run the device tier on any of them.
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [CI-windows-cwd-lock] Windows refuses to rename or delete any process's CWD
 
@@ -63,6 +78,38 @@ Pin prefix `CI-`. Format: [README.md](README.md).
 - **Do**: write generated `.ps1` as UTF-8 **with** a BOM. `sh` needs the opposite (a BOM on
   line 1 is a syntax error), so the two generators differ deliberately.
 - **Evidence**: ledger: 更新流程的三個缺陷
+
+## [CI-byte-compared-fixture-needs-notext] A fixture compared as **bytes** must be `-text` in `.gitattributes`, or it fails on Windows only
+
+- **Rule**: Git for Windows ships `core.autocrlf=true` in its **system** config, so a checkout
+  on a Windows runner rewrites every LF in a file git considers text to CRLF *in the working
+  tree*. The blob is untouched, so nothing in the repository looks wrong and no other platform
+  can see it.
+- **Consequence**: `update_script_golden_test.dart` compares the generated updater against
+  `test/fixtures/gbm-update.ps1.golden` **as bytes** — deliberately, because the BOM is half of
+  what it pins ([CI-ps1-needs-bom]) and a string comparison would normalise it away — while
+  `UpdateInstaller` always emits `\n`. On Windows the golden on disk had CRLF and the generated
+  script had LF, so the comparison failed at the **first newline**: `at location [77] is <10>
+  instead of <13>`. 2966 passed, 1 failed.
+- **Rule**: **this was invisible for as long as the golden existed.** The Flutter job was
+  ubuntu-only ([CI-linux-only]), and `cq.yml`'s `powershell-parse` job does read this file on a
+  real `windows-latest` — but PowerShell does not care about CRLF, so that job was green
+  throughout. It took the three-OS matrix's *first run* to surface it.
+- **Do**: `*.golden -text`, scoped to the class rather than the one path. A `.golden` exists to
+  be compared byte-for-byte, so eol conversion is wrong for every one of them. Verify with
+  `git ls-files --eol <path>` — it must print `attr/-text`, not an empty `attr/`.
+- **Do not** reach for `binary`: that is `-text -diff`, and this golden is a reviewable
+  PowerShell script whose diff is worth reading.
+- **Note**: no re-normalisation was needed — the blob was already LF (`git show HEAD:<path> |
+  tr -dc '\r' | wc -c` → 0), so the attribute alone fixes the checkout. A fixture already
+  stored with CRLF would need `git add --renormalize` as well.
+- **Do**: the root cause was **reproduced locally before the fix**, not inferred from the
+  platform: piping the blob through `.replace(b'\n', b'\r\n')` puts byte 77 at 13 against the
+  blob's 10, which is the assertion's two numbers exactly.
+- **See also**: [GIT-apply-without-cached-follows-autocrlf] is the same `core.autocrlf` biting
+  one layer down — there it is git rewriting a *work-tree file an operation wrote*, here it is
+  git rewriting a *checked-in fixture on checkout*.
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
 
 ## [CI-powershell-golden-parse] The generated `.ps1` is syntax-checked on `windows-latest`, from a golden, parse-only
 

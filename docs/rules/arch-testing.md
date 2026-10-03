@@ -93,6 +93,42 @@ One row per shape — when you find a thirteenth, append a row.
   see the gap; only the real binary across the boundary can, which is why that test belongs in
   `GitIntegrationTest.cpp` and the FFI-payload one in `SessionApiTest.cpp` (9).
 
+## [TEST-callback-hook-outlives-test-body] A callback hook stored on the fixture outlives `TestBody()`, so it must never capture that body's locals by reference
+
+- **Rule**: a gtest fixture member lives until after `TearDown()` returns. A hook installed
+  from `TestBody()` and stored there therefore outlives every local `TestBody()` declared, and
+  `[&]` captures them by reference.
+- **Consequence**: `CancelOperationApiTest`'s hook captured `finishes`/`trippedOnFirstFinish`
+  and was still installed when `TearDown()` called `gbm_session_close()` — which cancels every
+  still-queued operation, each emitting `GBM_EVENT_OPERATION_FINISHED` straight back into
+  `logCallback()`. ASan: `stack-use-after-return` on `finishes.fetch_add(1)`, with
+  `CallbackRegistry::emit` → `OperationRunner::workerLoop` above it.
+- **Consequence**: **the write is the lesser half.** The hook *reads* that dead `finishes` to
+  decide whether to call `gbm_cancel_operation(session_, 0)`, so a garbage read re-enters a
+  `Session` already inside its own destructor — which is where the glibc
+  `mutex->__data.__owner == 0` abort and the SEGV in `~Session()` both came from. The symptom
+  is two frames and a mutex address away from the cause.
+- **Do**: clear the hook as the **first** statement of `TearDown()`, before anything that can
+  emit. `log_.setHook(nullptr)` is the whole fix; no product code changed.
+- **Rule**: **an unsanitised build cannot see this.** The dead frame usually still holds the
+  old value, the branch is not taken, nothing re-enters. Measured over 100 runs of the one
+  test, Linux/aarch64, before → after: plain `0/100` → n/a, gcc TSan `20/100` → **0/100**,
+  gcc ASan `17/100` → **0/100**, clang ASan `13/100` → **0/100**.
+- **Do**: **do not read "only TSan reproduces it" as "libtsan is wrong".** That was the working
+  hypothesis for two rounds of this diagnosis and it was wrong twice: first because the repo's
+  own GCC-11 precedent was **100% deterministic** while this was intermittent, then because
+  clang's ASan reproduced it too — three of four sanitizer arms across two vendors. The arm
+  that discriminates is a **second sanitizer**, not a second run.
+- **Do**: ASan's report is worth more than TSan's here — it named the exact line and the exact
+  object, where TSan only gave a mutex address in a destructor. When a sanitizer failure looks
+  like corruption, run the *other* sanitizer before theorising.
+- **Note**: **a separate, pre-existing fragility was found and is left open**, not fixed:
+  `SessionCloseCancelsQueuedOperationsInsteadOfDraining` asserts `succeeded <= 1`, and on a
+  fast container 14 of its 20 operations completed before the close (`14 vs 1`). It installs no
+  hook, so this fix cannot have caused it; it is the test's own timing assumption. Not seen on
+  CI. Recorded for a ruling rather than silently adjusted.
+- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../ledger/2026-09-28-chore-accept-toolchain-bump.md)
+
 ## [TEST-mutation-check-every-test] Mutation-check every new test, and check the red is narrow
 
 - **Rule**: a broad red means the test is pinning something else.
@@ -238,12 +274,17 @@ One row per shape — when you find a thirteenth, append a row.
   **not** scroll.
 - **Evidence**: ledger: soft-warp
 
-## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, has never been run on Windows
+## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, is inert on Windows — and until the three-OS matrix, had never been run there at all
 
-- **Rule**: `ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
-  whatever a developer's own machine says. The first run on one (Windows 11, Flutter 3.47.5)
-  was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that stayed red with
-  Git's `usr\bin` added.
+- **Rule**: ~~`ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
+  whatever a developer's own machine says.~~ **Corrected in place**: `flutter-ci` is a three-OS
+  matrix as of chore/accept-toolchain-bump ([CI-linux-only]), so the unit tier now runs on
+  `windows-latest` and `macos-26` on every PR. The first run on a real Windows host (Windows 11,
+  Flutter 3.47.5) was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that
+  stayed red with Git's `usr\bin` added.
+- **Rule**: **the rule below is unchanged by that**, and is what the matrix now enforces rather
+  than merely records: a `chmod`/`touch` fixture is still the wrong instrument, it is just no
+  longer invisible until someone happens to own a Windows machine.
 - **Consequence**: a `chmod 555` fixture is not merely unavailable there, it is **silently
   inert** — NTFS ignores the mode bits — so with coreutils installed the test goes green
   having never met a failing write or delete. The same fixture is inert for uid 0 on POSIX.

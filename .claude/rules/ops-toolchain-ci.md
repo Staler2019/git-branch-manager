@@ -261,6 +261,6 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
   platform directories»). A later `flutter test` put the second back after it had been reverted.
 - **Consequence**: `git status` shows both as modified after any local run, and a `git add -A`
   or `git commit -a` ships an SDK-version artefact as part of an unrelated change.
-- **Do**: stage by file ([CULT-stage-by-file]). Save `git diff` of the two files to the scratchpad
+- **Do**: stage by file ([CULT-standing-rules]). Save `git diff` of the two files to the scratchpad
   first and undo with `git apply -R` from that patch — never `git checkout -- <file>`.
 - **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)

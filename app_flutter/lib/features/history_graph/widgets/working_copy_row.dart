@@ -27,7 +27,7 @@ import 'graph_column_painter.dart' show kGraphEdgeStrokeWidth, kGraphLaneInset;
 /// **No spec entry.** The 21-page spec has no uncommitted row anywhere, and
 /// `spec_logic.js`'s own History mock starts at a real commit. This is a
 /// user-requested addition like the soft-wrap preference, not a conformance
-/// item -- see docs/rules/arch-structure.md.
+/// item -- see docs/records/2026-10-04-history-uncommitted-row.md.
 class HistoryWorkingCopyRow extends StatelessWidget {
   const HistoryWorkingCopyRow({
     super.key,

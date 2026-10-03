@@ -72,3 +72,21 @@ goneRefsDeferredByClaim DeferredPruneNotifier PruneAudience`。**已知風險**�
 `check-doc-migration-loss.py` 檔頭的範例指令仍寫 `docs/rules/fn-cpp-core.md`，因為那是
 「2026-08-31 那輪實際跑的」指令，改了就是改歷史。frozen 的 `docs/ledger.md` 與舊 ledger 裡提到
 `docs/rules/<搬走的檔>` 的句子同理不動。全域 `~/.claude` 的 44K 不在本輪範圍。
+
+## 追加：bytes 不是上限量的單位
+
+PR 開出後，新 session 仍警告「21 instruction files add up to 166.8k chars, over the 150.0k-char total
+limit」。我上面量的是 **bytes**，而上限算的是**字元**，且把使用者全域 `~/.claude` 一起算。逐檔以字元重算
+得 166,974，和警告吻合（專案 122.8k + 全域 44.1k；回覆裡我一度把全域寫成 42.1k，錯了，是 44,127）。
+上限超過後是只警告還是截斷，官方 memory 文件沒寫，無法確認。
+
+使用者選「做法 2」：`drift-open.md`、`ops-spec-reading.md` 也改為依路徑載入。
+
+| 檔 | paths |
+|---|---|
+| `drift-open.md` | `app_flutter/lib/**`, `app_flutter/test/**`, `src/**`, `tests/**`, `docs/reports/**` |
+| `ops-spec-reading.md` | `app_flutter/lib/**`, `app_flutter/test/**`, `src/core/graph/**`, `src/capi/Session.cpp`, `docs/claude-design-demo/**`, `docs/reports/**` |
+
+驗證：兩檔內點名的每個 `.dart/.cpp/.h` 的 tracked 路徑都落在 paths 內（uncovered 0；刪 `src/**` 時 2）；
+pin 懸空 0、連結 broken 0。結果：專案開場 **89,133 字元**，加全域 **133,260**，低於 150k。
+上面「開場約 125KB」那幾處以 bytes 計，仍是正確的 bytes 數字，但不是上限的量法；README 那句已就地更正。

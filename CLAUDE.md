@@ -58,7 +58,7 @@ reached 5,900 lines with every round appending to the same end-of-file.
 ## Rules
 
 Which file a category lives in is a context-cost decision, recorded in
-[docs/rules/README.md](docs/rules/README.md)'s prefix table: the eight
+[docs/rules/README.md](docs/rules/README.md)'s prefix table: the ten
 path-scoped ones under `.claude/rules/` are loaded only when their subtree is
 touched, the rest are imported here.
 
@@ -67,9 +67,7 @@ touched, the rest are imported here.
 @docs/rules/arch-state-machine.md
 @docs/rules/arch-actions.md
 @docs/rules/ops-ux-rubric.md
-@docs/rules/ops-spec-reading.md
 @docs/rules/ops-repo-culture.md
-@docs/rules/drift-open.md
 
 ## Where the rules went, and why a source comment still says "CLAUDE.md"
 

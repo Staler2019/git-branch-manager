@@ -64,10 +64,10 @@ collision, it is agreement.
 | `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-input.md` | `.claude/rules/` |
 | `CPP-` | `fn-cpp-core.md` | `.claude/rules/` |
 | `CI-` | `ops-toolchain-ci.md` | `.claude/rules/` |
-| `SPEC-` | `ops-spec-reading.md` | `docs/rules/` |
+| `SPEC-` | `ops-spec-reading.md` | `.claude/rules/` |
 | `UX-` | `ops-ux-rubric.md` | `docs/rules/` |
 | `CULT-` | `ops-repo-culture.md` | `docs/rules/` |
-| `DRIFT-` | `drift-open.md` | `docs/rules/` |
+| `DRIFT-` | `drift-open.md` | `.claude/rules/` |
 
 Rules: lower-case, hyphenated, 2–4 words, names the *claim* and not the
 symptom. A pin never changes once written — cross-references are by pin, so
@@ -108,15 +108,18 @@ evidence is on:
    `arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
    route trees and field tables — reference material, edited a row at a time;
    `arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.
-   `ops-spec-reading.md` (167) and `ops-repo-culture.md` (153) are prose but
+   `ops-spec-reading.md` (167, `.claude/rules/`) and `ops-repo-culture.md` (153) are prose but
    have no second group to split at. If one of these does grow a second
    group, split it then.
 4. **Choosing the directory** → `.claude/rules/` when the whole category is
    about one subtree and its `paths:` can be read off the code it governs;
    `docs/rules/` when it is needed before any file is opened (layout, state,
-   spec reading, repo culture, open drift). The split exists to cut context
-   cost: importing every file loaded ~316KB into every session, and the
-   imported half is now ~125KB. Path-scoped rules trigger on Read/Write/Edit
+   actions, repo culture). The split exists to cut context cost, measured in
+   **characters** because that is what Claude Code's 150k-character startup
+   limit counts — and it counts the user's own `~/.claude` files too (44k at
+   the time). Importing every file was ~316KB; ~~the imported half is now
+   ~125KB~~ the imported half is now ~89k characters, ~133k with `~/.claude`.
+   Path-scoped rules trigger on Read/Write/Edit
    only, never on a search.
 5. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin

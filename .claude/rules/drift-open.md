@@ -1,6 +1,15 @@
+---
+paths:
+  - "app_flutter/lib/**"
+  - "app_flutter/test/**"
+  - "src/**"
+  - "tests/**"
+  - "docs/reports/**"
+---
+
 # Current known drift, and open issues
 
-Pin prefix `DRIFT-`. Format: [README.md](README.md).
+Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md).
 
 `gh issue list` is authoritative for issue state; entries here and in the ledger are
 historical the moment they are written.
@@ -35,7 +44,7 @@ historical the moment they are written.
   ([GIT-worktree-status-is-per-path]). 建立於 is closed for linked worktrees and absent for the
   current one, a bare repo and an expired reflog, each caveat recorded rather than guessed.
 - **Evidence**: all tracked on **#76**;
-  [ledger: 十二個管理面板照 P19 樣板統一](../ledger/2026-09-02-feat-p19-panel-template-conformance.md).
+  [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md).
 
 ## [DRIFT-auto-fetch-unwired] Preferences → General 的 AUTOMATIC FETCH 整段沒有實作在後面
 
@@ -112,7 +121,7 @@ historical the moment they are written.
 - **Do**: this was a UI-structure change, closed directly on the user's explicit ruling
   (「兩個落差也修掉」) rather than a fresh spec-auditor pass, since every drawn value here
   was already spec-auditor-quoted in the G1d citation table.
-- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
+- **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commit.
 
 ## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped — **closed**
@@ -158,7 +167,7 @@ historical the moment they are written.
   sentence above: nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
   typedef silently drifting from `gbm_capi.h`'s six-parameter signature. Writing that
   device test is unscoped work, not part of this pin's closure.
-- **Evidence**: [ledger: G1d](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
+- **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commits.
 
 ## [DRIFT-restore-before-this-state-missing] "Restore file to before this state" has no dialog and no menu entry
@@ -198,7 +207,7 @@ historical the moment they are written.
   joins [DRIFT-checkout-dialog-mock-delta] and [DRIFT-rebase-onto-missing-capi-flags] in
   shape (a mock the app only partially draws) but, unlike those two, was **not** among the
   「兩個落差」the user named for closure this round — it stays open pending a ruling.
-- **Evidence**: [ledger: G1f](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+- **Evidence**: [ledger: G1f](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
 
 ## [DRIFT-shortcuts-copy-excluded] The Shortcuts surfaces are excluded from G1's Chinese-copy sweep
 
@@ -217,7 +226,7 @@ historical the moment they are written.
   whether (and how) to translate `gbmMenus`, before either surface can move.
 - **Evidence**: G1i (`preferences_dialog.dart`'s `_ShortcutsSection` header `'KEYBOARD
   SHORTCUTS'` stays English; `dialog_copy_test.dart`'s 'Preferences' group asserts it directly);
-  ledger: [G1i](../ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+  ledger: [G1i](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
 
 ## [DRIFT-cancel-capi-unwired] `gbm_cancel_operation` exists with no Dart caller, by decision
 
@@ -245,7 +254,7 @@ historical the moment they are written.
   this is a C++ *capability* with no reader. Asking 「who calls this」 finds the first and misses
   the second.
 - **Evidence**: **#139**;
-  [ledger: 追加四](../ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+  [ledger: 追加四](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared
 
@@ -265,7 +274,7 @@ historical the moment they are written.
 - **Note**: found while correcting item 10's *other* two clauses, which really were broken
   ([STRUCT-leaf-label-from-switcher]). Reading the whole `note` instead of the row's title is
   what surfaced all three.
-- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [DRIFT-open-issues] Open issues
 

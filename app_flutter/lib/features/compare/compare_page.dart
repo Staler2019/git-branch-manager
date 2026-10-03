@@ -39,7 +39,7 @@ import 'widgets/compare_ref_picker.dart';
 /// The left picker keeps *dropping* Working Copy rather than drawing it
 /// disabled, and that is deliberate: this is not a function that exists and
 /// is unavailable, it is one git cannot express, which is the exception
-/// [STRUCT-worktrees-tab-is-pinned] records for the Worktrees tab's ⨯ -- a
+/// `docs/records/2026-10-04-worktrees-tab-pinned.md` records for the Worktrees tab's ⨯ -- a
 /// dead row invites the click it will not honour. The Swap button is where
 /// the reason is reachable, because Swap is the action a user reaches for
 /// when they want that direction.

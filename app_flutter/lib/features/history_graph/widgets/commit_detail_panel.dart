@@ -281,6 +281,8 @@ class _UncommittedSummaryView extends StatelessWidget {
               ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
             ),
             const SizedBox(height: GbmSpacing.space4),
+            // Ruling: a summary, never a file list --
+            // docs/records/2026-10-04-history-uncommitted-row.md
             GbmButton(
               label: 'Open in Working Copy',
               onPressed: onOpenWorkingCopy,

@@ -34,6 +34,7 @@ class AppPreferences {
     this.logRetentionDays = 7,
     this.autoUpdateCheckEnabled = true,
     this.skippedVersion = '',
+    // Ruling: off by default -- `docs/records/2026-10-04-soft-wrap-off-by-default.md`
     this.softWrapEnabled = false,
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
@@ -131,7 +132,7 @@ class AppPreferences {
 
   /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
   /// seventh the user asked for to A/B the three flags below on real
-  /// hardware. See [STRUCT-soft-wrap-preference] for the precedent of a
+  /// hardware. See `docs/records/2026-10-04-soft-wrap-off-by-default.md` for the precedent of a
   /// user-requested addition recorded as such rather than as a conformance
   /// item.
   ///

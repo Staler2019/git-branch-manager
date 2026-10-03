@@ -64,7 +64,7 @@ abstract final class RoutePaths {
   /// Not one of the 22 spec-listed repo-scoped dialogs -- the Worktrees
   /// panel's own `Add worktree…` used to expand an inline form instead of
   /// routing anywhere. A user-requested addition, like
-  /// [STRUCT-soft-wrap-preference], not a conformance item.
+  /// `docs/records/2026-10-04-soft-wrap-off-by-default.md`, not a conformance item.
   static const String addWorktreeDialog = '/repo/:repoId/dialogs/add-worktree';
 
   /// D2's `Remove worktree…` -- the same panel dispatched straight to

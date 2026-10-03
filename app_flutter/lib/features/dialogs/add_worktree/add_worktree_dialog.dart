@@ -60,7 +60,7 @@ enum WorktreeSource { checkoutExisting, createNew }
 ///
 /// Routed as `/repo/:repoId/dialogs/add-worktree` -- not one of the spec's
 /// 22 dialogs, since the Worktrees panel itself postdates the spec's own
-/// page 06 dialog list ([STRUCT-panels-are-tabs]).
+/// page 06 dialog list (`docs/records/2026-10-04-panels-are-tabs.md`).
 class AddWorktreeDialogContent extends ConsumerStatefulWidget {
   const AddWorktreeDialogContent({super.key, required this.identity});
 

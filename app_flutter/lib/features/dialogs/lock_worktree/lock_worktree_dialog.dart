@@ -24,7 +24,7 @@ import '../../../widgets/gbm_input_decoration.dart';
 /// Routed as `/repo/:repoId/dialogs/lock-worktree` -- like
 /// [AddWorktreeDialogContent] and `RemoveWorktreeDialogContent`, not one of
 /// the spec's 22 dialogs, since the Worktrees panel itself postdates the
-/// spec's own page 06 dialog list ([STRUCT-panels-are-tabs]).
+/// spec's own page 06 dialog list (`docs/records/2026-10-04-panels-are-tabs.md`).
 class LockWorktreeDialogContent extends ConsumerStatefulWidget {
   const LockWorktreeDialogContent({
     super.key,

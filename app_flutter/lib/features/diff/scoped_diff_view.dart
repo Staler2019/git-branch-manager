@@ -831,7 +831,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         for (final DiffSegment segment in hunkSegments(
           hunk,
           byHunk[hunkIndex] ?? const <DiffScope>[],
-          // 使用者裁定 B: a context row whose index line the *other* source
+          // 使用者裁定 B (docs/records/2026-10-04-merged-diff-region-order.md): a context row whose index line the *other* source
           // draws as a change of its own is dropped here rather than drawn
           // twice. Empty for a single source, so `2 file` mode is untouched.
           hiddenLines: barrierLineIndices(
@@ -863,7 +863,8 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       }
     }
 
-    // U1: 「我要對齊的不是行號，是 git 判斷出的區域變更」. Ordering
+    // Ruling U1 (docs/records/2026-10-04-merged-diff-region-order.md):
+    // 「我要對齊的不是行號，是 git 判斷出的區域變更」. Ordering
     // *regions* asserts only that one region precedes another in the file,
     // which is true in the index coordinates both diffs already carry. It is
     // not the hard line alignment 變體 B's own note forbids -- that would
@@ -1341,8 +1342,8 @@ class _GapBlock extends StatelessWidget {
       // IntrinsicHeight because the rule beside the rows is a vertical
       // GbmDashedLine, which needs a bounded height to draw into, and a
       // `Column` hands its non-flex children `maxHeight: infinity` whatever
-      // its own bound is -- [FLU-column-nonflex-unbounded-height] /
-      // [FLU-row-stretch-needs-intrinsic-height], hit again here.
+      // its own bound is -- the same trap `GbmDialogWarnField` hit, pinned
+      // in gbm_dialog_field_kinds_test.dart.
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,

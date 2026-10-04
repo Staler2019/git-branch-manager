@@ -70,7 +70,7 @@ The spec HTML is `docs/claude-design-demo/Flutter Desktop Spec (standalone).html
 - **Do**: assert with set equality; a `containsAll` assertion cannot see this.
 - **Do**: **one list, two readers** — build the painted order once and derive the range list
   from it, so「painted order」cannot become a second opinion
-  ([FLU-merged-diff-keys-by-source]).
+  (`scoped_diff_view.dart`'s `_orderedBlocks`).
 
 ## [SPEC-21-pages-and-revisions] The spec HTML has 21 pages, and P16 revises earlier ones
 

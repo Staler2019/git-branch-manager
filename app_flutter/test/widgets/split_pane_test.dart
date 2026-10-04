@@ -922,7 +922,7 @@ void main() {
       await dragDownInSteps(tester, steps: 12);
       expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 0);
 
-      // [FLU-collapsed-drawer-stores-height]: storage holds this drawer's
+      // docs/records/2026-10-04-log-drawer-collapsed-by-default.md: storage holds this drawer's
       // *height*, never its open/closed state, so the 0 must not be written.
       // The drag passed through the clamp region on its way down, so the
       // height it left behind is minExtent rather than the original 200.

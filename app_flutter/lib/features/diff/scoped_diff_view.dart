@@ -366,6 +366,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // never actually restage, so the diff never changes and the clear always
     // found a settled tree.
     //
+    // **Not reproduced since, and pinned by no test.** On Flutter 3.47.4 the
+    // pre-fix shape (a post-frame clear after the dispatch) left the device
+    // tier green both here and at the fixing commit 45ebc2f itself (ledger:
+    // #167). The order is kept because the framework still walks
+    // `selectables` unguarded in `handleClearSelection`.
+    //
     // Clearing here is not redundant with the tap. Pressing a card's own
     // button is a tap inside the [SelectionArea], which collapses the
     // selection by itself; the keyboard path
@@ -553,6 +559,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                       // 「already focused」 covers the case where the region
                       // below it is the one actually holding it, and the key
                       // events reach [CallbackShortcuts] either way.
+                      //
+                      // **Never observed, and pinned by no test.** Requesting
+                      // focus on every pointer down left both tiers green:
+                      // the region takes focus back as the drag starts, so
+                      // the selection the drag makes survives (ledger: #167).
                       if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
                       _tracker.beginGesture();
                     },

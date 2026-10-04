@@ -43,5 +43,5 @@ name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
 ## [FLU-clear-selection-before-dispatch] The submit path is a diff-change path, one dispatch later
 
 - **Do**: call `clearSelection()` synchronously **before** dispatching a stage; deferred, it lands inside the restructure it caused and throws `ConcurrentModificationError` from `handleClearSelection` (`scoped_diff_view.dart`'s `_submitTemporary`).
-- **Note**: **no test pins it.** Moving the clear after the dispatch left `stage_lines_flow_test.dart` green on macOS (7/7): its tap collapses the selection by itself, and the keyboard path (`repositoryStageSelectedLines`) has no device test.
-- **Evidence**: [ledger: L1 第九片](../../docs/ledger/2026-10-04-chore-s3-l1-flutter-input.md)
+- **Note**: **no test pins it.** ~~Moving the clear after the dispatch left `stage_lines_flow_test.dart` green on macOS (7/7): its tap collapses the selection by itself, and the keyboard path (`repositoryStageSelectedLines`) has no device test.~~ The keyboard path has a device test now and stays green under both a synchronous and a post-frame late clear; the pre-fix shape does not crash at the fixing commit 45ebc2f either (Flutter 3.47.4), so the crash is unreproduced, not the tap's doing.
+- **Evidence**: [ledger: L1 第九片](../../docs/ledger/2026-10-04-chore-s3-l1-flutter-input.md); [ledger: #167](../../docs/ledger/2026-10-05-test-issue-167-missing-tests.md)

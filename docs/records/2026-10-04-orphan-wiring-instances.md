@@ -9,7 +9,7 @@ A route, provider, preference or capi field with no caller under `lib/` shipped 
 Record every instance so the rule's 「grep both directions」 and 「wire versus delete」 halves keep their evidence after the rule was condensed (2026-10-04).
 
 ## Action
-- **6th** — `ProcessStarter`'s `workingDirectory` parameter existed and no caller passed it; passing it was the whole fix for the Windows self-install ([CI-windows-cwd-lock]).
+- **6th** — `ProcessStarter`'s `workingDirectory` parameter existed and no caller passed it; passing it was the whole fix for the Windows self-install (pinned by `update_installer_test.dart`'s 「starts the updater from the script directory」).
 - **7th, 8th** — checkbox-era leftovers deleted in C18: nine methods across `WorkingCopySelectionState` and `file_tree.dart`, unit-tested and uncalled, one standing in as a conformance cell's evidence ([SPEC-cell-names-capability]).
 - **9th** — a *field* across a language boundary: `ParsedDiff.truncated` was serialized by `JsonCodec`, decoded by `ParsedDiff.fromJson`, taken by `DiffPage`, read by nothing, so a size-refused diff drew 「No changes」. Wired; see `diff_truncation.dart`.
 - **10th, 11th** — parameters a feature was waiting on: `FileSavePicker.pickDirectory()` had three callers while two folder fields stayed plain text boxes; `createBranch(setUpstream:)` / `lockWorktree(reason:)` had zero call sites passing one, so P17's checkbox was absent and the 「鎖定原因」 row permanently empty. All wired.

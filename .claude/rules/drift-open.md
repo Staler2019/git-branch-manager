@@ -35,7 +35,7 @@ Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec 
 
 ## [DRIFT-updater-windows-untested] The updater script's Windows half is parsed, never executed
 
-- **Rule**: `update_installer_script_test.dart` executes the `sh` half; PowerShell is only syntax-checked on `windows-latest` ([CI-powershell-golden-parse]). The device test stops at `readyToInstall`, so no tier runs the real install-and-restart.
+- **Rule**: `update_installer_script_test.dart` executes the `sh` half; PowerShell is only syntax-checked on `windows-latest` (`cq.yml`'s `powershell-parse` job). The device test stops at `readyToInstall`, so no tier runs the real install-and-restart.
 - **Do**: diagnose from `<systemTemp>/gbm-update.log` (`updateLogPath()`); the app truncates it (`update_log_test.dart`), both scripts append.
 - **Evidence**: [ledger: Install and restart 卡在 Installing…](../../docs/ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
 

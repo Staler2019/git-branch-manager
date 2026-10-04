@@ -13,7 +13,7 @@
 - `_persistFlexes` never writes such a pane's 0 (that would erase the dragged height); `_openToMinimum` reads `_reopenExtent`, because `_currentFlexes[0]` is what the collapse set to 0. `_resetToSpecDefault` clears `_reopenExtent` too.
 - Drag overshoot: `_dragRawExtent` accumulates the *unclamped* travel, opened on `onDragStart`, cleared on **both** `onDragEnd` and `onDragCancel`. It is clamped per step with a floor of 0 when the pane may collapse and `minExtent` otherwise, so every non-collapsible pane behaves byte-for-byte as before. The gate is `collapsedByDefault` (a drawer has a reopen affordance; another pane dragged to 0 would be lost). Keyboard steps are excluded (`_dragRawExtent == null`).
 - The height left behind is drag-speed dependent, deliberately: a real drag passes through the clamp region (last height `minExtent`); one frame large enough to skip it leaves the previous height.
-- The `stored[0] > 0` guard of [FLU-splitpane-stored-extent-ignores-min]'s `initState` clamp now covers only a non-drawer extent pane.
+- The `stored[0] > 0` guard of `GbmSplitPane`'s `initState` clamp now covers only a non-drawer extent pane.
 - No migration: a profile stuck open keeps its stored number, startup ignores it, the first toggle restores it.
 
 ## Result

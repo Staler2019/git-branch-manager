@@ -29,7 +29,8 @@
 
   mutations-run：6。tests-reddened：M1/M2 各 147、H1/H2 各 1、H3 1、H4 = 本檔全部。
 - 每次 mutation 前把檔案複製到 scratchpad，從副本還原。
-- 規則就地更正：`[TEST-ffi-matches-symbol-only]` 的「只有 device 層」、`[DRIFT-rebase-onto-missing-capi-flags]` 的「nothing today would catch」、`[DRIFT-cancel-capi-unwired]` 的「unit-tests clean」都劃掉重寫。
+- 規則就地更正：`[TEST-ffi-matches-symbol-only]` 的「只有 device 層」、~~`[DRIFT-rebase-onto-missing-capi-flags]` 的「nothing today would catch」、`[DRIFT-cancel-capi-unwired]` 的「unit-tests clean」都劃掉重寫。~~ **更正（merge main 時）**：#158 已把 `drift-open.md` 由 14 條縮為 8 條，`[DRIFT-rebase-onto-missing-capi-flags]` 已退役，所以那一句的更正隨之消失；`[DRIFT-cancel-capi-unwired]` 改在 main 縮減後的「Only a device test crosses the seam」上就地劃掉重寫。
+- 開 PR #162 後 CI 沒跑：PR 與 main 衝突（`mergeable: CONFLICTING`），GitHub 不替衝突中的 PR 觸發 `pull_request` workflow。用 merge（不 force-push）解掉。同一個 issue 另有一個 PR #161（`claude/issue-159-9cdfa5`），已是 closed、沒有合併。
 
 ## Result
 

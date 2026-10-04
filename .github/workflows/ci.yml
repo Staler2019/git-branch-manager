@@ -96,7 +96,7 @@ jobs:
     #
     #   * `windows/runner/` and `macos/Runner/` were compiled by nothing
     #     until a release tag, so an edit there reached main uncompiled
-    #     ([CI-linux-only], #69). `test/platform/window_title_test.dart`
+    #     (#69, closed by this matrix). `test/platform/window_title_test.dart`
     #     asserts those sources as *strings*, which catches a drifting
     #     literal and never a compile error.
     #   * the Dart unit/widget tier had no Windows job at all, which
@@ -124,8 +124,7 @@ jobs:
       # Mandatory, not cosmetic: the GitHub Windows images ship a MinGW g++
       # on PATH as well as MSVC, and with no toolchain step CMake's compiler
       # probe takes whichever it finds first -- a job that omits this is not
-      # "the same as the others", it is a different toolchain
-      # ([CI-windows-toolchain-not-implied]).
+      # "the same as the others", it is a different toolchain.
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1

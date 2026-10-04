@@ -551,7 +551,7 @@ void main() {
       expect(find.textContaining('Creates local branch'), findsNothing);
     });
 
-    // Closes [DRIFT-checkout-dialog-mock-delta]: DLGS's Checkout entry draws
+    // DLGS's Checkout entry draws
     // a read-only 目前 row (`main · 有25 項未提交變更`) ahead of the
     // radio-on/radio pair, so the row is asserted on a clean tree first
     // (bare "目前 main", no count) and again once dirty.
@@ -665,7 +665,7 @@ void main() {
       expect(find.textContaining('uncommitted changes first'), findsNothing);
     });
 
-    // Closes [DRIFT-rebase-onto-missing-capi-flags]'s checkbox half: DLGS's
+    // The checkbox half of the Rebase onto mock delta (closed, G1d): DLGS's
     // Rebase onto entry has chk-on 「保留 merge commit（--rebase-merges）」
     // and chk 「自動 squash 標記過的 fixup commit」, quoted verbatim.
     testWidgets('the rebase-merges and autosquash checkboxes are Chinese '
@@ -2077,7 +2077,7 @@ void main() {
 
     testWidgets(
       'the Shortcuts section stays English -- excluded this round, see '
-      'docs/rules/drift-open.md',
+      '.claude/rules/drift-open.md',
       (tester) async {
         await _pumpPreferences(tester);
         await tester.tap(find.text('Shortcuts'));

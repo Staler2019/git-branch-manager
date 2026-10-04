@@ -159,7 +159,7 @@ TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
 
 // Proves the wire, not the git behaviour -- RealRepoTest.RebaseAutosquash*
 // already measures what `--autosquash` itself does
-// ([DRIFT-rebase-onto-missing-capi-flags]). This is the one tier that can
+// (the Rebase onto mock delta, G1d). This is the one tier that can
 // see whether `gbm_rebase_start`'s fifth parameter actually reaches
 // RebaseRequest.autosquash: lookupFunction on the Dart side matches by
 // symbol name only, never by signature ([TEST-ffi-matches-symbol-only]), so

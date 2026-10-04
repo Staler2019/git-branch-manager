@@ -1,7 +1,7 @@
 // Dispatch behaviour for rebase_onto_dialog.dart's rebaseMerges/autosquash
 // checkboxes -- dialog_copy_test.dart covers their copy, this file covers
 // whether Start rebase actually forwards what they show.
-// [DRIFT-rebase-onto-missing-capi-flags]
+// (the Rebase onto mock delta, closed in G1d's follow-up)
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

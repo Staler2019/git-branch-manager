@@ -980,10 +980,10 @@ finish 4
 
 /// The PowerShell updater, same control flow as [buildUnixUpdaterScript].
 ///
-/// Cannot be executed by this project's test suite -- there is no Windows
-/// machine in CI (`ci.yml`'s Flutter job is ubuntu-only and `windows/runner/`
-/// is compiled solely by `release.yml` on tag), so this half is text-asserted
-/// and covered for real only by the manual pre-release pass.
+/// Not executed by this project's test suite -- `ci.yml`'s Windows leg runs
+/// the Dart tests but never this script, and `cq.yml`'s `powershell-parse`
+/// job only parses its golden -- so this half is text-asserted and
+/// covered for real only by the manual pre-release pass.
 String buildWindowsUpdaterScript({
   required int pid,
   required String targetPath,

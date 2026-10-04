@@ -248,3 +248,6 @@ tmbootpicker.efi
 # flutter_test golden failure output -- regenerated on every failing golden run
 # (masterImage/testImage/isolatedDiff/maskedDiff quadruples). Derived, never tracked.
 app_flutter/test/goldens/failures/
+
+# Claude Code session worktrees (EnterWorktree / isolation: worktree)
+.claude/worktrees/

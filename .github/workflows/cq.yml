@@ -135,11 +135,11 @@ jobs:
           echo "every flutter-action use pins flutter-version"
 
   # The generated PowerShell updater is the one artefact of this repository
-  # that nothing else compiles, parses or runs. ci.yml's Flutter job is
-  # ubuntu-only, windows/runner/ builds solely on a release tag (#69), and
-  # update_installer_script_test.dart is @TestOn('mac-os || linux') because
-  # there is no PowerShell to run the other half with. A syntax error in it
-  # therefore reached users before it reached anyone else -- and it arrived
+  # that nothing else parses or runs. ci.yml's flutter-ci Windows leg runs
+  # the Dart tests, but update_installer_script_test.dart is
+  # @TestOn('mac-os || linux') because there is no PowerShell to run the
+  # other half with. Before this job a syntax error in it reached users
+  # before it reached anyone else -- and it arrived
   # as "the app closed and never came back", since a parse failure happens
   # before the script's first statement and so before it can write a word of
   # its own transcript.

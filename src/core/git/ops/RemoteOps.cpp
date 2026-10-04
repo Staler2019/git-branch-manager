@@ -134,7 +134,7 @@ public:
         // has a "Pull blocked" entry (three buttons, danger second, the same
         // shape as "Checkout blocked") that these choices would have backed,
         // but no Dart dialog was ever built to read them -- see
-        // docs/rules/drift-open.md's [DRIFT-no-pull-dialog].
+        // .claude/rules/drift-open.md's [DRIFT-no-pull-dialog].
 
         outcome.error = std::move(error);
         return outcome;

@@ -93,7 +93,7 @@ historical the moment they are written.
 - **Do**: read `<systemTemp>/gbm-update.log` (`updateLogPath()`) — every arm of both
   scripts writes its exit code there, and every failure path reached after the app has
   exited relaunches, so the next failure is diagnosable rather than a vanished window.
-  **The app now writes its own half of that file too** ([CULT-log-both-sides-of-a-handover]),
+  **The app now writes its own half of that file too** (pinned by `update_log_test.dart`),
   so a handover that fails *before* the script starts is diagnosable as well; the app owns
   truncation and both scripts append.
 - **Evidence**: ledger: 更新流程的三個缺陷
@@ -283,7 +283,7 @@ historical the moment they are written.
   **#101**, **#102**, **#109**, **#119** (side-by-side pins neither gutter — awaiting a
   real-hardware check by the user), **#139**.
 - **Closed**: **#74** (fix/branch-prune-and-gone-marking — its text was corrected first,
-  the same function had two further defects the issue never mentioned, per
-  [CULT-correct-the-record]); **#75** (all four 260820 `REVISIONS` shortcut gaps landed in
+  the same function had two further defects the issue never mentioned, the
+  record corrected in place); **#75** (all four 260820 `REVISIONS` shortcut gaps landed in
   feat/p03-working-copy-redesign); **#67** (macOS `CFBundleName` is the literal
   `git-branch-manager`, candidate fix 1, in fix/macos-about-dialog-parity).

@@ -100,7 +100,7 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 - **Consequence**: `edge.lane == rows[parentRow].lane` is a **false** invariant —
   `patchIncoming()` never rewrites `edge.lane`, so bending an arriving edge into the
   parent's lane is the renderer's job, not the builder's.
-- **See also**: [CULT-reference-impl-not-orphan] — it has no caller and must not be swept.
+- **See also**: `SideBySideDiff.h` is the same kind of reference — neither has a caller and neither may be swept as an orphan.
 
 ## [CPP-span-no-braced-list] `std::span<const ObjectId>` does not accept a braced list in C++20
 

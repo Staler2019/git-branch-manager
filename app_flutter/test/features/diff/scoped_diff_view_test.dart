@@ -1436,7 +1436,7 @@ void main() {
       // the claim `hunkSegments`' deleted `firstOrdinal` used to make one
       // level down; it could not survive there, because a number handed out
       // while the blocks are still grouped by hunk is shuffled by the sort
-      // that follows ([CULT-nothing-silently-dropped]).
+      // that follows (recorded rather than silently dropped).
       expect(
         find.descendant(
           of: find.byKey(const ValueKey<String>('scope-card-1')),

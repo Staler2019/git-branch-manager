@@ -37,8 +37,24 @@
   `arch-testing.md` 的「Flutter 3.47.5」是一次歷史量測，保留；`cq.yml` 的 3.12.2 註解是在說明
   lint 為何存在，保留。
 
+- **CI 第一輪：macOS 紅 3**（2998 過），全是 `GbmIconButton` 三主題，各 6px、0.00%。本機 21 綠。
+  計畫的停止點觸發，停下回報。使用者選 A：暫時加 `upload-artifact` 步驟取回失敗圖（ea7fbd2，
+  之後 revert 628dc23，artifact 已刪）。
+- 中途 PR 因 `docs/ledger/INDEX.md` 判 CONFLICTING 而 CI 未啟動：本機 `merge=union` 自動合，
+  GitHub 不吃 `.gitattributes` merge driver。merge main（6d07087）後恢復。
+- **差異量測**：三主題同座標 y=302、x=187/198、394/405、601/612，每通道差 ≤2/255；位置是方框
+  字形內框下緣兩個反鋸齒角點。方框是 `Icon(Icons.add)` 在 flutter_test 沒有 Material Icons 字型時
+  的 tofu —— 這 3 顆 golden 原本比對的根本不是圖示。同批 9 張（button/panel/tag_chip）兩機一致。
+- 使用者問能否不測光柵化差異 → **D**：golden 改用正式程式使用的 `LucideIcon`（SVG 路徑）。
+  舊圖 −3（red）；mutation 換圖示名 +18 −3；我先加的 `runAsync` 等待拿掉結果相同 → 非負重，刪除。
+- 操作失誤：`git revert -q` 不支援 `-q` 而失敗，接著的 `--amend` 改到未推送的 merge commit 訊息；
+  tree 相同，`reset --soft` 回 6d07087 後重做 revert，無內容損失。
+
 ## Result
 
-四處釘版、下限、格式、golden 全部對齊 3.47.4，本機 analyze 0、format 0、測試全綠。
-三 OS CI 結果見 PR。可蒸餾的規則已就地寫進上述三條 pin：**升版時四處釘版、sdk 下限、format、
+四處釘版、下限、格式、golden 全部對齊 3.47.4，本機 analyze 0、format 0、+3001 全綠；
+CI 第三輪（48f0396）13 個 check 全綠，含 macOS golden。
+
+就地更正 2026-09-28 ledger「和硬體、字型、機器無關」：字形光柵化與機器有關。
+蒸餾為 `[TEST-golden-no-glyphs]`。CI 規則已就地寫進上述三條 pin：**升版時四處釘版、sdk 下限、format、
 golden 必須同一輪一起動**。

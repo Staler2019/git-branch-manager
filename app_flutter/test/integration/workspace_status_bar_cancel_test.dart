@@ -18,8 +18,9 @@
 // Cancel apart from a dead one.
 //
 // Harness note: never `pumpAndSettle()` while `isRefreshing` is true.
-// TopBar renders an indeterminate `CircularProgressIndicator` for exactly
-// that flag, and an indeterminate spinner animates forever -- pumpAndSettle
+// An empty CommitGraphView renders an indeterminate
+// `CircularProgressIndicator` for exactly that flag, and an indeterminate
+// spinner animates forever -- pumpAndSettle
 // waits for frames to stop being scheduled and therefore times out rather
 // than failing on the assertion under test. Use `pump()` until the flag is
 // back off.

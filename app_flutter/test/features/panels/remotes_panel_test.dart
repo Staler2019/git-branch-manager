@@ -99,7 +99,7 @@ Future<PumpedPanel> _pump(
 /// which is what these tests used until the toolbar grew a filter -- also a
 /// `TextField`, and one that sits *before* the dialog's fields in the tree,
 /// so `.first` silently started typing the remote name into the filter box
-/// ([TEST-design-system-swap-breaks-finders]). The Cancel test went on
+/// after the design-system swap. The Cancel test went on
 /// passing throughout, because "addRemote was not dispatched" is true when
 /// you fill in the wrong box too.
 Future<void> _fill(WidgetTester tester, String label, String value) async {

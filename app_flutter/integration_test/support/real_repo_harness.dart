@@ -2,10 +2,9 @@
 // temporary git repository, and boots the real GbmApp (not a fake session,
 // unlike test/support/pump_workspace.dart's widget-tier harness).
 //
-// Precondition: `scripts/build_capi.sh` (or `.ps1`) must have already put
-// the native library where `native_library.dart`'s candidate #3 looks --
-// `app_flutter/build/native/` -- since `flutter test integration_test/`
-// does not go through either of the packaged-build paths (#1/#2).
+// On macOS the run's own Xcode "Build gbm_capi" phase rebuilds the library
+// into the app bundle, so `native_library.dart`'s candidate #2 is what loads
+// (integration_test/README.md has the measurement).
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' show Size;

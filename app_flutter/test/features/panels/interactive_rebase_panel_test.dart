@@ -93,7 +93,7 @@ void main() {
       // sits *before* this one in the tree, so the bare finder became
       // ambiguous the moment rule 2's filter slot was filled. The fourth
       // instance of this trap in the round
-      // ([TEST-design-system-swap-breaks-finders]); this one reds loudly
+      // (a design-system swap breaking a finder); this one reds loudly
       // rather than silently retargeting, because two matches is an error.
       await tester.enterText(
         find.ancestor(
@@ -249,7 +249,7 @@ void main() {
     // *nothing* asserted that a drag actually reorders -- there was no drag
     // test at all, only 「the list shows the plan in replay order」.
     // Asserting a ReorderableListView exists is not asserting that a drop
-    // works ([TEST-draggable-is-not-a-drop]).
+    // works (working_copy_board_test.dart's drop recipe).
     //
     // The platform override is load-bearing: ReorderableListView builds a
     // trailing `Icons.drag_handle` wrapped in a ReorderableDragStartListener

@@ -1,5 +1,6 @@
 // Golden tests for design-system components across all theme variants.
-// Only runs on macOS (flutter test CI runs on Ubuntu and skips these).
+// Pixel goldens run on macOS only (ci.yml's macos-26 leg); the source scan at
+// the end of main() runs everywhere.
 import 'dart:io' show Directory, File, FileSystemEntity, Platform;
 
 import 'package:flutter/material.dart';

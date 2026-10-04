@@ -155,8 +155,7 @@ void main() {
       // toolbar's filter is a TextField too and sits before both of these
       // in the tree, so `.first` would have silently typed 「HEAD」 into the
       // filter and left the bad-ref box empty -- and the test would still
-      // have passed, because startBisect was dispatched either way
-      // ([TEST-design-system-swap-breaks-finders]).
+      // have passed, because startBisect was dispatched either way.
       await _fillLabelled(tester, 'Known bad (empty = HEAD)', 'HEAD');
       await _fillLabelled(tester, 'Known good', 'v1.0');
       await tester.tap(find.text('Start bisect'));

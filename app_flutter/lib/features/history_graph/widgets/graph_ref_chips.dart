@@ -99,6 +99,11 @@ List<RefChipData> refChipsForCommit(RefSnapshot refs, String targetOid) {
     }
   }
 
+  // No `isSymbolic` filter here, unlike the lookup map above: 使用者裁定
+  // History keeps drawing the `origin/HEAD` chip. The flag read false for
+  // every release before `%(symref)` was parsed, so the chip was always there
+  // and removing it would be a behaviour change nobody asked for. Pinned by
+  // graph_ref_chips_test.dart's 'origin/HEAD' group.
   final List<RefChipData> chips = <RefChipData>[];
   for (final RefInfo ref in refsAtRow) {
     if (ref.kind == RefKind.remoteBranch &&

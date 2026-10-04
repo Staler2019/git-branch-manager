@@ -40,9 +40,13 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 - **Rule**: `ci.yml` builds and tests; `cq.yml` holds the two pure static checks,
   `dart format --set-exit-if-changed .` and `clang-format`.
 - **Consequence**: a format failure surfaces on its own check instead of aborting the build.
-- **Consequence**: the Flutter UI job sits behind `needs: capi-build`, so it does not run
+- **Consequence**: ~~the Flutter UI job sits behind `needs: capi-build`, so it does not run
   at all while any capi job is red — a green capi run can surface Flutter problems that
-  were previously invisible rather than absent.
+  were previously invisible rather than absent.~~ **Corrected in place (#151 round)**: the
+  `needs` is gone — `flutter-ci` read nothing `capi-build` produced, so it only queued the
+  Flutter jobs behind Windows capi's ~9–10 minutes. Both groups now run in parallel, and a red
+  capi no longer hides a Flutter failure. Do not re-add it without a real artifact handoff.
+- **Evidence**: [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)
 
 ## [CI-formatter-version-drift] Both formatters drift by version, in both directions
 
@@ -167,8 +171,8 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
   one Windows `capi (FFI)` job sat 81 minutes on a single test against a 9–11 minute baseline,
   and stopped only because a human cancelled it — which is also the only way its log became
   readable, since GitHub refuses to serve logs for an in-progress job.
-- **Consequence**: it costs more than the one job. `flutter-ci` is `needs: capi-build`
-  ([CI-two-workflows]), so it did not run **once** on that branch while a Windows job could not
+- **Consequence**: it costs more than the one job. `flutter-ci` was then `needs: capi-build`
+  ([CI-two-workflows], since removed), so it did not run **once** on that branch while a Windows job could not
   finish.
 - **Do**: both layers, because they answer different questions. `tbase.execution.timeout` in
   `CMakePresets.json` names the culprit (`***Timeout`, with the test's name, and the remaining

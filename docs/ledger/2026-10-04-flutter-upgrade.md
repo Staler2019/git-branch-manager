@@ -50,6 +50,22 @@
 - 操作失誤：`git revert -q` 不支援 `-q` 而失敗，接著的 `--amend` 改到未推送的 merge commit 訊息；
   tree 相同，`reset --soft` 回 6d07087 後重做 revert，無內容損失。
 
+- **追加：CI 時間**（使用者：capi 的 build 結果沒沿用到 flutter build）。量測：`flutter-ci` 不下載
+  `capi-build` 的 artifact；它的 `build_capi.{sh,ps1}` 產物 `build/native/` 在 `flutter test` 之後無人讀，
+  `flutter build` 又經 Phase B 自編 gbm_capi。使用者裁定只動 `ci.yml`（不做 prebuilt 選項，保住 PR 階段的 Phase B 覆蓋）。
+  - 31df5fc 刪 `build_capi` 步驟。`build_capi`+`flutter build`（秒）：Linux 100 → 39、Windows 368 → 349、
+    macOS 100 → 164（Xcode phase 改為冷編；同輪 `flutter test` 也 336 → 547，runner 偏慢，單次量測）。使用者接受 macOS +64。
+  - 2c9f733 拿掉 `flutter-ci` 的 `needs: capi-build`（無資料傳遞，只是排隊）。整輪 wall：
+
+| run | 變更 | wall (s) |
+|---|---|---|
+| 37174303497 | 48f0396，基準 | 1472 |
+| 37176476465 | 刪 build_capi | 1735 |
+| 37178065808 | 拿掉 needs | **872** |
+
+  最長路徑由「capi Windows → Flutter Windows」變成 Flutter Windows 單獨 869s。`build_capi.ps1` 自此無 CI 呼叫，
+  仍是本機 `flutter test` 前的開發腳本。`[CI-two-workflows]` 的 needs 那條就地更正。
+
 ## Result
 
 四處釘版、下限、格式、golden 全部對齊 3.47.4，本機 analyze 0、format 0、+3001 全綠；

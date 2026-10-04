@@ -164,9 +164,12 @@ historical the moment they are written.
   for `rebase`/`Rebase`, both empty) — [TEST-device-tier-not-in-ci] applies, and this is
   additionally a case with **no existing device test to extend**, not just one that needs
   rerunning. Recorded per [SPEC-absent-not-faked] rather than left implied by the corrected
-  sentence above: nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
-  typedef silently drifting from `gbm_capi.h`'s six-parameter signature. Writing that
-  device test is unscoped work, not part of this pin's closure.
+  sentence above: ~~nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
+  typedef silently drifting from `gbm_capi.h`'s six-parameter signature.~~ **Corrected
+  (#159)**: a dropped or retyped parameter is caught by
+  `gbm_capi_signature_parity_test.dart`; `rebaseMerges` ↔ `autosquash` swapped (both
+  `int32_t`) is still caught by nothing. Writing that device test is unscoped work, not
+  part of this pin's closure.
 - **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commits.
 
@@ -246,9 +249,13 @@ historical the moment they are written.
   carries no id today), a UI entry point, and a decision that a user-initiated cancel is **not**
   drawn as an error (P10's `LOGRULES` reserves error for actions actually refused).
 - **Do**: [TEST-ffi-matches-symbol-only] applies with full force — `lookupFunction` matches by
-  symbol name only, so a wrong `uint64_t` on the Dart side compiles, analyzes and unit-tests
-  clean, then breaks at runtime. **Only a device-tier test crosses that seam**, and
+  symbol name only, so a wrong `uint64_t` on the Dart side compiles, analyzes and
+  ~~unit-tests clean~~ (**corrected, #159**: once bound, the parity test below reds on it),
+  then breaks at runtime. **Only a device-tier test crosses that seam** for semantics, and
   `integration_test/` has nothing that reaches operation cancellation at all.
+- **Do**: wiring it means deleting `gbm_cancel_operation` from
+  `gbm_capi_signature_parity_test.dart`'s `_unboundByDecision` — that test then checks the
+  `uint64_t` ↔ `Uint64` type, and fails until the allowlist entry goes (#159).
 - **Note**: distinct from **#102**, and the pair is the worked example of
   [CULT-orphan-wiring]'s 「grep both directions」: #102 is a Dart *setting* with no consumer,
   this is a C++ *capability* with no reader. Asking 「who calls this」 finds the first and misses

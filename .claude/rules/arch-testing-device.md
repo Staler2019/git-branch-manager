@@ -72,9 +72,17 @@ Format: [README.md](../../docs/rules/README.md).
 
 ## [TEST-ffi-matches-symbol-only] `dart:ffi`'s `lookupFunction` matches by symbol name only, never by signature
 
+- **Rule**: a `_XxxNative` that disagrees with its own `XxxDart` is already an analyzer error
+  (`must_be_a_subtype`); the drift nothing else sees is the header changing while both Dart
+  typedefs stay put.
 - **Consequence**: changing a capi parameter list and its Dart typedef in lockstep is checked
   by nothing — it compiles, analyzes and unit-tests clean, then corrupts the stack at runtime.
-- **Do**: only a device-tier test crosses that seam.
+- **Do**: ~~only a device-tier test crosses that seam.~~ **Corrected (#159)**: the *types* are
+  checked at the unit tier now — `test/data/ffi/gbm_capi_signature_parity_test.dart` reads
+  `gbm_capi.h` and `gbm_bindings.dart` as text and compares count, return and each parameter.
+  Two same-type parameters swapped (`rebaseMerges` ↔ `autosquash`) still pass it; only a
+  device-tier test sees semantics.
+- **Evidence**: [ledger: #159 簽章 parity](../../docs/ledger/2026-10-04-feature-issue159.md)
 
 ## [TEST-pumprealappon-clears-prefs] `pumpRealAppOn` clears the preferences device tests would otherwise inherit
 

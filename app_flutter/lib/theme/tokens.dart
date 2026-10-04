@@ -633,7 +633,7 @@ abstract final class GbmLayout {
   /// somebody dragged to would be adopted verbatim as a width. The orphaned
   /// `panelLayout.wc.diff` key now read-misses and falls back to this
   /// default -- never a wrong number, the same trade-off
-  /// [FLU-storage-id-not-tab-id] records.
+  /// `panelStorageId()`'s doc records.
   static const GbmSplitterSpec splitterWcFiles = GbmSplitterSpec.extent(
     defaultExtent: 260,
     minExtent: 180,

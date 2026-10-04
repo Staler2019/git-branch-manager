@@ -766,7 +766,7 @@ void main() {
         await tester.pump();
 
         // Seed the cached unstaged-side reply through the real event
-        // handler -- [TEST-fake-session-seam]: debugHandleEvent runs the
+        // handler -- `fake_repo_session.dart`: debugHandleEvent runs the
         // production _onEvent(), not a shortcut.
         fake.debugHandleEvent(
           GbmEvent(

@@ -83,7 +83,7 @@ void main() {
       // so a vertical first move inside the file list can be claimed by
       // the list's own scroller before the `Draggable` wins the arena --
       // the nudge sideways settles it first, and only then does the drag
-      // go down. See [TEST-dragdevices-is-not-a-guard] for why a mouse
+      // go down. See `gbm_code_hscroll.dart`'s doc comment for why a mouse
       // drag would not have this problem and a touch one does.
       await tester.pump(const Duration(milliseconds: 50));
       await drag.moveTo(Offset(from.dx + 40, from.dy));

@@ -159,11 +159,13 @@ TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
 
 // Proves the wire, not the git behaviour -- RealRepoTest.RebaseAutosquash*
 // already measures what `--autosquash` itself does
-// ([DRIFT-rebase-onto-missing-capi-flags]). This is the one tier that can
+// (the Rebase onto mock delta, G1d). This is the one tier that can
 // see whether `gbm_rebase_start`'s fifth parameter actually reaches
 // RebaseRequest.autosquash: lookupFunction on the Dart side matches by
-// symbol name only, never by signature ([TEST-ffi-matches-symbol-only]), so
-// nothing before this boundary would catch a dropped or mis-ordered param.
+// symbol name only, never by signature ([TEST-ffi-matches-symbol-only]).
+// A dropped or wrongly-typed param on the Dart side is caught by
+// app_flutter's gbm_capi_signature_parity_test.dart; two of the three
+// int32_t flags swapped is not, and only a device test would see that.
 TEST_F(RebaseApiTest, PlainRebaseWithAutosquashFoldsAFixupCommit) {
     std::ofstream(repo_ / "feature.txt") << "feature fixed\n";
     ASSERT_EQ(runGit({"add", "feature.txt"}), 0);

@@ -1,295 +1,65 @@
 ---
 paths:
-  - "app_flutter/lib/**"
-  - "app_flutter/test/**"
-  - "src/**"
-  - "tests/**"
-  - "docs/reports/**"
+  - "app_flutter/lib/features/context_menus/**"
+  - "app_flutter/lib/features/dialogs/restore_file/**"
+  - "app_flutter/lib/features/dialogs/keyboard_shortcuts/**"
+  - "app_flutter/lib/features/dialogs/preferences/**"
+  - "app_flutter/lib/features/workspace/widgets/action_toolbar.dart"
+  - "app_flutter/lib/data/repositories/app_preferences_repository.dart"
+  - "app_flutter/lib/data/repositories/file_list_view_mode_repository.dart"
+  - "app_flutter/lib/data/services/update_*.dart"
+  - "app_flutter/lib/data/ffi/gbm_bindings.dart"
+  - "app_flutter/lib/widgets/file_*.dart"
+  - "src/capi/**"
+  - "tests/capi/CancelOperationApiTest.cpp"
+  - "docs/reports/spec-conformance-matrix.md"
 ---
 
-# Current known drift, and open issues
+# Current known drift
 
-Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md).
-
-`gh issue list` is authoritative for issue state; entries here and in the ledger are
-historical the moment they are written.
+Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec gaps a future session must not "fix back" or mistake for a bug. `gh issue list` is authoritative for issue state; closed drift lives in the ledger.
 
 ## [DRIFT-context-menu-catalog] The context-menu catalog has no importer
 
-- **Rule**: `features/context_menus/gbm_context_menus.dart` declares all 11 of spec page
-  05's groups and is the parity test's acceptance baseline, but no file under `lib/`
-  imports it — each render site hand-writes its list.
-- **Consequence**: the catalog itself can drift from the spec, which the per-render-site
-  audit method cannot detect (**#71**).
-- **Do**: all 11 groups are checked against the catalog with no `skip`. Eight are pure
-  `*_menu_items.dart` functions — that extraction is the template to follow; 05-A, 05-C
-  and 05-K keep private render-site builders for reasons in their matrix rows.
+- **Rule**: `features/context_menus/gbm_context_menus.dart` declares spec page 05's 11 groups as `context_menu_parity_test.dart`'s baseline; nothing under `lib/` imports it, so each render site hand-writes its list (**#71**).
+- **Do**: keep extracting pure `*_menu_items.dart` functions checked against it; 05-A, 05-C, 05-K keep private builders (reasons in their matrix rows).
 
-## [DRIFT-05c-is-remote-only] 05-C applies to a remote-only row only
+## [DRIFT-auto-fetch-unwired] Preferences → General AUTOMATIC FETCH has nothing behind it
 
-- **Rule**: a *local* branch whose upstream is gone is **05-B**, not 05-C.
-- **Consequence**: the code dispatched on `_gone` and got this backwards for rounds,
-  leaving a branch that still exists on disk with no Checkout, Merge or Delete.
-- **Note**: 05-C is a **user-ratified deviation** from the catalog now, not a drift —
-  `Prune this ref` is deleted and `Delete on remote…` is `Delete remote branch…`, both
-  recorded in the catalog file's own doc comment.
-
-## [DRIFT-absent-for-no-capi] Absent for lack of a capi entry point
-
-- **Rule**: per-object transfer counts for fetch/pull/push, `git init` / clone, removing a
-  *scanned* repository from the switcher, squashing N commits, per-remote Pull/Push, and
-  six `PANELSPEC` detail fields (最後 fetch, 預期 commit, 大小, 剩餘步數,
-  自訂測試指令, 欄位選擇器).
-- **Note**: **待提交數 is closed** — it has a capi entry point now
-  (`attachPendingCounts`, `WorktreeOps.cpp`). 建立於 is closed for linked worktrees and absent for the
-  current one, a bare repo and an expired reflog, each caveat recorded rather than guessed.
-- **Evidence**: all tracked on **#76**;
-  [ledger: 十二個管理面板照 P19 樣板統一](../../docs/ledger/2026-09-02-feat-p19-panel-template-conformance.md).
-
-## [DRIFT-auto-fetch-unwired] Preferences → General 的 AUTOMATIC FETCH 整段沒有實作在後面
-
-- **Rule**: `autoFetchEnabled` and `autoFetchMinutes` are stored, drawn and **read by
-  nothing** — no timer anywhere issues that fetch.
-- **Consequence**: P11 item 9's 「預設每 10 分鐘一次…切換 repo 時重置計時」 has no
-  implementation to check against.
-- **Note**: two of #102's three `autoFetch*` orphans. The third, `autoFetchPrune`, was
-  **deleted** rather than wired — see [REF-fetch-auto-prunes]. An earlier record put this
-  row in Preferences → **Git**; it is `_GeneralSection`.
-
-## [DRIFT-lfs-match-approximate] `lfs_pattern_match.dart` is an approximation
-
-- **Rule**: it approximates gitattributes matching; it is not a port of `wildmatch()`.
-- **Consequence**: a pattern it cannot parse matches nothing, so a group reads 0 rather
-  than a wrong number.
+- **Rule**: `autoFetchEnabled` / `autoFetchMinutes` are stored and drawn (`_GeneralSection`) and read by no timer, so P11 item 9's 「預設每 10 分鐘一次」 has no implementation (**#102**; `autoFetchPrune` was deleted, see [REF-fetch-auto-prunes]).
 
 ## [DRIFT-no-pull-dialog] No pull dialog route exists
 
-- **Rule**: P17's 「選單的 Pull… 或 Alt + 點工具列才開」 has nothing to open.
-- **Consequence**: `ActionToolbar`'s Pull only runs `pullChanges()` with the configured
-  default (**#109**).
-- **Consequence**: this reaches the recovery-choices layer too. `DLGS` has a "Pull
-  blocked" entry (three buttons, danger second, the same shape as "Checkout blocked"),
-  and `RemoteOps.cpp`'s pull path used to push `StashAndRetry`/`Abort`
-  `OperationChoice`s for exactly that dirty-work-tree refusal — but
-  `RepoSessionController._handleOperationOutcome`'s switch has arms only for
-  `checkout`/`deleteBranch` ([CULT-orphan-wiring]), so nothing ever read a
-  `pull`-kind outcome's choices. Deleted rather than left orphaned, in the same
-  round that narrowed `OperationChoice` to `kind`+`destructive` — `outcome.summary`/
-  `error` still carry the failure message through the ordinary `lastError` path, so
-  nothing the user could actually see is lost.
+- **Rule**: P17's 「選單的 Pull… 或 Alt + 點工具列才開」 has nothing to open; `ActionToolbar`'s Pull runs `pullChanges()` with the configured default (**#109**).
+- **Do**: `DLGS`'s "Pull blocked" entry has no dialog either; why its choices were deleted: [ACT-recovery-choice-wire].
 
 ## [DRIFT-updater-windows-untested] The updater script's Windows half is parsed, never executed
 
-- **Rule**: the `sh` half is genuinely *executed* by `update_installer_script_test.dart`;
-  PowerShell cannot be, and PR CI compiles no Windows at all (**#69**). **Superseding the
-  earlier 「text-asserted only」 wording**: it is now also syntax-checked on a real
-  `windows-latest` runner ([CI-powershell-golden-parse]) — which catches a parse error, and
-  still nothing about behaviour.
-- **Consequence**: the real install-and-restart has no automated coverage on any platform —
-  the device-tier test deliberately stops at `readyToInstall`.
-- **Note**: two failures have now reached users through this gap from opposite directions —
-  「關掉了沒回來」(inherited CWD, BOM) and 「沒關掉、卡在 Installing…」(an unbounded synchronous
-  `gbm_session_close`). Both were invisible to every tier here.
-- **Do**: read `<systemTemp>/gbm-update.log` (`updateLogPath()`) — every arm of both
-  scripts writes its exit code there, and every failure path reached after the app has
-  exited relaunches, so the next failure is diagnosable rather than a vanished window.
-  **The app now writes its own half of that file too** (pinned by `update_log_test.dart`),
-  so a handover that fails *before* the script starts is diagnosable as well; the app owns
-  truncation and both scripts append.
-- **Evidence**: ledger: 更新流程的三個缺陷
-
-## [DRIFT-checkout-dialog-mock-delta] Checkout dialog draws neither `DLGS`'s 目前 row nor its two radios — **closed**
-
-- **Rule (superseded)**: `DLGS`'s Checkout mock has a read-only `ro` row (目前 branch +
-  pending-change count) and a `radio-on`/`radio` pair (帶著變更切過去 / 先 stash，切完不自動
-  還原). `checkout_dialog.dart` used to have neither — one "stash uncommitted changes
-  first" checkbox stood in for the radio pair, and there was no 目前 row at all.
-- **Closed**: both are now drawn, quoted verbatim from `DLGS`'s Checkout entry
-  (`spec_logic.js`'s `DLGS` array, `grp: 'C', name: 'Checkout'`): the 目前 row reads
-  「目前 $head」 on a clean tree and appends 「 · 有$N 項未提交變更」 once dirty (the
-  spec's own punctuation, no space after 有); the radio pair reads 「帶著變更切過去」
-  (radio-on, `stashFirst: false`, the default) and 「先 stash，切完不自動還原」
-  (`stashFirst: true`), gated on the same `isDirty` the removed checkbox was. The pair
-  maps onto the `_stashFirst` bool `checkout(stashFirst:)` already took, so no capi or
-  controller change was needed — this one was presentation-only, unlike
-  [DRIFT-rebase-onto-missing-capi-flags] below.
-- **Rule**: the mock's `warn` field (「兩邊都改到的檔案會阻止 checkout；屆時列出檔名並提供
-  「stash 後重試」。」) is deliberately **not** drawn. It was never part of what this pin
-  recorded as the gap, and it describes a failure this dialog cannot predict ahead of the
-  attempt — that is exactly what `checkoutChoices` and the checkout-recovery dialog
-  (`workspace_screen.dart`'s auto-push `ref.listen`s) already handle once git actually refuses.
-- **Do**: this was a UI-structure change, closed directly on the user's explicit ruling
-  (「兩個落差也修掉」) rather than a fresh spec-auditor pass, since every drawn value here
-  was already spec-auditor-quoted in the G1d citation table.
-- **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
-  closed in the same round's follow-up commit.
-
-## [DRIFT-rebase-onto-missing-capi-flags] Rebase onto is missing two `DLGS` checkboxes and a warn banner, and the checkboxes are capi-shaped — **closed**
-
-- **Rule (superseded)**: `DLGS`'s Rebase onto mock has `chk-on`「保留 merge commit
-  （--rebase-merges）」, `chk`「自動 squash 標記過的 fixup commit」, and a `warn` for an
-  already-pushed branch needing a force push after rebase. `rebase_onto_dialog.dart` used
-  to have none of the three, and the two checkboxes could not be added to the dialog alone
-  — `startRebase(target, stashFirst:)` carried no flags for either, and
-  `gbm_rebase_start`'s capi signature had no parameters to carry them either.
-- **Closed**: the full chain is wired now, bottom-up. Core: `RebaseRequest` gained
-  `rebaseMerges`/`autosquash` bool fields and `RebaseOperation::run()` appends
-  `--rebase-merges`/`--autosquash` to the `git rebase` argv when set — both measured
-  directly (scratch repo, git 2.55.0) to work on a **plain, non-interactive** `git rebase`
-  with no `-i` of the app's own; git's own docs confirm `--autosquash` "uses the
-  --interactive machinery internally, but it can be run without an explicit --interactive".
-  Capi: `gbm_rebase_start` gained two more `int32_t` parameters. Dart:
-  `RepoSessionController.startRebase()` gained `rebaseMerges`/`autosquash` named bools,
-  forwarded through the FFI binding. UI: `rebase_onto_dialog.dart` draws both checkboxes
-  quoted verbatim from `DLGS` — chk-on defaults on, chk defaults off — plus the warn
-  banner, gated on [REF-remote-side-not-upstream]'s `remoteCounterpartOf()` (the same
-  single source `delete_branch_dialog.dart`'s own doc comment names traps for), not
-  re-derived from `hasTrackingInfo` or `upstream` alone.
-- **Do**: `gbm_rebase_start`'s fifth parameter (`autosquash`) is exactly the shape
-  [TEST-ffi-matches-symbol-only] warns about — `dart:ffi`'s `lookupFunction` matches by
-  symbol name only, never by signature, so a dropped or mis-ordered parameter compiles and
-  analyzes clean on both sides and only breaks at runtime. `RebaseApiTest.cpp`'s
-  `PlainRebaseWithAutosquashFoldsAFixupCommit`/`PlainRebaseWithRebaseMergesPreservesAMergeCommit`
-  prove the *C++* side — `gbm_rebase_start` really does thread both flags into
-  `RebaseRequest` and into `git rebase`'s argv — and `GitIntegrationTest.cpp`'s
-  `RealRepoTest` cases of the same names test the git behaviour itself, one layer down.
-  **Corrected**: an earlier version of this line claimed the capi test "is the one tier
-  that actually crosses that boundary" — wrong, per [TEST-ffi-matches-symbol-only]'s own
-  wording ("only a device-tier test crosses that seam"). `RebaseApiTest.cpp` calls
-  `gbm_rebase_start` directly from C++; it never goes through `dart:ffi`'s
-  `RebaseStartDart` typedef or `lookupFunction`, so it cannot see a dropped or
-  mis-ordered parameter on *that* side.
-- **Note**: ~~**the `dart:ffi` seam itself is unverified.**~~ **Corrected** (#159): parameter
-  count and types are now checked at the unit tier by `gbm_capi_signature_parity_test.dart`;
-  what stays unverified is order among same-type parameters (`stashFirst`/`rebaseMerges`/
-  `autosquash` are all `int32_t`) and the flags' meaning. `integration_test/` has no file
-  that reaches rebase at all (grepped for `startRebase`/`rebaseStart`/`RebaseStartDart` and
-  for `rebase`/`Rebase`, both empty) — [TEST-device-tier-not-in-ci] applies, and this is
-  additionally a case with **no existing device test to extend**, not just one that needs
-  rerunning. Recorded per [SPEC-absent-not-faked] rather than left implied by the corrected
-  sentence above: ~~nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
-  typedef silently drifting from `gbm_capi.h`'s six-parameter signature~~ nothing today
-  would catch two of those three `Int32` flags being swapped. Writing that
-  device test is unscoped work, not part of this pin's closure.
-- **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
-  closed in the same round's follow-up commits.
+- **Rule**: `update_installer_script_test.dart` executes the `sh` half; PowerShell is only syntax-checked on `windows-latest` ([CI-powershell-golden-parse]). The device test stops at `readyToInstall`, so no tier runs the real install-and-restart.
+- **Do**: diagnose from `<systemTemp>/gbm-update.log` (`updateLogPath()`); the app truncates it (`update_log_test.dart`), both scripts append.
+- **Evidence**: [ledger: Install and restart 卡在 Installing…](../../docs/ledger/2026-09-01-claude-windows-app-update-install-irloo0.md)
 
 ## [DRIFT-restore-before-this-state-missing] "Restore file to before this state" has no dialog and no menu entry
 
-- **Rule**: `DLGS`'s array has *two* Restore-file entries (`spec_logic.js`), and only the
-  first is built. Quoted in full since the earlier G1f plan flagged its own spec-auditor
-  read as truncated at 250 characters:
-  - **"Restore file to this state"** (built, `restore_file_dialog.dart`): `danger: true,
-    primary: 'Restore file'`, `ro`「檔案」`v: 'lib/graph/lane_allocator.dart'`, `ro`
-    「還原成」`v: 'a1b2c3d · 2026-08-14 11:20 · Fix lane allocator overflow'`, `warn`
-    「此檔目前有未提交的 42 行變更，會被覆蓋且無法復原。」, `chk`「還原前先 stash 目前的
-    變更」, `note`「與下一張成對：本張取 commit 本身的內容（a1b2c3d 之後）。」
-  - **"Restore file to before this state"** (absent): same shell, `ro`「檔案」same value,
-    `ro`「還原成」`v: '4b8f01c（a1b2c3d 的前一筆）· 2026-08-14 09:02'`, `hint`「等於抵消
-    a1b2c3d 對這一檔做的改動，不碰其他檔案」, a *third* `ro`「將抵消的改動」
-    `v: '+18 −7（可展開看 diff）'`, the same `warn` and `chk` as above, `note`「入口在
-    commit 明細的檔案右鍵，與上一張相鄰並列，標題是兩張唯一的區別 — 所以「還原成」那一
-    行必須寫出實際 hash 與日期，不能只寫「前一版」。merge commit 或首筆 commit 沒有單一
-    父節點時此項 disabled。不建 revert commit，只改工作區。」 `DIALOGS`'s shorter note for
-    the same name: 「還原成父 commit 的內容，等於抵消該 commit 對這一檔的改動。不建
-    revert commit；merge 或首筆 commit 時 disabled。」 The 05-K submenu (`spec_logic.js`'s
-    context-menu data) lists both as sibling items.
-- **Note**: **not a fresh discovery** — `gbm_context_menus.dart`'s own doc comment on
-  `_historyCommitFile` already names the missing submenu item as a pre-existing, deliberate
-  gap predating Tier 4, left alone because that catalog is the context-menu parity test's
-  acceptance baseline. This pin adds the full `DLGS` field-level citation, which was not
-  previously recorded anywhere under `docs/rules/`.
-- **Consequence**: even the *built* half is short two things from its own `DLGS` entry —
-  the `chk`「還原前先 stash 目前的變更」checkbox (a stash-then-restore sequencing decision,
-  not addressed by `restorePaths()` alone) and the `warn`'s exact wording, which names a
-  real line count the dialog has no data for (it only computes a bool, `_hasUncommittedChanges`).
-- **Do**: closing this needs (a) a new `RestoreFileBeforeDialogContent` plus route plus
-  05-K submenu item, (b) a parent-oid lookup with the disabled-on-merge-or-root case the
-  note calls for, (c) an expandable-diff affordance for the third `ro` row, and (d) a
-  stash-first checkbox wired to whatever sequencing `restorePaths`/`stashChanges` support —
-  none of which is a text translation, so none of it belongs in a G1 copy-only pass. This
-  joins [DRIFT-checkout-dialog-mock-delta] and [DRIFT-rebase-onto-missing-capi-flags] in
-  shape (a mock the app only partially draws) but, unlike those two, was **not** among the
-  「兩個落差」the user named for closure this round — it stays open pending a ruling.
-- **Evidence**: [ledger: G1f](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+- **Rule**: spec `DLGS` has two Restore-file entries; only "…to this state" is built. The second (parent-oid content, disabled on merge/root, a third `ro` row with expandable diff) and its 05-K sibling item are absent. The built half also lacks the `chk` 「還原前先 stash 目前的變更」 and the `warn`'s real line count.
+- **Do**: not a copy-only change (new dialog, route, menu item, parent lookup, stash sequencing); it needs a ruling first.
+- **Evidence**: [ledger: G1f](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
 
-## [DRIFT-shortcuts-copy-excluded] The Shortcuts surfaces are excluded from G1's Chinese-copy sweep
+## [DRIFT-shortcuts-copy-excluded] The Shortcuts surfaces stay English
 
-- **Rule**: `keyboard_shortcuts_dialog.dart` and `preferences_dialog.dart`'s Shortcuts tab
-  (`_ShortcutsSection`) draw no field labels of their own — every row's text comes from
-  `gbmMenus` (`lib/actions/gbm_menu_model.dart`), walked live so the rows stay in menu order.
-  `keyboard_shortcuts_dialog.dart` has exactly one literal string, its title, which the G1
-  title-stays-English rule already covers regardless.
-- **Consequence**: translating either surface's *copy* is not a copy-only change — it is
-  translating `gbmMenus` itself, which cascades into `MenuBarRow`, the macOS
-  `PlatformMenuBarHost` (a real native `PlatformMenuBar`, not a Flutter widget G1's per-dialog
-  pattern can touch), and every keyboard-shortcut label in the app at once. That is a menu-bar
-  localisation decision, not a dialog-by-dialog one, and it was never part of what G1 was asked
-  to close.
-- **Do**: both surfaces are left in English for G1a–G1k. Closing this needs its own ruling on
-  whether (and how) to translate `gbmMenus`, before either surface can move.
-- **Evidence**: G1i (`preferences_dialog.dart`'s `_ShortcutsSection` header `'KEYBOARD
-  SHORTCUTS'` stays English; `dialog_copy_test.dart`'s 'Preferences' group asserts it directly);
-  ledger: [G1i](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md).
+- **Rule**: `keyboard_shortcuts_dialog.dart` and `preferences_dialog.dart`'s `_ShortcutsSection` draw every row from `gbmMenus`; translating them means translating `gbmMenus`, which cascades into `MenuBarRow`, the native macOS `PlatformMenuBarHost` and every shortcut label.
+- **Do**: leave both English until a menu-bar localisation ruling; `dialog_copy_test.dart`'s 'Preferences' group pins the English header.
+- **Evidence**: [ledger: G1i](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
 
 ## [DRIFT-cancel-capi-unwired] `gbm_cancel_operation` exists with no Dart caller, by decision
 
-- **Rule**: the capi entry point and its C++ registration landed together; **Dart and UI were
-  deliberately not wired** (使用者裁定:「開 capi cancellation token 然後先不接線」). It is a
-  recorded orphan, not a missing one — see `Session::submitOperation` and `CancelOperationApiTest.cpp`.
-- **Rule**: `Session::cancelOperations()` gained a second caller in
-  fix/quit-crash-session-shutdown — `~Session()` itself calls `cancelOperations(0)`, entirely
-  inside C++, to bound its own drain (see `Session::~Session()`). This is **not** a partial
-  close of this drift entry: it never touches `gbm_cancel_operation`, `dart:ffi`, or any Dart
-  code, so the Dart/UI-facing feature this entry tracks is exactly as unwired as before.
-- **Consequence**: the 28 commands that run with `timeout = 0` now have a floor
-  (`GitCommand::kHangCeiling`) but still **no user-reachable way to stop one that is
-  still making progress** — which is the case those commands' own comments say cancel is for.
-- **Do**: closing it needs a `CancelOperationDart` typedef, an in-flight id on the Dart side (or
-  a ruling that only `id == 0` 「cancel everything」 is supported — `GBM_EVENT_OPERATION_FINISHED`
-  carries no id today), a UI entry point, and a decision that a user-initiated cancel is **not**
-  drawn as an error (P10's `LOGRULES` reserves error for actions actually refused).
-- **Do**: [TEST-ffi-matches-symbol-only] applies with full force — `lookupFunction` matches by
-  symbol name only, so a wrong `uint64_t` on the Dart side compiles, analyzes and unit-tests
-  clean, then breaks at runtime. ~~**Only a device-tier test crosses that seam**~~ The unit-tier
-  `gbm_capi_signature_parity_test.dart` checks the new typedef's count and types once it exists —
-  and is red until `gbm_cancel_operation` leaves its `_unboundAllowlist` — but
-  `integration_test/` has nothing that reaches operation cancellation at all.
-- **Note**: distinct from **#102**, and the pair is the worked example of
-  [CULT-orphan-wiring]'s 「grep both directions」: #102 is a Dart *setting* with no consumer,
-  this is a C++ *capability* with no reader. Asking 「who calls this」 finds the first and misses
-  the second.
-- **Evidence**: **#139**;
-  [ledger: 追加四](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Rule**: 使用者裁定「開 capi cancellation token 然後先不接線」: capi + C++ registration only (`Session::cancelOperations`, `CancelOperationApiTest.cpp`); no `CancelOperationDart`, no UI. `~Session()`'s own `cancelOperations(0)` is C++-internal and does not close this.
+- **Consequence**: a git command still making progress has no user-reachable stop; `GitCommand::kHangCeiling` is only a floor.
+- **Do**: closing needs a typedef, a Dart-side in-flight id (`GBM_EVENT_OPERATION_FINISHED` carries none), a UI entry, and cancel not drawn as an error (P10 `LOGRULES`). ~~Only a device test crosses the seam~~ `gbm_capi_signature_parity_test.dart` checks the new typedef's count and types and is red until `gbm_cancel_operation` leaves its `_unboundAllowlist`; order and meaning still need a device test ([TEST-ffi-matches-symbol-only]), and `integration_test/` reaches neither cancel nor `gbm_rebase_start`'s 6 parameters (three same-type `int32_t` flags the parity test cannot tell apart).
+- **Evidence**: **#139**; [ledger: 追加四](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared
 
-- **Rule**: one sentence says 「收合狀態與**模式**各清單獨立記憶」 and the next says
-  「**同一個設定**套用到 Working Copy 兩欄、History 的 Changed files、Compare 的 Files、
-  以及 Conflict 視窗的檔案清單」. Both are P03 item 10's own `note`, one clause apart.
-- **Rule**: the code implements the second — one app-wide `fileListViewModeProvider`, read by
-  all five call sites — and `docs/reports/spec-conformance-matrix.md`'s item 10 row has ratified
-  that reading through two rounds. **Collapse state genuinely is per-list**
-  (`FileTreeList`'s own `_expandedFolders` State), so only the *mode* half is in dispute.
-- **Consequence**: nothing is broken today, which is exactly why this is written down rather
-  than fixed. Switching to per-list mode would be a behaviour change nobody asked for, and
-  「the spec says so」 is not available as a reason when the spec says both.
-- **Do**: this needs a **ruling**, not an implementer picking the sentence they prefer —
-  [SPEC-mockup-is-not-prose]'s prose-wins tiebreak cannot help when both sides are prose.
-  Same disposition as [DRIFT-restore-before-this-state-missing]: recorded, left open.
-- **Note**: found while correcting item 10's *other* two clauses, which really were broken
-  ([record: file-list leaf label](../../docs/records/2026-10-04-file-list-leaf-label-and-tree-mode.md)). Reading the whole `note` instead of the row's title is
-  what surfaced all three.
+- **Rule**: its own `note` says 「模式各清單獨立記憶」 and then 「同一個設定套用到…」; the code is shared (`fileListViewModeProvider`, five call sites) and the matrix ratified that; collapse state is per-list (`FileTreeList._expandedFolders`).
+- **Do**: nothing is broken; do not switch to per-list or call it a bug. It needs a ruling, since [SPEC-mockup-is-not-prose]'s prose-wins tiebreak cannot settle a prose-vs-prose tie.
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
-
-## [DRIFT-open-issues] Open issues
-
-- **Open**: **#62** (TabRow overflow menu), **#68**–**#71**, **#76**, **#84**–**#89**
-  (Tier 6 spec blockers), **#92**–**#95** (capi with no spec entry point), **#99**,
-  **#101**, **#102**, **#109**, **#119** (side-by-side pins neither gutter — awaiting a
-  real-hardware check by the user), **#139**.
-- **Closed**: **#74** (fix/branch-prune-and-gone-marking — its text was corrected first,
-  the same function had two further defects the issue never mentioned, the
-  record corrected in place); **#75** (all four 260820 `REVISIONS` shortcut gaps landed in
-  feat/p03-working-copy-redesign); **#67** (macOS `CFBundleName` is the literal
-  `git-branch-manager`, candidate fix 1, in fix/macos-about-dialog-parity).

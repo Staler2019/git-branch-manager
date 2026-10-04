@@ -102,7 +102,7 @@ public:
         // RepoSessionState for a "merge"-kind outcome's choices --
         // _handleOperationOutcome's switch has arms only for
         // checkout/deleteBranch (see [CULT-orphan-wiring] and
-        // [DRIFT-no-pull-dialog] in docs/rules/ for the same shape on other
+        // [DRIFT-no-pull-dialog] in .claude/rules/ for the same shape on other
         // operations). outcome.summary/error still carry the failure
         // message through the ordinary lastError path below, so nothing is
         // lost from what the user actually sees.

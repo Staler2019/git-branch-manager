@@ -7,9 +7,9 @@ import 'package:gbm_flutter/data/services/update_installer.dart';
 /// the generator.
 ///
 /// The `.ps1` is the one artefact of this feature that no tier here can run:
-/// this machine is Linux, `ci.yml`'s Flutter job is ubuntu-only, and
-/// `windows/runner/` compiles solely on a release tag (#69). A syntax error
-/// in it would therefore reach a user before it reached anyone else -- and
+/// `flutter-ci`'s Windows leg compiles the runner but never runs the script,
+/// and no test here executes PowerShell. A syntax error in it would
+/// therefore reach a user before it reached anyone else -- and
 /// it would arrive as "the app closed and never came back", because a
 /// PowerShell parse failure happens before the script's first line and so
 /// before it can write a single word of its own transcript.

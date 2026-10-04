@@ -44,5 +44,8 @@
 - C2：就地更正 [TEST-ffi-matches-symbol-only]（「only a device-tier test crosses that seam」劃線，
   改為數量／型別由本測試守住、同型別順序仍只有 device 層看得到，並記下 N↔D 編譯期檢查的量測），
   以及 [DRIFT-rebase-onto-missing-capi-flags] 的 Note 與 [DRIFT-cancel-capi-unwired] 的 Do。
+- Merge `origin/main`（#158）時 `drift-open.md` 衝突：main 已把 [DRIFT-rebase-onto-missing-capi-flags]
+  退役、[DRIFT-cancel-capi-unwired] 縮成一行。取 main 版，只在 cancel 那行重新套用更正；
+  rebase 那條的「沒有任何測試看得到」改寫進它退役後的落點 `tests/capi/RebaseApiTest.cpp` 的註解。
 - 未做：方案 B（issue 明列不在範圍）；`stashFirst`/`rebaseMerges`/`autosquash` 三個 `int32_t`
   互換仍無測試看得到。

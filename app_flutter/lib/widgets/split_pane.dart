@@ -191,7 +191,7 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
       // For a `collapsedByDefault` pane, storage holds the *height* and
       // never the open/closed state: the state is 「collapsed」 by
       // definition at every launch (使用者裁定「log不預設打開，使用者
-      // toggle才開」), so a stored extent is a height to reopen *to*, not
+      // toggle才開」, docs/records/2026-10-04-log-drawer-collapsed-by-default.md), so a stored extent is a height to reopen *to*, not
       // a reason to start open. This used to read `stored == null &&
       // collapsedByDefault`, which meant the flag only held on a virgin
       // profile -- one previous open persists an extent, and the drawer

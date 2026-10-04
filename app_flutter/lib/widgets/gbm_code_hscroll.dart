@@ -35,7 +35,7 @@ import 'package:flutter/material.dart';
 /// it, and `flutter_test` reports `TargetPlatform.android`, where Material
 /// adds no ambient scrollbar at all: every test in the suite was blind to it.
 /// Hence [verticalController], and hence
-/// `gbm_code_hscroll_scrollbar_placement_test.dart`, which pumps under
+/// `diff_page_scrollbar_placement_test.dart`, which pumps under
 /// `TargetPlatform.macOS` on purpose.
 class GbmCodeHScroll extends StatefulWidget {
   const GbmCodeHScroll({

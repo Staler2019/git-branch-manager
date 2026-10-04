@@ -114,8 +114,8 @@ void main() {
         pane0.height,
         0,
         reason:
-            'an explicit collapse is a user decision, not a value below the '
-            'minimum to be repaired',
+            'a collapsedByDefault drawer starts at 0 by definition; a clamp '
+            'on every build would force it open',
       );
     });
 

@@ -285,7 +285,7 @@ class FakeRepoSessionController extends RepoSessionController {
   // Recorded, not left to the null-session guard: rebase_onto_dialog.dart's
   // rebaseMerges/autosquash checkboxes dispatch through this, and an
   // unoverridden method no-ops silently -- a test could not tell "closed
-  // [DRIFT-rebase-onto-missing-capi-flags]" from "wired to nothing".
+  // the rebase flags" from "wired to nothing".
   @override
   void startRebase(
     String upstream, {

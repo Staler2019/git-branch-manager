@@ -149,7 +149,7 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
   `gbm_flutter.app` in four places.
 - **Do**: writing the literal into `Info.plist` decouples the two (#67 candidate fix 1); renaming
   `PRODUCT_NAME` does not, and is a tag-build-only change.
-- **Do**: **no Dart tier reads a bundle's Info.plist and PR CI compiles no macOS (#69)**, so
+- **Do**: **no Dart tier reads a bundle's Info.plist** (~~and PR CI compiles no macOS (#69)~~ — `flutter-ci` builds macOS since chore/accept-toolchain-bump, but never reads the value), so
   `test/platform/window_title_test.dart` asserts the plist as source text — and the value it
   asserts must be checked against a real `flutter build macos` at least once per change.
 

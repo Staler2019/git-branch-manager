@@ -135,8 +135,8 @@ void main() {
   // (#67, candidate fix 1 of the two that issue lists.)
   //
   // Source-asserted for the same reason as the group above -- no Dart tier
-  // can read a bundle's Info.plist, and PR CI compiles no macOS at all
-  // (#69), so nothing else would notice this regress.
+  // can read a bundle's Info.plist; PR CI's macOS leg compiles the runner
+  // but never reads the value, so nothing else would notice this regress.
   group('macOS application name (#67)', () {
     test('Info.plist carries the literal name, not \$(PRODUCT_NAME)', () {
       final String plist = readRunnerSource('macos/Runner/Info.plist');

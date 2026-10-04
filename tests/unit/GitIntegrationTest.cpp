@@ -4348,7 +4348,7 @@ TEST_F(RealRepoTest, PlainRebaseReplaysCommitsOntoANewBaseUnchanged) {
     EXPECT_TRUE(std::filesystem::exists(repo_ / "other.txt"));
 }
 
-// [DRIFT-rebase-onto-missing-capi-flags]: DLGS's Rebase onto mock offers
+// The Rebase onto mock delta (G1d): DLGS's Rebase onto mock offers
 // 「保留 merge commit（--rebase-merges）」 and 「自動 squash 標記過的 fixup
 // commit」 -- both require RebaseRequest to carry the flag through to a plain,
 // non-interactive `git rebase`. Measured first (scratch repo, git 2.55.0)

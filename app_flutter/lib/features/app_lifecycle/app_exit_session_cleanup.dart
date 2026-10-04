@@ -53,7 +53,7 @@ class _AppExitSessionCleanupState extends ConsumerState<AppExitSessionCleanup> {
   Future<AppExitResponse> _handleExitRequested() async {
     // Synchronous per session (Session::~Session() itself now bounds its
     // own wait by cancelling before draining -- see
-    // docs/rules/fn-cpp-core.md's [CPP-session-dtor-order]), so this
+    // the comments in Session::~Session()), so this
     // completes without an app-side timeout of its own.
     ref.read(openRepoSessionsProvider).closeAll();
     return AppExitResponse.exit;

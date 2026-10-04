@@ -441,7 +441,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         // merge introduced and two existing tests caught: with the staged
         // side drawing cards, the unstaged side's 「Diff too large」 simply
         // vanished, which is exactly the 「no message at all」
-        // [CPP-parse-refuses-over-cap] forbids.
+        // `diff_truncation.dart` exists to prevent.
         //
         // Unreachable with one source -- a single source cannot both have
         // content and be the one with the notice -- so `2 file` mode is

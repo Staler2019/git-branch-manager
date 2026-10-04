@@ -208,7 +208,7 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
   fabricated number.
 - **Do**: before trusting any new performance job, establish that it builds **the thing you
   ship** — read the compiler path out of the build log (`C:\mingw64\bin\c++.exe` vs `cl.exe`)
-  rather than inferring it from `runs-on`. This is [CPP-windows-terminate-hangs-join]'s control-group
+  rather than inferring it from `runs-on`. This is `docs/reports/windows-process-cost.md`'s control-group
   lesson moved one step earlier: prove you are measuring the right thing before arguing about
   how precisely you measured it.
 - **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)

@@ -191,7 +191,7 @@ Session::~Session() {
     // below waits on work this session's own cancellation already told to
     // stop instead of waiting for it to finish naturally -- unbounded for
     // the ~28 commands GitCommand runs with no deadline
-    // (docs/rules/fn-cpp-core.md's [CPP-idle-not-total]). A cancelled
+    // (GitCommand::kHangCeiling is their only floor). A cancelled
     // operation takes the failure branch, so it never reaches the onSuccess
     // path that chains a new sharedReadPool() post -- the ordering
     // invariant the comment below describes is unaffected by cancelling

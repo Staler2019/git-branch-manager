@@ -43,9 +43,8 @@ void _buildPartlyStagedFile(String repo) {
   runGit(repo, <String>['add', 'counts.txt']);
 
   // Work tree vs index: l3/l4/l5 replaced by seven lines -> +7 -3.
-  File(
-    '$repo/counts.txt',
-  ).writeAsStringSync('l1\nS1\nS2\nA\nB\nC\nD\nE\nF\nG\n');
+  File('$repo/counts.txt')
+      .writeAsStringSync('l1\nS1\nS2\nA\nB\nC\nD\nE\nF\nG\n');
 }
 
 void main() {

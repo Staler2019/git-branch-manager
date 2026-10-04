@@ -46,9 +46,8 @@ class _CleanUntrackedDialogContentState
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<CleanEntry> preview = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.lastCleanPreview),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.lastCleanPreview),
     );
     final RepoSessionController notifier = ref.read(
       repoSessionProvider(widget.identity).notifier,

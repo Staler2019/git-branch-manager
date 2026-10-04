@@ -243,13 +243,12 @@ Map<int, List<DiffScope>> splitDiffFileIntoScopes(
 
 /// The signature [DiffScopeCache] splits with, so a test can hand it a
 /// counting stand-in. [splitDiffFileIntoScopes] is the only production value.
-typedef DiffFileScopeSplitter =
-    Map<int, List<DiffScope>> Function(
-      DiffFile file, {
-      int maxGap,
-      bool staged,
-      Set<int> barrierIndexLines,
-    });
+typedef DiffFileScopeSplitter = Map<int, List<DiffScope>> Function(
+  DiffFile file, {
+  int maxGap,
+  bool staged,
+  Set<int> barrierIndexLines,
+});
 
 /// Remembers the scope split of the [DiffFile] it was last asked about.
 ///

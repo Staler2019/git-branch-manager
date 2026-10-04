@@ -42,9 +42,8 @@ class DeferredPruneNotifier extends StateNotifier<void> {
       (RefSnapshot? previous, RefSnapshot next) => _sweep(),
     );
     _ref.listen<Map<String, List<String>>>(
-      repoSessionProvider(
-        _identity,
-      ).select((RepoSessionState s) => s.goneRefsDeferredByClaim),
+      repoSessionProvider(_identity)
+          .select((RepoSessionState s) => s.goneRefsDeferredByClaim),
       (Map<String, List<String>>? previous, Map<String, List<String>> next) {
         _forgetDispatchedOutside(next);
         _sweep();

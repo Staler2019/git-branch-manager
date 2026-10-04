@@ -43,9 +43,8 @@ void main() {
       // Defensive: if the C++ side ever starts emitting full names, this
       // must not produce refs/remotes/refs/remotes/...
       expect(
-        const RemotePrunePreviewEntry(
-          ref: 'refs/remotes/origin/feature/old',
-        ).fullRefName,
+        const RemotePrunePreviewEntry(ref: 'refs/remotes/origin/feature/old')
+            .fullRefName,
         'refs/remotes/origin/feature/old',
       );
     });

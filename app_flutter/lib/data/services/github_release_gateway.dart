@@ -21,8 +21,10 @@ class HttpTextResponse {
 /// `ProcessStarter` is injected into `DesktopLauncher`: so a unit test can
 /// assert what was requested — including the headers, which are load-bearing
 /// here — without reaching the network.
-typedef HttpTextGet =
-    Future<HttpTextResponse> Function(Uri url, Map<String, String> headers);
+typedef HttpTextGet = Future<HttpTextResponse> Function(
+  Uri url,
+  Map<String, String> headers,
+);
 
 /// Anything that stopped an update check from producing an answer.
 ///

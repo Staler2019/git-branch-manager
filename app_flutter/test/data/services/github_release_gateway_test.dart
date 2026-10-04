@@ -62,9 +62,8 @@ void main() {
       final _RecordingGet get = _RecordingGet(
         const HttpTextResponse(200, _validPayload),
       );
-      final LatestRelease release = await GithubReleaseGateway(
-        get: get.call,
-      ).fetchLatest();
+      final LatestRelease release = await GithubReleaseGateway(get: get.call)
+          .fetchLatest();
 
       expect(release.version, const AppVersion(0, 30, 0));
       expect(release.tagName, 'v0.30.0');

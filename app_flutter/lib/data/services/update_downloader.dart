@@ -26,8 +26,10 @@ class HttpByteResponse {
 /// Injected for the same reason as `HttpTextGet` and `ProcessStarter`: the
 /// verification path is the most safety-critical code in this feature and
 /// has to be exercisable without a network or a 24MB fixture.
-typedef HttpByteGet =
-    Future<HttpByteResponse> Function(Uri url, Map<String, String> headers);
+typedef HttpByteGet = Future<HttpByteResponse> Function(
+  Uri url,
+  Map<String, String> headers,
+);
 
 /// Anything that stopped a download from producing a verified file.
 class UpdateDownloadException implements Exception {

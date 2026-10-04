@@ -98,11 +98,10 @@ void main() {
     await tester.pump();
     await tester.pump();
 
-    expect(
-      _pickerTexts(tester),
-      <String>['develop', 'main'],
-      reason: 'the fields must follow the swap, not keep their mount value',
-    );
+    expect(_pickerTexts(tester), <String>[
+      'develop',
+      'main',
+    ], reason: 'the fields must follow the swap, not keep their mount value');
 
     expect(
       tester

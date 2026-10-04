@@ -68,9 +68,8 @@ class _CheckoutRecoveryDialogContentState
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<OperationChoice> choices = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.checkoutChoices),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.checkoutChoices),
     );
     // `checkoutChoices` is populated by two different refusals sharing one
     // field (CheckoutOp.cpp's dirty-work-tree case, and OperationRunner's
@@ -92,9 +91,8 @@ class _CheckoutRecoveryDialogContentState
     final String? coreMessage = isDirtyWorkTreeRefusal
         ? null
         : ref.watch(
-            repoSessionProvider(
-              widget.identity,
-            ).select((state) => state.lastError?.message),
+            repoSessionProvider(widget.identity)
+                .select((state) => state.lastError?.message),
           );
 
     return GbmDialogShell(

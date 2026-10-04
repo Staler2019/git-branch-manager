@@ -553,9 +553,11 @@ class _RefCompareFileList extends StatelessWidget {
                   mode: viewMode,
                   items: files,
                   pathOf: (DiffFile file) => file.displayPath,
-                  leafBuilder:
-                      (BuildContext context, DiffFile file, String label) =>
-                          _buildFileRow(context, file, label),
+                  leafBuilder: (
+                    BuildContext context,
+                    DiffFile file,
+                    String label,
+                  ) => _buildFileRow(context, file, label),
                 ),
         ),
       ],
@@ -717,9 +719,11 @@ class _WorkingCopyFileList extends StatelessWidget {
                   mode: viewMode,
                   items: files,
                   pathOf: (DiffFile file) => file.displayPath,
-                  leafBuilder:
-                      (BuildContext context, DiffFile file, String label) =>
-                          _buildFileRow(context, file, label),
+                  leafBuilder: (
+                    BuildContext context,
+                    DiffFile file,
+                    String label,
+                  ) => _buildFileRow(context, file, label),
                 ),
         ),
       ],

@@ -549,9 +549,8 @@ void main() {
       await tester.pump();
 
       // Should have danger background (check for danger color)
-      final colors = buildGbmTheme(
-        GbmThemeVariant.darkTechnical,
-      ).extension<GbmColors>()!;
+      final colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+          .extension<GbmColors>()!;
       final container = find
           .descendant(
             of: find.byType(StatusBar),

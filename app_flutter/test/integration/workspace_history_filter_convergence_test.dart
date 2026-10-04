@@ -226,9 +226,8 @@ void main() {
       identity: _identity,
       overrides: <Override>[
         repoRefsProvider(_identity).overrideWithValue(_refs),
-        branchFilterQueryProvider(
-          _identity,
-        ).overrideWith((Ref ref) => 'graph-lanes'),
+        branchFilterQueryProvider(_identity)
+            .overrideWith((Ref ref) => 'graph-lanes'),
       ],
     );
     await tester.pump();

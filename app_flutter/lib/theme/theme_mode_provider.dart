@@ -10,12 +10,12 @@ import 'tokens.dart';
 /// way `gbmBindingsProvider` resolves `GbmBindings.open()`). Throwing when
 /// unoverridden makes a missing override in main.dart/tests fail loudly
 /// instead of silently losing persistence.
-final Provider<SharedPreferences>
-sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
-  throw UnimplementedError(
-    'sharedPreferencesProvider must be overridden with a real SharedPreferences instance',
-  );
-});
+final Provider<SharedPreferences> sharedPreferencesProvider =
+    Provider<SharedPreferences>((ref) {
+      throw UnimplementedError(
+        'sharedPreferencesProvider must be overridden with a real SharedPreferences instance',
+      );
+    });
 
 const String _kThemeVariantKey = 'themeVariant';
 

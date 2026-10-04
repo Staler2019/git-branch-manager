@@ -11,12 +11,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// Returns `true` if the process started, `false` if the executable was not
 /// found (which is what drives the fallback chains). Implementations must
 /// not throw for a missing executable.
-typedef ProcessStarter =
-    Future<bool> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-    });
+typedef ProcessStarter = Future<bool> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// One candidate in a platform's fallback chain: the executable to try and
 /// the arguments to pass it. A candidate may carry no directory flag of its

@@ -178,9 +178,8 @@ Override _draftWithSummary(String summary) {
 }
 
 void main() {
-  final GbmColors colors = buildGbmTheme(
-    GbmThemeVariant.darkTechnical,
-  ).extension<GbmColors>()!;
+  final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+      .extension<GbmColors>()!;
 
   group('spec page 07 STATES table -- "Working copy" row', () {
     testWidgets('clean: no CONFLICTED section above unstaged/staged', (

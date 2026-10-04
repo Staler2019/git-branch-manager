@@ -38,9 +38,9 @@ final List<RouteBase> _panelRoute = <RouteBase>[
   ),
 ];
 
-String _location(WidgetTester tester) => GoRouterState.of(
-  tester.element(find.byType(WorkspaceScreen)),
-).uri.toString();
+String _location(WidgetTester tester) =>
+    GoRouterState.of(tester.element(find.byType(WorkspaceScreen))).uri
+        .toString();
 
 /// The tabs Ctrl/Cmd+W is allowed to close. D7 seeds a pinned Worktrees tab
 /// into every repository, so 「the strip is empty」 stopped being the way to

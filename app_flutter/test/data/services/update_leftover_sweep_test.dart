@@ -52,9 +52,8 @@ DateTime Function() _clockAfter(FileSystemEntity entry, Duration age) {
 /// having met a delete that fails.
 void Function() _makeUndeletable(Directory dir) {
   if (Platform.isWindows) {
-    final RandomAccessFile held = File(
-      '${dir.path}/held',
-    ).openSync(mode: FileMode.write);
+    final RandomAccessFile held = File('${dir.path}/held')
+        .openSync(mode: FileMode.write);
     return held.closeSync;
   }
   Directory('${dir.path}/inner').createSync();

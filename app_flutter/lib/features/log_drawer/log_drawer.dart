@@ -58,9 +58,8 @@ class _LogDrawerState extends State<LogDrawer> {
   /// `LOGRULES` "不記什麼" row is satisfied upstream, by what
   /// `OperationRecord` chooses to carry at all.
   static String _formatRecord(GbmLogEntry entry) {
-    final String when = DateTime.fromMillisecondsSinceEpoch(
-      entry.whenEpochMs,
-    ).toIso8601String();
+    final String when = DateTime.fromMillisecondsSinceEpoch(entry.whenEpochMs)
+        .toIso8601String();
     final String head =
         '$when  ${entry.levelLabel}  ${escapeControlChars(entry.message)}';
     // An app-level event is not a process: printing `(exit 0, 0ms)` after it
@@ -78,9 +77,8 @@ class _LogDrawerState extends State<LogDrawer> {
     await Clipboard.setData(ClipboardData(text: _exportText));
 
     if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
     }
   }
 

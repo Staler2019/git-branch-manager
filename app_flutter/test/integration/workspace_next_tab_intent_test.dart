@@ -33,9 +33,9 @@ final List<RouteBase> _compareRoute = <RouteBase>[
   ),
 ];
 
-String _location(WidgetTester tester) => GoRouterState.of(
-  tester.element(find.byType(WorkspaceScreen)),
-).uri.toString();
+String _location(WidgetTester tester) =>
+    GoRouterState.of(tester.element(find.byType(WorkspaceScreen))).uri
+        .toString();
 
 // pumpWorkspace always passes isMacOS: false unless overridden, so the
 // bound shortcut is Ctrl+Tab (see gbm_shortcuts.dart's _makeShortcut).

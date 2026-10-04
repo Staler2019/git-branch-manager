@@ -28,9 +28,9 @@ final List<RouteBase> _compareRoute = <RouteBase>[
   ),
 ];
 
-String _location(WidgetTester tester) => GoRouterState.of(
-  tester.element(find.byType(WorkspaceScreen)),
-).uri.toString();
+String _location(WidgetTester tester) =>
+    GoRouterState.of(tester.element(find.byType(WorkspaceScreen))).uri
+        .toString();
 
 Future<void> _openCompareTab(WidgetTester tester) async {
   await tester.tap(find.text('Repository'));

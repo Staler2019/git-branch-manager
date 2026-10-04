@@ -1,4 +1,5 @@
 import 'package:flutter/gestures.dart';
+
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
@@ -405,14 +406,12 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     );
     final RefSnapshot refs = ref.watch(repoRefsProvider(widget.identity));
     final String effectiveEmail = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.effectiveIdentity.email),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.effectiveIdentity.email),
     );
     final bool conflictActive = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((RepoSessionState state) => state.conflictActive),
+      repoSessionProvider(widget.identity)
+          .select((RepoSessionState state) => state.conflictActive),
     );
     final GbmColors colors = context.gbmColors;
 
@@ -427,9 +426,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
     // replies the list itself asks for while scrolling
     // ([FLU-watch-a-record-not-the-state]).
     final int pendingChangeCount = ref.watch(
-      repoWorkingCopyStatusProvider(
-        widget.identity,
-      ).select((WorkingCopyStatus status) => status.pendingChangeCount),
+      repoWorkingCopyStatusProvider(widget.identity)
+          .select((WorkingCopyStatus status) => status.pendingChangeCount),
     );
     final CommitListRender render = CommitListRender.from(
       graph: graph,
@@ -493,9 +491,8 @@ class _CommitGraphViewState extends ConsumerState<CommitGraphView> {
                   onChanged: (String value) =>
                       ref
                               .read(
-                                commitSearchQueryProvider(
-                                  widget.identity,
-                                ).notifier,
+                                commitSearchQueryProvider(widget.identity)
+                                    .notifier,
                               )
                               .state =
                           value,

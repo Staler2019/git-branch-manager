@@ -106,24 +106,21 @@ class _RecordingRepoSessionController extends RepoSessionController {
 
 void main() {
   group('RepoSessionController._handleOperationOutcome (attribution)', () {
-    test(
-      'an outcome with no matching pending kind leaves checkoutChoices untouched',
-      () {
-        final fake = FakeRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        fake.debugRecordCheckout(target: 'feature');
+    test('an outcome with no matching pending kind leaves checkoutChoices untouched', () {
+      final fake = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      fake.debugRecordCheckout(target: 'feature');
 
-        // Neither an unstamped outcome (kind: '') nor one for a different
-        // kind may be treated as this checkout's answer.
-        fake.debugHandleOperationOutcome(_failedOutcome(kind: ''));
-        expect(fake.state.checkoutChoices, isEmpty);
+      // Neither an unstamped outcome (kind: '') nor one for a different
+      // kind may be treated as this checkout's answer.
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: ''));
+      expect(fake.state.checkoutChoices, isEmpty);
 
-        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
-        expect(fake.state.checkoutChoices, isEmpty);
-      },
-    );
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
+      expect(fake.state.checkoutChoices, isEmpty);
+    });
 
     test('a "checkout"-kind outcome populates checkoutChoices', () {
       final fake = FakeRepoSessionController(
@@ -157,30 +154,27 @@ void main() {
       );
     });
 
-    test(
-      'checkout and deleteBranch outcomes interleave without cross-contamination',
-      () {
-        final fake = FakeRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        fake.debugRecordCheckout(target: 'feature');
-        fake.debugRecordDeleteBranch(names: const <String>['gone']);
+    test('checkout and deleteBranch outcomes interleave without cross-contamination', () {
+      final fake = FakeRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      fake.debugRecordCheckout(target: 'feature');
+      fake.debugRecordDeleteBranch(names: const <String>['gone']);
 
-        // deleteBranch's outcome arrives first even though checkout was
-        // requested first -- exactly the interleaving that broke the old
-        // two-boolean design.
-        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
-        expect(fake.state.deleteBranchChoices, hasLength(1));
-        expect(fake.state.checkoutChoices, isEmpty);
+      // deleteBranch's outcome arrives first even though checkout was
+      // requested first -- exactly the interleaving that broke the old
+      // two-boolean design.
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: 'delete-branch'));
+      expect(fake.state.deleteBranchChoices, hasLength(1));
+      expect(fake.state.checkoutChoices, isEmpty);
 
-        fake.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
-        expect(fake.state.checkoutChoices, hasLength(1));
-        // deleteBranchChoices must still hold its own outcome, untouched by
-        // the later checkout outcome.
-        expect(fake.state.deleteBranchChoices, hasLength(1));
-      },
-    );
+      fake.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
+      expect(fake.state.checkoutChoices, hasLength(1));
+      // deleteBranchChoices must still hold its own outcome, untouched by
+      // the later checkout outcome.
+      expect(fake.state.deleteBranchChoices, hasLength(1));
+    });
 
     // Pins the coupling `dialog_copy_test.dart`'s "lock/sequencer refusal"
     // widget test assumes without being able to see it: that test seeds
@@ -250,185 +244,176 @@ void main() {
     });
   });
 
-  group(
-    'RepoSessionController retry (real retryCheckoutWithChoice/retryDeleteBranchWithChoice)',
-    () {
-      test(
-        'retryCheckoutWithChoice resubmits the request that actually failed',
-        () {
-          final controller = _RecordingRepoSessionController(
-            _identity,
-            const RepoSessionState(),
-          );
-          controller.debugRecordCheckout(target: 'retry-target');
-          controller.debugHandleOperationOutcome(
-            _failedOutcome(kind: 'checkout'),
-          );
-          expect(controller.state.checkoutChoices, isNotEmpty);
-
-          controller.retryCheckoutWithChoice(OperationChoiceKind.stashAndRetry);
-
-          expect(controller.state.checkoutChoices, isEmpty);
-          expect(controller.calls, hasLength(1));
-          expect(controller.calls.single.name, 'checkout');
-          expect(controller.calls.single.args['target'], 'retry-target');
-          expect(controller.calls.single.args['stashFirst'], true);
-        },
-      );
-
-      test(
-        'retryDeleteBranchWithChoice resubmits the request that actually failed',
-        () {
-          final controller = _RecordingRepoSessionController(
-            _identity,
-            const RepoSessionState(),
-          );
-          controller.debugRecordDeleteBranch(names: const <String>['gone']);
-          controller.debugHandleOperationOutcome(
-            _failedOutcome(kind: 'delete-branch'),
-          );
-          expect(controller.state.deleteBranchChoices, isNotEmpty);
-
-          controller.retryDeleteBranchWithChoice(
-            OperationChoiceKind.forceDiscard,
-          );
-
-          expect(controller.state.deleteBranchChoices, isEmpty);
-          expect(controller.calls, hasLength(1));
-          expect(controller.calls.single.name, 'deleteBranch');
-          expect(controller.calls.single.args['names'], <String>['gone']);
-          expect(controller.calls.single.args['force'], true);
-        },
-      );
-
-      test(
-        'dismissCheckoutChoices drops the retained request without resubmitting',
-        () {
-          final controller = _RecordingRepoSessionController(
-            _identity,
-            const RepoSessionState(),
-          );
-          controller.debugRecordCheckout(target: 'retry-target');
-          controller.debugHandleOperationOutcome(
-            _failedOutcome(kind: 'checkout'),
-          );
-
-          controller.dismissCheckoutChoices();
-          expect(controller.state.checkoutChoices, isEmpty);
-
-          // A stray retry after dismiss must not resubmit a stale request.
-          controller.retryCheckoutWithChoice(OperationChoiceKind.stashAndRetry);
-          expect(controller.calls, isEmpty);
-        },
-      );
-
-      test("retryCheckoutWithChoice's retry case resubmits the request "
-          'unmodified -- no stashFirst/force flag', () {
+  group('RepoSessionController retry (real retryCheckoutWithChoice/retryDeleteBranchWithChoice)', () {
+    test(
+      'retryCheckoutWithChoice resubmits the request that actually failed',
+      () {
         final controller = _RecordingRepoSessionController(
           _identity,
           const RepoSessionState(),
         );
         controller.debugRecordCheckout(target: 'retry-target');
-        controller.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'checkout'),
-        );
-
-        controller.retryCheckoutWithChoice(OperationChoiceKind.retry);
-
-        expect(controller.state.checkoutChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'checkout');
-        expect(controller.calls.single.args['target'], 'retry-target');
-        expect(controller.calls.single.args['force'], false);
-        expect(controller.calls.single.args['stashFirst'], false);
-      });
-
-      test("retryCheckoutWithChoice's removeLock case attempts lock removal "
-          '(a no-op here -- FakeGbmBindings never opens a real session, so '
-          "_removeStaleIndexLock()'s own null-session guard short-circuits "
-          "before reaching the binding) then resubmits unmodified, exactly "
-          'like the retry case above', () {
-        final controller = _RecordingRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        controller.debugRecordCheckout(target: 'retry-target');
-        controller.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'checkout'),
-        );
-
-        controller.retryCheckoutWithChoice(OperationChoiceKind.removeLock);
-
-        expect(controller.state.checkoutChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'checkout');
-        expect(controller.calls.single.args['target'], 'retry-target');
-        expect(controller.calls.single.args['force'], false);
-        expect(controller.calls.single.args['stashFirst'], false);
-      });
-
-      test("retryDeleteBranchWithChoice's retry case resubmits the request "
-          'unmodified -- no force flag', () {
-        final controller = _RecordingRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        controller.debugRecordDeleteBranch(names: const <String>['gone']);
-        controller.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'delete-branch'),
-        );
-
-        controller.retryDeleteBranchWithChoice(OperationChoiceKind.retry);
-
-        expect(controller.state.deleteBranchChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'deleteBranch');
-        expect(controller.calls.single.args['names'], <String>['gone']);
-        expect(controller.calls.single.args['force'], false);
-      });
-
-      test("retryDeleteBranchWithChoice's removeLock case attempts lock "
-          'removal then resubmits unmodified, exactly like the retry case '
-          'above', () {
-        final controller = _RecordingRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        controller.debugRecordDeleteBranch(names: const <String>['gone']);
-        controller.debugHandleOperationOutcome(
-          _failedOutcome(kind: 'delete-branch'),
-        );
-
-        controller.retryDeleteBranchWithChoice(OperationChoiceKind.removeLock);
-
-        expect(controller.state.deleteBranchChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'deleteBranch');
-        expect(controller.calls.single.args['names'], <String>['gone']);
-        expect(controller.calls.single.args['force'], false);
-      });
-
-      test('a successful outcome clears the retained failed request', () {
-        final controller = _RecordingRepoSessionController(
-          _identity,
-          const RepoSessionState(),
-        );
-        controller.debugRecordCheckout(target: 'first-attempt');
         controller.debugHandleOperationOutcome(
           _failedOutcome(kind: 'checkout'),
         );
         expect(controller.state.checkoutChoices, isNotEmpty);
 
-        controller.debugRecordCheckout(target: 'first-attempt');
-        controller.debugHandleOperationOutcome(
-          _succeededOutcome(kind: 'checkout'),
+        controller.retryCheckoutWithChoice(OperationChoiceKind.stashAndRetry);
+
+        expect(controller.state.checkoutChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'checkout');
+        expect(controller.calls.single.args['target'], 'retry-target');
+        expect(controller.calls.single.args['stashFirst'], true);
+      },
+    );
+
+    test(
+      'retryDeleteBranchWithChoice resubmits the request that actually failed',
+      () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
         );
+        controller.debugRecordDeleteBranch(names: const <String>['gone']);
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+        expect(controller.state.deleteBranchChoices, isNotEmpty);
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+
+        expect(controller.state.deleteBranchChoices, isEmpty);
+        expect(controller.calls, hasLength(1));
+        expect(controller.calls.single.name, 'deleteBranch');
+        expect(controller.calls.single.args['names'], <String>['gone']);
+        expect(controller.calls.single.args['force'], true);
+      },
+    );
+
+    test(
+      'dismissCheckoutChoices drops the retained request without resubmitting',
+      () {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.debugRecordCheckout(target: 'retry-target');
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'checkout'),
+        );
+
+        controller.dismissCheckoutChoices();
         expect(controller.state.checkoutChoices, isEmpty);
 
-        // No failed request left to retry.
+        // A stray retry after dismiss must not resubmit a stale request.
         controller.retryCheckoutWithChoice(OperationChoiceKind.stashAndRetry);
         expect(controller.calls, isEmpty);
-      });
-    },
-  );
+      },
+    );
+
+    test("retryCheckoutWithChoice's retry case resubmits the request "
+        'unmodified -- no stashFirst/force flag', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordCheckout(target: 'retry-target');
+      controller.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
+
+      controller.retryCheckoutWithChoice(OperationChoiceKind.retry);
+
+      expect(controller.state.checkoutChoices, isEmpty);
+      expect(controller.calls, hasLength(1));
+      expect(controller.calls.single.name, 'checkout');
+      expect(controller.calls.single.args['target'], 'retry-target');
+      expect(controller.calls.single.args['force'], false);
+      expect(controller.calls.single.args['stashFirst'], false);
+    });
+
+    test("retryCheckoutWithChoice's removeLock case attempts lock removal "
+        '(a no-op here -- FakeGbmBindings never opens a real session, so '
+        "_removeStaleIndexLock()'s own null-session guard short-circuits "
+        "before reaching the binding) then resubmits unmodified, exactly "
+        'like the retry case above', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordCheckout(target: 'retry-target');
+      controller.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
+
+      controller.retryCheckoutWithChoice(OperationChoiceKind.removeLock);
+
+      expect(controller.state.checkoutChoices, isEmpty);
+      expect(controller.calls, hasLength(1));
+      expect(controller.calls.single.name, 'checkout');
+      expect(controller.calls.single.args['target'], 'retry-target');
+      expect(controller.calls.single.args['force'], false);
+      expect(controller.calls.single.args['stashFirst'], false);
+    });
+
+    test("retryDeleteBranchWithChoice's retry case resubmits the request "
+        'unmodified -- no force flag', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordDeleteBranch(names: const <String>['gone']);
+      controller.debugHandleOperationOutcome(
+        _failedOutcome(kind: 'delete-branch'),
+      );
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.retry);
+
+      expect(controller.state.deleteBranchChoices, isEmpty);
+      expect(controller.calls, hasLength(1));
+      expect(controller.calls.single.name, 'deleteBranch');
+      expect(controller.calls.single.args['names'], <String>['gone']);
+      expect(controller.calls.single.args['force'], false);
+    });
+
+    test("retryDeleteBranchWithChoice's removeLock case attempts lock "
+        'removal then resubmits unmodified, exactly like the retry case '
+        'above', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordDeleteBranch(names: const <String>['gone']);
+      controller.debugHandleOperationOutcome(
+        _failedOutcome(kind: 'delete-branch'),
+      );
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.removeLock);
+
+      expect(controller.state.deleteBranchChoices, isEmpty);
+      expect(controller.calls, hasLength(1));
+      expect(controller.calls.single.name, 'deleteBranch');
+      expect(controller.calls.single.args['names'], <String>['gone']);
+      expect(controller.calls.single.args['force'], false);
+    });
+
+    test('a successful outcome clears the retained failed request', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordCheckout(target: 'first-attempt');
+      controller.debugHandleOperationOutcome(_failedOutcome(kind: 'checkout'));
+      expect(controller.state.checkoutChoices, isNotEmpty);
+
+      controller.debugRecordCheckout(target: 'first-attempt');
+      controller.debugHandleOperationOutcome(
+        _succeededOutcome(kind: 'checkout'),
+      );
+      expect(controller.state.checkoutChoices, isEmpty);
+
+      // No failed request left to retry.
+      controller.retryCheckoutWithChoice(OperationChoiceKind.stashAndRetry);
+      expect(controller.calls, isEmpty);
+    });
+  });
 }

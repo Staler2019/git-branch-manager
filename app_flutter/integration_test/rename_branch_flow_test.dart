@@ -178,11 +178,10 @@ void main() {
     await tester.pumpAndSettle();
     await _submitRename(tester, 'lane-allocator-v2');
 
-    expect(
-      _remoteBranches(originPath),
-      <String>[_branch, 'main'],
-      reason: 'the local-only option must not touch origin at all',
-    );
+    expect(_remoteBranches(originPath), <String>[
+      _branch,
+      'main',
+    ], reason: 'the local-only option must not touch origin at all');
     expect(
       _upstreamOf(repoPath, 'lane-allocator-v2'),
       '',

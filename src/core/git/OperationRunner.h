@@ -50,7 +50,7 @@ struct OperationOutcome {
     /// "This failed, and refs changed anyway." Set only by an operation that
     /// has *measured* the change rather than assumed it: `git branch -d a b`
     /// is per-name, so it can delete one branch, refuse the next and still
-    /// exit 1 (CLAUDE.md's [GIT-branch-d-partially-succeeds]), leaving a
+    /// exit 1 (`DeleteBranchOperation`'s before/after probe), leaving a
     /// failed outcome on top of a repository that really did move.
     ///
     /// Session::submitOperation reads this alongside `succeeded` to decide

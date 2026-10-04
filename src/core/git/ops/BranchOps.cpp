@@ -377,6 +377,9 @@ public:
         // the ones it already removed and exit 1 for work that is done.
         std::vector<std::string> targets = request_.names;
         std::optional<std::set<std::string>> before;
+        // Ruling: the remote half (`git push <remote> --delete a b c`) gets no
+        // probe -- it would cost a network round trip.
+        // docs/ledger/2026-09-05-fix-partial-branch-delete-no-refresh.md
         if (!request_.isRemote) {
             before = readLocalBranchNames(runner, paths, token);
             // An *empty* answer is treated as "could not tell", not as

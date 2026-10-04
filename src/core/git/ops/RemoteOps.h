@@ -83,7 +83,9 @@ enum class PushForceMode : std::uint8_t {
 
 struct PushRequest {
     std::string remoteName;
-    /// Refspecs to push. Empty pushes the current branch. More than one is
+    /// Refspecs to push. Empty passes no refspec, so git pushes the current
+    /// branch through its configured upstream and refuses when it has none
+    /// (not the same as naming the branch). More than one is
     /// how a multi-select push is expressed: `git push <remote> a b c`
     /// pushes each in turn and reports per-ref status, continuing past a
     /// ref it could not update -- which is exactly the "依序執行，失敗項不

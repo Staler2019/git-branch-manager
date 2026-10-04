@@ -346,7 +346,7 @@ void main() {
 
   // The assertion that pins the whole tri-state design: a measured zero is a
   // real zero. A sentinel-valued model (`0` doubling as "not measured", which
-  // is what [GIT-zero-means-unmeasured] settles for elsewhere because it has
+  // is what WorkingCopyEntry's line counts settle for because they have
   // no spare slot) answers `null` here and fails.
   test('WorktreeInfo reports a measured zero as 0, not as absent', () {
     final WorktreeInfo worktree = WorktreeInfo.fromJson(

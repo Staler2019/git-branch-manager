@@ -5242,7 +5242,7 @@ TEST_F(RealRepoTest, ClearingAnIdentityThatWasNeverSetIsRecordedAsBenign) {
 TEST_F(RealRepoTest, TheUntrackedFileDiffsOwnExitOneIsRecordedAsBenign) {
     // `--no-index` implies `--exit-code`, so it exits 1 whenever it finds the
     // differences it was asked to find -- i.e. on every untracked file the
-    // Working Copy shows ([GIT-no-index-sees-untracked]).
+    // Working Copy shows (`DiffService::workingTreeDiff`'s `--no-index` fallback).
     commitFile("seed.txt", "seed\n", "c1");
     writeFile("new.txt", "a\nb\nc\n");
 

@@ -124,7 +124,7 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 - **Do**: the root cause was **reproduced locally before the fix**, not inferred from the
   platform: piping the blob through `.replace(b'\n', b'\r\n')` puts byte 77 at 13 against the
   blob's 10, which is the assertion's two numbers exactly.
-- **See also**: [GIT-apply-without-cached-follows-autocrlf] is the same `core.autocrlf` biting
+- **See also**: `GitIntegrationTest.cpp`'s `DiscardsSelectedLinesOfAnUntrackedFile` comment is the same `core.autocrlf` biting
   one layer down — there it is git rewriting a *work-tree file an operation wrote*, here it is
   git rewriting a *checked-in fixture on checkout*.
 - **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../../docs/ledger/2026-09-28-chore-accept-toolchain-bump.md)

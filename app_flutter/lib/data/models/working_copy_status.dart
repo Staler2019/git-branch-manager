@@ -136,7 +136,7 @@ class WorkingCopyEntry {
   /// file are the file's own line count, **not a diff** -- an in-place edit
   /// that keeps the line count leaves both identical across two refreshes.
   /// A consumer needing "did the content actually change" reads these
-  /// instead. See `docs/rules/fn-git-commands.md`.
+  /// instead (`WorkingCopyStatus.h`).
   final int untrackedSize;
   final int untrackedMtimeTicks;
 }

@@ -29,7 +29,7 @@ String worktreePendingCountWarning(WorktreeInfo worktree) {
     case WorktreePendingCountState.unmeasured:
     case WorktreePendingCountState.failed:
       // Not pretending an unanswered count is zero --
-      // [GIT-worktree-status-is-per-path]'s reason for being a three-state
+      // `WorktreePendingCountState`'s reason for being a multi-state
       // field instead of an int applies to its UI exactly as much as its
       // cache.
       return '未提交的變更數未知。';
@@ -59,6 +59,9 @@ String worktreePendingCountWarning(WorktreeInfo worktree) {
 /// `autoFetchPrune` switch. `Unlock` already exists as a real,
 /// undialogued action one click above this one in the panel, so that is
 /// the path this dialog names instead.
+///
+/// Ruling (implementer's, not user-ratified -- ask before changing the capi
+/// to a force level): docs/records/2026-10-04-remove-locked-worktree-has-no-force.md
 String worktreeLockWarning(WorktreeInfo worktree) {
   if (!worktree.isLocked) return '';
   final String reason = worktree.lockReason.isEmpty

@@ -964,7 +964,8 @@ class RefreshFlags {
 /// `GBM_EVENT_WORKING_COPY_STATUS_UPDATED` before dispatching tier 2 anyway.
 /// Safety net for the path that never sends that event -- a failed status
 /// read reports `GBM_EVENT_ERROR_OCCURRED` instead
-/// ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson) -- not a
+/// (the "every terminal path" lesson of Session::dispatchRefresh()'s
+/// ScopeExit) -- not a
 /// schedule: on the normal path the real reply lands well inside this and
 /// [publishWorkingCopyStatus] cancels it before it ever fires.
 ///
@@ -2270,7 +2271,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // see that method's own doc comment for why), with this fallback as the
     // safety net for the path that never fires that event: a failed status
     // read reports GBM_EVENT_ERROR_OCCURRED instead
-    // ([CPP-coalescer-terminal-paths]'s "every terminal path" lesson, one
+    // (the "every terminal path" lesson of Session::dispatchRefresh(), one
     // layer up).
     _tier2DispatchedThisSweep = false;
     _armTier2Fallback();

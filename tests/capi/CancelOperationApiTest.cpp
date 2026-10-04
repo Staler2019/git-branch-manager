@@ -17,8 +17,11 @@
 //     *before* the work starts and is therefore deterministic:
 //     ProcessRunnerTest's `source.cancel()` case and GitIntegrationTest's
 //     `CancelsAReadOnlyWalkPromptly` / `CommitMetaStoreStopsIssuingRequestsOnceCancelled`.
+#include "capi/Session.h"
 #include "capi/gbm_capi.h"
+#include "core/workers/ThreadPool.h"
 #include "support/GitCli.h"
+#include "support/PoolBlockade.h"
 
 #include <atomic>
 #include <chrono>
@@ -30,6 +33,7 @@
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -37,6 +41,7 @@ namespace gbm::capi {
 namespace {
 
 using ::gbm::testing::GitCli;
+using ::gbm::testing::PoolBlockade;
 
 struct EventLog {
     std::mutex mutex;
@@ -303,6 +308,64 @@ TEST_F(CancelOperationApiTest, SessionCloseCancelsQueuedOperationsInsteadOfDrain
                                 "complete normally";
     EXPECT_GE(cancelled, kOperations - 1)
         << "every other queued operation must be cancelled, not drained";
+}
+
+// ~Session() must drain operations_ *before* the shared read pool. An
+// operation's completion callback runs on OperationRunner's worker and, after
+// emitting GBM_EVENT_OPERATION_FINISHED, posts refreshWorkingCopy() onto
+// sharedReadPool(). Drain the pool first and that post lands after the drain,
+// so the task runs once the Session is gone -- the ASan-confirmed
+// use-after-free the comment in ~Session() describes.
+//
+// Made deterministic by holding the callback inside onDone (the hook runs on
+// the worker, before the post) while gbm_session_close() starts, then filling
+// the pool so the post can only queue. In the right order close() is still in
+// operations_->drain() at that point, and the later cancelQueuedAndDrain()
+// discards the queued task; in the wrong order the pool was drained long
+// before, close() returns, and the task runs when the blockade lifts --
+// an event after close() returned.
+TEST_F(CancelOperationApiTest, SessionCloseDrainsOperationsBeforeTheReadPool) {
+    using namespace std::chrono_literals;
+    ThreadPool& pool = sharedReadPool();
+    pool.drain();  // open()'s own refreshes, so the blockade below gets every worker
+
+    PoolBlockade blockade(pool.threadCount());
+    std::atomic_bool inOnDone{false};
+    std::atomic_bool held{false};
+    log_.setHook([&](int32_t type) {
+        if (type != GBM_EVENT_OPERATION_FINISHED || held.exchange(true)) {
+            return;
+        }
+        inOnDone.store(true);
+        std::this_thread::sleep_for(300ms);  // let gbm_session_close() get going
+        blockade.fill(pool);
+    });
+
+    gbm_reset_to(session_, "HEAD", /*mode=*/1);
+    while (!inOnDone.load()) {
+        std::this_thread::sleep_for(1ms);
+    }
+    std::thread releaser([&blockade] {
+        std::this_thread::sleep_for(600ms);
+        blockade.releaseOne();
+        blockade.releaseRest();
+    });
+
+    gbm_session_close(session_);
+    session_ = nullptr;
+    std::size_t eventsAtClose = 0;
+    {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        eventsAtClose = log_.events.size();
+    }
+
+    releaser.join();
+    pool.drain();
+    log_.setHook(nullptr);  // the hook captures this body's locals
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(log_.events.size(), eventsAtClose)
+        << "a task this session posted ran after gbm_session_close() returned";
 }
 
 }  // namespace

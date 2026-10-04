@@ -338,7 +338,7 @@ int main(int argc, char** argv) {
     // deadline, so `WindowsChild::pump()` starts a watchdog thread and
     // duplicates a thread handle for it; `prod_notimeout` leaves both
     // deadlines at 0, which is the branch that starts no thread at all
-    // ([CPP-windows-terminate-hangs-join]). Their difference is therefore the
+    // (`WindowsChild::pump()`). Their difference is therefore the
     // watchdog's per-spawn cost with the job object held constant -- both arms
     // create one, because production always does.
     //

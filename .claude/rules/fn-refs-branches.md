@@ -135,7 +135,7 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   needs.
 - **Do**: an automatic prune's failure is kept out of `lastError` — nobody asked for it — but
   still reaches the operation log. Not notifying is not the same as not recording.
-- **See also**: [GIT-worktree-prune-has-no-expire] — 使用者裁定 extends this ruling to worktrees,
+- **See also**: `_autoPruneWorktrees` (`repo_session_repository.dart`) — 使用者裁定 extends this ruling to worktrees,
   where there is no preview step and a **lock** plays the part 「a local branch claims it」 plays
   here.
 - **Rule**: **P11 item 9's 「可選同時 prune」 switch is deleted, not merely unwired.** The
@@ -209,7 +209,7 @@ only. Normalise with `fullRemoteRefName()` / `shortRemoteRefName()` at the bound
   last-write-wins and never cleared, so it would disable the sweep permanently once the dialog
   had been opened once.
 - **Do**: the gate is 「this ref has not been tried」 and not 「this ref is prunable」 —
-  [GIT-worktree-prune-has-no-expire]'s rule, and what makes the prune's own refs refresh a
+  `_autoPrunedWorktreePaths`' rule, and what makes the prune's own refs refresh a
   no-op instead of a loop. A failed prune waits for the next fetch; the row keeps its marking
   meanwhile. ~~Remove the ref from the table before dispatching~~ — that spelling assumed the
   table and the dispatcher were the same object. They are not: the table is state the controller

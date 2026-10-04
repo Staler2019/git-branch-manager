@@ -111,12 +111,12 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
   next to `workingCopyDiffKey()` so both read the same key-construction logic. Unstaged side:
   `hasUnstagedChange`, `untracked`, `worktreeStatus`, `unstagedAdded`, `unstagedRemoved`,
   `isConflicted`, `conflict`, the three blob oids, **and** `untrackedSize`/`untrackedMtimeTicks`
-  (see [GIT-untracked-numstat-is-not-a-diff] for why the last two are required, not optional).
+  (an untracked file's line counts are its whole length, not a diff — `WorkingCopyStatus.h` — so the last two are required, not optional).
   Staged side: `staged`, `indexStatus`, `stagedAdded`, `stagedRemoved`, `oldPath`, `similarity`.
   Both sides include `isSubmodule`.
 - **Rule**: an untracked entry whose `untrackedSize`/`untrackedMtimeTicks` are both `0` is
   dropped unconditionally, never compared — that pair reads `0` when the stat failed or the
-  file exceeded the 1 MiB cap ([GIT-zero-means-unmeasured]'s "absorbs two conditions" shape), so
+  file exceeded the 1 MiB cap (`WorkingCopyStatus.h`: `0` means not measured), so
   "not measured" must never be read as "unchanged".
 - **Rule**: the cache now has an explicit, tighter bound — `kMaxCachedWorkingCopyDiffs = 4` —
   rather than relying on the wholesale clear to be its own bound. The old bound was a myth: it

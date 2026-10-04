@@ -6,11 +6,13 @@
 // point's design get a case each: a stale ref name must not blank the graph,
 // and the filter must survive a refresh it did not ask for.
 #include "capi/gbm_capi.h"
+#include "core/graph/GraphSnapshot.h"
 #include "support/GitCli.h"
 
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -141,6 +143,23 @@ protected:
         return rows;
     }
 
+    /// Lowest lane any row of the most recently published snapshot sits in.
+    int minRowLane() {
+        int32_t rows = 0;
+        int32_t stride = 0;
+        const uint8_t* base = gbm_graph_snapshot_rows(session_, &rows, &stride);
+        int lowest = -1;
+        for (int32_t i = 0; base != nullptr && i < rows; ++i) {
+            RowMeta row;
+            std::memcpy(&row, base + static_cast<std::size_t>(i) * stride, sizeof(RowMeta));
+            if (lowest < 0 || row.lane < lowest) {
+                lowest = row.lane;
+            }
+        }
+        gbm_graph_snapshot_release(session_);
+        return lowest;
+    }
+
     /// What git itself reports for the same walk, so the expected numbers are
     /// never hand-counted from the fixture.
     std::size_t gitRowCount(std::vector<std::string> revListArgs) {
@@ -243,6 +262,22 @@ TEST_F(HistoryFilterApiTest, EveryNameStaleFallsBackToTheUnfilteredWalk) {
 
     EXPECT_EQ(graphRowCount(), unfiltered)
         << "with nothing left to narrow by, the walk must widen rather than empty";
+}
+
+TEST_F(HistoryFilterApiTest, AFilterWithoutHeadsTipReservesNoLaneForIt) {
+    // Session.cpp sets GraphOptions::trunkTip only for an unfiltered walk.
+    // side-one was merged into main, so its walk never reaches main's tip: a
+    // reservation for that tip would hold lane 0 vacant for every row and
+    // draw the whole graph one column in from the left.
+    refreshAndWait(1);
+    ASSERT_EQ(minRowLane(), 0) << "the unfiltered walk puts HEAD's branch in lane 0";
+
+    const char* refs[] = {"refs/heads/side-one"};
+    gbm_history_set_filter(session_, refs, 1, /*firstParentOnly=*/0, /*noMerges=*/0);
+    ASSERT_TRUE(log_.waitForCompletedWalks(2));
+
+    ASSERT_GT(graphRowCount(), 0);
+    EXPECT_EQ(minRowLane(), 0) << "lane 0 must not wait for a tip this walk never contains";
 }
 
 }  // namespace

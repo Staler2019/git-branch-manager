@@ -20,10 +20,15 @@ paths:
 
 Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 
-## [CI-dart-sdk-floor] Dart ≥ 3.12.2
+## [CI-dart-sdk-floor] Dart ≥ 3.13.0
 
-- **Rule**: `app_flutter/pubspec.yaml` pins `sdk: ^3.12.2`; Flutter 3.44.x ships it.
-- **Do**: match `.github/workflows/ci.yml` and `.claude/hooks/session-start.sh`, both on 3.44.9.
+- **Rule**: ~~`app_flutter/pubspec.yaml` pins `sdk: ^3.12.2`; Flutter 3.44.x ships it.~~ **Corrected
+  in place (#151)**: `sdk: ^3.13.0`; Flutter 3.47.4 ships Dart 3.13.3.
+- **Do**: ~~match `.github/workflows/ci.yml` and `.claude/hooks/session-start.sh`, both on 3.44.9.~~
+  four pins move together — `ci.yml`, `cq.yml`, `release.yml` and `.claude/hooks/session-start.sh`,
+  all on 3.47.4. The floor sets the language version `dart format` styles by, so raising it
+  reformats the tree; do it in the same round as the pin.
+- **Evidence**: [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)
 
 ## [CI-analyze-zero] `flutter analyze` must stay at zero issues
 
@@ -41,16 +46,19 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [CI-formatter-version-drift] Both formatters drift by version, in both directions
 
-- **Rule**: `dart format`'s output is not stable across Dart SDKs, and
-  `subosito/flutter-action@v2`'s `channel: stable` floats with no SDK pinned — so one file
-  can flap between two valid formattings. `clang-format` is pinned to v18 in `cq.yml` and
+- **Rule**: `dart format`'s output is not stable across Dart SDKs, ~~and
+  `subosito/flutter-action@v2`'s `channel: stable` floats with no SDK pinned~~ — every
+  flutter-action use is pinned now (`cq.yml` lints it), so a flap needs a local SDK that differs
+  from the pin: one file then moves between two valid formattings (#151: worktrees_panel_test.dart
+  under 3.47.4 vs CI's 3.44.9). `clang-format` is pinned to v18 in `cq.yml` and
   `.pre-commit-config.yaml`; a local v22 reformats lines v18 left alone.
-- **Do**: never run either wholesale. Restore the file, re-apply only the intended edit,
-  and check the new lines survive byte-for-byte.
+- **Do**: never run either wholesale **on a local version that differs from CI's pin**. Restore the
+  file, re-apply only the intended edit, and check the new lines survive byte-for-byte. With
+  `flutter --version` equal to the pin, `dart format .` is safe.
 - **Do**: check `.clang-format` first — a suggestion coming from the repo's own config
   (e.g. `SeparateDefinitionBlocks: Always`, an option since v14) applies to CI's v18 too
   and is safe to take.
-- **Evidence**: ledger: Known gaps
+- **Evidence**: ledger: Known gaps; [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)
 
 ## [CI-linux-only] ~~PR CI compiles Linux only~~ — superseded: `flutter-ci` is a three-OS matrix
 
@@ -255,12 +263,15 @@ Pin prefix `CI-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [CI-newer-flutter-dirties-tracked-files] A Flutter SDK newer than CI's pin rewrites two tracked files
 
-- **Rule**: with 3.47.5 against CI's 3.44.9, `flutter pub get` re-resolves `pubspec.lock`
+- **Rule**: ~~with 3.47.5 against CI's 3.44.9, `flutter pub get` re-resolves `pubspec.lock`
   (matcher, meta, test_api, vector_math) and prepends an `analyzer: exclude:` block to
   `app_flutter/analysis_options.yaml` («Upgrading analysis_options.yaml to exclude build and
-  platform directories»). A later `flutter test` put the second back after it had been reverted.
+  platform directories»). A later `flutter test` put the second back after it had been reverted.~~
+  **Corrected in place (#151)**: both files already carry the 3.47 resolution (accepted by
+  chore/accept-toolchain-bump), and CI now pins 3.47.4 — `flutter pub get` on 3.47.4 left both
+  clean. The rule holds only for a local SDK that differs from the pin.
 - **Consequence**: `git status` shows both as modified after any local run, and a `git add -A`
   or `git commit -a` ships an SDK-version artefact as part of an unrelated change.
 - **Do**: stage by file ([CULT-standing-rules]). Save `git diff` of the two files to the scratchpad
   first and undo with `git apply -R` from that patch — never `git checkout -- <file>`.
-- **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)
+- **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md); [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)

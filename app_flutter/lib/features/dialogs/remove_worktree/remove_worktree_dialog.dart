@@ -29,7 +29,7 @@ String worktreePendingCountWarning(WorktreeInfo worktree) {
     case WorktreePendingCountState.unmeasured:
     case WorktreePendingCountState.failed:
       // Not pretending an unanswered count is zero --
-      // [GIT-worktree-status-is-per-path]'s reason for being a three-state
+      // `WorktreePendingCountState`'s reason for being a multi-state
       // field instead of an int applies to its UI exactly as much as its
       // cache.
       return '未提交的變更數未知。';

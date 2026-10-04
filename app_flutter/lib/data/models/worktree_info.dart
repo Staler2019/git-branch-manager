@@ -6,7 +6,7 @@
 /// This is an enum rather than a sentinel value in the count itself, and the
 /// distinction is load-bearing in two places. [WorktreeInfo.pendingChanges]
 /// can then report a measured `0` as a real zero -- the worktree is clean --
-/// where `[GIT-zero-means-unmeasured]` has to spend `0` on both meanings
+/// where `WorkingCopyEntry`'s line counts have to spend `0` on both meanings
 /// because its line counts have no spare slot. And [failed] stays
 /// distinguishable from [unmeasured], which is what lets the panel cache a
 /// failure instead of re-asking for it on every republish.

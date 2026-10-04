@@ -333,7 +333,7 @@ TEST_F(BranchApiTest, DeleteBranchAcceptsMultipleNamesInOneCall) {
 }
 
 // `git branch -d a b` is per-name: it deletes what it can and still exits 1
-// for the rest (measured -- see CLAUDE.md's [GIT-branch-d-partially-succeeds]).
+// for the rest (measured -- see `DeleteBranchOperation`'s before/after probe).
 // The outcome is therefore a *failure* that has already changed refs/heads,
 // and the session's own refresh used to be gated on `succeeded` alone, so
 // nothing re-read the refs -- the sidebar went on drawing a branch git had

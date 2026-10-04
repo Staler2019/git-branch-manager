@@ -149,7 +149,7 @@ class _LockWorktreeDialogContentState
             ),
           ),
           const SizedBox(height: GbmSpacing.space3),
-          // Not decoration -- [GIT-worktree-prune-has-no-expire]: `git
+          // Not decoration -- `git
           // worktree prune` takes no `--expire`, so a lock is the only
           // thing standing between a temporarily-absent worktree and
           // deletion. A path-invalidated worktree is now pruned

@@ -383,7 +383,7 @@ void main() {
         isEmpty,
         reason:
             '0/0 means "not measured", never "unchanged" -- '
-            '[GIT-zero-means-unmeasured]',
+            'WorkingCopyStatus.h',
       );
     });
 

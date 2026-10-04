@@ -127,7 +127,7 @@ TEST(JsonCodecTest, WorkingCopyEntryStillEmitsTheKeysWhenEveryCountIsZero) {
     EXPECT_NE(json.find("\"stagedRemoved\":0"), std::string::npos) << json;
 }
 
-// [GIT-zero-means-unmeasured]'s neighbour, for the one thing an untracked
+// The neighbour of "0 means not measured" (WorkingCopyStatus.h), for the one thing an untracked
 // file's numstat-shaped fields cannot tell apart from no edit at all: an
 // in-place rewrite that keeps the same line count leaves unstagedAdded/
 // unstagedRemoved identical across two refreshes. size + mtime are the

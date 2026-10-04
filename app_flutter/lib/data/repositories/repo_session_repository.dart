@@ -120,7 +120,7 @@ const int kMaxCachedWorkingCopyDiffs = 4;
 /// unstaged side at all. That pair means "not measured" (see their own doc
 /// comment) -- treating "not measured" as "unchanged" would keep a stale
 /// diff for a file whose stat failed or whose size crossed the byte cap,
-/// which is the same mistake [GIT-zero-means-unmeasured] warns against one
+/// which is the same mistake `WorkingCopyStatus.h`'s "0 means not measured" warns against one
 /// layer down.
 @visibleForTesting
 Map<String, String> workingCopyDiffFingerprints(WorkingCopyStatus status) {
@@ -1638,7 +1638,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// 「something is prunable」 therefore re-dispatches forever. A gate reading
   /// 「some path has never been tried」 terminates on every branch, including
   /// the failure one, which is the same lesson as writing `failed` into the
-  /// panel's `path@headOid` count cache ([GIT-worktree-status-is-per-path]).
+  /// panel's `path@headOid` count cache (`worktrees_panel.dart`).
   final Set<String> _autoPrunedWorktreePaths = <String>{};
 
   /// True while an automatic prune this class dispatched is unaccounted for,

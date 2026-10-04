@@ -66,7 +66,7 @@ class DeferredPruneNotifier extends StateNotifier<void> {
   /// Full ref names this notifier has already sent to `pruneRemote`.
   ///
   /// The gate is 「this ref has not been tried」, never 「this ref is prunable」
-  /// ([GIT-worktree-prune-has-no-expire]'s shape). That is what makes the
+  /// (the same shape as `_autoPrunedWorktreePaths`). That is what makes the
   /// prune's own refs refresh a no-op instead of a loop: the refresh re-runs
   /// the sweep, and every ref in it has been tried. A failed prune therefore
   /// waits for the next fetch rather than retrying; the row keeps its gone

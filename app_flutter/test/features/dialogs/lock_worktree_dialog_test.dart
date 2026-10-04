@@ -4,7 +4,7 @@
 // button dispatched unconditionally with the default empty string, a
 // [CULT-orphan-wiring] instance. This file pins the dialog that replaces
 // that dispatch: a read-only worktree line, an optional reason field, and
-// the [GIT-worktree-prune-has-no-expire] note the plan calls load-bearing
+// the 「prune takes no --expire, so a lock is the only guard」 note the plan calls load-bearing
 // rather than decorative.
 //
 // `Unlock` gets no dialog of its own and is not covered here -- it destroys

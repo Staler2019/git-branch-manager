@@ -30,7 +30,8 @@ import 'graph_edge_geometry.dart';
 /// instead of a ring. 5.0 + 1 = 6.0 leaves 0.25px of gap, and
 /// `graph_dot_geometry_test.dart` is what holds the two apart. Growing the
 /// dot further means growing the ring, which means moving
-/// [kGraphLaneInset] -- see its own note.
+/// [kGraphLaneInset] -- see its own note. Ruling:
+/// docs/records/2026-10-04-graph-lane-geometry-rulings.md
 const double kGraphDotRadius = 5.0;
 const double kGraphDotHaloWidth = 2.0;
 const double kGraphHeadRingRadius = 7.0;

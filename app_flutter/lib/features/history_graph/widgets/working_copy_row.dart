@@ -117,7 +117,7 @@ class HistoryWorkingCopyRow extends StatelessWidget {
 }
 
 /// Half the diamond's width. Deliberately the same 5.0 the commit dots use
-/// (docs/rules/ops-spec-reading.md's [SPEC-graph-lane-pitch]), so the two read
+/// (docs/records/2026-10-04-graph-lane-geometry-rulings.md), so the two read
 /// as one column rather than as a marker beside one.
 const double kWorkingCopyDotRadius = 5.0;
 

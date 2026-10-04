@@ -30,6 +30,10 @@ struct GraphOptions {
     /// one need not reach HEAD at all, and a reservation nothing ever claims is
     /// a leftmost column that stays blank for the whole graph. The same is true,
     /// far less likely, if `maxRows` truncates the walk first.
+    ///
+    /// Lane 0 stays blank above this tip when newer commits exist -- spec's
+    /// 「其他分支一律往右配置」 read literally, which the user ratified.
+    /// ruling: docs/records/2026-10-04-lane-zero-reserved-for-head.md
     ObjectId trunkTip;
 };
 

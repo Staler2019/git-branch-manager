@@ -22,6 +22,10 @@ constexpr RowId kRowBoundary = 0xFFFFFFFFu;
 /// the UI says so rather than silently hiding them.
 constexpr LaneId kMaxLanes = 48;
 
+// Twelve, not spec's six, and entry i is 30 * i degrees round the OkLCH hue
+// wheel: LaneAllocator's colour distance is a hue distance only because of
+// that order. gbm_lane_palette_test.dart reads this line.
+// ruling: docs/records/2026-10-04-graph-lane-colour-palette-and-window.md
 constexpr std::uint8_t kPaletteSize = 12;
 
 enum class EdgeKind : std::uint8_t {

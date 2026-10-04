@@ -86,7 +86,9 @@ Dart operationFinished     _readRepoState() / _readUndoJournal()
   沒有任何回報。裁定：否決，只修 delete-branch。
 - **遠端刪除那半一起補 probe**。`git push origin --delete a b c` 同樣會部分成功，但那條
   路沒有 before/after 探測，拿不到證據；補 probe 要多一次網路往返。裁定：這輪只修本地，
-  遠端留待日後，並就地記進 [GIT-branch-d-partially-succeeds] 免得被下一輪當成漏掉的。
+  遠端留待日後，並就地記進 ~~[GIT-branch-d-partially-succeeds]~~（該 pin 於 2026-10-04 退役，
+  見 `500a67a:.claude/rules/fn-git-commands.md`；裁定現在記在 `BranchOps.cpp` 的 `Ruling:` 註解）
+  免得被下一輪當成漏掉的。
 
 ## 測試放在 capi 層，因為別的層表達不出這個失敗條件
 

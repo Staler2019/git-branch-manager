@@ -65,7 +65,7 @@ P6 says 18px title / 16px padding; its own mock draws 13px / 14px. Splitting the
 difference produced a third value neither states. Ask, then take the chosen source
 **whole** — a geometry half from each is incoherent.
 
-`docs/rules/ops-spec-reading.md`'s `[SPEC-mockup-is-not-prose]` governs *conformance
+`.claude/rules/ops-spec-reading.md`'s `[SPEC-mockup-is-not-prose]` governs *conformance
 verdicts*. It does not license inventing a value when the user has ruled for the mock.
 
 ### Facts already extracted (verify, do not re-derive blindly)

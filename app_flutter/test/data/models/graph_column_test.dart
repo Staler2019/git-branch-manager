@@ -392,8 +392,9 @@ void main() {
     //
     // Deliberately a floor and not an equality: the *ceiling* is owned by
     // `workspace_narrow_window_test.dart`'s twelve-lane 1280x720 case, which
-    // goes red at 93. Restating 92 here would duplicate that guard and make
-    // both red for one cause; each end is pinned once.
+    // goes red past 341 (the enum's comment has the bisection). Restating it
+    // here would duplicate that guard and make both red for one cause; each
+    // end is pinned once.
     test('Refs is wide enough for the HEAD chip at its default', () {
       expect(GbmGraphColumnId.refs.defaultWidth, greaterThanOrEqualTo(91));
     });

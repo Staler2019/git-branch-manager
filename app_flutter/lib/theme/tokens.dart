@@ -566,7 +566,8 @@ abstract final class GbmLayout {
   /// that pitch, and 11 is `17 x 2/3` taken to an integer. **Do not "fix" it
   /// back to 17 on the strength of the citation above**: the citation is
   /// still true and is no longer what decides this number. Same standing as
-  /// the Working Copy's removed checkboxes. Ledger: 「Graph lane 間距」.
+  /// the Working Copy's removed checkboxes. Ruling:
+  /// docs/records/2026-10-04-graph-lane-geometry-rulings.md
   ///
   /// The dot, halo, HEAD ring and connector widths in
   /// `graph_column_painter.dart` are **unchanged** by the same ruling --

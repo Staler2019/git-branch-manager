@@ -500,9 +500,9 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
       w.isPrunable ? context.gbmColors.warning : null;
 
   /// 「main ↑2」. The arrow is gated on the *upstream*, not on the number:
-  /// RefInfo.ahead is meaningless when upstream is empty
-  /// ([REF-ahead-meaningless-without-upstream]), where a branch that never
-  /// had one reports 0 and rendering that claims the opposite of the truth.
+  /// RefInfo.ahead is meaningless when upstream is empty, where a branch
+  /// that never had one reports 0 and rendering that claims the opposite of
+  /// the truth.
   String _branchLine(WorktreeInfo w, RefSnapshot refs) {
     if (w.isDetached) return 'HEAD 分離';
     final RefInfo? ref_ = refs.localBranches

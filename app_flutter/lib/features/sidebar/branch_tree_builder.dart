@@ -292,7 +292,8 @@ BranchTreeFolder _folderNodeToTree(_FolderNode node) {
 /// the sort order the whole sidebar is read through. Finding the current
 /// branch is `sidebar_panel.dart`'s job instead -- it seeds the expanded set
 /// with [ancestorFolderPaths] so the row is already on screen. Do not
-/// reinstate the pin; see docs/ledger.md.
+/// reinstate the pin. Ruling:
+/// docs/records/2026-10-04-sidebar-head-has-no-privilege.md
 ///
 /// Folders-before-leaves stays, because it is tree *structure* rather than
 /// branch priority -- the same distinction the user drew.

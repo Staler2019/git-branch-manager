@@ -88,7 +88,8 @@ String remoteCounterpartOf(RefInfo local, List<RefInfo> remoteBranches) =>
 ///
 /// Resolution is [RemoteBranchIndex.counterpartOf]'s, so a branch name carried
 /// by two remotes claims nothing at all — guessing a counterpart from a name
-/// is worse than not guessing ([REF-remote-side-not-upstream]).
+/// is worse than not guessing (`branch_tree_builder_test.dart`'s
+/// two-remotes case pins it).
 Set<String> claimedRemoteCounterparts(RefSnapshot refs) {
   final RemoteBranchIndex index = RemoteBranchIndex.from(refs.remoteBranches);
   final Set<String> claimed = <String>{};

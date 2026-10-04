@@ -1,7 +1,8 @@
 // The current branch gets **no sorting and no filtering privilege** in the
 // sidebar. This is a user-ratified deviation from BRANCH_STATES' 目前分支 row
 // (「永遠置頂於所屬資料夾內，且不受 filter 影響」) and from P02-14 rule 7 --
-// see docs/ledger.md. What survives from that row is only the visual half:
+// ruling: docs/records/2026-10-04-sidebar-head-has-no-privilege.md.
+// What survives from that row is only the visual half:
 // 「名稱加粗、整列以 selected 底色標示」, which is what tells the user which
 // branch is checked out now that position no longer does.
 //
@@ -46,7 +47,7 @@ RefInfo _branch(String shortName, {bool isHead = false}) => RefInfo(
   hasTrackingInfo: false,
   isGone: false,
   isHead: isHead,
-  isSymbolic: isHead,
+  isSymbolic: false,
   worktreePath: '',
 );
 

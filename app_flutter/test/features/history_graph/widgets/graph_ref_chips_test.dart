@@ -24,7 +24,11 @@ RefInfo _local(
   );
 }
 
-RefInfo _remote(String remoteQualifiedName, String target) {
+RefInfo _remote(
+  String remoteQualifiedName,
+  String target, {
+  bool isSymbolic = false,
+}) {
   return RefInfo(
     fullName: 'refs/remotes/$remoteQualifiedName',
     shortName: remoteQualifiedName,
@@ -36,7 +40,7 @@ RefInfo _remote(String remoteQualifiedName, String target) {
     hasTrackingInfo: false,
     isGone: false,
     isHead: false,
-    isSymbolic: false,
+    isSymbolic: isSymbolic,
     worktreePath: '',
   );
 }
@@ -292,6 +296,29 @@ void main() {
 
       expect(result, hasLength(1));
       expect(result.single.label, 'HEAD → main');
+    });
+  });
+
+  group('origin/HEAD', () {
+    // 使用者裁定: History keeps drawing the origin/HEAD chip. `isSymbolic`
+    // only keeps the symref out of the upstream lookup, never out of the row.
+    test('a symbolic remote ref still gets its own chip', () {
+      final refs = _snapshot(<RefInfo>[
+        _local('main', 'abc123', upstream: 'refs/remotes/origin/main'),
+        _remote('origin/main', 'abc123'),
+        _remote('origin/HEAD', 'abc123', isSymbolic: true),
+      ]);
+
+      final result = refChipsForCommit(refs, 'abc123');
+
+      expect(
+        result.map((c) => c.label),
+        unorderedEquals(<String>['main', 'origin/HEAD']),
+      );
+      expect(
+        result.singleWhere((c) => c.label == 'main').showCloudIcon,
+        isTrue,
+      );
     });
   });
 }

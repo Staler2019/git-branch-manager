@@ -485,10 +485,10 @@ void main() {
       expect(find.text('on the USB drive'), findsOneWidget);
     });
 
-    // 「main ↑2」. RefInfo.ahead means nothing when upstream is empty
-    // ([REF-ahead-meaningless-without-upstream]) -- a branch that never had
-    // one reports 0, and rendering that literally claims the opposite of the
-    // truth -- so the arrow is gated on the upstream, not on the number.
+    // 「main ↑2」. RefInfo.ahead means nothing when upstream is empty -- a
+    // branch that never had one reports 0, and rendering that literally
+    // claims the opposite of the truth -- so the arrow is gated on the
+    // upstream, not on the number.
     testWidgets('分支 shows ahead only when there is an upstream', (
       tester,
     ) async {

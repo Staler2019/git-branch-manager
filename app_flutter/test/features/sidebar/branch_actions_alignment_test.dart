@@ -40,7 +40,7 @@ RefInfo _ref(String name, {required RefKind kind, bool isHead = false}) =>
       hasTrackingInfo: false,
       isGone: false,
       isHead: isHead,
-      isSymbolic: isHead,
+      isSymbolic: false,
       worktreePath: '',
     );
 

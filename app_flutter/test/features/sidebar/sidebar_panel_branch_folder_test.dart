@@ -42,7 +42,7 @@ RefInfo _localBranch(
     hasTrackingInfo: upstream.isNotEmpty,
     isGone: false,
     isHead: isHead,
-    isSymbolic: isHead,
+    isSymbolic: false,
     worktreePath: worktreePath,
   );
 }
@@ -238,7 +238,8 @@ Future<void> _setRefs(
 void main() {
   // Every folder starts collapsed *except* the ones on the way to the current
   // branch. This is how the sidebar answers 「where am I」 now that the branch
-  // list carries no sort pin -- see docs/ledger.md.
+  // list carries no sort pin. Ruling:
+  // docs/records/2026-10-04-sidebar-head-has-no-privilege.md
   group('the folders leading to the current branch open by default', () {
     testWidgets('a one-level current branch is on screen with no clicks', (
       tester,

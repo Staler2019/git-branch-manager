@@ -60,7 +60,7 @@ RefInfo _branch(
     hasTrackingInfo: upstream.isNotEmpty,
     isGone: isGone,
     isHead: isHead,
-    isSymbolic: isHead,
+    isSymbolic: false,
     worktreePath: '',
   );
 }

@@ -14,7 +14,7 @@ void main() {
       hasTrackingInfo: true,
       isGone: false,
       isHead: true,
-      isSymbolic: true,
+      isSymbolic: false,
       worktreePath: '',
     );
 
@@ -29,7 +29,7 @@ void main() {
       hasTrackingInfo: false,
       isGone: false,
       isHead: false,
-      isSymbolic: true,
+      isSymbolic: false,
       worktreePath: '',
     );
 
@@ -119,7 +119,7 @@ void main() {
         hasTrackingInfo: false,
         isGone: false,
         isHead: false,
-        isSymbolic: true,
+        isSymbolic: false,
         worktreePath: '',
       );
       final remote2 = RefInfo(
@@ -133,7 +133,7 @@ void main() {
         hasTrackingInfo: false,
         isGone: false,
         isHead: false,
-        isSymbolic: true,
+        isSymbolic: false,
         worktreePath: '',
       );
       final snapshot = RefSnapshot(

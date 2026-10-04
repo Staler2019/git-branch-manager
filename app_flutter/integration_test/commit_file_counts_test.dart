@@ -126,9 +126,7 @@ void main() {
       // onto the raw list, capi serialises two new JSON keys, and the Dart
       // model decodes them with a hard `as int`. test/** runs on
       // FakeGbmBindings and tests/capi/** stops at the C++ side, so a payload
-      // the two halves disagree about is invisible everywhere but here -- and
-      // a stale libgbm_capi would surface as a Dart decode error rather than
-      // as a missing badge.
+      // the two halves disagree about is invisible everywhere but here.
       //
       // Its own commit rather than one of _buildMergeHistory's: +7/-3 is
       // asymmetric and appears nowhere else on screen, where the fixture's

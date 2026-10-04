@@ -1,6 +1,7 @@
 // Golden tests for design-system components across all theme variants.
-// Only runs on macOS (flutter test CI runs on Ubuntu and skips these).
-import 'dart:io' show Platform;
+// Pixel goldens run on macOS only (ci.yml's macos-26 leg); the source scan at
+// the end of main() runs everywhere.
+import 'dart:io' show Directory, File, FileSystemEntity, Platform;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -241,4 +242,33 @@ void main() {
       );
     }, skip: !Platform.isMacOS);
   }
+
+  // Not skipped off macOS: it reads source, not pixels. A golden that paints
+  // a Material icon compares a placeholder box, not the icon, and that box's
+  // anti-aliasing is what broke the GbmIconButton goldens above (#151).
+  test('no golden test paints a Material Icons glyph', () {
+    final RegExp iconGlyph = RegExp(r'\bIcons\.');
+    final List<String> offenders = <String>[];
+    for (final FileSystemEntity entity in Directory(
+      'test',
+    ).listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      final List<String> lines = entity.readAsLinesSync();
+      if (!lines.any((String l) => l.contains('matchesGoldenFile'))) continue;
+      for (int i = 0; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('//')) continue;
+        if (iconGlyph.hasMatch(lines[i])) {
+          offenders.add('${entity.path}:${i + 1}');
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      isEmpty,
+      reason:
+          'use LucideIcon (SVG paths, what production paints) in a golden:\n'
+          '${offenders.join('\n')}',
+    );
+  });
 }

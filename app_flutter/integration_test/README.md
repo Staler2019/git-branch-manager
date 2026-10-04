@@ -60,7 +60,7 @@ This line appears in the output of a perfectly healthy run: it was printed
 by both `update_check_flow_test.dart` runs, after a clean
 `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, and the tests ran
 to completion either side of it. The *fatal* variant -- a stale debug
-instance still holding the app, recorded in the project root `CLAUDE.md` --
+instance still holding the app (`.claude/rules/arch-testing-device.md`) --
 looks different: there the run dies immediately with `did not complete` and
 **no test ever starts**. Tell them apart by whether a `+0:` test line
 follows, not by this message, or you will spend a run chasing a pkill loop
@@ -76,22 +76,22 @@ issue reproduced consistently across multiple runs during this audit, not a
 bug in these tests (each one passes on its own). Revisit this note if a
 future Flutter/`flutter_tools` version fixes multi-app-launch sequencing.
 
-## The native library must be current, not merely present
+## Which native library a run loads
 
-`build/native/libgbm_capi.dylib` is a **copy**, not a symlink: a stale one
-keeps loading happily and the flow under test then fails in a way that looks
-exactly like a Dart bug. `context_menu_flows_test.dart`'s discard flow needs
-`gbm_discard_lines`, which did not exist in any dylib built before it;
-`multi_push_flow_test.dart` needs `gbm_push`'s two-parameter multi-branch
-form. If you populated candidate #3 by hand, re-copy it after every capi
-change -- the Xcode/CMake build phases feeding candidate #2 do not touch it.
+On macOS a device run goes through the Xcode "Build gbm_capi" phase, which
+rebuilds the library and copies it next to the executable on every run, so
+`native_library.dart`'s candidate #2 wins and `build/native/` is never read.
+Measured: with `build/native/libgbm_capi.dylib` replaced by an empty file,
+`rename_branch_flow_test.dart` still ran 2/2 green, and the bundle's copy
+carried that run's timestamp. Candidate #3 matters only where #2 is absent.
 
 ## Shared preferences are the machine's real ones
 
 There is no in-memory backend on a live desktop binding, so these tests read
 whatever the developer's own use of the app left behind.
 `pumpRealAppOn` therefore seeds `recents.repos` and **clears every
-`panelLayout.*` key**: a splitter ratio dragged in the real app persists,
+`panelLayout.*` and `graphColumns.*` key plus `real_repo_harness.dart`'s
+`flatKeysToClear`**: a splitter ratio dragged in the real app persists,
 and one was observed making History's Changed files panel overlap the commit
 graph by ~28px -- enough that a row's centre sits under the neighbouring
 pane and a correct `tester.tap` silently misses its hit test. Any other

@@ -16,9 +16,7 @@
 // has no way to be wrong about.
 //
 // Run it as `flutter test integration_test/worktree_pending_counts_test.dart
-// -d macos`, one file at a time ([TEST-device-runs-one-file]), after
-// `scripts/build_capi.sh` -- a stale dylib loads happily and the symptom is
-// a count that simply never arrives ([TEST-stale-dylib-is-silent]).
+// -d macos`, one file at a time ([TEST-device-runs-one-file]).
 import 'dart:io';
 
 import 'package:flutter/material.dart';

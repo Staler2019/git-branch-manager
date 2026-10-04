@@ -12,11 +12,7 @@ Pin prefix `TEST-`. Format: [README.md](../../docs/rules/README.md).
 ## [TEST-tiers] Testing tiers
 
 - **Rule**: unit (`test/actions/`, pure models) · widget (`test/features/**`, one widget fed callbacks or a fake session) · integration (`test/integration/`, the real `WorkspaceScreen` via `pumpWorkspace()`, run by the same `flutter test`) · device (`integration_test/`, see [TEST-device-tier-not-in-ci]).
-- **Do**: a claim that crosses the dispatch seam (shortcut or menu → controller; a state transition → every gated surface) goes in the integration tier; a widget test feeds the handler map directly. `pumpWorkspace`'s `extraRoutes` vs `topLevelRoutes` must match the real route structure.
-
-## [TEST-new-gate-needs-integration] A new state-dependent gate needs an integration test
-
-- **Do**: put the gate in `isActionEnabled()` and add an integration test that the gated surface changes on the state transition; a widget test only proves the widget renders `null`.
+- **Do**: a claim that crosses the dispatch seam (shortcut or menu → controller; a state transition → every gated surface) goes in the integration tier; a widget test feeds the handler map directly. A new state-dependent gate lives in `isActionEnabled()` with an integration test that the gated surface changes on the transition (a widget test only proves it renders `null`). `pumpWorkspace`'s `extraRoutes` vs `topLevelRoutes` must match the real route structure.
 
 ## [TEST-fake-seam-fails-loudly] The fake seam fails loudly on purpose, and silently in one place
 
@@ -50,32 +46,18 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 
 - **Do**: a `takeException()` test cannot see a cross-axis defect; check which axis the defect is on first.
 
-## [TEST-no-pumpandsettle-with-spinner] Never `pumpAndSettle()` while an indeterminate `CircularProgressIndicator` is on screen
+## [TEST-no-pumpandsettle-with-spinner] Never `pumpAndSettle()` while an indeterminate progress indicator is on screen
 
-- **Rule**: it schedules frames forever, so `pumpAndSettle` can only time out; this is the confirmed mechanism of the device-tier batch flake (**#101**), not **#70**.
-- **Do**: find the sites with `grep -rn 'CircularProgressIndicator(' app_flutter/lib`; `StatusBar`'s bar is determinate (`BackgroundTask.progress` is a non-null `double`).
+- **Rule**: a `CircularProgressIndicator`, or a `LinearProgressIndicator` with no `value:`, schedules frames forever, so `pumpAndSettle` can only time out; this is the confirmed mechanism of the device-tier batch flake (**#101**), not **#70**.
+- **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, `welcome_screen.dart` while scanning); `StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.
 
 ## [TEST-runasync-for-real-async] Real async inside `testWidgets` needs `tester.runAsync()`
 
 - **Rule**: `Picture.toImage()` and `vg.loadPicture` never complete in the fake-async zone: a silent hang with no timeout.
 - **Evidence**: `branch_tree_item_hover_paint_test.dart`; ledger: P02 item 2's toolbar
 
-## [TEST-draggable-is-not-a-drop] Asserting that a `Draggable` exists is not asserting that a drop works
-
-- **Do**: drop with `startGesture` → `pump()` → `moveTo(target)` → `pump()` → `up()` → `pump()`; an empty-state placeholder goes inside the `DragTarget` builder (`working_copy_board_test.dart`).
-
 ## [TEST-posix-fixture-on-windows-host] A fixture that shells out to `chmod`/`touch` is inert on Windows and for uid 0
 
 - **Rule**: `flutter-ci` runs the unit tier on `windows-latest` and `macos-26`; NTFS ignores `chmod`, so the test goes green having never met the failure.
 - **Do**: «cannot write» = a missing parent directory; age a directory by moving the injected clock, never its mtime; pick a failing delete per OS (`_makeUndeletable`) and prove it bites; cut a path with the simulated OS's separators.
 - **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)
-
-## [TEST-golden-no-glyphs] A golden must not paint a font glyph
-
-- **Rule**: flutter_test loads no Material Icons font, so `Icon(Icons.*)` paints a placeholder box,
-  and glyph anti-aliasing differs between macOS versions at the same Flutter SDK.
-- **Consequence**: `GbmIconButton`'s goldens were 6px / 2/255 red on CI's `macos-26` and green on a
-  local macOS 27, and compared a placeholder instead of an icon.
-- **Do**: put `LucideIcon` (SVG paths, what production uses) in a golden; path-drawn borders and
-  fills matched on both machines.
-- **Evidence**: [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)

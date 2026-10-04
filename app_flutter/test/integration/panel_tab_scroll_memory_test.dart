@@ -7,7 +7,7 @@
 // It has to be an integration test. A management panel is a GoRouter route
 // (`/repo/:repoId/panel/:tabId`), so switching tabs *unmounts the page and
 // disposes its ScrollController* -- the loss happens in the router, which a
-// widget test never goes through ([TEST-new-gate-needs-integration]). A
+// widget test never goes through ([TEST-tiers]). A
 // widget test would pump one panel, scroll it, and see the offset survive,
 // because nothing ever took it away.
 import 'package:flutter/material.dart';

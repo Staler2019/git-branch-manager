@@ -8,7 +8,7 @@
 // This has to be an integration test with the *real* PanelPage mounted: the
 // binding lives inside the page, so a stub route (which is what the Tools
 // menu test uses) would exercise nothing, and a widget test on one panel
-// never goes through the router at all ([TEST-new-gate-needs-integration]).
+// never goes through the router at all ([TEST-tiers]).
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

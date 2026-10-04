@@ -10,10 +10,8 @@
 // `tests/unit/GitIntegrationTest.cpp` stops at the C++ struct. `dart:ffi`'s
 // `lookupFunction` matches by symbol name and never by signature, so the two
 // halves can disagree about a payload while compiling, analyzing and
-// unit-testing clean -- and a stale `build/native/libgbm_capi.dylib` would
-// show up as a missing badge rather than as any kind of error. Same trap and
-// same reason as `commit_file_counts_test.dart`'s second test, one layer
-// over.
+// unit-testing clean. Same trap and same reason as
+// `commit_file_counts_test.dart`'s second test, one layer over.
 //
 // The counts are deliberately four different numbers -- +7/-3 unstaged and
 // +2/-1 staged -- so no assertion here can be satisfied by another badge on

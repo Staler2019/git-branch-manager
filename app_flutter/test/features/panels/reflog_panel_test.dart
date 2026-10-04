@@ -80,7 +80,7 @@ Future<PumpedPanel> _pump(
 /// rule 2's filter slot was filled — the filter is a `TextField` too. A
 /// predicate on the decoration is used instead of a label finder because
 /// this field has only a hint, and a hint stops being rendered as soon as
-/// the field has text in it ([TEST-design-system-swap-breaks-finders]).
+/// the field has text in it.
 final Finder _refField = find.byWidgetPredicate(
   (Widget w) => w is TextField && w.decoration?.hintText == 'HEAD',
 );

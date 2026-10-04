@@ -112,7 +112,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   /// Files every answer that arrived, then asks once for any key never
   /// asked about. Called from `build`, which is why the *request* is
   /// deferred: dispatching to the controller from inside a build is the
-  /// provider write [FLU-never-write-provider-in-build] forbids, and its
+  /// provider write `sidebar_panel.dart`'s `_pruneSelection` explains, and its
   /// guard is `assert`-wrapped, so release would let it land mid-frame.
   ///
   /// The bookkeeping is not deferred: `_askedCountKeys` is written

@@ -191,8 +191,8 @@ final ProviderFamily<String?, RepoIdentity> selectedCommitProvider =
 /// offering to open the Working Copy) for a working copy that is now clean.
 /// Requiring the row to exist here rather than clearing the selection from a
 /// widget keeps it a pure derivation: no provider write from `build()`
-/// ([FLU-never-write-provider-in-build]), and no second predicate a later
-/// surface could forget to add ([CULT-single-source-of-truth]).
+/// (see `sidebar_panel.dart`'s `_pruneSelection`), and no second predicate
+/// a later surface could forget to add ([CULT-single-source-of-truth]).
 ///
 /// Deliberately **not** gated on the commit search that also hides the row.
 /// A filter hiding a row does not make the summary untrue, and a selection

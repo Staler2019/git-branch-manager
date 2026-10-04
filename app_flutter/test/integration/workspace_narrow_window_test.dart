@@ -128,7 +128,7 @@ RefSnapshot _refs() => RefSnapshot(
       hasTrackingInfo: false,
       isGone: false,
       isHead: true,
-      isSymbolic: true,
+      isSymbolic: false,
       worktreePath: '',
     ),
   ],

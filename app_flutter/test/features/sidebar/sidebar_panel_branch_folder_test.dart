@@ -42,7 +42,7 @@ RefInfo _localBranch(
     hasTrackingInfo: upstream.isNotEmpty,
     isGone: false,
     isHead: isHead,
-    isSymbolic: isHead,
+    isSymbolic: false,
     worktreePath: worktreePath,
   );
 }

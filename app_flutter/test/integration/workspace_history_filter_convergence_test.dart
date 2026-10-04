@@ -31,7 +31,7 @@ RefInfo _branch(String shortName, {bool isHead = false}) => RefInfo(
   hasTrackingInfo: false,
   isGone: false,
   isHead: isHead,
-  isSymbolic: isHead,
+  isSymbolic: false,
   worktreePath: '',
 );
 

@@ -60,7 +60,7 @@ final _testBranches = <RefInfo>[
     hasTrackingInfo: true,
     isGone: false,
     isHead: true,
-    isSymbolic: true,
+    isSymbolic: false,
     worktreePath: '',
   ),
   // Active branch (not gone)
@@ -75,7 +75,7 @@ final _testBranches = <RefInfo>[
     hasTrackingInfo: true,
     isGone: false,
     isHead: false,
-    isSymbolic: true,
+    isSymbolic: false,
     worktreePath: '',
   ),
   // Gone branch that WILL be hidden by filter
@@ -90,7 +90,7 @@ final _testBranches = <RefInfo>[
     hasTrackingInfo: true,
     isGone: true,
     isHead: false,
-    isSymbolic: true,
+    isSymbolic: false,
     worktreePath: '',
   ),
   // Gone branch that will be VISIBLE with filter (matches "done")
@@ -105,7 +105,7 @@ final _testBranches = <RefInfo>[
     hasTrackingInfo: true,
     isGone: true,
     isHead: false,
-    isSymbolic: true,
+    isSymbolic: false,
     worktreePath: '',
   ),
 ];

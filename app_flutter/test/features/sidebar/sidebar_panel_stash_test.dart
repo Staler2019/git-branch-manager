@@ -43,7 +43,7 @@ final RefInfo _localMain = RefInfo(
   hasTrackingInfo: false,
   isGone: false,
   isHead: true,
-  isSymbolic: true,
+  isSymbolic: false,
   worktreePath: '',
 );
 

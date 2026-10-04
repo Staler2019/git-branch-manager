@@ -168,9 +168,8 @@ void main() {
       await tester.tap(find.text('Commit hash'));
       await tester.pumpAndSettle();
 
-      final Map<String, bool> visibility = GraphColumnsRepository(
-        _prefs,
-      ).readVisibility();
+      final Map<String, bool> visibility = GraphColumnsRepository(_prefs)
+          .readVisibility();
       expect(visibility['author'], isFalse);
       expect(visibility['hash'], isFalse);
     });
@@ -211,9 +210,8 @@ void main() {
 
       expect(_boxIsFilled(tester, 'Graph'), isTrue);
       expect(_boxIsFilled(tester, 'Message'), isTrue);
-      final Map<String, bool> visibility = GraphColumnsRepository(
-        _prefs,
-      ).readVisibility();
+      final Map<String, bool> visibility = GraphColumnsRepository(_prefs)
+          .readVisibility();
       expect(visibility['graph'] ?? true, isTrue);
       expect(visibility['message'] ?? true, isTrue);
     });

@@ -132,9 +132,8 @@ void main() {
       tester,
     ) async {
       await _pump(tester);
-      final GbmColors colors = buildGbmTheme(
-        GbmThemeVariant.darkTechnical,
-      ).extension<GbmColors>()!;
+      final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+          .extension<GbmColors>()!;
 
       final Container outer = tester.widget<Container>(
         find
@@ -153,9 +152,8 @@ void main() {
       tester,
     ) async {
       await _pump(tester);
-      final GbmColors colors = buildGbmTheme(
-        GbmThemeVariant.darkTechnical,
-      ).extension<GbmColors>()!;
+      final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+          .extension<GbmColors>()!;
 
       final Material material = tester.widget<Material>(
         find
@@ -183,9 +181,8 @@ void main() {
     testWidgets('the title bar has a border-bottom, separating it from the '
         'body', (tester) async {
       await _pump(tester);
-      final GbmColors colors = buildGbmTheme(
-        GbmThemeVariant.darkTechnical,
-      ).extension<GbmColors>()!;
+      final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+          .extension<GbmColors>()!;
 
       final Container titleBar = tester.widget<Container>(
         find
@@ -230,9 +227,8 @@ void main() {
 
     testWidgets('the action row has its own border-top', (tester) async {
       await _pump(tester);
-      final GbmColors colors = buildGbmTheme(
-        GbmThemeVariant.darkTechnical,
-      ).extension<GbmColors>()!;
+      final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+          .extension<GbmColors>()!;
 
       // The action row's own wrapper is the *last* Container under the
       // shell (outer shell, title bar, then this one) -- distinct from

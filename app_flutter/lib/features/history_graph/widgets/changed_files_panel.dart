@@ -188,9 +188,8 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
 
     ref.listen<FileAtRevisionExport?>(
-      repoSessionProvider(
-        identity,
-      ).select((RepoSessionState s) => s.lastFileAtRevisionExport),
+      repoSessionProvider(identity)
+          .select((RepoSessionState s) => s.lastFileAtRevisionExport),
       (FileAtRevisionExport? previous, FileAtRevisionExport? next) {
         if (next != null) _onExportFinished(next);
       },
@@ -434,9 +433,11 @@ class ChangedFilesPanelCore extends StatelessWidget {
             mode: viewMode,
             items: files,
             pathOf: (ChangedFile file) => file.path,
-            leafBuilder:
-                (BuildContext context, ChangedFile file, String label) =>
-                    _buildFileRow(context, file, label),
+            leafBuilder: (
+              BuildContext context,
+              ChangedFile file,
+              String label,
+            ) => _buildFileRow(context, file, label),
           ),
         ),
       ],

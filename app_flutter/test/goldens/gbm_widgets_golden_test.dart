@@ -14,6 +14,7 @@ import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
 import 'package:gbm_flutter/widgets/gbm_panel.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:gbm_flutter/widgets/gbm_tag_chip.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 
 void main() {
   // GbmBadge goldens across all kinds and variants
@@ -95,7 +96,11 @@ void main() {
     }, skip: !Platform.isMacOS);
   }
 
-  // GbmIconButton goldens
+  // GbmIconButton goldens. The icons are LucideIcon SVGs, as in production,
+  // not `Icon(Icons.*)`: flutter_test loads no Material Icons font, so a
+  // glyph renders as a placeholder box whose anti-aliased edge differed by
+  // 2/255 between a local macOS 27 and CI's macos-26 (#151). SVG paths are
+  // rasterised like the other components' borders, which matched on both.
   for (final variant in GbmThemeVariant.values) {
     testWidgets('GbmIconButton golden ($variant)', (tester) async {
       await tester.pumpWidget(
@@ -106,14 +111,17 @@ void main() {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  GbmIconButton(icon: const Icon(Icons.add), onPressed: () {}),
                   GbmIconButton(
-                    icon: const Icon(Icons.add),
+                    icon: const LucideIcon('columns-3'),
+                    onPressed: () {},
+                  ),
+                  GbmIconButton(
+                    icon: const LucideIcon('columns-3'),
                     active: true,
                     onPressed: () {},
                   ),
                   GbmIconButton(
-                    icon: const Icon(Icons.delete),
+                    icon: const LucideIcon('refresh-cw'),
                     onPressed: () {},
                   ),
                 ],

@@ -8,6 +8,7 @@ import 'package:gbm_flutter/data/models/remote_counterpart.dart';
 // wants it and the sidebar is still where it is mostly read.
 export 'package:gbm_flutter/data/models/remote_counterpart.dart'
     show RemoteBranchIndex, remoteCounterpartOf;
+
 import 'branch_filter.dart';
 import 'branch_selection_rules.dart';
 

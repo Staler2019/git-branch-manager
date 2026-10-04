@@ -267,18 +267,16 @@ class _UncommittedSummaryView extends StatelessWidget {
           children: <Widget>[
             Text(
               'Uncommitted changes',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: GbmSpacing.space2),
             Text(
               changeCount == 1
                   ? '1 changed file'
                   : '$changeCount changed files',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
             const SizedBox(height: GbmSpacing.space4),
             // Ruling: a summary, never a file list --
@@ -330,9 +328,8 @@ class _CommitMetadataView extends StatelessWidget {
           children: [
             Text(
               meta.subject,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             if (meta.body.isNotEmpty) ...[

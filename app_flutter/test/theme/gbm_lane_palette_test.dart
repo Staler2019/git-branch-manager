@@ -146,9 +146,8 @@ void main() {
     // instead -- the brighter blue against #0D1117 -- which predates this
     // round and is left alone.
     expect(
-      tokensFor(
-        GbmThemeVariant.neutralProfessional,
-      ).graphLanes.first.toARGB32(),
+      tokensFor(GbmThemeVariant.neutralProfessional).graphLanes.first
+          .toARGB32(),
       tokensFor(GbmThemeVariant.neutralProfessional).accent.toARGB32(),
     );
     expect(

@@ -66,9 +66,8 @@ class _CredentialDialogContentState
     final GbmColors colors = context.gbmColors;
     final String prompt =
         ref.watch(
-          repoSessionProvider(
-            widget.identity,
-          ).select((state) => state.credentialPrompt),
+          repoSessionProvider(widget.identity)
+              .select((state) => state.credentialPrompt),
         ) ??
         '';
     final bool obscure = prompt.toLowerCase().contains('password');

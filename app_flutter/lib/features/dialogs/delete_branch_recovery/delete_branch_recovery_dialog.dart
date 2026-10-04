@@ -63,14 +63,12 @@ class _DeleteBranchRecoveryDialogContentState
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final List<OperationChoice> choices = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.deleteBranchChoices),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.deleteBranchChoices),
     );
     final String? message = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.lastError?.message),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.lastError?.message),
     );
 
     return GbmDialogShell(

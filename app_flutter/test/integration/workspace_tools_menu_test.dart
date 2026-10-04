@@ -34,9 +34,9 @@ final List<RouteBase> _panelRoute = <RouteBase>[
   ),
 ];
 
-String _location(WidgetTester tester) => GoRouterState.of(
-  tester.element(find.byType(WorkspaceScreen)),
-).uri.toString();
+String _location(WidgetTester tester) =>
+    GoRouterState.of(tester.element(find.byType(WorkspaceScreen))).uri
+        .toString();
 
 /// The open tabs of one kind. D7 seeds a pinned Worktrees tab into every
 /// repository, so 「exactly one tab is open」 stopped being the way to say

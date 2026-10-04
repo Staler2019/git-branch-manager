@@ -136,9 +136,8 @@ void main() {
       File('$repo/counts.txt').writeAsStringSync('l1\nl2\nl3\nl4\nl5\n');
       runGit(repo, <String>['add', 'counts.txt']);
       runGit(repo, <String>['commit', '-m', 'add counts']);
-      File(
-        '$repo/counts.txt',
-      ).writeAsStringSync('l1\nA\nB\nC\nD\nE\nF\nG\nl5\n');
+      File('$repo/counts.txt')
+          .writeAsStringSync('l1\nA\nB\nC\nD\nE\nF\nG\nl5\n');
       runGit(repo, <String>['add', 'counts.txt']);
       runGit(repo, <String>['commit', '-m', 'edit counts']);
 

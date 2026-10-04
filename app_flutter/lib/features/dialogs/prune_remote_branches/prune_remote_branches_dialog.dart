@@ -112,9 +112,8 @@ class _PruneRemoteBranchesDialogContentState
       repoSessionProvider(widget.identity).select((state) => state.remotes),
     );
     final RemotePrunePreview? preview = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => state.lastRemotePrunePreview),
+      repoSessionProvider(widget.identity)
+          .select((state) => state.lastRemotePrunePreview),
     );
 
     // A fresh preview for the currently selected remote replaces the

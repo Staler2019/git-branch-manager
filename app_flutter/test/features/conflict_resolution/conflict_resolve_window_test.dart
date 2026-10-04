@@ -669,15 +669,14 @@ void main() {
         regionCount: 1,
         wellFormed: true,
       );
-      final session = _sessionWith(
-        _conflictEntry,
-      ).copyWith(repoState: _stateWith(RepoStateFlags.merge));
+      final session = _sessionWith(_conflictEntry)
+          .copyWith(repoState: _stateWith(RepoStateFlags.merge));
 
       final container = await _pumpWindow(tester, identity, session, parsed);
       await _selectConflictFile(tester);
-      final controller =
-          container.read(repoSessionProvider(identity).notifier)
-              as FakeRepoSessionController;
+      final controller = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
 
       await tester.tap(find.text('Abort'));
       await tester.pumpAndSettle();
@@ -702,15 +701,14 @@ void main() {
           regionCount: 1,
           wellFormed: true,
         );
-        final session = _sessionWith(
-          _conflictEntry,
-        ).copyWith(repoState: _stateWith(RepoStateFlags.cherryPick));
+        final session = _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.cherryPick));
 
         final container = await _pumpWindow(tester, identity, session, parsed);
         await _selectConflictFile(tester);
-        final controller =
-            container.read(repoSessionProvider(identity).notifier)
-                as FakeRepoSessionController;
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
 
         await tester.tap(find.text('Abort'));
         await tester.pumpAndSettle();
@@ -750,15 +748,14 @@ void main() {
           regionCount: 1,
           wellFormed: true,
         );
-        final session = _sessionWith(
-          _conflictEntry,
-        ).copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge));
+        final session = _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge));
 
         final container = await _pumpWindow(tester, identity, session, parsed);
         await _selectConflictFile(tester);
-        final controller =
-            container.read(repoSessionProvider(identity).notifier)
-                as FakeRepoSessionController;
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
 
         await tester.tap(find.text('Abort'));
         await tester.pumpAndSettle();
@@ -793,15 +790,14 @@ void main() {
         regionCount: 1,
         wellFormed: true,
       );
-      final session = _sessionWith(
-        _conflictEntry,
-      ).copyWith(repoState: _stateWith(RepoStateFlags.revert));
+      final session = _sessionWith(_conflictEntry)
+          .copyWith(repoState: _stateWith(RepoStateFlags.revert));
 
       final container = await _pumpWindow(tester, identity, session, parsed);
       await _selectConflictFile(tester);
-      final controller =
-          container.read(repoSessionProvider(identity).notifier)
-              as FakeRepoSessionController;
+      final controller = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
 
       // Both buttons are shown (a sequencer op is active) but disabled.
       expect(find.text('Abort'), findsWidgets);
@@ -861,9 +857,9 @@ void main() {
           parsed,
         );
         await _selectConflictFile(tester);
-        final controller =
-            container.read(repoSessionProvider(identity).notifier)
-                as FakeRepoSessionController;
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
 
         await tester.tap(find.text('Mark Resolved').last);
         await tester.pumpAndSettle();
@@ -901,9 +897,9 @@ void main() {
         parsed,
       );
       await _selectConflictFile(tester);
-      final controller =
-          container.read(repoSessionProvider(identity).notifier)
-              as FakeRepoSessionController;
+      final controller = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
 
       // Resolve the first occurrence.
       await tester.tap(_perRegionTakeButton('Ours'));
@@ -965,9 +961,9 @@ void main() {
           parsed,
         );
         await _selectConflictFile(tester);
-        final controller =
-            container.read(repoSessionProvider(identity).notifier)
-                as FakeRepoSessionController;
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
 
         // Resolve locally but do NOT save/mark resolved yet -- git still
         // reports the path as conflicted at this point.

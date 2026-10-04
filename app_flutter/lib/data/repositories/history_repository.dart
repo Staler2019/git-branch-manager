@@ -60,9 +60,8 @@ void requestCommitMeta(
 final ProviderFamily<Map<String, int>, RepoIdentity> commitFileCountProvider =
     Provider.family<Map<String, int>, RepoIdentity>((ref, identity) {
       return ref.watch(
-        repoSessionProvider(
-          identity,
-        ).select((state) => state.commitFileCountCache),
+        repoSessionProvider(identity)
+            .select((state) => state.commitFileCountCache),
       );
     });
 
@@ -99,9 +98,8 @@ final ProviderFamily<List<ChangedFile>, RepoIdentity> commitFilesProvider =
 final ProviderFamily<ParsedDiff?, RepoIdentity> commitFileDiffProvider =
     Provider.family<ParsedDiff?, RepoIdentity>((ref, identity) {
       return ref.watch(
-        repoSessionProvider(
-          identity,
-        ).select((state) => state.selectedCommitFileDiff),
+        repoSessionProvider(identity)
+            .select((state) => state.selectedCommitFileDiff),
       );
     });
 

@@ -131,9 +131,8 @@ void main() {
         manifest: '$_helloDigest  ${_asset.name}',
       );
 
-      final File file = await UpdateDownloader(
-        get: transport.call,
-      ).download(asset: _asset, manifest: _manifestAsset, into: tempDir);
+      final File file = await UpdateDownloader(get: transport.call)
+          .download(asset: _asset, manifest: _manifestAsset, into: tempDir);
 
       expect(file.existsSync(), isTrue);
       expect(file.readAsStringSync(), 'hello');
@@ -149,9 +148,8 @@ void main() {
       );
 
       await expectLater(
-        UpdateDownloader(
-          get: transport.call,
-        ).download(asset: _asset, manifest: _manifestAsset, into: tempDir),
+        UpdateDownloader(get: transport.call)
+            .download(asset: _asset, manifest: _manifestAsset, into: tempDir),
         throwsA(
           isA<UpdateDownloadException>().having(
             (UpdateDownloadException e) => e.message,
@@ -175,9 +173,8 @@ void main() {
       );
 
       await expectLater(
-        UpdateDownloader(
-          get: transport.call,
-        ).download(asset: _asset, manifest: _manifestAsset, into: tempDir),
+        UpdateDownloader(get: transport.call)
+            .download(asset: _asset, manifest: _manifestAsset, into: tempDir),
         throwsA(isA<UpdateDownloadException>()),
       );
       expect(tempDir.listSync(), isEmpty);
@@ -214,9 +211,8 @@ void main() {
       });
 
       await expectLater(
-        UpdateDownloader(
-          get: transport.call,
-        ).download(asset: _asset, manifest: _manifestAsset, into: tempDir),
+        UpdateDownloader(get: transport.call)
+            .download(asset: _asset, manifest: _manifestAsset, into: tempDir),
         throwsA(isA<UpdateDownloadException>()),
       );
     });

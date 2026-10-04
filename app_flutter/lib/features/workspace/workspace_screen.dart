@@ -406,9 +406,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // Same auto-push pattern, for the "not fully merged" -> "Force delete"
     // recovery flow (see DeleteBranchRecoveryDialogContent's doc comment).
     ref.listen(
-      repoSessionProvider(
-        identity,
-      ).select((state) => state.deleteBranchChoices),
+      repoSessionProvider(identity)
+          .select((state) => state.deleteBranchChoices),
       (previous, next) {
         if (next.isNotEmpty && (previous?.isEmpty ?? true)) {
           pushDialogRoute(
@@ -981,13 +980,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           : null,
       GbmActionId.repositoryStageAll:
           isActionEnabled(GbmActionId.repositoryStageAll, session)
-          ? () => ref
-                .read(repoSessionProvider(identity).notifier)
-                .stageFiles(<String>[
-                  for (final WorkingCopyEntry e
-                      in session.workingCopyStatus.unstaged)
-                    e.path,
-                ])
+          ? () => ref.read(repoSessionProvider(identity).notifier).stageFiles(
+              <String>[
+                for (final WorkingCopyEntry e
+                    in session.workingCopyStatus.unstaged)
+                  e.path,
+              ],
+            )
           : null,
       GbmActionId.repositoryOpenInTerminal: () =>
           _openInTerminal(ref, identity),

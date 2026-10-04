@@ -56,14 +56,13 @@ abstract final class GbmEventType {
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
-typedef GbmEventCallbackNative =
-    Void Function(
-      Pointer<Void> session,
-      Int32 eventType,
-      Pointer<Uint8> payload,
-      Int32 payloadLen,
-      Pointer<Void> userData,
-    );
+typedef GbmEventCallbackNative = Void Function(
+  Pointer<Void> session,
+  Int32 eventType,
+  Pointer<Uint8> payload,
+  Int32 payloadLen,
+  Pointer<Void> userData,
+);
 
 typedef _FreeEventPayloadNative = Void Function(Pointer<Uint8> payload);
 typedef FreeEventPayloadDart = void Function(Pointer<Uint8> payload);
@@ -71,38 +70,36 @@ typedef FreeEventPayloadDart = void Function(Pointer<Uint8> payload);
 typedef _LastResultJsonLenNative = Int32 Function();
 typedef LastResultJsonLenDart = int Function();
 
-typedef _LastResultJsonCopyNative =
-    Void Function(Pointer<Uint8> out, Int32 outLen);
+typedef _LastResultJsonCopyNative = Void Function(
+  Pointer<Uint8> out,
+  Int32 outLen,
+);
 typedef LastResultJsonCopyDart = void Function(Pointer<Uint8> out, int outLen);
 
-typedef _SessionOpenNative =
-    Pointer<Void> Function(
-      Pointer<Utf8> workDir,
-      Pointer<Utf8> gitDir,
-      Pointer<Utf8> commonDir,
-    );
-typedef SessionOpenDart =
-    Pointer<Void> Function(
-      Pointer<Utf8> workDir,
-      Pointer<Utf8> gitDir,
-      Pointer<Utf8> commonDir,
-    );
+typedef _SessionOpenNative = Pointer<Void> Function(
+  Pointer<Utf8> workDir,
+  Pointer<Utf8> gitDir,
+  Pointer<Utf8> commonDir,
+);
+typedef SessionOpenDart = Pointer<Void> Function(
+  Pointer<Utf8> workDir,
+  Pointer<Utf8> gitDir,
+  Pointer<Utf8> commonDir,
+);
 
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
 
-typedef _RegisterCallbackNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<NativeFunction<GbmEventCallbackNative>> callback,
-      Pointer<Void> userData,
-    );
-typedef RegisterCallbackDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<NativeFunction<GbmEventCallbackNative>> callback,
-      Pointer<Void> userData,
-    );
+typedef _RegisterCallbackNative = Void Function(
+  Pointer<Void> session,
+  Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+  Pointer<Void> userData,
+);
+typedef RegisterCallbackDart = void Function(
+  Pointer<Void> session,
+  Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+  Pointer<Void> userData,
+);
 
 typedef _RepoStateJsonNative = Int32 Function(Pointer<Void> session);
 typedef RepoStateJsonDart = int Function(Pointer<Void> session);
@@ -112,69 +109,65 @@ typedef RemoveStaleIndexLockDart = int Function(Pointer<Void> session);
 
 typedef _HistoryRefreshNative = Void Function(Pointer<Void> session);
 typedef HistoryRefreshDart = void Function(Pointer<Void> session);
-typedef _HistorySetFilterNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> includeRefs,
-      Int32 includeRefCount,
-      Int32 firstParentOnly,
-      Int32 noMerges,
-    );
-typedef HistorySetFilterDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> includeRefs,
-      int includeRefCount,
-      int firstParentOnly,
-      int noMerges,
-    );
+typedef _HistorySetFilterNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> includeRefs,
+  Int32 includeRefCount,
+  Int32 firstParentOnly,
+  Int32 noMerges,
+);
+typedef HistorySetFilterDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> includeRefs,
+  int includeRefCount,
+  int firstParentOnly,
+  int noMerges,
+);
 
 typedef _RefsJsonNative = Int32 Function(Pointer<Void> session);
 typedef RefsJsonDart = int Function(Pointer<Void> session);
 
-typedef _GraphRowsNative =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> rowCount,
-      Pointer<Int32> rowStride,
-    );
-typedef GraphRowsDart =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> rowCount,
-      Pointer<Int32> rowStride,
-    );
+typedef _GraphRowsNative = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> rowCount,
+  Pointer<Int32> rowStride,
+);
+typedef GraphRowsDart = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> rowCount,
+  Pointer<Int32> rowStride,
+);
 
-typedef _GraphOidsNative =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> oidCount,
-      Pointer<Int32> oidStride,
-    );
-typedef GraphOidsDart =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> oidCount,
-      Pointer<Int32> oidStride,
-    );
+typedef _GraphOidsNative = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> oidCount,
+  Pointer<Int32> oidStride,
+);
+typedef GraphOidsDart = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> oidCount,
+  Pointer<Int32> oidStride,
+);
 
-typedef _GraphParentsNative =
-    Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
-typedef GraphParentsDart =
-    Pointer<Uint32> Function(Pointer<Void> session, Pointer<Int32> parentCount);
+typedef _GraphParentsNative = Pointer<Uint32> Function(
+  Pointer<Void> session,
+  Pointer<Int32> parentCount,
+);
+typedef GraphParentsDart = Pointer<Uint32> Function(
+  Pointer<Void> session,
+  Pointer<Int32> parentCount,
+);
 
-typedef _GraphEdgesNative =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> edgeCount,
-      Pointer<Int32> edgeStride,
-    );
-typedef GraphEdgesDart =
-    Pointer<Uint8> Function(
-      Pointer<Void> session,
-      Pointer<Int32> edgeCount,
-      Pointer<Int32> edgeStride,
-    );
+typedef _GraphEdgesNative = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> edgeCount,
+  Pointer<Int32> edgeStride,
+);
+typedef GraphEdgesDart = Pointer<Uint8> Function(
+  Pointer<Void> session,
+  Pointer<Int32> edgeCount,
+  Pointer<Int32> edgeStride,
+);
 
 typedef _GraphIntQueryNative = Int32 Function(Pointer<Void> session);
 typedef GraphIntQueryDart = int Function(Pointer<Void> session);
@@ -182,142 +175,142 @@ typedef GraphIntQueryDart = int Function(Pointer<Void> session);
 typedef _GraphReleaseNative = Void Function(Pointer<Void> session);
 typedef GraphReleaseDart = void Function(Pointer<Void> session);
 
-typedef _BranchCheckoutNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> target,
-      Int32 detach,
-      Int32 createBranch,
-      Pointer<Utf8> newBranchName,
-      Int32 force,
-      Int32 stashFirst,
-      Int32 recurseSubmodules,
-    );
-typedef BranchCheckoutDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> target,
-      int detach,
-      int createBranch,
-      Pointer<Utf8> newBranchName,
-      int force,
-      int stashFirst,
-      int recurseSubmodules,
-    );
+typedef _BranchCheckoutNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  Int32 detach,
+  Int32 createBranch,
+  Pointer<Utf8> newBranchName,
+  Int32 force,
+  Int32 stashFirst,
+  Int32 recurseSubmodules,
+);
+typedef BranchCheckoutDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  int detach,
+  int createBranch,
+  Pointer<Utf8> newBranchName,
+  int force,
+  int stashFirst,
+  int recurseSubmodules,
+);
 
-typedef _BranchCreateNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> startPoint,
-      Int32 checkoutAfter,
-      Int32 setUpstream,
-      Pointer<Utf8> upstream,
-    );
-typedef BranchCreateDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> startPoint,
-      int checkoutAfter,
-      int setUpstream,
-      Pointer<Utf8> upstream,
-    );
+typedef _BranchCreateNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> startPoint,
+  Int32 checkoutAfter,
+  Int32 setUpstream,
+  Pointer<Utf8> upstream,
+);
+typedef BranchCreateDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> startPoint,
+  int checkoutAfter,
+  int setUpstream,
+  Pointer<Utf8> upstream,
+);
 
-typedef _BranchRenameNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> from,
-      Pointer<Utf8> to,
-      Int32 force,
-      Int32 renameRemote,
-      Pointer<Utf8> remoteName,
-    );
-typedef BranchRenameDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> from,
-      Pointer<Utf8> to,
-      int force,
-      int renameRemote,
-      Pointer<Utf8> remoteName,
-    );
+typedef _BranchRenameNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> from,
+  Pointer<Utf8> to,
+  Int32 force,
+  Int32 renameRemote,
+  Pointer<Utf8> remoteName,
+);
+typedef BranchRenameDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> from,
+  Pointer<Utf8> to,
+  int force,
+  int renameRemote,
+  Pointer<Utf8> remoteName,
+);
 
-typedef _BranchDeleteNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> names,
-      Int32 nameCount,
-      Int32 force,
-      Int32 isRemote,
-      Pointer<Utf8> remoteName,
-    );
-typedef BranchDeleteDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> names,
-      int nameCount,
-      int force,
-      int isRemote,
-      Pointer<Utf8> remoteName,
-    );
+typedef _BranchDeleteNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> names,
+  Int32 nameCount,
+  Int32 force,
+  Int32 isRemote,
+  Pointer<Utf8> remoteName,
+);
+typedef BranchDeleteDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> names,
+  int nameCount,
+  int force,
+  int isRemote,
+  Pointer<Utf8> remoteName,
+);
 
-typedef _ResetToNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> target, Int32 mode);
-typedef ResetToDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> target, int mode);
+typedef _ResetToNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  Int32 mode,
+);
+typedef ResetToDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  int mode,
+);
 
-typedef _MergeBranchNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> target,
-      Int32 mode,
-      Pointer<Utf8> message,
-      Int32 stashFirst,
-    );
-typedef MergeBranchDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> target,
-      int mode,
-      Pointer<Utf8> message,
-      int stashFirst,
-    );
+typedef _MergeBranchNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  Int32 mode,
+  Pointer<Utf8> message,
+  Int32 stashFirst,
+);
+typedef MergeBranchDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+  int mode,
+  Pointer<Utf8> message,
+  int stashFirst,
+);
 
 typedef _MergeAbortNative = Void Function(Pointer<Void> session);
 typedef MergeAbortDart = void Function(Pointer<Void> session);
 
-typedef _CherryPickNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      Int32 commitCount,
-      Int32 mainline,
-      Int32 noCommit,
-      Int32 stashFirst,
-    );
-typedef CherryPickDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      int commitCount,
-      int mainline,
-      int noCommit,
-      int stashFirst,
-    );
+typedef _CherryPickNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  Int32 commitCount,
+  Int32 mainline,
+  Int32 noCommit,
+  Int32 stashFirst,
+);
+typedef CherryPickDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  int commitCount,
+  int mainline,
+  int noCommit,
+  int stashFirst,
+);
 
 typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);
 typedef CherryPickContinueDart = void Function(Pointer<Void> session);
 
-typedef _CherryPickContinueWithMessageNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> message);
-typedef CherryPickContinueWithMessageDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef _CherryPickContinueWithMessageNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+);
+typedef CherryPickContinueWithMessageDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+);
 
-typedef _RequestOriginalOperationMessageNative =
-    Void Function(Pointer<Void> session);
-typedef RequestOriginalOperationMessageDart =
-    void Function(Pointer<Void> session);
+typedef _RequestOriginalOperationMessageNative = Void Function(
+  Pointer<Void> session,
+);
+typedef RequestOriginalOperationMessageDart = void Function(
+  Pointer<Void> session,
+);
 
 typedef _CherryPickSkipNative = Void Function(Pointer<Void> session);
 typedef CherryPickSkipDart = void Function(Pointer<Void> session);
@@ -325,61 +318,59 @@ typedef CherryPickSkipDart = void Function(Pointer<Void> session);
 typedef _CherryPickAbortNative = Void Function(Pointer<Void> session);
 typedef CherryPickAbortDart = void Function(Pointer<Void> session);
 
-typedef _RevertNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      Int32 commitCount,
-      Int32 noCommit,
-      Int32 stashFirst,
-    );
-typedef RevertDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      int commitCount,
-      int noCommit,
-      int stashFirst,
-    );
+typedef _RevertNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  Int32 commitCount,
+  Int32 noCommit,
+  Int32 stashFirst,
+);
+typedef RevertDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  int commitCount,
+  int noCommit,
+  int stashFirst,
+);
 
-typedef _ResolveConflictNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Int32 resolution,
-      Int32 oursBlobMissing,
-      Int32 theirsBlobMissing,
-      Pointer<Utf8> resolvedContent,
-    );
-typedef ResolveConflictDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      int resolution,
-      int oursBlobMissing,
-      int theirsBlobMissing,
-      Pointer<Utf8> resolvedContent,
-    );
+typedef _ResolveConflictNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 resolution,
+  Int32 oursBlobMissing,
+  Int32 theirsBlobMissing,
+  Pointer<Utf8> resolvedContent,
+);
+typedef ResolveConflictDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int resolution,
+  int oursBlobMissing,
+  int theirsBlobMissing,
+  Pointer<Utf8> resolvedContent,
+);
 
-typedef _RequestWorkingTreeContentNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path);
-typedef RequestWorkingTreeContentDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef _RequestWorkingTreeContentNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+);
+typedef RequestWorkingTreeContentDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+);
 
-typedef _ExportFileAtRevisionNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> revision,
-      Pointer<Utf8> path,
-      Pointer<Utf8> destPath,
-    );
-typedef ExportFileAtRevisionDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> revision,
-      Pointer<Utf8> path,
-      Pointer<Utf8> destPath,
-    );
+typedef _ExportFileAtRevisionNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> revision,
+  Pointer<Utf8> path,
+  Pointer<Utf8> destPath,
+);
+typedef ExportFileAtRevisionDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> revision,
+  Pointer<Utf8> path,
+  Pointer<Utf8> destPath,
+);
 
 typedef _ParseConflictMarkersNative = Int32 Function(Pointer<Utf8> content);
 typedef ParseConflictMarkersDart = int Function(Pointer<Utf8> content);
@@ -390,73 +381,77 @@ typedef WorkingCopyRefreshDart = void Function(Pointer<Void> session);
 typedef _WorkingCopyStatusJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorkingCopyStatusJsonDart = int Function(Pointer<Void> session);
 
-typedef _WorkingCopyDiffNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 staged);
-typedef WorkingCopyDiffDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path, int staged);
+typedef _WorkingCopyDiffNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 staged,
+);
+typedef WorkingCopyDiffDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int staged,
+);
 
-typedef _StageFilesNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-    );
-typedef StageFilesDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-    );
+typedef _StageFilesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+);
+typedef StageFilesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+);
 
-typedef _UnstageFilesNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-    );
-typedef UnstageFilesDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-    );
+typedef _UnstageFilesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+);
+typedef UnstageFilesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+);
 
-typedef _CommitChangesNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> message,
-      Int32 amend,
-      Int32 signOff,
-    );
-typedef CommitChangesDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> message,
-      int amend,
-      int signOff,
-    );
+typedef _CommitChangesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+  Int32 amend,
+  Int32 signOff,
+);
+typedef CommitChangesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+  int amend,
+  int signOff,
+);
 
-typedef _StageHunkNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 hunkIndex);
-typedef StageHunkDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path, int hunkIndex);
+typedef _StageHunkNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 hunkIndex,
+);
+typedef StageHunkDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int hunkIndex,
+);
 
-typedef _StageLinesNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Int32 hunkIndex,
-      Pointer<Int32> lineIndices,
-      Int32 lineIndexCount,
-    );
-typedef StageLinesDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      int hunkIndex,
-      Pointer<Int32> lineIndices,
-      int lineIndexCount,
-    );
+typedef _StageLinesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 hunkIndex,
+  Pointer<Int32> lineIndices,
+  Int32 lineIndexCount,
+);
+typedef StageLinesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int hunkIndex,
+  Pointer<Int32> lineIndices,
+  int lineIndexCount,
+);
 
 typedef _StashRefreshNative = Void Function(Pointer<Void> session);
 typedef StashRefreshDart = void Function(Pointer<Void> session);
@@ -464,142 +459,155 @@ typedef StashRefreshDart = void Function(Pointer<Void> session);
 typedef _StashesJsonNative = Int32 Function(Pointer<Void> session);
 typedef StashesJsonDart = int Function(Pointer<Void> session);
 
-typedef _StashSaveNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> message,
-      Int32 includeUntracked,
-      Int32 keepIndex,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-    );
-typedef StashSaveDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> message,
-      int includeUntracked,
-      int keepIndex,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-    );
+typedef _StashSaveNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+  Int32 includeUntracked,
+  Int32 keepIndex,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+);
+typedef StashSaveDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+  int includeUntracked,
+  int keepIndex,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+);
 
-typedef _StashApplyNative =
-    Void Function(Pointer<Void> session, Int32 index, Int32 pop);
-typedef StashApplyDart =
-    void Function(Pointer<Void> session, int index, int pop);
+typedef _StashApplyNative = Void Function(
+  Pointer<Void> session,
+  Int32 index,
+  Int32 pop,
+);
+typedef StashApplyDart = void Function(
+  Pointer<Void> session,
+  int index,
+  int pop,
+);
 
 typedef _StashDropNative = Void Function(Pointer<Void> session, Int32 index);
 typedef StashDropDart = void Function(Pointer<Void> session, int index);
 
-typedef _StashBranchNative =
-    Void Function(Pointer<Void> session, Int32 index, Pointer<Utf8> branchName);
-typedef StashBranchDart =
-    void Function(Pointer<Void> session, int index, Pointer<Utf8> branchName);
+typedef _StashBranchNative = Void Function(
+  Pointer<Void> session,
+  Int32 index,
+  Pointer<Utf8> branchName,
+);
+typedef StashBranchDart = void Function(
+  Pointer<Void> session,
+  int index,
+  Pointer<Utf8> branchName,
+);
 
-typedef _StashRequestDiffNative =
-    Void Function(Pointer<Void> session, Int32 index);
+typedef _StashRequestDiffNative = Void Function(
+  Pointer<Void> session,
+  Int32 index,
+);
 typedef StashRequestDiffDart = void Function(Pointer<Void> session, int index);
 
-typedef _TagCreateNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> target,
-      Pointer<Utf8> message,
-      Int32 force,
-    );
-typedef TagCreateDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> target,
-      Pointer<Utf8> message,
-      int force,
-    );
+typedef _TagCreateNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> target,
+  Pointer<Utf8> message,
+  Int32 force,
+);
+typedef TagCreateDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> target,
+  Pointer<Utf8> message,
+  int force,
+);
 
-typedef _TagDeleteNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Int32 alsoRemote,
-      Pointer<Utf8> remoteName,
-    );
-typedef TagDeleteDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      int alsoRemote,
-      Pointer<Utf8> remoteName,
-    );
+typedef _TagDeleteNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Int32 alsoRemote,
+  Pointer<Utf8> remoteName,
+);
+typedef TagDeleteDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  int alsoRemote,
+  Pointer<Utf8> remoteName,
+);
 
-typedef _TagPushNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Utf8> name,
-    );
-typedef TagPushDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Utf8> name,
-    );
+typedef _TagPushNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Utf8> name,
+);
+typedef TagPushDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Utf8> name,
+);
 
 typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
 typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
-typedef _WorktreeRequestPendingCountsNative =
-    Void Function(Pointer<Void> session);
+typedef _WorktreeRequestPendingCountsNative = Void Function(
+  Pointer<Void> session,
+);
 typedef WorktreeRequestPendingCountsDart = void Function(Pointer<Void> session);
 
 typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorktreesJsonDart = int Function(Pointer<Void> session);
 
-typedef _WorktreeAddNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> branch,
-      Int32 createBranch,
-      Pointer<Utf8> newBranchName,
-      Int32 detach,
-      Int32 force,
-    );
-typedef WorktreeAddDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> branch,
-      int createBranch,
-      Pointer<Utf8> newBranchName,
-      int detach,
-      int force,
-    );
+typedef _WorktreeAddNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> branch,
+  Int32 createBranch,
+  Pointer<Utf8> newBranchName,
+  Int32 detach,
+  Int32 force,
+);
+typedef WorktreeAddDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> branch,
+  int createBranch,
+  Pointer<Utf8> newBranchName,
+  int detach,
+  int force,
+);
 
-typedef _WorktreeRemoveNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path, Int32 force);
-typedef WorktreeRemoveDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path, int force);
+typedef _WorktreeRemoveNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 force,
+);
+typedef WorktreeRemoveDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int force,
+);
 
 typedef _WorktreePruneNative = Void Function(Pointer<Void> session);
 typedef WorktreePruneDart = void Function(Pointer<Void> session);
 
-typedef _WorktreeLockNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> reason,
-    );
-typedef WorktreeLockDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> reason,
-    );
+typedef _WorktreeLockNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> reason,
+);
+typedef WorktreeLockDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> reason,
+);
 
-typedef _WorktreeUnlockNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> path);
-typedef WorktreeUnlockDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> path);
+typedef _WorktreeUnlockNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+);
+typedef WorktreeUnlockDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+);
 
 typedef _RemoteRefreshNative = Void Function(Pointer<Void> session);
 typedef RemoteRefreshDart = void Function(Pointer<Void> session);
@@ -607,225 +615,239 @@ typedef RemoteRefreshDart = void Function(Pointer<Void> session);
 typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
 typedef RemotesJsonDart = int Function(Pointer<Void> session);
 
-typedef _RemoteFetchNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> refs,
-      Int32 refCount,
-      Int32 prune,
-      Int32 tags,
-    );
-typedef RemoteFetchDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> refs,
-      int refCount,
-      int prune,
-      int tags,
-    );
+typedef _RemoteFetchNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> refs,
+  Int32 refCount,
+  Int32 prune,
+  Int32 tags,
+);
+typedef RemoteFetchDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> refs,
+  int refCount,
+  int prune,
+  int tags,
+);
 
-typedef _PullNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Utf8> branch,
-      Int32 rebase,
-      Int32 stashFirst,
-    );
-typedef PullDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Utf8> branch,
-      int rebase,
-      int stashFirst,
-    );
+typedef _PullNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Utf8> branch,
+  Int32 rebase,
+  Int32 stashFirst,
+);
+typedef PullDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Utf8> branch,
+  int rebase,
+  int stashFirst,
+);
 
-typedef _PushNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> branches,
-      Int32 branchCount,
-      Int32 setUpstream,
-      Int32 pushTags,
-      Int32 forceWithLease,
-    );
-typedef PushDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> branches,
-      int branchCount,
-      int setUpstream,
-      int pushTags,
-      int forceWithLease,
-    );
+typedef _PushNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> branches,
+  Int32 branchCount,
+  Int32 setUpstream,
+  Int32 pushTags,
+  Int32 forceWithLease,
+);
+typedef PushDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> branches,
+  int branchCount,
+  int setUpstream,
+  int pushTags,
+  int forceWithLease,
+);
 
-typedef _ProvideCredentialNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> secret);
-typedef ProvideCredentialDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> secret);
+typedef _ProvideCredentialNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> secret,
+);
+typedef ProvideCredentialDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> secret,
+);
 
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
-typedef _RequestBlameNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> revision,
-      Int32 startLine,
-      Int32 endLine,
-    );
-typedef RequestBlameDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> revision,
-      int startLine,
-      int endLine,
-    );
+typedef _RequestBlameNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> revision,
+  Int32 startLine,
+  Int32 endLine,
+);
+typedef RequestBlameDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> revision,
+  int startLine,
+  int endLine,
+);
 
-typedef _RequestCommitMetaNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> oids,
-      Int32 oidCount,
-    );
-typedef RequestCommitMetaDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> oids,
-      int oidCount,
-    );
+typedef _RequestCommitMetaNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> oids,
+  Int32 oidCount,
+);
+typedef RequestCommitMetaDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> oids,
+  int oidCount,
+);
 
-typedef _RequestCommitFileCountsNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> oids,
-      Int32 oidCount,
-    );
-typedef RequestCommitFileCountsDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> oids,
-      int oidCount,
-    );
+typedef _RequestCommitFileCountsNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> oids,
+  Int32 oidCount,
+);
+typedef RequestCommitFileCountsDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> oids,
+  int oidCount,
+);
 
-typedef _RequestCommitFilesNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> oid);
-typedef RequestCommitFilesDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> oid);
+typedef _RequestCommitFilesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> oid,
+);
+typedef RequestCommitFilesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> oid,
+);
 
-typedef _RequestCommitFileDiffNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
-typedef RequestCommitFileDiffDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> oid, Pointer<Utf8> path);
+typedef _RequestCommitFileDiffNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> oid,
+  Pointer<Utf8> path,
+);
+typedef RequestCommitFileDiffDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> oid,
+  Pointer<Utf8> path,
+);
 
-typedef _RequestCompareRefsNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> leftRef,
-      Pointer<Utf8> rightRef,
-      Int32 threeDot,
-    );
-typedef RequestCompareRefsDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> leftRef,
-      Pointer<Utf8> rightRef,
-      int threeDot,
-    );
+typedef _RequestCompareRefsNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> leftRef,
+  Pointer<Utf8> rightRef,
+  Int32 threeDot,
+);
+typedef RequestCompareRefsDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> leftRef,
+  Pointer<Utf8> rightRef,
+  int threeDot,
+);
 
-typedef _RequestCompareFileDiffNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> leftRef,
-      Pointer<Utf8> rightRef,
-      Int32 threeDot,
-      Pointer<Utf8> path,
-    );
-typedef RequestCompareFileDiffDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> leftRef,
-      Pointer<Utf8> rightRef,
-      int threeDot,
-      Pointer<Utf8> path,
-    );
+typedef _RequestCompareFileDiffNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> leftRef,
+  Pointer<Utf8> rightRef,
+  Int32 threeDot,
+  Pointer<Utf8> path,
+);
+typedef RequestCompareFileDiffDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> leftRef,
+  Pointer<Utf8> rightRef,
+  int threeDot,
+  Pointer<Utf8> path,
+);
 
-typedef _RequestRemotePrunePreviewNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
-typedef RequestRemotePrunePreviewDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef _RequestRemotePrunePreviewNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
+typedef RequestRemotePrunePreviewDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
 
-typedef _RequestCompareWithWorkingCopyNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> ref);
-typedef RequestCompareWithWorkingCopyDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef _RequestCompareWithWorkingCopyNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> ref,
+);
+typedef RequestCompareWithWorkingCopyDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> ref,
+);
 
-typedef _RemotePruneNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> refs,
-      Int32 refCount,
-    );
-typedef RemotePruneDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> remoteName,
-      Pointer<Pointer<Utf8>> refs,
-      int refCount,
-    );
+typedef _RemotePruneNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> refs,
+  Int32 refCount,
+);
+typedef RemotePruneDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+  Pointer<Pointer<Utf8>> refs,
+  int refCount,
+);
 
-typedef _RemoteAddNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
-typedef RemoteAddDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> name, Pointer<Utf8> url);
+typedef _RemoteAddNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> url,
+);
+typedef RemoteAddDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> url,
+);
 
-typedef _RemoteRemoveNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> name);
-typedef RemoteRemoveDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> name);
+typedef _RemoteRemoveNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+);
+typedef RemoteRemoveDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+);
 
-typedef _RequestFileHistoryNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> startRevision,
-    );
-typedef RequestFileHistoryDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Pointer<Utf8> startRevision,
-    );
+typedef _RequestFileHistoryNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> startRevision,
+);
+typedef RequestFileHistoryDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> startRevision,
+);
 
-typedef _RequestLineHistoryNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      Int32 startLine,
-      Int32 endLine,
-      Pointer<Utf8> startRevision,
-    );
-typedef RequestLineHistoryDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> path,
-      int startLine,
-      int endLine,
-      Pointer<Utf8> startRevision,
-    );
+typedef _RequestLineHistoryNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Int32 startLine,
+  Int32 endLine,
+  Pointer<Utf8> startRevision,
+);
+typedef RequestLineHistoryDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  int startLine,
+  int endLine,
+  Pointer<Utf8> startRevision,
+);
 
-typedef _RequestReflogNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> ref);
-typedef RequestReflogDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> ref);
+typedef _RequestReflogNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> ref,
+);
+typedef RequestReflogDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> ref,
+);
 
 typedef _UndoJournalJsonNative = Int32 Function(Pointer<Void> session);
 typedef UndoJournalJsonDart = int Function(Pointer<Void> session);
@@ -833,97 +855,101 @@ typedef UndoJournalJsonDart = int Function(Pointer<Void> session);
 typedef _UndoLastNative = Void Function(Pointer<Void> session);
 typedef UndoLastDart = void Function(Pointer<Void> session);
 
-typedef _RestorePathsNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 staged,
-      Pointer<Utf8> source,
-    );
-typedef RestorePathsDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int staged,
-      Pointer<Utf8> source,
-    );
+typedef _RestorePathsNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 staged,
+  Pointer<Utf8> source,
+);
+typedef RestorePathsDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int staged,
+  Pointer<Utf8> source,
+);
 
-typedef _CleanPreviewNative =
-    Void Function(Pointer<Void> session, Int32 includeIgnored);
-typedef CleanPreviewDart =
-    void Function(Pointer<Void> session, int includeIgnored);
+typedef _CleanPreviewNative = Void Function(
+  Pointer<Void> session,
+  Int32 includeIgnored,
+);
+typedef CleanPreviewDart = void Function(
+  Pointer<Void> session,
+  int includeIgnored,
+);
 
-typedef _CleanUntrackedNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 includeIgnored,
-    );
-typedef CleanUntrackedDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int includeIgnored,
-    );
+typedef _CleanUntrackedNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 includeIgnored,
+);
+typedef CleanUntrackedDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int includeIgnored,
+);
 
-typedef _RequestRebasePlanNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> upstream);
-typedef RequestRebasePlanDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> upstream);
+typedef _RequestRebasePlanNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+);
+typedef RequestRebasePlanDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+);
 
-typedef _RebaseInteractiveStartNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> upstream,
-      Pointer<Utf8> onto,
-      Pointer<Int32> actions,
-      Pointer<Pointer<Utf8>> oids,
-      Pointer<Pointer<Utf8>> subjects,
-      Int32 entryCount,
-      Int32 stashFirst,
-    );
-typedef RebaseInteractiveStartDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> upstream,
-      Pointer<Utf8> onto,
-      Pointer<Int32> actions,
-      Pointer<Pointer<Utf8>> oids,
-      Pointer<Pointer<Utf8>> subjects,
-      int entryCount,
-      int stashFirst,
-    );
+typedef _RebaseInteractiveStartNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+  Pointer<Utf8> onto,
+  Pointer<Int32> actions,
+  Pointer<Pointer<Utf8>> oids,
+  Pointer<Pointer<Utf8>> subjects,
+  Int32 entryCount,
+  Int32 stashFirst,
+);
+typedef RebaseInteractiveStartDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+  Pointer<Utf8> onto,
+  Pointer<Int32> actions,
+  Pointer<Pointer<Utf8>> oids,
+  Pointer<Pointer<Utf8>> subjects,
+  int entryCount,
+  int stashFirst,
+);
 
-typedef _RebaseStartNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> upstream,
-      Pointer<Utf8> onto,
-      Int32 stashFirst,
-      Int32 rebaseMerges,
-      Int32 autosquash,
-    );
-typedef RebaseStartDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> upstream,
-      Pointer<Utf8> onto,
-      int stashFirst,
-      int rebaseMerges,
-      int autosquash,
-    );
+typedef _RebaseStartNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+  Pointer<Utf8> onto,
+  Int32 stashFirst,
+  Int32 rebaseMerges,
+  Int32 autosquash,
+);
+typedef RebaseStartDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> upstream,
+  Pointer<Utf8> onto,
+  int stashFirst,
+  int rebaseMerges,
+  int autosquash,
+);
 
 typedef _RebaseContinueNative = Void Function(Pointer<Void> session);
 typedef RebaseContinueDart = void Function(Pointer<Void> session);
 
-typedef _RebaseContinueWithMessageNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> message);
-typedef RebaseContinueWithMessageDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> message);
+typedef _RebaseContinueWithMessageNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+);
+typedef RebaseContinueWithMessageDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> message,
+);
 
 typedef _RebaseSkipNative = Void Function(Pointer<Void> session);
 typedef RebaseSkipDart = void Function(Pointer<Void> session);
@@ -937,84 +963,74 @@ typedef SubmoduleRefreshDart = void Function(Pointer<Void> session);
 typedef _SubmodulesJsonNative = Int32 Function(Pointer<Void> session);
 typedef SubmodulesJsonDart = int Function(Pointer<Void> session);
 
-typedef _SubmoduleAddNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> url,
-      Pointer<Utf8> path,
-      Pointer<Utf8> branch,
-    );
-typedef SubmoduleAddDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> url,
-      Pointer<Utf8> path,
-      Pointer<Utf8> branch,
-    );
+typedef _SubmoduleAddNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> url,
+  Pointer<Utf8> path,
+  Pointer<Utf8> branch,
+);
+typedef SubmoduleAddDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> url,
+  Pointer<Utf8> path,
+  Pointer<Utf8> branch,
+);
 
-typedef _SubmoduleInitNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 recursive,
-    );
-typedef SubmoduleInitDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int recursive,
-    );
+typedef _SubmoduleInitNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 recursive,
+);
+typedef SubmoduleInitDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int recursive,
+);
 
-typedef _SubmoduleUpdateNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 recursive,
-      Int32 init,
-      Int32 remote,
-    );
-typedef SubmoduleUpdateDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int recursive,
-      int init,
-      int remote,
-    );
+typedef _SubmoduleUpdateNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 recursive,
+  Int32 init,
+  Int32 remote,
+);
+typedef SubmoduleUpdateDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int recursive,
+  int init,
+  int remote,
+);
 
-typedef _SubmoduleSyncNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 recursive,
-    );
-typedef SubmoduleSyncDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int recursive,
-    );
+typedef _SubmoduleSyncNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 recursive,
+);
+typedef SubmoduleSyncDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int recursive,
+);
 
-typedef _SubmoduleDeinitNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 force,
-    );
-typedef SubmoduleDeinitDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int force,
-    );
+typedef _SubmoduleDeinitNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 force,
+);
+typedef SubmoduleDeinitDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int force,
+);
 
 typedef _BisectRefreshNative = Void Function(Pointer<Void> session);
 typedef BisectRefreshDart = void Function(Pointer<Void> session);
@@ -1022,49 +1038,55 @@ typedef BisectRefreshDart = void Function(Pointer<Void> session);
 typedef _BisectStatusJsonNative = Int32 Function(Pointer<Void> session);
 typedef BisectStatusJsonDart = int Function(Pointer<Void> session);
 
-typedef _BisectStartNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> badRef,
-      Pointer<Pointer<Utf8>> goodRefs,
-      Int32 goodCount,
-      Pointer<Pointer<Utf8>> paths,
-      Int32 pathCount,
-      Int32 noCheckout,
-    );
-typedef BisectStartDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> badRef,
-      Pointer<Pointer<Utf8>> goodRefs,
-      int goodCount,
-      Pointer<Pointer<Utf8>> paths,
-      int pathCount,
-      int noCheckout,
-    );
+typedef _BisectStartNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> badRef,
+  Pointer<Pointer<Utf8>> goodRefs,
+  Int32 goodCount,
+  Pointer<Pointer<Utf8>> paths,
+  Int32 pathCount,
+  Int32 noCheckout,
+);
+typedef BisectStartDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> badRef,
+  Pointer<Pointer<Utf8>> goodRefs,
+  int goodCount,
+  Pointer<Pointer<Utf8>> paths,
+  int pathCount,
+  int noCheckout,
+);
 
-typedef _BisectMarkNative =
-    Void Function(Pointer<Void> session, Int32 good, Pointer<Utf8> ref);
-typedef BisectMarkDart =
-    void Function(Pointer<Void> session, int good, Pointer<Utf8> ref);
+typedef _BisectMarkNative = Void Function(
+  Pointer<Void> session,
+  Int32 good,
+  Pointer<Utf8> ref,
+);
+typedef BisectMarkDart = void Function(
+  Pointer<Void> session,
+  int good,
+  Pointer<Utf8> ref,
+);
 
-typedef _BisectSkipNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> refs,
-      Int32 refCount,
-    );
-typedef BisectSkipDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> refs,
-      int refCount,
-    );
+typedef _BisectSkipNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> refs,
+  Int32 refCount,
+);
+typedef BisectSkipDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> refs,
+  int refCount,
+);
 
-typedef _BisectResetNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> target);
-typedef BisectResetDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> target);
+typedef _BisectResetNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+);
+typedef BisectResetDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> target,
+);
 
 typedef _LfsRefreshNative = Void Function(Pointer<Void> session);
 typedef LfsRefreshDart = void Function(Pointer<Void> session);
@@ -1081,75 +1103,85 @@ typedef LfsFilesJsonDart = int Function(Pointer<Void> session);
 typedef _LfsInstallNative = Void Function(Pointer<Void> session);
 typedef LfsInstallDart = void Function(Pointer<Void> session);
 
-typedef _LfsTrackNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
-typedef LfsTrackDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef _LfsTrackNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> pattern,
+);
+typedef LfsTrackDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> pattern,
+);
 
-typedef _LfsUntrackNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> pattern);
-typedef LfsUntrackDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> pattern);
+typedef _LfsUntrackNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> pattern,
+);
+typedef LfsUntrackDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> pattern,
+);
 
-typedef _LfsPullNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
-typedef LfsPullDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef _LfsPullNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
+typedef LfsPullDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
 
-typedef _LfsFetchNative =
-    Void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
-typedef LfsFetchDart =
-    void Function(Pointer<Void> session, Pointer<Utf8> remoteName);
+typedef _LfsFetchNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
+typedef LfsFetchDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> remoteName,
+);
 
 typedef _LfsPruneNative = Void Function(Pointer<Void> session, Int32 dryRun);
 typedef LfsPruneDart = void Function(Pointer<Void> session, int dryRun);
 
-typedef _PatchExportNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      Int32 commitCount,
-      Pointer<Utf8> outputDir,
-    );
-typedef PatchExportDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> commitHexes,
-      int commitCount,
-      Pointer<Utf8> outputDir,
-    );
+typedef _PatchExportNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  Int32 commitCount,
+  Pointer<Utf8> outputDir,
+);
+typedef PatchExportDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> commitHexes,
+  int commitCount,
+  Pointer<Utf8> outputDir,
+);
 
-typedef _PatchApplyFilesNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> patchFiles,
-      Int32 fileCount,
-      Int32 threeWay,
-      Int32 updateIndex,
-    );
-typedef PatchApplyFilesDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> patchFiles,
-      int fileCount,
-      int threeWay,
-      int updateIndex,
-    );
+typedef _PatchApplyFilesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> patchFiles,
+  Int32 fileCount,
+  Int32 threeWay,
+  Int32 updateIndex,
+);
+typedef PatchApplyFilesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> patchFiles,
+  int fileCount,
+  int threeWay,
+  int updateIndex,
+);
 
-typedef _PatchImportNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> patchFiles,
-      Int32 fileCount,
-      Int32 threeWay,
-    );
-typedef PatchImportDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Pointer<Utf8>> patchFiles,
-      int fileCount,
-      int threeWay,
-    );
+typedef _PatchImportNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> patchFiles,
+  Int32 fileCount,
+  Int32 threeWay,
+);
+typedef PatchImportDart = void Function(
+  Pointer<Void> session,
+  Pointer<Pointer<Utf8>> patchFiles,
+  int fileCount,
+  int threeWay,
+);
 
 typedef _PatchImportContinueNative = Void Function(Pointer<Void> session);
 typedef PatchImportContinueDart = void Function(Pointer<Void> session);
@@ -1172,18 +1204,16 @@ typedef EffectiveIdentityRefreshDart = void Function(Pointer<Void> session);
 typedef _EffectiveIdentityJsonNative = Int32 Function(Pointer<Void> session);
 typedef EffectiveIdentityJsonDart = int Function(Pointer<Void> session);
 
-typedef _SetLocalIdentityNative =
-    Void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> email,
-    );
-typedef SetLocalIdentityDart =
-    void Function(
-      Pointer<Void> session,
-      Pointer<Utf8> name,
-      Pointer<Utf8> email,
-    );
+typedef _SetLocalIdentityNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> email,
+);
+typedef SetLocalIdentityDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> name,
+  Pointer<Utf8> email,
+);
 
 typedef _ClearLocalIdentityNative = Void Function(Pointer<Void> session);
 typedef ClearLocalIdentityDart = void Function(Pointer<Void> session);
@@ -1197,8 +1227,10 @@ typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
 typedef _RepoInitNative = Int32 Function(Pointer<Utf8> path);
 typedef RepoInitDart = int Function(Pointer<Utf8> path);
 
-typedef _RepoCloneNative =
-    Int32 Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
+typedef _RepoCloneNative = Int32 Function(
+  Pointer<Utf8> url,
+  Pointer<Utf8> destPath,
+);
 typedef RepoCloneDart = int Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
 
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
@@ -1207,20 +1239,18 @@ typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef _DiscoveryCloseNative = Void Function(Pointer<Void> discovery);
 typedef DiscoveryCloseDart = void Function(Pointer<Void> discovery);
 
-typedef _DiscoveryAddBaseFolderNative =
-    Int64 Function(
-      Pointer<Void> discovery,
-      Pointer<Utf8> path,
-      Int32 maxDepth,
-      Int32 followLinks,
-    );
-typedef DiscoveryAddBaseFolderDart =
-    int Function(
-      Pointer<Void> discovery,
-      Pointer<Utf8> path,
-      int maxDepth,
-      int followLinks,
-    );
+typedef _DiscoveryAddBaseFolderNative = Int64 Function(
+  Pointer<Void> discovery,
+  Pointer<Utf8> path,
+  Int32 maxDepth,
+  Int32 followLinks,
+);
+typedef DiscoveryAddBaseFolderDart = int Function(
+  Pointer<Void> discovery,
+  Pointer<Utf8> path,
+  int maxDepth,
+  int followLinks,
+);
 
 typedef _DiscoveryScanAllNative = Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryScanAllDart = int Function(Pointer<Void> discovery);
@@ -1228,24 +1258,41 @@ typedef DiscoveryScanAllDart = int Function(Pointer<Void> discovery);
 typedef _DiscoveryListReposJsonNative = Int32 Function(Pointer<Void> discovery);
 typedef DiscoveryListReposJsonDart = int Function(Pointer<Void> discovery);
 
-typedef _DiscoveryBaseFoldersJsonNative =
-    Int32 Function(Pointer<Void> discovery);
+typedef _DiscoveryBaseFoldersJsonNative = Int32 Function(
+  Pointer<Void> discovery,
+);
 typedef DiscoveryBaseFoldersJsonDart = int Function(Pointer<Void> discovery);
 
-typedef _DiscoveryRemoveBaseFolderNative =
-    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId);
-typedef DiscoveryRemoveBaseFolderDart =
-    int Function(Pointer<Void> discovery, int baseFolderId);
+typedef _DiscoveryRemoveBaseFolderNative = Int32 Function(
+  Pointer<Void> discovery,
+  Int64 baseFolderId,
+);
+typedef DiscoveryRemoveBaseFolderDart = int Function(
+  Pointer<Void> discovery,
+  int baseFolderId,
+);
 
-typedef _DiscoverySetBaseFolderEnabledNative =
-    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId, Int32 enabled);
-typedef DiscoverySetBaseFolderEnabledDart =
-    int Function(Pointer<Void> discovery, int baseFolderId, int enabled);
+typedef _DiscoverySetBaseFolderEnabledNative = Int32 Function(
+  Pointer<Void> discovery,
+  Int64 baseFolderId,
+  Int32 enabled,
+);
+typedef DiscoverySetBaseFolderEnabledDart = int Function(
+  Pointer<Void> discovery,
+  int baseFolderId,
+  int enabled,
+);
 
-typedef _DiscoverySetBaseFolderDepthNative =
-    Int32 Function(Pointer<Void> discovery, Int64 baseFolderId, Int32 maxDepth);
-typedef DiscoverySetBaseFolderDepthDart =
-    int Function(Pointer<Void> discovery, int baseFolderId, int maxDepth);
+typedef _DiscoverySetBaseFolderDepthNative = Int32 Function(
+  Pointer<Void> discovery,
+  Int64 baseFolderId,
+  Int32 maxDepth,
+);
+typedef DiscoverySetBaseFolderDepthDart = int Function(
+  Pointer<Void> discovery,
+  int baseFolderId,
+  int maxDepth,
+);
 
 /// Thin, allocation-free wrapper around the `gbm_capi` symbol table. One
 /// instance per isolate is enough; construct it once via [GbmBindings.open]

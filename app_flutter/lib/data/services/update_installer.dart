@@ -26,11 +26,10 @@ class ProcessRunResult {
 /// launching the updater script and the wrong one for everything else here.
 /// Extraction has to be able to fail loudly -- an update that quits the app
 /// and only then discovers the archive was corrupt has no way to say so.
-typedef ProcessRunner =
-    Future<ProcessRunResult> Function(
-      String executable,
-      List<String> arguments,
-    );
+typedef ProcessRunner = Future<ProcessRunResult> Function(
+  String executable,
+  List<String> arguments,
+);
 
 /// Raised when an update cannot be prepared. Carries a message meant for the
 /// update dialog, in the same spirit as `UpdateCheckException`.
@@ -291,12 +290,11 @@ class DetachedStart {
 }
 
 /// Starts a process detached and says why it could not be started.
-typedef DetachedProcessStarter =
-    Future<DetachedStart> Function(
-      String executable,
-      List<String> arguments, {
-      String? workingDirectory,
-    });
+typedef DetachedProcessStarter = Future<DetachedStart> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
 
 /// Arms a deadline after which the process exits whatever else is happening.
 /// Returns whether it was armed.

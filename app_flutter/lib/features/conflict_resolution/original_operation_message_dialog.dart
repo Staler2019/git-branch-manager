@@ -124,9 +124,8 @@ class _OriginalOperationMessageDialogState
     final String summary = _summaryController.text.trim();
     if (summary.isEmpty) return;
     final String description = _descriptionController.text;
-    Navigator.of(
-      context,
-    ).pop(description.isEmpty ? summary : '$summary\n\n$description');
+    Navigator.of(context)
+        .pop(description.isEmpty ? summary : '$summary\n\n$description');
   }
 
   @override

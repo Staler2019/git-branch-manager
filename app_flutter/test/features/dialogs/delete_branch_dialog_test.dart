@@ -217,11 +217,14 @@ void main() {
     testWidgets('dispatches the remote delete with the real remote name', (
       WidgetTester tester,
     ) async {
-      final FakeRepoSessionController fake =
-          await _pump(tester, 'feature/x', <RefInfo>[
-            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
-            _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
-          ]);
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        <RefInfo>[
+          _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+          _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
+        ],
+      );
 
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
@@ -229,9 +232,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Counted, not `any`: a double dispatch would push twice.
-      final List<FakeCommand> remote = _deletes(
-        fake,
-      ).where((FakeCommand c) => c.args['isRemote'] == true).toList();
+      final List<FakeCommand> remote = _deletes(fake)
+          .where((FakeCommand c) => c.args['isRemote'] == true)
+          .toList();
       expect(remote.length, 1);
       expect(remote.single.args['remoteName'], 'origin');
       expect(remote.single.args['names'], <String>['feature/x']);
@@ -280,12 +283,15 @@ void main() {
       // This pins the reset in the dropdown's onChanged. The predicate
       // behind the box is a second, independent line of defence for the
       // gone case; neither one alone is what this test is about.
-      final FakeRepoSessionController fake =
-          await _pump(tester, null, <RefInfo>[
-            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
-            _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
-            _branch('feature/y', upstream: 'refs/remotes/origin/feature/y'),
-          ]);
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        null,
+        <RefInfo>[
+          _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+          _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
+          _branch('feature/y', upstream: 'refs/remotes/origin/feature/y'),
+        ],
+      );
 
       await tester.tap(find.byType(DropdownButtonFormField<String>));
       await tester.pumpAndSettle();
@@ -314,9 +320,9 @@ void main() {
       // Counted, not `any`: the local delete is expected, the remote one
       // is the regression.
       expect(
-        _deletes(
-          fake,
-        ).where((FakeCommand c) => c.args['isRemote'] == true).length,
+        _deletes(fake)
+            .where((FakeCommand c) => c.args['isRemote'] == true)
+            .length,
         0,
       );
       expect(_deletes(fake).length, 1);
@@ -340,12 +346,15 @@ void main() {
     testWidgets('is offered for a branch pushed without -u', (
       WidgetTester tester,
     ) async {
-      final FakeRepoSessionController fake =
-          await _pump(tester, 'feature/x', <RefInfo>[
-            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
-            _branch('feature/x'),
-            _remote('origin', 'feature/x'),
-          ]);
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        <RefInfo>[
+          _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+          _branch('feature/x'),
+          _remote('origin', 'feature/x'),
+        ],
+      );
 
       expect(find.byType(CheckboxListTile), findsOneWidget);
 
@@ -354,9 +363,9 @@ void main() {
       await tester.tap(find.text('Delete branch'));
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(
-        fake,
-      ).where((FakeCommand c) => c.args['isRemote'] == true).toList();
+      final List<FakeCommand> remote = _deletes(fake)
+          .where((FakeCommand c) => c.args['isRemote'] == true)
+          .toList();
       expect(remote.length, 1);
       expect(remote.single.args['remoteName'], 'origin');
       expect(remote.single.args['names'], <String>['feature/x']);
@@ -369,12 +378,15 @@ void main() {
       // fact. They agree for every branch whose upstream carries its own
       // name, which is nearly all of them -- so only a renamed upstream can
       // tell a fixed dialog from a broken one.
-      final FakeRepoSessionController fake =
-          await _pump(tester, 'feature/x', <RefInfo>[
-            _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
-            _branch('feature/x', upstream: 'refs/remotes/origin/renamed-x'),
-            _remote('origin', 'renamed-x'),
-          ]);
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        <RefInfo>[
+          _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+          _branch('feature/x', upstream: 'refs/remotes/origin/renamed-x'),
+          _remote('origin', 'renamed-x'),
+        ],
+      );
 
       expect(find.text('同時刪除 origin 上的 renamed-x'), findsOneWidget);
 
@@ -383,17 +395,17 @@ void main() {
       await tester.tap(find.text('Delete branch'));
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(
-        fake,
-      ).where((FakeCommand c) => c.args['isRemote'] == true).toList();
+      final List<FakeCommand> remote = _deletes(fake)
+          .where((FakeCommand c) => c.args['isRemote'] == true)
+          .toList();
       expect(remote.length, 1);
       expect(remote.single.args['names'], <String>['renamed-x']);
 
       // The local side keeps the local name -- the two are not interchangeable
       // in either direction.
-      final List<FakeCommand> local = _deletes(
-        fake,
-      ).where((FakeCommand c) => c.args['isRemote'] != true).toList();
+      final List<FakeCommand> local = _deletes(fake)
+          .where((FakeCommand c) => c.args['isRemote'] != true)
+          .toList();
       expect(local.length, 1);
       expect(local.single.args['names'], <String>['feature/x']);
     });

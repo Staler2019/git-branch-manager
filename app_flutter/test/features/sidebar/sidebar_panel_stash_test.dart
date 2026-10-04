@@ -257,9 +257,8 @@ void main() {
         // `go`, not `push` -- a panel is a tab that replaces the shell's
         // child rather than stacking over the sidebar.
         expect(
-          GoRouterState.of(
-            tester.element(find.byType(StashesPanel)),
-          ).uri.toString(),
+          GoRouterState.of(tester.element(find.byType(StashesPanel))).uri
+              .toString(),
           contains('/panel/'),
         );
         expect(

@@ -8,13 +8,12 @@ import '../data/repositories/file_list_view_mode_repository.dart';
 /// [node] is the tree node being rendered
 /// [level] is the indentation level (0 for root)
 /// [onFolderToggle] is non-null only for folder nodes and expands/collapses them
-typedef FileTreeListItemBuilder =
-    Widget Function(
-      BuildContext context,
-      FileTreeNode node,
-      int level,
-      VoidCallback? onFolderToggle,
-    );
+typedef FileTreeListItemBuilder = Widget Function(
+  BuildContext context,
+  FileTreeNode node,
+  int level,
+  VoidCallback? onFolderToggle,
+);
 
 /// A widget that renders a file tree in either list mode (flat) or tree mode
 /// (hierarchical with collapsible folders).

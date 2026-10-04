@@ -180,9 +180,8 @@ void main() {
       );
 
       expect(code, 0);
-      final String log = File(
-        '${root.path}/$kUpdateLogName',
-      ).readAsStringSync();
+      final String log = File('${root.path}/$kUpdateLogName')
+          .readAsStringSync();
       expect(log, contains(target.path));
       expect(log, contains('exit 0'));
     });
@@ -263,9 +262,8 @@ void main() {
       );
 
       expect(code, 3, reason: 'the rename really must have failed');
-      final String log = File(
-        '${root.path}/$kUpdateLogName',
-      ).readAsStringSync();
+      final String log = File('${root.path}/$kUpdateLogName')
+          .readAsStringSync();
       // The cause, not merely the step. `mv`'s wording is gettext-localised,
       // so this asserts that *something* followed the colon rather than any
       // particular sentence -- the same line this repo already draws between

@@ -152,9 +152,9 @@ void main() {
 
       expect(plan.drawsGraph, isFalse);
       expect(plan.shows(GbmGraphColumnId.graph), isTrue);
-      final Set<GbmGraphColumnId> ids = resizeHandlesFor(
-        plan,
-      ).map((ColumnResizeHandle h) => h.id).toSet();
+      final Set<GbmGraphColumnId> ids = resizeHandlesFor(plan)
+          .map((ColumnResizeHandle h) => h.id)
+          .toSet();
       expect(ids, isNot(contains(GbmGraphColumnId.graph)));
       expect(ids, contains(GbmGraphColumnId.refs));
     });

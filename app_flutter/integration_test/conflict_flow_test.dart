@@ -30,15 +30,13 @@ void main() {
     // main and feature both edit the same line of README.md -> a real,
     // unresolvable-by-git merge conflict.
     runGit(repoPath, <String>['checkout', '-b', 'feature']);
-    File(
-      '$repoPath/README.md',
-    ).writeAsStringSync('# gbm e2e fixture\n\nfeature branch line.\n');
+    File('$repoPath/README.md')
+        .writeAsStringSync('# gbm e2e fixture\n\nfeature branch line.\n');
     runGit(repoPath, <String>['commit', '-am', 'Feature edit']);
 
     runGit(repoPath, <String>['checkout', 'main']);
-    File(
-      '$repoPath/README.md',
-    ).writeAsStringSync('# gbm e2e fixture\n\nmain branch line.\n');
+    File('$repoPath/README.md')
+        .writeAsStringSync('# gbm e2e fixture\n\nmain branch line.\n');
     runGit(repoPath, <String>['commit', '-am', 'Main edit']);
 
     // Real conflicting merge -- exits non-zero (conflict), which is
@@ -77,9 +75,8 @@ void main() {
       // `>>>>>>>`) at this point -- overwrite it with clean content, then
       // tell the app the path is resolved so it stages whatever is on disk
       // (see ConflictOps.h's MarkResolved doc comment).
-      File(
-        '$repoPath/README.md',
-      ).writeAsStringSync('# gbm e2e fixture\n\nresolved line.\n');
+      File('$repoPath/README.md')
+          .writeAsStringSync('# gbm e2e fixture\n\nresolved line.\n');
       // "Mark Resolved" renders twice -- once inline on the file-list row,
       // once on the bottom action bar -- either dispatches the same
       // resolveConflict() call, so tapping the first is sufficient.

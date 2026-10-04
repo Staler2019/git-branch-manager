@@ -219,11 +219,12 @@ const List<GbmGraphColumnId> kGraphColumnOrderDefault = <GbmGraphColumnId>[
 /// The shipped default, in the shape `planCommitRowColumns` takes its
 /// `hiddenByUser` in. Derived from [GbmGraphColumnId.defaultVisible] rather
 /// than written out, so the two cannot disagree.
-final Set<String> kDefaultHiddenGraphColumnIds =
-    Set<String>.unmodifiable(<String>{
-      for (final GbmGraphColumnId id in GbmGraphColumnId.values)
-        if (!id.defaultVisible) id.storageId,
-    });
+final Set<String> kDefaultHiddenGraphColumnIds = Set<String>.unmodifiable(
+  <String>{
+    for (final GbmGraphColumnId id in GbmGraphColumnId.values)
+      if (!id.defaultVisible) id.storageId,
+  },
+);
 
 /// The column with this [storageId], or null if nothing matches.
 GbmGraphColumnId? graphColumnById(String storageId) {

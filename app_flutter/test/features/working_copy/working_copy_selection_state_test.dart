@@ -27,9 +27,8 @@ void main() {
       });
 
       test('select different file replaces previous selection', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt');
         final newState = state.selectSinglePath('file3.txt');
         expect(newState.selected, equals({'file3.txt'}));
         expect(newState.lastClickedPath, equals('file3.txt'));
@@ -38,27 +37,25 @@ void main() {
 
     group('Ctrl/Cmd+click (accumulate)', () {
       test('toggle add to selection', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt');
         final newState = state.togglePath('file2.txt');
         expect(newState.selected, equals({'file1.txt', 'file2.txt'}));
         expect(newState.lastClickedPath, equals('file2.txt'));
       });
 
       test('toggle remove from selection', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt').togglePath('file2.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt')
+            .togglePath('file2.txt');
         final newState = state.togglePath('file2.txt');
         expect(newState.selected, equals({'file1.txt'}));
         expect(newState.lastClickedPath, equals('file2.txt'));
       });
 
       test('accumulate multiple files', () {
-        var state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt');
+        var state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt');
         state = state.togglePath('file2.txt');
         state = state.togglePath('file4.txt');
         expect(state.selected, equals({'file1.txt', 'file2.txt', 'file4.txt'}));
@@ -67,9 +64,8 @@ void main() {
 
     group('Shift+click (range selection)', () {
       test('range from anchor to clicked path forward', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt');
         final newState = state.shiftSelectPath('file3.txt');
         expect(
           newState.selected,
@@ -82,9 +78,8 @@ void main() {
       });
 
       test('range from anchor to clicked path backward', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file3.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file3.txt');
         final newState = state.shiftSelectPath('file1.txt');
         expect(
           newState.selected,
@@ -94,9 +89,8 @@ void main() {
       });
 
       test('range single file', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file2.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file2.txt');
         final newState = state.shiftSelectPath('file2.txt');
         expect(newState.selected, equals({'file2.txt'}));
       });
@@ -111,9 +105,8 @@ void main() {
 
     group('Shift+Ctrl/Cmd+click (range with accumulate)', () {
       test('union range into existing selection', () {
-        var state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt');
+        var state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt');
         state = state.togglePath('file3.txt');
         // Now selected: {file1, file3}, anchor is file3
         final newState = state.shiftControlSelectPath('file5.txt');
@@ -125,9 +118,8 @@ void main() {
       });
 
       test('range with accumulate backward', () {
-        var state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file4.txt');
+        var state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file4.txt');
         final newState = state.shiftControlSelectPath('file2.txt');
         // Should add range file4->file2 to selection (file2, file3, file4)
         expect(
@@ -154,27 +146,26 @@ void main() {
       });
 
       test('keeps selection for paths that still exist', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt').togglePath('file3.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt')
+            .togglePath('file3.txt');
         final newPaths = <String>['file1.txt', 'file2.txt', 'file3.txt'];
         final newState = state.syncWithPaths(newPaths);
         expect(newState.selected, equals({'file1.txt', 'file3.txt'}));
       });
 
       test('prunes anchor if removed', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file2.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file2.txt');
         final newPaths = <String>['file1.txt', 'file3.txt', 'file4.txt'];
         final newState = state.syncWithPaths(newPaths);
         expect(newState.lastClickedPath, isNull);
       });
 
       test('handles empty new paths', () {
-        final state = WorkingCopySelectionState(
-          allPaths: testPaths,
-        ).selectSinglePath('file1.txt').togglePath('file2.txt');
+        final state = WorkingCopySelectionState(allPaths: testPaths)
+            .selectSinglePath('file1.txt')
+            .togglePath('file2.txt');
         final newState = state.syncWithPaths(<String>[]);
         expect(newState.selected, isEmpty);
         expect(newState.allPaths, isEmpty);
@@ -205,11 +196,10 @@ void main() {
       test('keeps the selection made in the other column', () {
         final WorkingCopySelectionState selection =
             const WorkingCopySelectionState(
-              allPaths: <String>['a.dart', 'b.dart'],
-            ).selectSinglePath('a.dart').withOrder(<String>[
-              'x.dart',
-              'y.dart',
-            ]);
+                  allPaths: <String>['a.dart', 'b.dart'],
+                )
+                .selectSinglePath('a.dart')
+                .withOrder(<String>['x.dart', 'y.dart']);
 
         expect(
           selection.selected,
@@ -226,20 +216,18 @@ void main() {
           'plain click rather than to nothing', () {
         final WorkingCopySelectionState selection =
             const WorkingCopySelectionState(
-              allPaths: <String>['a.dart', 'b.dart'],
-            ).selectSinglePath('a.dart').withOrder(<String>[
-              'x.dart',
-              'y.dart',
-            ]);
+                  allPaths: <String>['a.dart', 'b.dart'],
+                )
+                .selectSinglePath('a.dart')
+                .withOrder(<String>['x.dart', 'y.dart']);
 
         expect(selection.shiftSelectPath('y.dart').selected, <String>{
           'y.dart',
         });
-        expect(
-          selection.shiftControlSelectPath('y.dart').selected,
-          <String>{'a.dart', 'y.dart'},
-          reason: 'Shift+Ctrl/Cmd still adds, it just has no range to add',
-        );
+        expect(selection.shiftControlSelectPath('y.dart').selected, <String>{
+          'a.dart',
+          'y.dart',
+        }, reason: 'Shift+Ctrl/Cmd still adds, it just has no range to add');
       });
     });
   });

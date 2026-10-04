@@ -226,9 +226,8 @@ Future<void> _doubleTapRow(WidgetTester tester, String name) async {
 }
 
 void main() {
-  final GbmColors colors = buildGbmTheme(
-    GbmThemeVariant.darkTechnical,
-  ).extension<GbmColors>()!;
+  final GbmColors colors = buildGbmTheme(GbmThemeVariant.darkTechnical)
+      .extension<GbmColors>()!;
 
   group('workspace conflict <-> clean transition', () {
     testWidgets('clean: no ConflictBanner, Fetch shortcut reaches fetchRemote, '

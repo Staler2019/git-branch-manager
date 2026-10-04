@@ -525,9 +525,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     // Auto-shows the MSGS-table dialog once requestOriginalOperationMessage()'s
     // reply lands -- see _handleContinue()'s doc comment.
     ref.listen(
-      repoSessionProvider(
-        widget.identity,
-      ).select((s) => s.originalOperationMessage),
+      repoSessionProvider(widget.identity)
+          .select((s) => s.originalOperationMessage),
       (previous, next) {
         if (next != null && previous == null) {
           _showOriginalOperationMessageDialog(next);
@@ -547,9 +546,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     // edits are left alone. Nothing else re-triggers _selectPath() while
     // the selection itself doesn't change.
     ref.listen(
-      repoSessionProvider(
-        widget.identity,
-      ).select((s) => s.workingCopyStatus.conflicted),
+      repoSessionProvider(widget.identity)
+          .select((s) => s.workingCopyStatus.conflicted),
       (_, next) {
         final String? path = _selectedPath;
         if (path == null) return;
@@ -707,12 +705,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                                       mode: viewMode,
                                       items: _batch.entries,
                                       pathOf: (ConflictBatchEntry e) => e.path,
-                                      leafBuilder:
-                                          (
-                                            BuildContext context,
-                                            ConflictBatchEntry entry,
-                                            String label,
-                                          ) => buildRailRow(entry, label),
+                                      leafBuilder: (
+                                        BuildContext context,
+                                        ConflictBatchEntry entry,
+                                        String label,
+                                      ) => buildRailRow(entry, label),
                                     ),
                             ),
                           ],
@@ -1202,9 +1199,7 @@ class _ConflictActionBar extends StatelessWidget {
               const SizedBox(width: GbmSpacing.space1),
               // Continue button
               Tooltip(
-                message: canContinue
-                    ? ''
-                    : 'Continue not available for merge/revert yet -- use Mark Resolved on each file instead',
+                message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark Resolved on each file instead',
                 child: GbmButton(
                   label: 'Continue',
                   onPressed: canContinue ? onContinue : null,

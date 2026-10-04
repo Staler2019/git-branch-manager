@@ -236,9 +236,8 @@ void main() {
           onRun: (String exe, List<String> args) {
             // `tar xzf <bundle> -C <payload>` -- reproduce what release.yml's
             // `tar czf … "$name"` actually produces.
-            Directory(
-              '${args.last}/git-branch-manager-0.31.0-linux-x86_64',
-            ).createSync(recursive: true);
+            Directory('${args.last}/git-branch-manager-0.31.0-linux-x86_64')
+                .createSync(recursive: true);
           },
         ),
       );
@@ -304,9 +303,8 @@ void main() {
         run: recorder(
           onRun: (String exe, List<String> args) {
             if (exe == 'hdiutil' && args.first == 'attach') {
-              Directory(
-                '${root.path}/mnt/gbm_flutter.app',
-              ).createSync(recursive: true);
+              Directory('${root.path}/mnt/gbm_flutter.app')
+                  .createSync(recursive: true);
             }
           },
         ),
@@ -355,9 +353,8 @@ void main() {
           operatingSystem: 'macos',
           run: (String exe, List<String> args) async {
             if (exe == 'hdiutil' && args.first == 'attach') {
-              Directory(
-                '${root.path}/mnt/gbm_flutter.app',
-              ).createSync(recursive: true);
+              Directory('${root.path}/mnt/gbm_flutter.app')
+                  .createSync(recursive: true);
               return const ProcessRunResult(0, '');
             }
             if (exe == 'hdiutil') {
@@ -503,9 +500,8 @@ void main() {
     test('writes the handover to the transcript', () async {
       await run(installerWith(startSucceeds: true));
 
-      final String log = File(
-        '${scriptDir.path}/$kUpdateLogName',
-      ).readAsStringSync();
+      final String log = File('${scriptDir.path}/$kUpdateLogName')
+          .readAsStringSync();
       expect(log, contains('target=${root.path}/install'));
       expect(log, contains('staged=${staged.path}'));
       expect(log, contains('starting sh '));
@@ -521,9 +517,8 @@ void main() {
         installerWith(startSucceeds: false, os: 'windows', systemRoot: ''),
       );
 
-      final String log = File(
-        '${scriptDir.path}/$kUpdateLogName',
-      ).readAsStringSync();
+      final String log = File('${scriptDir.path}/$kUpdateLogName')
+          .readAsStringSync();
       expect(log, contains('powershell.exe did not start: no such file'));
       expect(log, contains('pwsh.exe did not start: no such file'));
       expect(log, isNot(contains('updater started')));
@@ -589,9 +584,8 @@ void main() {
         ),
       );
 
-      final String script = File(
-        '${scriptDir.path}/gbm-update.sh',
-      ).readAsStringSync();
+      final String script = File('${scriptDir.path}/gbm-update.sh')
+          .readAsStringSync();
       expect(script, contains('ditto "\$STAGED" "\$TARGET"'));
       expect(
         script,
@@ -606,9 +600,8 @@ void main() {
     test('uses cp -a and launches the binary directly on Linux', () async {
       await run(installerWith(startSucceeds: true));
 
-      final String script = File(
-        '${scriptDir.path}/gbm-update.sh',
-      ).readAsStringSync();
+      final String script = File('${scriptDir.path}/gbm-update.sh')
+          .readAsStringSync();
       expect(script, contains('cp -a "\$STAGED" "\$TARGET"'));
       expect(script, contains('gbm_flutter'));
     });
@@ -730,9 +723,8 @@ void main() {
     test('writes the Windows script as UTF-8 with a BOM', () async {
       await run(installerWith(startSucceeds: true, os: 'windows'));
 
-      final Uint8List bytes = File(
-        '${scriptDir.path}/gbm-update.ps1',
-      ).readAsBytesSync();
+      final Uint8List bytes = File('${scriptDir.path}/gbm-update.ps1')
+          .readAsBytesSync();
       expect(bytes.take(3), <int>[0xEF, 0xBB, 0xBF]);
     });
 
@@ -741,9 +733,8 @@ void main() {
     test('writes the sh script without a BOM', () async {
       await run(installerWith(startSucceeds: true));
 
-      final Uint8List bytes = File(
-        '${scriptDir.path}/gbm-update.sh',
-      ).readAsBytesSync();
+      final Uint8List bytes = File('${scriptDir.path}/gbm-update.sh')
+          .readAsBytesSync();
       expect(bytes.first, 0x23, reason: 'must start with the shebang #');
     });
 
@@ -754,9 +745,11 @@ void main() {
         operatingSystem: 'windows',
         executablePath: '${nonAscii.path}/gbm_flutter.exe',
         exitProcess: (int code) => events.add('exit:$code'),
-        start:
-            (String exe, List<String> args, {String? workingDirectory}) async =>
-                const DetachedStart.ok(),
+        start: (
+          String exe,
+          List<String> args, {
+          String? workingDirectory,
+        }) async => const DetachedStart.ok(),
       ).launchUpdater(
         staged: staged,
         scriptDir: scriptDir,

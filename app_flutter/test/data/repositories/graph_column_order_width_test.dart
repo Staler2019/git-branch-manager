@@ -42,8 +42,7 @@ void main() {
 
     test('starts from what the repository has persisted', () async {
       final ProviderContainer c = await _container(<String, Object>{
-        '${GraphColumnsRepository.keyPrefix}order':
-            '["graph","message","hash","refs","author","date","committer","changedFiles"]',
+        '${GraphColumnsRepository.keyPrefix}order': '["graph","message","hash","refs","author","date","committer","changedFiles"]',
       });
       expect(_ids(c.read(graphColumnOrderProvider)).sublist(2, 4), <String>[
         'hash',

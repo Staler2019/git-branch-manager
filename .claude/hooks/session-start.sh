@@ -8,13 +8,11 @@ if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
 fi
 
 # Pinned to match .github/workflows/ci.yml / release.yml's
-# flutter-version -- 3.44.9 is the latest 3.44.x patch still on Dart
-# 3.12.2, which is app_flutter/pubspec.yaml's `sdk: ^3.12.2` floor
-# exactly. 3.44.0-3.44.1 ship an older Dart that fails that constraint,
-# and a later Dart minor (3.13.0 shipped a `dart format` style change)
-# would flap formatting against what CI enforces -- see CLAUDE.md's
-# "Known gaps" note on this exact problem.
-FLUTTER_VERSION="3.44.9"
+# flutter-version -- 3.47.4 ships Dart 3.13.3, which satisfies
+# app_flutter/pubspec.yaml's `sdk: ^3.13.0` floor. Any other Dart
+# version may format differently from what CI enforces, so bump all
+# four pins together (#151; [CI-dart-sdk-floor]).
+FLUTTER_VERSION="3.47.4"
 FLUTTER_ROOT="/opt/flutter-sdk/flutter"
 
 # Idempotent: a checkpointed/restored container may already have this

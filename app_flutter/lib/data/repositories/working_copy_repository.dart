@@ -13,9 +13,8 @@ final ProviderFamily<WorkingCopyStatus, RepoIdentity>
 repoWorkingCopyStatusProvider =
     Provider.family<WorkingCopyStatus, RepoIdentity>((ref, identity) {
       return ref.watch(
-        repoSessionProvider(
-          identity,
-        ).select((state) => state.workingCopyStatus),
+        repoSessionProvider(identity)
+            .select((state) => state.workingCopyStatus),
       );
     });
 

@@ -334,9 +334,9 @@ void main() {
   // there. This map is the Dart half of that pairing -- a spelling that stops
   // matching lands here, not in a widget drawing the wrong string.
   test('WorktreeInfo decodes all four pendingCountState spellings', () {
-    WorktreePendingCountState decode(String wire) => WorktreeInfo.fromJson(
-      _worktreeJson(pendingCountState: wire),
-    ).pendingCountState;
+    WorktreePendingCountState decode(String wire) =>
+        WorktreeInfo.fromJson(_worktreeJson(pendingCountState: wire))
+            .pendingCountState;
 
     expect(decode('unmeasured'), WorktreePendingCountState.unmeasured);
     expect(decode('measured'), WorktreePendingCountState.measured);

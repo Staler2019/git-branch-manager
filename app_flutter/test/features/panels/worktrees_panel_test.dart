@@ -469,11 +469,13 @@ void main() {
           .widgetList<PanelDetailField>(find.byType(PanelDetailField))
           .map((PanelDetailField f) => f.label)
           .toList();
-      expect(
-        labels.take(5),
-        <String>['路徑', '分支', 'HEAD', '狀態', '建立於'],
-        reason: 'the five unconditional rows come first, in this order',
-      );
+      expect(labels.take(5), <String>[
+        '路徑',
+        '分支',
+        'HEAD',
+        '狀態',
+        '建立於',
+      ], reason: 'the five unconditional rows come first, in this order');
       expect(
         labels,
         contains('Lock reason'),

@@ -17,8 +17,8 @@ jobs:
     # Every job carries one, and it is deliberately the same number for all of
     # them. A Windows capi run hung for 81 minutes here on a test that never
     # returned; with no job timeout it would have burned toward GitHub's 6-hour
-    # default, and `flutter-ci` (needs: capi-build) never ran at all. The slowest
-    # measured job is Windows at 9-11 minutes, so 25 is over double the real
+    # default, and `flutter-ci` (then `needs: capi-build`) never ran at all.
+    # The slowest measured job is Windows at 9-11 minutes, so 25 is over double the real
     # ceiling -- this guard is against the black hole, not against a slow run.
     # Per-job tuning would mean threading a `timeout` through `matrix.include`
     # for capi-build; not worth a second matrix dimension to save ten minutes.
@@ -86,7 +86,9 @@ jobs:
 
   flutter-ci:
     name: Flutter UI - ${{ matrix.name }}
-    needs: capi-build
+    # No `needs: capi-build`: this job consumes nothing that job produces
+    # (`flutter build` compiles gbm_capi itself), so waiting on it only put
+    # Windows capi's ~9-10 minutes in front of this job (#151 round).
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     # Three OSes rather than ubuntu-22.04 alone. Two gaps closed, both of
@@ -136,7 +138,7 @@ jobs:
           # `dart format`'s output is not stable across Dart SDK versions,
           # so an unpinned channel flaps files between two valid
           # formattings depending on which CI run last touched them.
-          flutter-version: '3.44.9'
+          flutter-version: '3.47.4'
 
       - name: flutter pub get
         working-directory: app_flutter
@@ -163,20 +165,11 @@ jobs:
 
       # Proves the whole chain end to end: C++ core -> gbm_capi -> FFI
       # bindings -> a real Flutter desktop build, not just "the Dart
-      # compiles". See app_flutter/scripts/build_capi.{sh,ps1} and the plan's
-      # Phase A/Phase B build-integration note.
-      - name: Build gbm_capi and bundle it (bash)
-        if: runner.os != 'Windows'
-        run: app_flutter/scripts/build_capi.sh
-
-      # build_capi.ps1's own header says it is "PowerShell for the CI Windows
-      # runner", and until this matrix existed no CI job called it --
-      # [CULT-orphan-wiring] with the orphan on the producer side.
-      - name: Build gbm_capi and bundle it (PowerShell)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: app_flutter/scripts/build_capi.ps1
-
+      # compiles". `flutter build` compiles gbm_capi itself (Phase B:
+      # linux/ and windows/CMakeLists.txt, macOS's "Build gbm_capi" Xcode
+      # phase), so no build_capi.{sh,ps1} step runs first: its build/native/
+      # copy was read by nothing after `flutter test`, and on Linux/Windows
+      # it was a second full compile (59s / 127s measured, #151 round).
       - name: flutter build ${{ matrix.target }}
         working-directory: app_flutter
         run: flutter build ${{ matrix.target }} --debug

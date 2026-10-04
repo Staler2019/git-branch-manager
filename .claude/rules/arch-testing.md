@@ -69,3 +69,13 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 - **Rule**: `flutter-ci` runs the unit tier on `windows-latest` and `macos-26`; NTFS ignores `chmod`, so the test goes green having never met the failure.
 - **Do**: «cannot write» = a missing parent directory; age a directory by moving the injected clock, never its mtime; pick a failing delete per OS (`_makeUndeletable`) and prove it bites; cut a path with the simulated OS's separators.
 - **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)
+
+## [TEST-golden-no-glyphs] A golden must not paint a font glyph
+
+- **Rule**: flutter_test loads no Material Icons font, so `Icon(Icons.*)` paints a placeholder box,
+  and glyph anti-aliasing differs between macOS versions at the same Flutter SDK.
+- **Consequence**: `GbmIconButton`'s goldens were 6px / 2/255 red on CI's `macos-26` and green on a
+  local macOS 27, and compared a placeholder instead of an icon.
+- **Do**: put `LucideIcon` (SVG paths, what production uses) in a golden; path-drawn borders and
+  fills matched on both machines.
+- **Evidence**: [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)

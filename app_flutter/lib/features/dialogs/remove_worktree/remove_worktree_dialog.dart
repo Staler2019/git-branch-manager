@@ -59,6 +59,9 @@ String worktreePendingCountWarning(WorktreeInfo worktree) {
 /// `autoFetchPrune` switch. `Unlock` already exists as a real,
 /// undialogued action one click above this one in the panel, so that is
 /// the path this dialog names instead.
+///
+/// Ruling (implementer's, not user-ratified -- ask before changing the capi
+/// to a force level): docs/records/2026-10-04-remove-locked-worktree-has-no-force.md
 String worktreeLockWarning(WorktreeInfo worktree) {
   if (!worktree.isLocked) return '';
   final String reason = worktree.lockReason.isEmpty

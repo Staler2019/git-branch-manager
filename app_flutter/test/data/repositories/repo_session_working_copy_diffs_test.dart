@@ -144,6 +144,106 @@ void main() {
     });
   });
 
+  group('every fingerprint field invalidates its own side', () {
+    // One case per field `workingCopyDiffFingerprints` reads that no other
+    // test here varies. Each changes exactly that field and nothing else, so
+    // dropping the field from the fingerprint leaves a stale reply cached and
+    // this case alone goes red.
+    final String unstagedKey = workingCopyDiffKey('a.dart', staged: false);
+    final String stagedKey = workingCopyDiffKey('a.dart', staged: true);
+
+    Map<String, dynamic> tracked({
+      int worktreeStatus = 1,
+      int unstagedRemoved = 1,
+      int indexStatus = 1,
+      int stagedRemoved = 1,
+      String oldPath = '',
+      int similarity = 0,
+      bool isSubmodule = false,
+    }) => _entry(
+      path: 'a.dart',
+      hasUnstagedChange: true,
+      staged: true,
+      worktreeStatus: worktreeStatus,
+      unstagedAdded: 3,
+      unstagedRemoved: unstagedRemoved,
+      indexStatus: indexStatus,
+      stagedAdded: 2,
+      stagedRemoved: stagedRemoved,
+      oldPath: oldPath,
+      similarity: similarity,
+      isSubmodule: isSubmodule,
+    );
+
+    final Map<String, (Map<String, dynamic>, Set<String>)> cases =
+        <String, (Map<String, dynamic>, Set<String>)>{
+          'worktreeStatus': (tracked(worktreeStatus: 2), <String>{unstagedKey}),
+          'unstagedRemoved': (
+            tracked(unstagedRemoved: 4),
+            <String>{unstagedKey},
+          ),
+          'indexStatus': (tracked(indexStatus: 2), <String>{stagedKey}),
+          'stagedRemoved': (tracked(stagedRemoved: 4), <String>{stagedKey}),
+          'oldPath': (tracked(oldPath: 'old.dart'), <String>{stagedKey}),
+          'similarity': (tracked(similarity: 90), <String>{stagedKey}),
+          'isSubmodule': (
+            tracked(isSubmodule: true),
+            <String>{unstagedKey, stagedKey},
+          ),
+        };
+
+    for (final MapEntry<String, (Map<String, dynamic>, Set<String>)> c
+        in cases.entries) {
+      test(
+        '${c.key} drops ${c.value.$2.length == 2 ? 'both sides' : 'only its side'}',
+        () {
+          final FakeRepoSessionController controller = _controller();
+          controller.publishWorkingCopyStatus(
+            _status(<Map<String, dynamic>>[tracked()]),
+          );
+          controller.debugHandleEvent(_diffReadyEvent('a.dart', staged: false));
+          controller.debugHandleEvent(_diffReadyEvent('a.dart', staged: true));
+          expect(controller.state.workingCopyDiffs.length, 2);
+
+          controller.publishWorkingCopyStatus(
+            _status(<Map<String, dynamic>>[c.value.$1]),
+          );
+
+          expect(
+            controller.state.workingCopyDiffs.keys.toSet(),
+            <String>{unstagedKey, stagedKey}.difference(c.value.$2),
+          );
+        },
+      );
+    }
+
+    test(
+      'untrackedSize drops an untracked reply even with the mtime equal',
+      () {
+        final FakeRepoSessionController controller = _controller();
+        Map<String, dynamic> untracked(int size) => _entry(
+          path: 'u.txt',
+          untracked: true,
+          hasUnstagedChange: true,
+          unstagedAdded: 2,
+          untrackedSize: size,
+          untrackedMtimeTicks: 1000,
+        );
+        controller.publishWorkingCopyStatus(
+          _status(<Map<String, dynamic>>[untracked(9)]),
+        );
+        controller.debugHandleEvent(_diffReadyEvent('u.txt', staged: false));
+        expect(controller.state.workingCopyDiffs.length, 1);
+
+        controller.publishWorkingCopyStatus(
+          _status(<Map<String, dynamic>>[untracked(10)]),
+        );
+
+        expect(controller.state.workingCopyDiffs, isEmpty);
+      },
+    );
+  });
+
   group('publishWorkingCopyStatus retention (fix/refresh-ui-first-tiering '
       'C2b)', () {
     // The plan's own worked mistake: the obvious condition is "the path is

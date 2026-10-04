@@ -26,7 +26,7 @@ import '../../../widgets/gbm_input_decoration.dart';
 /// which edits a todo plan. This is the plain "replay my commits on top of
 /// that branch" flow spec page 04's Branch menu lists.
 ///
-/// **[DRIFT-rebase-onto-missing-capi-flags] is closed as of this dialog.**
+/// **The Rebase onto mock delta (G1d) is closed as of this dialog.**
 /// The mock's two checkboxes (chk-on 「保留 merge commit（--rebase-merges）」
 /// and chk 「自動 squash 標記過的 fixup commit」) and its "already pushed"
 /// warn banner are all drawn now. The checkboxes needed the capi change

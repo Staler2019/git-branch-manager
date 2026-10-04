@@ -173,7 +173,7 @@ void main() {
     await _openRenameDialog(tester, _branch);
 
     // Quoted verbatim from the P13-A mock; G1g made this the app's actual
-    // UI copy (docs/rules/drift-open.md's ledger evidence).
+    // UI copy (ledger: docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md, G1g).
     await tester.tap(find.textContaining('只改本地，保留遠端舊分支'));
     await tester.pumpAndSettle();
     await _submitRename(tester, 'lane-allocator-v2');

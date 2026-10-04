@@ -30,7 +30,7 @@ import '../../../widgets/gbm_ref_picker.dart';
 /// dialog (see `RepoSessionState.checkoutChoices`); the two are
 /// complementary, not duplicates.
 ///
-/// **[DRIFT-checkout-dialog-mock-delta] is closed as of this dialog.** The
+/// **The Checkout mock delta (G1d) is closed as of this dialog.** The
 /// mock's 目前 read-only row (`main · 有25 項未提交變更`) and its
 /// radio-on/radio pair (帶著變更切過去 / 先 stash，切完不自動還原) are both
 /// drawn now, quoted verbatim from `DLGS`'s Checkout entry. The pair still

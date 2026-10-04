@@ -55,7 +55,7 @@ Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec 
 
 - **Rule**: 使用者裁定「開 capi cancellation token 然後先不接線」: capi + C++ registration only (`Session::cancelOperations`, `CancelOperationApiTest.cpp`); no `CancelOperationDart`, no UI. `~Session()`'s own `cancelOperations(0)` is C++-internal and does not close this.
 - **Consequence**: a git command still making progress has no user-reachable stop; `GitCommand::kHangCeiling` is only a floor.
-- **Do**: closing needs a typedef, a Dart-side in-flight id (`GBM_EVENT_OPERATION_FINISHED` carries none), a UI entry, and cancel not drawn as an error (P10 `LOGRULES`). Only a device test crosses the seam ([TEST-ffi-matches-symbol-only]), and `integration_test/` reaches neither cancel nor `gbm_rebase_start`'s 6 parameters.
+- **Do**: closing needs a typedef, a Dart-side in-flight id (`GBM_EVENT_OPERATION_FINISHED` carries none), a UI entry, and cancel not drawn as an error (P10 `LOGRULES`). ~~Only a device test crosses the seam ([TEST-ffi-matches-symbol-only])~~ **Corrected (#159)**: types are checked at the unit tier by `gbm_capi_signature_parity_test.dart` — wiring this means deleting `gbm_cancel_operation` from its `_unboundByDecision`, after which a wrong `Uint64` reds there; semantics still need a device test, and `integration_test/` reaches neither cancel nor `gbm_rebase_start`'s 6 parameters.
 - **Evidence**: **#139**; [ledger: 追加四](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
 ## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared

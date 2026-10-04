@@ -155,6 +155,15 @@ jobs:
         working-directory: app_flutter
         run: flutter test
 
+      # TEMPORARY (#151 diagnosis): upload golden failure images; reverted after reading.
+      - name: Upload golden failures
+        if: failure() && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-failures-macos
+          path: app_flutter/test/goldens/failures/
+          retention-days: 1
+
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'
         run: |

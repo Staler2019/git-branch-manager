@@ -135,6 +135,6 @@ Format: [README.md](../../docs/rules/README.md).
   known axis dependency, and a round that changes an axis owns re-reading it.
 - **Do**: keep the first post-`startGesture` step **across** the drag's real direction.
   `startGesture` defaults to `PointerDeviceKind.touch`, which *is* in `_kTouchLikeDeviceTypes`
-  ([TEST-dragdevices-is-not-a-guard] is about `mouse`, which is not), so a first move along the
+  (`gbm_code_hscroll.dart`'s doc comment is about `mouse`, which is not), so a first move along the
   list's own scroll axis can be claimed by the scroller before the `Draggable` wins the arena.
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)

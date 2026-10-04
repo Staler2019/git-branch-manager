@@ -136,7 +136,7 @@ jobs:
           # `dart format`'s output is not stable across Dart SDK versions,
           # so an unpinned channel flaps files between two valid
           # formattings depending on which CI run last touched them.
-          flutter-version: '3.44.9'
+          flutter-version: '3.47.4'
 
       - name: flutter pub get
         working-directory: app_flutter

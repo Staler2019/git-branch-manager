@@ -86,7 +86,7 @@ jobs:
           # Kept in lockstep with ci.yml's pin (see its "every
           # flutter-action use must pin flutter-version" lint step) so a
           # release build never diverges from what CI already verified.
-          flutter-version: '3.44.9'
+          flutter-version: '3.47.4'
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'

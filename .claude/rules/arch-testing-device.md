@@ -74,7 +74,16 @@ Format: [README.md](../../docs/rules/README.md).
 
 - **Consequence**: changing a capi parameter list and its Dart typedef in lockstep is checked
   by nothing — it compiles, analyzes and unit-tests clean, then corrupts the stack at runtime.
-- **Do**: only a device-tier test crosses that seam.
+- **Do**: ~~only a device-tier test crosses that seam.~~ Parameter **count and type** drift is
+  now red at the unit tier: `test/data/ffi/gbm_capi_signature_parity_test.dart` parses
+  `gbm_capi.h` and every `_XxxNative` typedef and compares them through a fixed C→FFI table.
+- **Note**: the gap is the C side only. Editing a `_XxxNative` alone breaks
+  `lookupFunction<N, D>`'s compile-time N↔D check (measured: 146 test files fail to load).
+- **Do**: two **same-type** parameters swapped (`rebaseMerges` ↔ `autosquash`) still pass it —
+  only a device-tier test that observes the behaviour sees order and meaning.
+- **Do**: a new header function with no binding is red too, unless added to that test's
+  `_unboundAllowlist` by decision.
+- **Evidence**: [ledger: issue 159](../../docs/ledger/2026-10-04-claude-issue-159-9cdfa5.md)
 
 ## [TEST-pumprealappon-clears-prefs] `pumpRealAppOn` clears the preferences device tests would otherwise inherit
 

@@ -159,13 +159,17 @@ historical the moment they are written.
   `gbm_rebase_start` directly from C++; it never goes through `dart:ffi`'s
   `RebaseStartDart` typedef or `lookupFunction`, so it cannot see a dropped or
   mis-ordered parameter on *that* side.
-- **Note**: **the `dart:ffi` seam itself is unverified.** `integration_test/` has no file
+- **Note**: ~~**the `dart:ffi` seam itself is unverified.**~~ **Corrected** (#159): parameter
+  count and types are now checked at the unit tier by `gbm_capi_signature_parity_test.dart`;
+  what stays unverified is order among same-type parameters (`stashFirst`/`rebaseMerges`/
+  `autosquash` are all `int32_t`) and the flags' meaning. `integration_test/` has no file
   that reaches rebase at all (grepped for `startRebase`/`rebaseStart`/`RebaseStartDart` and
   for `rebase`/`Rebase`, both empty) — [TEST-device-tier-not-in-ci] applies, and this is
   additionally a case with **no existing device test to extend**, not just one that needs
   rerunning. Recorded per [SPEC-absent-not-faked] rather than left implied by the corrected
-  sentence above: nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
-  typedef silently drifting from `gbm_capi.h`'s six-parameter signature. Writing that
+  sentence above: ~~nothing today would catch `gbm_bindings.dart`'s `RebaseStartDart`
+  typedef silently drifting from `gbm_capi.h`'s six-parameter signature~~ nothing today
+  would catch two of those three `Int32` flags being swapped. Writing that
   device test is unscoped work, not part of this pin's closure.
 - **Evidence**: [ledger: G1d](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md);
   closed in the same round's follow-up commits.
@@ -247,7 +251,9 @@ historical the moment they are written.
   drawn as an error (P10's `LOGRULES` reserves error for actions actually refused).
 - **Do**: [TEST-ffi-matches-symbol-only] applies with full force — `lookupFunction` matches by
   symbol name only, so a wrong `uint64_t` on the Dart side compiles, analyzes and unit-tests
-  clean, then breaks at runtime. **Only a device-tier test crosses that seam**, and
+  clean, then breaks at runtime. ~~**Only a device-tier test crosses that seam**~~ The unit-tier
+  `gbm_capi_signature_parity_test.dart` checks the new typedef's count and types once it exists —
+  and is red until `gbm_cancel_operation` leaves its `_unboundAllowlist` — but
   `integration_test/` has nothing that reaches operation cancellation at all.
 - **Note**: distinct from **#102**, and the pair is the worked example of
   [CULT-orphan-wiring]'s 「grep both directions」: #102 is a Dart *setting* with no consumer,

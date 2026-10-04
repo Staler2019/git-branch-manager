@@ -13,9 +13,8 @@ import 'package:flutter_test/flutter_test.dart';
 /// propagate to the OS window title on desktop. Without these assertions
 /// nothing would notice the string regressing: a `flutter create` re-scaffold
 /// or a copy-pasted runner file would silently restore the `gbm_flutter`
-/// default, and only the Linux file is even compiled by PR CI (`ci.yml`'s
-/// Flutter job is ubuntu-only; Windows builds exist solely in `release.yml`,
-/// on tag).
+/// default. `ci.yml`'s flutter-ci builds all three runners now (#69), but a
+/// build only proves the file compiles, never which string it sets.
 ///
 /// Asserting on source text rather than on behaviour has a precedent in this
 /// repo: `cq.yml`'s pin-check step greps the workflow files themselves for the
@@ -137,6 +136,8 @@ void main() {
   // Source-asserted for the same reason as the group above -- no Dart tier
   // can read a bundle's Info.plist; PR CI's macOS leg compiles the runner
   // but never reads the value, so nothing else would notice this regress.
+  // A source assertion is only as good as the value it asserts: check that
+  // value against a real `flutter build macos` at least once per change.
   group('macOS application name (#67)', () {
     test('Info.plist carries the literal name, not \$(PRODUCT_NAME)', () {
       final String plist = readRunnerSource('macos/Runner/Info.plist');

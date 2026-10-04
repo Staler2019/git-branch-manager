@@ -1,198 +1,47 @@
 ---
 paths:
-  - "app_flutter/**"
+  - "app_flutter/lib/**"
 ---
 
 # Flutter: focus, gestures, selection and menus
 
-Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md).
+Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md). Rules a site comment and a
+test already carry (dialog single-entry push, platform-provided menu items, the macOS bundle
+name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
 
 ## [FLU-inkwell-tap-gives-no-focus] Tapping an `InkWell` does not give it focus
 
-- **Do**: call `requestFocus()` first if a focus-scoped shortcut has to work after a click.
-- **Note**: in the sidebar that call lives in `_onBranchSelect`, so it runs on *every* click.
-  The clause that used to be here ("a plain click on a branch row routes through checkout")
-  stopped being true when single-click became selection.
+- **Do**: call `requestFocus()` first if a focus-scoped shortcut has to work after a click (`sidebar_panel.dart`'s `_onBranchSelect`, `commit_graph_view.dart`'s `_publish`).
 
 ## [FLU-hand-rolled-inkwell-hover] A hand-rolled `InkWell` silently inherits `ThemeData.hoverColor`
 
-- **Rule**: about 4% black/white — invisible on a real display.
-- **Consequence**: the sidebar shipped with no visible hover for months because its row built
-  its own `Container` + `InkWell` instead of using `lib/widgets/gbm_row.dart`, which exists to
-  pass `surfaceHover`/`surfaceSelected` for you.
-- **Do**: reach for `GbmRow` for anything row-shaped, and **assert the token by identity** —
-  hover cannot be proven by a widget test that only checks for no exception.
-- **Do**: it recurred twice more in C18, both found by *sweeping every
-  `InkWell(`/`GestureDetector(` in the round's changed files* — `FileTreeFolderRow` (folder rows
-  had no hover while the file rows around them in the same list did) and a private `_MiniButton`
-  in `working_copy_view.dart` that also re-implemented `GbmButton(secondary, sm)`'s border, text
-  size and padding by hand. **That grep is worth running at the end of any round that touches
-  widgets.**
-- **Consequence**: a fourth instance — the sidebar's STASH rows (`sidebar_stash_section.dart`'s
-  `_StashRow`, a `GestureDetector` + `Container` with no `InkWell` at all) — shipped with no
-  hover, no selected tint, and no discoverable menu trigger, because this one was never swept;
-  it took a direct user report rather than the grep above to surface it.
-- **Consequence**: a fifth — the Working Copy's conflicted-file row — is the one the grep
-  actually caught, and it carried [FLU-gesture-arena-taxes-double-tap] at the same time. **The
-  two defects are coupled, and that is the lesson**: its only callback was `onDoubleTap`, so
-  routing it through `GbmRow` would have fixed neither. `GbmRow` has no `onDoubleTap`, and an
-  `InkWell` with no callback at all is not `isWidgetEnabled` — so the row would have had to
-  gain a single-click action it does not have, which is a UX decision rather than a repair.
-- **Do**: when 「reach for `GbmRow`」 would require inventing an interaction, paint the **same
-  token** from an explicit `MouseRegion` instead and say why in the widget's doc comment. The
-  rule is about the token being visible, not about which widget supplies it.
-- **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上
-  hover/選取/選單](../../docs/ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md);
-  [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Rule**: about 4% black/white, invisible on a real display; `lib/widgets/gbm_row.dart` exists to pass `surfaceHover`/`surfaceSelected` for you.
+- **Do**: reach for `GbmRow` for anything row-shaped and **assert the token by identity**; a hover test that only checks for no exception proves nothing.
+- **Do**: at the end of any round that touches widgets, grep every `InkWell(`/`GestureDetector(` in the changed files. It recurred five times (branch rows, `FileTreeFolderRow`, a private mini-button, `_StashRow`, the conflicted-file row).
+- **Do**: when `GbmRow` would force an invented interaction (no `onDoubleTap`; an `InkWell` with no callback is not hover-enabled), paint the same token from a `MouseRegion` and say why in the doc comment (`_ConflictedFileRow`).
+- **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上 hover/選取/選單](../../docs/ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md); [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-gesture-arena-taxes-double-tap] The gesture arena taxes double-clickable rows, and it is not local
 
-- **Rule**: an `InkWell` holding both `onTap` and `onDoubleTap` withholds the tap for
-  `kDoubleTapTimeout` (~300ms), and a `DoubleTapGestureRecognizer` anywhere on the *ancestor*
-  path does the same to every child button underneath it — a row's own ⋯ button waits out the
-  row's double-tap timer.
-- **Do**: put an immediate action on `Listener(onPointerDown:)` (never enters the arena) and keep
-  the double-tap on the narrowest subtree that needs it.
-- **Note**: `InkResponse` stays hover-enabled with no primary callback at all, because
-  `isWidgetEnabled` is `_primaryButtonEnabled || _secondaryButtonEnabled` and `onSecondaryTapDown`
-  satisfies the second half. **With neither, it is not enabled and does not hover** — which is
-  what couples this rule to [FLU-hand-rolled-inkwell-hover] and rules `GbmRow` out for a row
-  whose only interaction is a double tap.
-- **Consequence**: **measured on a real row, not assumed.** The Working Copy's conflicted-file
-  row wrapped its three resolution buttons in an `InkWell(onDoubleTap:)`; tapping `Take Ours`
-  and pumping a single frame dispatched **nothing** (`Expected: <1>, Actual: <0>`), because the
-  ancestor holds the arena until the timeout. That is the whole tax, and it is testable exactly
-  this way — one `tap`, one `pump()`, no elapsed duration.
+- **Rule**: an `InkWell` holding both `onTap` and `onDoubleTap` withholds the tap for `kDoubleTapTimeout` (~300ms), and a `DoubleTapGestureRecognizer` anywhere on the *ancestor* path does the same to every child button underneath it.
+- **Do**: put an immediate action on `Listener(onPointerDown:)` (never enters the arena) and keep the double-tap on the narrowest subtree (`branch_tree_item.dart`, `_ConflictedFileRow`).
+- **Note**: `InkResponse` hovers only when `isWidgetEnabled` (`onTap`-family or `onSecondaryTapDown` set), which couples this to [FLU-hand-rolled-inkwell-hover]. Test the tax with one `tap` and one `pump()`, no duration (`working_copy_view_test.dart`, 'a button fires on the frame it is pressed').
 - **Evidence**: [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
 
 ## [FLU-selectionarea-gives-a-string] `SelectionArea` tells you the selected *string*, not which widgets it covers
 
-- **Rule**: `selection_touch.dart` asks each row's own subtree via a `SelectionListener`.
-- **Trap 1**: a row moving between subtrees builds its new listener before the old unmounts (two
-  listeners, one notifier, framework assert) — give each row a stable `GlobalKey` so Flutter
-  reparents one element.
-- **Trap 2**: inserting a widget *among* keyed rows reparents everything below it and perturbs
-  the selection.
-- **Trap 3**: reacting to every report is a feedback loop (`setState` → geometry moves →
-  delegates re-report), so listen only between pointer-down and pointer-up.
-- **Do**: **draw nothing derived from that set while the pointer is down** — the one-shot block
-  sits inside the scope card, so drawing it mid-drag reparents the rows whose listeners are still
-  reporting. The live feedback during a drag is `SelectionArea`'s own text highlight; the block is
-  what the drag settles into, so `endGesture()` is what notifies.
-- **Note**: all three are 「first frame right, later frames wrong」 — a one-frame assertion cannot
-  see any of them.
-- **Note**: the honest limit — **no synthetic gesture at either tier reproduces the symptom this
-  was reported for** (「只能選一行」). With the gate removed, row-by-row and sub-row device drags
-  both stayed green. The invariant is pinned; the cure is not.
-- **Do not** read trap 2 as an argument for the one-shot block's fixed slot at the top of the
-  column. That **was not the design** — the demo nests it inside the scope card, wrapping the
-  selected rows in place, and what makes the nested form safe is the same sentence trap 1 rests
-  on: those keys are `GlobalKey`s, so Flutter *moves* the element into its new parent rather than
-  rebuilding it. **A recorded hazard is a reason to solve the problem, not a licence to change
-  the design.**
-
-## [FLU-clear-selection-before-dispatch] The submit path is a diff-change path, one dispatch later
-
-- **Rule**: `_dropSelection` documented that clearing the highlight is unsafe while the tree
-  restructures — and **staging is what restructures it**.
-- **Consequence**: a `clearSelection()` deferred to after the dispatch lands inside the
-  restructure it caused, and the framework throws `ConcurrentModificationError` out of
-  `handleClearSelection`.
-- **Do**: clear synchronously **before** dispatching.
-- **Note**: nothing below the device tier can see it — the fakes never restage, so the diff never
-  changes and the clear always finds a settled tree.
-
-## [FLU-selectableregion-clears-on-focus-loss] `SelectableRegion` clears its selection when it loses focus
-
-- **Rule**: `_handleFocusChanged`, non-web — and it requests focus for itself as a drag begins.
-- **Consequence**: an *ancestor* that calls `requestFocus()` on every pointer down is a live way
-  to wipe out the selection the gesture is still making.
-- **Do**: guard on `!node.hasFocus`. `hasFocus` is true for an ancestor of the primary focus, so
-  the guard already covers "the region below me is the one holding it", and key events reach an
-  ancestor `CallbackShortcuts` either way.
-
-## [FLU-select-all-in-list-focus-scope] `Ctrl/Cmd+A` must be bound inside the list's own focus scope
-
-- **Rule**: never app-wide — a `Shortcuts` closer to a focused editor than
-  `DefaultTextEditingShortcuts` steals text select-all.
+- **Rule**: `selection_touch.dart` asks each row's own `SelectionListener`. The traps (a stable `GlobalKey` per row, listen only between pointer-down and pointer-up, draw nothing derived from the set while the pointer is down) are documented there and at `scoped_diff_view.dart`'s `_wellChildren`.
+- **Consequence**: all three are 「first frame right, later frames wrong」, so a one-frame assertion cannot see any of them; pinned by `scoped_diff_view_test.dart` ('no one-shot block appears until the pointer comes up') and `soft_wrap_preference_flow_test.dart`.
+- **Note**: the honest limit: no synthetic gesture at either tier reproduces 「只能選一行」 (`stage_lines_flow_test.dart`'s row-by-row drag stayed green with the gate removed). The invariant is pinned; the cure is not.
+- **Do**: a recorded hazard is a reason to solve the problem, not a licence to change the design; the one-shot block stays nested in its scope card ([record](../../docs/records/2026-10-04-working-copy-layout.md)).
 
 ## [FLU-menu-enabled-is-visual-only] `GbmMenuItem.enabled: false` is only a visual signal
 
 - **Do**: set `onTap: null` too, or a "disabled" item still fires.
 - **Do**: disabled-with-a-tooltip beats hidden — 隱藏會讓人以為功能不存在.
 
-## [FLU-platform-provided-item-forks-an-action] A `PlatformProvidedMenuItem` silently forks one action id into two different windows
+## [FLU-clear-selection-before-dispatch] The submit path is a diff-change path, one dispatch later
 
-- **Rule**: and the dispatch-parity test cannot see it.
-- **Consequence**: `helpAbout` was wired in `_buildActionHandlers()` *and* listed in
-  `PlatformMenuBarHost._systemProvided`, so Windows/Linux opened `AboutDialogContent` while macOS
-  got the native About panel — for months, with every tier green. A system-provided item takes
-  **no handler from the map at all**, so «the handler is non-null» was vacuously true, and the
-  in-window click test only ever exercised the non-macOS path.
-- **Do**: **assert what a menu handler renders, not that it exists** — `item.onSelected!()` then a
-  finder on the route's content (`workspace_about_dialog_test.dart`), with a second dialog route
-  present as a decoy so a mis-wire fails on content rather than on a missing route.
-- **Rule**: spec page 01 is what is being enforced — only the menu bar's *position* follows the
-  OS; every window's *contents* are Flutter's on all three platforms.
-- **Note**: `PlatformMenuBar` replaces menus from index 1 only, so `MainMenu.xib`'s
-  `systemMenu="apple"` menu survives untouched. macOS already has a native About/Quit/Hide there,
-  which is what makes a second one under Help redundant rather than required. Quit stays
-  system-provided for exactly that reason.
-
-## [FLU-macos-app-name-from-bundle] macOS reads the *application* name from the bundle, never from `NSWindow.title`
-
-- **Rule**: `MainMenu.xib` writes the Apple menu, About, Hide and Quit items as the literal
-  placeholder `APP_NAME`, which AppKit resolves from `CFBundleDisplayName` → `CFBundleName` at
-  load time; the Dock tooltip and Force-Quit list read the same.
-- **Consequence**: it said `gbm_flutter` because `CFBundleName` was `$(PRODUCT_NAME)`, and
-  `PRODUCT_NAME` is also the built artifact's name, which `release.yml` hardcodes as
-  `gbm_flutter.app` in four places.
-- **Do**: writing the literal into `Info.plist` decouples the two (#67 candidate fix 1); renaming
-  `PRODUCT_NAME` does not, and is a tag-build-only change.
-- **Do**: **no Dart tier reads a bundle's Info.plist** (~~and PR CI compiles no macOS (#69)~~ — `flutter-ci` builds macOS since chore/accept-toolchain-bump, but never reads the value), so
-  `test/platform/window_title_test.dart` asserts the plist as source text — and the value it
-  asserts must be checked against a real `flutter build macos` at least once per change.
-
-## [FLU-showgbmmenu-modal-barrier] `showGbmMenu` is built on Material's `showMenu`
-
-- **Consequence**: its modal barrier makes a hover-opened flyout unhoverable from its own parent.
-- **Do**: submenus open on tap, and the parent is popped *before* the child's action runs (menu
-  items routinely push a dialog). **#87**.
-
-## [FLU-widget-hit-test-gotchas] Three hit-test gotchas that cost a click
-
-- **Rule**: `RadioListTile` needs a `Material` ancestor.
-- **Rule**: `Container(color:)` builds an opaque hit-test box while `Listener` defaults to
-  `deferToChild`.
-- **Rule**: `ReorderableDragStartListener` accepts at `kPrecisePointerHitSlop` (**1.0px** for a
-  mouse), so a whole-row drag handle loses ordinary clicks.
-
-## [FLU-push-dialog-is-single-entry] Every dialog route is pushed through `pushDialogRoute`, and the already-open check can only read `ImperativeRouteMatch.matches.uri`
-
-- **Rule**: `pushDialogRoute(context, location)` / `pushDialogRouteOn(router, location)`
-  (`lib/routing/dialog_route.dart`) is the only way this app opens a dialog — 使用者裁定
-  「全部 26 個對話框都加」, which was 48 call sites across 14 files once counted.
-- **Consequence**: without it a duplicate push really does mount a **second instance**.
-  Measured: pushing one dialog route twice ran `initState` twice, and two
-  `PruneRemoteBranchesDialogContent`s each issued their own `git remote prune --dry-run`.
-  A double-click on one menu item is all it takes.
-- **Rule**: three measured facts each rule out an obvious implementation.
-  `currentConfiguration.uri` **stays at the base location** and does not reflect a pushed
-  dialog at all, so `GoRouterState.of(context).uri` cannot answer the question; a pushed
-  entry is an `ImperativeRouteMatch` whose **`matches.uri` is the only form that keeps the
-  query string** (`matchedLocation` drops it); and `pop`, a barrier tap and `Navigator.pop`
-  all clear the match, which is the premise that keeps the guard from being permanent.
-- **Do**: compare the **full URI including query**. `?remote=origin` and `?remote=upstream`
-  are two legitimately coexisting dialogs, so `matchedLocation` would refuse the second.
-- **Do**: **a test that only asserts 「different queries both open」 cannot pin that choice** —
-  `/first` and `/first?remote=origin` are unequal under either spelling, so the gate never
-  fires and both open. The discriminating test pushes the **same** query-carrying URI twice
-  ([TEST-fixture-cannot-disagree]).
-- **Do**: the rule is mechanised by `test/routing/dialog_push_single_source_test.dart`, which
-  scans `lib/` for `.push(` followed by `RoutePaths.…Dialog…` (with `dotAll`, because 22 of
-  the 48 sites are formatter-wrapped) and requires zero hits. Without it the 49th call site
-  bypasses the guard silently, and the symptom only appears when a user double-clicks.
-- **Note**: the three state-driven pushes (`workspace_screen.dart`'s credential,
-  checkout-recovery and delete-branch-recovery dialogs) need this most, because a state
-  republish re-enters the same push.
-- **Evidence**: [ledger: 第二片，P3／P4 不 defer](../../docs/ledger/2026-09-26-fix-stale-remote-ref-after-local-delete.md)
+- **Do**: call `clearSelection()` synchronously **before** dispatching a stage; deferred, it lands inside the restructure it caused and throws `ConcurrentModificationError` from `handleClearSelection` (`scoped_diff_view.dart`'s `_submitTemporary`).
+- **Note**: **no test pins it.** Moving the clear after the dispatch left `stage_lines_flow_test.dart` green on macOS (7/7): its tap collapses the selection by itself, and the keyboard path (`repositoryStageSelectedLines`) has no device test.
+- **Evidence**: [ledger: L1 第九片](../../docs/ledger/2026-10-04-chore-s3-l1-flutter-input.md)

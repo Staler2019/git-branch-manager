@@ -33,7 +33,7 @@ struct GitCommand {
     ///
     /// `timeout` asks "how long has this run in total"; this asks "is it still
     /// alive". For a fetch that is actively transferring, those two questions
-    /// have different answers, and that difference is the whole reason the ~24
+    /// have different answers, and that difference is the whole reason the 28
     /// commands above set `timeout = 0`: a 500 MB clone on a slow link is slow,
     /// not broken, so a total-duration deadline would kill legitimate work.
     /// Nothing arriving for minutes is a different claim, and a safe one.

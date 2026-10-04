@@ -664,8 +664,9 @@ public:
         // cancel its own blocked I/O, so the cancel has to arrive from a second
         // thread rather than from after the loop.
         //
-        // Armed only when a deadline exists: network commands contractually
-        // pass timeout 0 and rely on cancellation, so they pay for no thread.
+        // Armed only when a deadline exists, `timeout` or `idleTimeout`. Every
+        // timeout-0 network and sequencer command sets `idleTimeout` to
+        // GitCommand::kHangCeiling, so only a command with neither starts none.
         // If either handle cannot be made, no watchdog is started and the
         // behaviour degrades to what it was -- same fallback discipline as a
         // spawn that could not get a job object.
@@ -883,6 +884,10 @@ private:
     /// which is exactly the hang, back again. On the ordinary path the helper
     /// has already hit EOF by the time this runs, so the first wait returns
     /// immediately and nothing is cancelled.
+    ///
+    /// Never replace the join with `detach()`: the helper writes `execute()`'s
+    /// local `result.err` and its lambda captures `onProgress` by reference, so
+    /// a detached helper outliving this frame is a use-after-free.
     void cancelBlockedIoAndJoin(std::thread& helper) {
         if (!helper.joinable()) {
             return;

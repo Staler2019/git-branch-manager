@@ -5383,7 +5383,7 @@ TEST(ProcessRunnerTimeout, AChildThatNeverWritesIsStillTimedOut) {
 
 // The idle deadline: "nothing has arrived for N" rather than "this has run for
 // N". Same subject as the test above, but reached through `idleTimeout` with
-// `timeout` left at 0 -- which is the shape the ~24 network and sequencer
+// `timeout` left at 0 -- which is the shape the 28 network and sequencer
 // commands use, and the shape that had no deadline of any kind before this.
 TEST(ProcessRunnerTimeout, ASilentChildHitsTheIdleDeadline) {
     auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));

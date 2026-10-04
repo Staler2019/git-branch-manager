@@ -399,8 +399,8 @@ void main() {
   // fix/refresh-ui-first-tiering, C4: tier 2's fallback exists because a
   // failed status read reports GBM_EVENT_ERROR_OCCURRED, not
   // GBM_EVENT_WORKING_COPY_STATUS_UPDATED -- without it, tier 2 would never
-  // fire on that path ([CPP-coalescer-terminal-paths]'s "every terminal
-  // path" lesson, one layer up). The fake's own refreshWorkingCopy()
+  // fire on that path (the "every terminal path" lesson of
+  // Session::dispatchRefresh(), one layer up). The fake's own refreshWorkingCopy()
   // override never delivers either event, so every focus regain in this
   // file actually goes through the fallback -- this test is what pins the
   // fallback itself, rather than relying on it firing as an implicit

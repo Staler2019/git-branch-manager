@@ -271,7 +271,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // and nothing else, which is why that file is the mount's only guard and
     // no separate mount test exists.
     ref.watch(deferredPruneProvider(identity));
-    // Rebuild on the nine session fields this shell actually consumes --
+    // Rebuild on the ten session fields this shell actually consumes --
     // NOT on the whole RepoSessionState.
     //
     // Scrolling History prefetches commit metadata on every scroll tick

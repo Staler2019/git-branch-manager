@@ -11,299 +11,61 @@ Pin prefix `TEST-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [TEST-tiers] Testing tiers
 
-- **Unit** (`test/actions/gbm_action_availability_test.dart`, and pure-model
-  tests elsewhere) — no widgets, no Riverpod. Exercises `isActionEnabled()`
-  directly against every id + a representative `RepoSessionState`.
-- **Widget** (`test/features/**/*_test.dart`) — a single presentational
-  widget (`MenuBarRow`, `TabRow`, `BranchTreeItem`, ...) pumped with plain
-  callbacks/`ProviderContainer` overrides and a fake session, per-widget in
-  isolation. This is where most of the suite lives, and it cannot catch a
-  dispatch-path bug like the one above, because it never goes through
-  `WorkspaceScreen._buildActionHandlers()` — it feeds a handler map (or
-  named callback) directly to the widget under test.
-- **Integration** (`test/integration/`, run by the same `flutter test`, no
-  separate `integration_test/` device harness) — the real
-  `WorkspaceScreen` behind a `GoRouter`, driven by
-  `test/support/pump_workspace.dart`'s `pumpWorkspace()`. Exists
-  specifically to cross the seam widget tests can't: does a keyboard
-  shortcut/menu click/system-menu path really reach the controller, does a
-  state transition (conflict ↔ clean, an interrupt overlay opening) leave
-  every gated surface consistent with no residue, does navigating into
-  `ConflictResolveWindow` and back preserve the right content. Use
-  `pumpWorkspace`'s `extraRoutes` for a route that's a ShellRoute child in
-  the real router (Compare tab) and `topLevelRoutes` for one that's a
-  sibling of it (any `dialogRoute(...)`, `conflicts`) — mixing them up tests
-  the wrong route structure and can pass for the wrong reason.
-
-## [TEST-fake-session-seam] The fake session seam
-
-**Fake session seam** (`test/support/fake_repo_session.dart`):
-`FakeRepoSessionController extends RepoSessionController`, constructed with
-a `FakeGbmBindings` whose `sessionOpen()` returns `nullptr` — the real
-`_open()` sees that as "open failed" and returns before touching bindings or
-recents again, so every controller method the fake doesn't override hits its
-own `if (_session == nullptr) return;` guard and safely no-ops. Overridden
-methods do the opposite: they record the call into `commandLog` (or a
-bespoke field, for the handful of tests written before `commandLog` existed)
-instead of no-opping. `FakeGbmBindings`/`FakeRecentsRepository` throw via
-`noSuchMethod` on anything not explicitly implemented — a provider a test
-forgot to override fails loudly instead of quietly reaching a real
-`.dylib`/`.so`. Call `controller.emit(nextState)` to simulate an FFI event
-publishing a new `RepoSessionState`, exactly as `_onEvent()` would.
+- **Rule**: unit (`test/actions/`, pure models) · widget (`test/features/**`, one widget fed callbacks or a fake session) · integration (`test/integration/`, the real `WorkspaceScreen` via `pumpWorkspace()`, run by the same `flutter test`) · device (`integration_test/`, see [TEST-device-tier-not-in-ci]).
+- **Do**: a claim that crosses the dispatch seam (shortcut or menu → controller; a state transition → every gated surface) goes in the integration tier; a widget test feeds the handler map directly. `pumpWorkspace`'s `extraRoutes` vs `topLevelRoutes` must match the real route structure.
 
 ## [TEST-new-gate-needs-integration] A new state-dependent gate needs an integration test
 
-**Rule**: a new state-dependent gate goes into `isActionEnabled()` (or, if
-it's not action-shaped, gets an equally-named single function) *and* gets an
-integration test asserting the gated surface actually changes when the
-state transitions — a widget test alone proves the widget renders `null`
-correctly, not that the real dispatch path ever produces that `null`.
+- **Do**: put the gate in `isActionEnabled()` and add an integration test that the gated surface changes on the state transition; a widget test only proves the widget renders `null`.
+
+## [TEST-fake-seam-fails-loudly] The fake seam fails loudly on purpose, and silently in one place
+
+- **Rule**: `FakeGbmBindings` / `FakeRecentsRepository` throw via `noSuchMethod`, so a provider a test forgot to override never reaches a real `.dylib`.
+- **Do**: a `RepoSessionController` method the fake does not override no-ops silently (`_session == nullptr`), so a dead button looks dispatched; override it to record into `commandLog` (`test/support/fake_repo_session.dart`).
 
 ## [TEST-fixture-cannot-disagree] A fixture that cannot disagree with the code proves nothing
 
-Twelve recorded shapes, each of which passed identically before and after a real fix.
-One row per shape — when you find a thirteenth, append a row.
+Fifteen shapes, each green before and after a real fix; comments cite them by number. Cases: [record](../../docs/records/2026-10-04-fixture-cannot-disagree-shapes.md).
 
-| # | Shape | Recorded case | Why it stayed green |
-|---|---|---|---|
-| 1 | *derives* one field from another | `hasTrackingInfo: upstream.isNotEmpty` (Tier 0c) | the fixture computes what the code computes |
-| 2 | *borrowed* from a test whose subject contradicts yours | `_mergeState()`'s `isSequencerOperation` (cancel-surface round) | the borrowed state asserts the opposite case |
-| 3 | *cannot express* the case | a single shared `GraphRow` instance (graph-edge round) | two rows are the same object |
-| 4 | *cannot shrink* | a `repoRefsProvider` override pinned to one snapshot | no selected branch can ever vanish |
-| 5 | two subjects *indistinguishable to the assertion* | `ActionToolbar`'s Branch and Stash share a gate and both only `context.push(...)`, so `onPressed != null` stayed green with the handlers swapped (P02-2) | sentinel `dialogRoute`s are what told them apart |
-| 6 | *content contradicts its own name* | a "same-size edit must be re-read" test wrote 8 bytes then 7 (C18) | size really had changed, so dropping mtime from the key stayed green |
-| 7 | *premise a later decision revoked* | 05-G's device fixture put two insertions one line apart; 變體 B then merged anything ≤ 2 unchanged lines apart (C18) | the same bytes silently became *one* scope |
-| 8 | the **assertion**, not the fixture, is too weak | «controls are to the right of the status text» is true under `WrapAlignment.spaceBetween` **and** `start` (conflict-banner round) | «controls' right edge equals the Wrap's right edge» is the same claim stated tightly enough to fail |
-| 9 | **cross-language**: hand-sets a field production never sets | every Dart test wrote `isSymbolic: true` by hand while `RefStore` never assigned it | **both languages stay green at once** — the C++ struct member did exist and was serialized |
-| 10 | *varies more than the subject*, so an unrelated path answers correctly | History's uncommitted-row fixture rebuilt its `GraphSnapshotView` on every call, so emitting a clean working copy also handed `repoGraphProvider` a new object (discard round) | the rebuild that repaints the row came from the graph, not the working copy — mutating the row's `ref.watch` to `ref.read` left the file **fully green** |
-| 11 | *cannot express* the failing condition at this tier at all | `.timeout()` around a synchronously-blocking `_closeSessions()` (Windows update round) | no fake-async widget test blocks a real event loop, so an empty fix goes green — see [FLU-timeout-cannot-bound-sync] |
-| 12 | the **environment** gains a permanent item, quietly widening an exact count | D7 seeded a pinned Worktrees tab, and `expect(tabs, hasLength(1))` had meant 「this menu item opened exactly one tab」 | the seed alone satisfies the count, so the assertion now passes for a menu item that opens **nothing** |
-| 13 | the fixture supplies **bounded ambient constraints by construction**, and the defect only fires under unbounded ones | `GbmDialogWarnField`'s own widget test pumped it inside `Scaffold(body: Center(child: ...))` — `Center` hands its child a *bounded* constraint | a `Row` using `CrossAxisAlignment.stretch` needs an unbounded ambient height to break under (a `Column` hands non-flex children unbounded height; `GbmDialogWarnField` wraps its `Row` in `IntrinsicHeight`); the isolated test could never produce one, so it stayed green until the widget was wired into a real dialog's `Column` |
-| 14 | the assertion reads a **proxy for the render tree**, not the render tree itself | Add Worktree's "default path" tests asserted `pathField.controller?.text` — correct, and all three stayed green through the whole round | a `TextField`'s `controller.text` says what the *model* computed; it cannot see `InputDecoration.labelText` painting over the value (a floating label needs room above a fixed-height box, so `gbmInputDecoration()` takes no `labelText`) — the field was never empty, just visually unreadable, and no test asked what actually got painted |
-| 15 | the assertion measures the **widget's** box, while the defect is in a box that widget's own render object paints | 位置's field and the `GbmButton` beside it both measured `h=30.0` in a probe, while the real app drew the field's outline at 23 | a `TextField`'s rect is the `SizedBox`'s number; `_RenderDecoration` paints the outline in a **separate child** sized by `isDense` (`gbmInputDecoration()`'s `isDense: false` comment) — so both the widget rect and the shared 30px constant agree with each other and with nothing the user sees |
+1 derives one field from another · 2 borrowed from a test with the opposite subject · 3 cannot express the case · 4 cannot shrink · 5 two subjects indistinguishable to the assertion · 6 content contradicts its name · 7 premise a later decision revoked · 8 assertion too weak, not the fixture · 9 cross-language: hand-set field production never sets · 10 varies more than the subject · 11 cannot express the failing condition at this tier · 12 environment gains a permanent item (exact counts) · 13 bounded ambient constraints · 14 assertion reads a proxy for the render tree · 15 widget's box, not the box its render object paints
 
-- **Do**: count the bytes the fixture actually writes, not the bytes the test's name claims (6).
-- **Do**: **when a rule about how input is grouped changes, every fixture that encodes a gap,
-  a count or an adjacency has to be re-read against the new rule** — nothing else will
-  notice (7).
-- **Do**: a mutation that comes back green is as often a weak assertion as a missing one (8).
-- **Do**: when something becomes **always present**, every exact-count assertion about it turns
-  vague. Fix it by *filtering the constant out and re-counting the subject*, never by bumping 1 to
-  2 — the bumped number is satisfied by the constant alone (12).
-- **Do**: **hold everything but the subject identical across a transition** — hoist the
-  untouched halves of a state fixture into shared instances, so the only thing that can
-  drive the rebuild is the thing under test (10). Two fixtures pumped separately cannot see
-  this at all; it needs one tree and two states.
-- **Do**: **ask which object paints the thing you are asserting about**, not which object you named to find it. A finder resolves to a widget; the defect may be one render object below it, and the two report different numbers with no error anywhere (14, 15).
-- **Do**: **when a field crosses a language boundary, ask which side assigns it** — a
-  hand-set fixture is evidence about the consumer, never about the producer. Neither side can
-  see the gap; only the real binary across the boundary can, which is why that test belongs in
-  `GitIntegrationTest.cpp` and the FFI-payload one in `SessionApiTest.cpp` (9).
-
-## [TEST-callback-hook-outlives-test-body] A callback hook stored on the fixture outlives `TestBody()`, so it must never capture that body's locals by reference
-
-- **Rule**: a gtest fixture member lives until after `TearDown()` returns. A hook installed
-  from `TestBody()` and stored there therefore outlives every local `TestBody()` declared, and
-  `[&]` captures them by reference.
-- **Consequence**: `CancelOperationApiTest`'s hook captured `finishes`/`trippedOnFirstFinish`
-  and was still installed when `TearDown()` called `gbm_session_close()` — which cancels every
-  still-queued operation, each emitting `GBM_EVENT_OPERATION_FINISHED` straight back into
-  `logCallback()`. ASan: `stack-use-after-return` on `finishes.fetch_add(1)`, with
-  `CallbackRegistry::emit` → `OperationRunner::workerLoop` above it.
-- **Consequence**: **the write is the lesser half.** The hook *reads* that dead `finishes` to
-  decide whether to call `gbm_cancel_operation(session_, 0)`, so a garbage read re-enters a
-  `Session` already inside its own destructor — which is where the glibc
-  `mutex->__data.__owner == 0` abort and the SEGV in `~Session()` both came from. The symptom
-  is two frames and a mutex address away from the cause.
-- **Do**: clear the hook as the **first** statement of `TearDown()`, before anything that can
-  emit. `log_.setHook(nullptr)` is the whole fix; no product code changed.
-- **Rule**: **an unsanitised build cannot see this.** The dead frame usually still holds the
-  old value, the branch is not taken, nothing re-enters. Measured over 100 runs of the one
-  test, Linux/aarch64, before → after: plain `0/100` → n/a, gcc TSan `20/100` → **0/100**,
-  gcc ASan `17/100` → **0/100**, clang ASan `13/100` → **0/100**.
-- **Do**: **do not read "only TSan reproduces it" as "libtsan is wrong".** That was the working
-  hypothesis for two rounds of this diagnosis and it was wrong twice: first because the repo's
-  own GCC-11 precedent was **100% deterministic** while this was intermittent, then because
-  clang's ASan reproduced it too — three of four sanitizer arms across two vendors. The arm
-  that discriminates is a **second sanitizer**, not a second run.
-- **Do**: ASan's report is worth more than TSan's here — it named the exact line and the exact
-  object, where TSan only gave a mutex address in a destructor. When a sanitizer failure looks
-  like corruption, run the *other* sanitizer before theorising.
-- **Note**: **a separate, pre-existing fragility was found and is left open**, not fixed:
-  `SessionCloseCancelsQueuedOperationsInsteadOfDraining` asserts `succeeded <= 1`, and on a
-  fast container 14 of its 20 operations completed before the close (`14 vs 1`). It installs no
-  hook, so this fix cannot have caused it; it is the test's own timing assumption. Not seen on
-  CI. Recorded for a ruling rather than silently adjusted.
-- **Evidence**: [ledger: Windows 與 macOS 的 Flutter CI](../../docs/ledger/2026-09-28-chore-accept-toolchain-bump.md)
+- **Do**: count the bytes the fixture writes, not what its name claims (6); re-read every gap/count/adjacency fixture when a grouping rule changes (7); a green mutation is as often a weak assertion as a missing one (8).
+- **Do**: when something becomes always present, filter it out and re-count the subject, never bump 1 to 2 (12); hold everything but the subject identical across a transition, one tree and two states (10).
+- **Do**: ask which object paints what you assert, since a finder resolves to a widget and the defect may be one render object below (14, 15); for a field crossing the FFI, ask which side assigns it, and test it in `GitIntegrationTest.cpp` / `SessionApiTest.cpp` (9).
 
 ## [TEST-mutation-check-every-test] Mutation-check every new test, and check the red is narrow
 
-- **Rule**: a broad red means the test is pinning something else.
-- **Do**: copy the file to the scratchpad first (`cp file "$SCRATCH/x.bak"` → mutate → `cp`
-  back). **Never `git checkout -- <file>`** to revert a mutation — it once discarded an
-  entire uncommitted implementation.
-- **Do**: have the mutation script assert `count(old) == 1` before writing. Two mutations in
-  one round silently matched nothing after a formatter reflowed an argument list, and a
-  `JsonCodec.cpp` anchor named only by its field matched **two** serializers (`DiffFile`'s and
-  `ChangedFile`'s both emit `addedLines`). Anchor on a neighbouring line that is actually unique.
-- **Do**: **count the reds from the progress line's `-N`, and read that line with your own eyes —
-  not through a grep, a helper or a loop you wrote.** 「Is the red narrow」 is the *only* question a
-  mutation check asks, so the entire result is that one number. It was misread three times in one
-  round, three different ways: `grep -c` on the 「Failing tests:」 summary (**that list truncates at
-  4 entries** plus 「... and N more」) read 8 as 4; a `\+[0-9]+ -[0-9]+` pattern matched the wrong
-  line and read 3 as 1; and a `reds()` shell helper reported 1/1/1 for three mutations that were
-  really 7/2/1. Each wrapper looked right and each was cheaper to trust than to check.
-- **Note**: an anchor that matches nothing means **the mutation never applied**, so REDS=0 is not
-  evidence of a vacuous test. Redo it against the real text before drawing any conclusion.
-- **Do**: **write the two numbers down as two numbers** — how many mutations were run, and how
-  many tests each reddened. One mutation may legitimately redden several tests, so the totals
-  differ, and a write-up that reports the red total as the mutation count reads as a wider sweep
-  than actually happened. Three commit messages and one ledger section in a single round each
-  stated a count one-to-four higher than the items they went on to enumerate, all by this one
-  substitution; the table beside the sentence is what caught it.
+- **Do**: have the mutation script assert `count(old) == 1` before writing; a reflowed or non-unique anchor (`JsonCodec.cpp`'s `addedLines`) matches nothing or the wrong thing, so REDS=0 proves nothing.
 
 ## [TEST-count-dont-any] Count, don't `any`
 
-- **Do**: `commandLog.where((c) => c.name == …).length`. `.any(...)` is blind to a double
-  dispatch, which is exactly what several of these fixes could regress into.
+- **Do**: `commandLog.where((c) => c.name == …).length`; `.any(...)` is blind to a double dispatch.
 
-## [TEST-canvas-is-800x600] The default widget-test canvas is 800×600, and the test font is monospaced
+## [TEST-canvas-is-800x600] The default widget-test canvas is 800×600 and its font is monospaced
 
-- **Rule**: a `SizedBox` wider than the canvas is silently clamped, so a widget test that
-  sizes its own canvas proves nothing about layout under real constraints.
-- **Consequence**: a placement bug is invisible to any tier whose canvas is bigger than the
-  real window. The column-picker popover shipped off-screen for exactly this; later a
-  deliberate overflow in the Changed files row was caught **only** by the one test sized to
-  `GbmLayout.splitterMainFiles.defaultExtent` — three others on the default canvas passed
-  with the broken layout.
-- **Rule**: **`flutter_test`'s default font draws every glyph `fontSize` wide**, so a
-  42-character status line measures 548px where the real proportional font is far narrower.
-- **Do**: any width a widget test measures is in test-font terms — say so next to the number,
-  and pick which direction the distortion is safe in (a banner asserted to wrap at 440px wraps
-  at a *narrower* real window, the harmless direction).
-- **Do**: a recorded pixel figure is not portable between fixtures. An audit's «overflows by
-  6.3px» measured 27px on a different session shape, and the gap changed the fix from «move
-  one child to its own run» to «both levels have to wrap».
+- **Rule**: an unsized canvas clamps a wider `SizedBox`, so a width bug shows only in a test sized to the real extent (`GbmLayout.splitterMainFiles.defaultExtent`); the test font draws every glyph `fontSize` wide.
+- **Do**: say "in test-font terms" beside any measured width and pick the safe distortion direction; a recorded pixel figure is not portable between fixtures.
 
 ## [TEST-renderflex-main-axis-only] `RenderFlex` reports only main-axis overflow
 
-- **Consequence**: a `takeException()` test cannot see a cross-axis defect.
-- **Do**: check which axis the defect is on before writing a no-exception test.
+- **Do**: a `takeException()` test cannot see a cross-axis defect; check which axis the defect is on first.
 
 ## [TEST-no-pumpandsettle-with-spinner] Never `pumpAndSettle()` while an indeterminate `CircularProgressIndicator` is on screen
 
-- **Rule**: it schedules frames forever, so `pumpAndSettle` can only time out.
-- **Consequence**: this is the confirmed mechanism behind the device-tier batch flake
-  (**#101**). It is *not* **#70** (a fixed 10s C++ `waitFor` budget losing to parallel load) —
-  read the failure text before picking a family.
-- **Do**: the spinners are `CommitGraphView` (only while `isRefreshing && graph.rows.isEmpty`),
-  `ScopedDiffView` (while a diff request is in flight), and eight panels for their own loads.
-  `StatusBar` is **not** one — `BackgroundTask.progress` is never null, so its
-  `LinearProgressIndicator` is always determinate.
-
-## [TEST-statusbar-lingers-3s] `StatusBar` lingers a finished task for 3 seconds
-
-- **Consequence**: `_lingerTimer` means "the task cleared" cannot be asserted on the next frame.
+- **Rule**: it schedules frames forever, so `pumpAndSettle` can only time out; this is the confirmed mechanism of the device-tier batch flake (**#101**), not **#70**.
+- **Do**: find the sites with `grep -rn 'CircularProgressIndicator(' app_flutter/lib`; `StatusBar`'s bar is determinate (`BackgroundTask.progress` is a non-null `double`).
 
 ## [TEST-runasync-for-real-async] Real async inside `testWidgets` needs `tester.runAsync()`
 
-- **Rule**: `Picture.toImage()` (and asset decoding through `vg.loadPicture`) never completes
-  in flutter_test's fake-async zone — no output, no timeout of its own, just a hang. Eight
-  minutes of silence in the recorded case.
-- **Do**: this is how an asset-rendering check is written when a string-level "it ships and
-  parses" assertion is not enough.
-- **Evidence**: ledger: P02 item 2's toolbar
-
-## [TEST-fake-seam-fails-loudly] The fake seam fails loudly on purpose — and silently in one place
-
-- **Rule**: `FakeGbmBindings` / `FakeRecentsRepository` throw via `noSuchMethod` for anything
-  not explicitly implemented, so a provider a test forgot to override never silently reaches a
-  real `.dylib`.
-- **Consequence**: the opposite risk is inside `RepoSessionController` — a method the fake does
-  not override hits its own `if (_session == nullptr) return;` guard and **no-ops silently**,
-  so a test cannot tell a dead button from a dispatched one until that method is overridden to
-  record into `commandLog`.
-- **See also**: [TEST-fake-session-seam] for the seam's construction.
-
-## [TEST-race-is-falsifiable] A memory-ordering race *is* falsifiable here
-
-- **Do**: `CMakeLists.txt`'s `GBM_SANITIZE` option and the configured `build/tsan` /
-  `build/asan-ubsan` presets turn "a race in principle" into a test:
-  `cmake --build build/tsan --target gbm_capi_tests`.
-- **Note**: a *timing* race (**#70**, **#77**) still cannot be reproduced on demand — its
-  evidence is a deterministic mechanism test plus the causal chain, never an A/B.
+- **Rule**: `Picture.toImage()` and `vg.loadPicture` never complete in the fake-async zone: a silent hang with no timeout.
+- **Evidence**: `branch_tree_item_hover_paint_test.dart`; ledger: P02 item 2's toolbar
 
 ## [TEST-draggable-is-not-a-drop] Asserting that a `Draggable` exists is not asserting that a drop works
 
-- **Consequence**: the Working Copy board's empty column drew its "No staged changes"
-  placeholder *instead of* the `DragTarget`, so the one column every repository starts with
-  could not be dropped on — and with 變體 B's checkboxes gone, dragging is the only way a file
-  changes side.
-- **Do**: an empty-state placeholder belongs **inside** the target's builder, never in place
-  of it.
-- **Do**: the gesture recipe that actually drops in a widget test is `startGesture` →
-  `pump()` → `moveTo(target)` → `pump()` → `up()` → `pump()`. Extra intermediate moves are
-  not needed.
+- **Do**: drop with `startGesture` → `pump()` → `moveTo(target)` → `pump()` → `up()` → `pump()`; an empty-state placeholder goes inside the `DragTarget` builder (`working_copy_board_test.dart`).
 
-## [TEST-no-trackpad-pointer-kind] A pointer drag can never carry `PointerDeviceKind.trackpad`
+## [TEST-posix-fixture-on-windows-host] A fixture that shells out to `chmod`/`touch` is inert on Windows and for uid 0
 
-- **Rule**: so "test the trackpad path" is not a thing you do by changing the kind.
-  `PointerDownEvent`, `PointerMoveEvent`, `PointerUpEvent`, `PointerCancelEvent` and the two
-  hover events each assert `kind != PointerDeviceKind.trackpad` in their own constructor, and
-  `TestGesture.moveTo` asserts it again.
-- **Rule**: the kind is reserved for `PointerPanZoom*` (two-finger pan/zoom), which is also
-  the only route by which it reaches the `dragDevices` set (`_kTouchLikeDeviceTypes`) it is a
-  member of. A trackpad **click and drag** therefore arrives as one of the permitted kinds —
-  `mouse`, on macOS — so **a mouse-kind synthetic drag already *is* the trackpad path**.
-- **Consequence**: this killed an otherwise well-evidenced hypothesis — that four green
-  mutations of the Working Copy's mid-drag gate were green only because the synthetic drag
-  never said "trackpad" while the reporting user's did.
-- **Note**: the kinds a drag *can* vary over change hit/pan slop and scrollable claiming
-  (`mouse` vs `touch`), which is a different claim from the one hardware makes.
-- **Evidence**: ledger: 因為我是用觸控板
-
-## [TEST-dragdevices-is-not-a-guard] Never override `dragDevices` to guard a selection
-
-- **Rule**: `ScrollBehavior.dragDevices` defaults to `_kTouchLikeDeviceTypes`, which **has no
-  `mouse` in it** — so a scroller never contests a desktop selection drag, and "protecting"
-  the selection by clearing that set is unnecessary.
-- **Consequence**: it is also actively harmful — trackpad two-finger pan reaches a
-  `Scrollable` *through* membership of that very set, so an empty set deletes the main scroll
-  input and leaves only the scrollbar thumb and Shift+wheel.
-- **Rule**: **the 「unnecessary」 half is stronger than 「they never meet」, and it was
-  measured** — adding `mouse` to a `GbmCodeScrollWell`'s `dragDevices` (the premise inverted)
-  left `diff_pane_drag_stage_test.dart` fully green, and a probe confirmed the mutation was
-  live (the same drag moved the horizontal offset 0 → 50 with no selection in the way). Even
-  when a scroller *does* enter the arena, the `SelectableRegion` wins it.
-- **Consequence**: a drag test under a scroller pins the **composition**, not the arena,
-  because no realistic mutation of the arena reddens it.
-- **Do**: `gbm_code_hscroll_test.dart` pins the premise with a mouse-kind drag that must
-  **not** scroll.
-- **Evidence**: ledger: soft-warp
-
-## [TEST-posix-fixture-on-windows-host] A Flutter unit test that shells out to `chmod`/`touch`, or hands a POSIX-shaped path to a foreign `operatingSystem`, is inert on Windows — and until the three-OS matrix, had never been run there at all
-
-- **Rule**: ~~`ci.yml`'s Flutter job is ubuntu-only, so the unit tier's Windows behaviour is
-  whatever a developer's own machine says.~~ **Corrected in place**: `flutter-ci` is a three-OS
-  matrix as of chore/accept-toolchain-bump ([CI-linux-only]), so the unit tier now runs on
-  `windows-latest` and `macos-26` on every PR. The first run on a real Windows host (Windows 11,
-  Flutter 3.47.5) was 58 red of 2,947 — 55 from `chmod`/`touch` not being on `PATH`, 3 that
-  stayed red with Git's `usr\bin` added.
-- **Rule**: **the rule below is unchanged by that**, and is what the matrix now enforces rather
-  than merely records: a `chmod`/`touch` fixture is still the wrong instrument, it is just no
-  longer invisible until someone happens to own a Windows machine.
-- **Consequence**: a `chmod 555` fixture is not merely unavailable there, it is **silently
-  inert** — NTFS ignores the mode bits — so with coreutils installed the test goes green
-  having never met a failing write or delete. The same fixture is inert for uid 0 on POSIX.
-- **Do**: make «cannot write» a **missing parent directory**: it fails a real write for every
-  user on every OS, root included (`update_log_test.dart` had already made this argument).
-- **Do**: age a directory by **moving the injected clock**, never by setting its mtime —
-  `File.setLastModified` on a directory throws errno 50 on Windows, and `Directory` has no
-  setter at all. Only `now - mtime` decides anything.
-- **Do**: where a delete has to fail, choose the mechanism **per OS** and prove it bites with a
-  mutation that lets the delete throw: Windows refuses a tree holding an open file (errno 32,
-  measured), POSIX refuses an unwritable directory, and each is a no-op on the other.
-- **Do**: a path is cut with the separators of the **OS being simulated**, not the host's
-  (`UpdateInstaller._executableName`). The two coincide on a real machine, so only a test
-  handing a foreign-shaped path can see it.
+- **Rule**: `flutter-ci` runs the unit tier on `windows-latest` and `macos-26`; NTFS ignores `chmod`, so the test goes green having never met the failure.
+- **Do**: «cannot write» = a missing parent directory; age a directory by moving the injected clock, never its mtime; pick a failing delete per OS (`_makeUndeletable`) and prove it bites; cut a path with the simulated OS's separators.
 - **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)

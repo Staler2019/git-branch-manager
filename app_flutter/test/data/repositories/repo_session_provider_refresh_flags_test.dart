@@ -9,7 +9,7 @@
 // `sharedPreferencesProvider`), the same way `FakeRepoSessionController`
 // itself is built: a `FakeGbmBindings` whose `sessionOpen()` returns nullptr
 // makes the real `_open()` return before touching bindings again
-// ([TEST-fake-session-seam]), so the real controller never actually reaches
+// (`test/support/fake_repo_session.dart`'s header), so the real controller never actually reaches
 // the network/filesystem.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

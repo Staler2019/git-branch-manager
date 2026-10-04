@@ -10,6 +10,7 @@ import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/repositories/build_version_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
+import 'package:gbm_flutter/features/app_lifecycle/app_exit_session_cleanup.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/features/update/update_leftover_sweep.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
@@ -147,6 +148,10 @@ void main() {
       // inside it -- turning off update *checking* says nothing about the
       // leftovers of an update that already happened.
       expect(find.byType(UpdateLeftoverSweep), findsOneWidget);
+      // The quit-path session close: its own tests drive the widget, so only
+      // this line notices if nothing mounts it -- and a quit would then race
+      // the open sessions' background work again (the 0.48.1 SIGSEGV).
+      expect(find.byType(AppExitSessionCleanup), findsOneWidget);
       // Above the router, so it is there on the welcome screen too -- the
       // screen with no menu bar and therefore no manual entry point.
       expect(find.text('welcome'), findsOneWidget);

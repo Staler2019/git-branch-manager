@@ -14,8 +14,8 @@
 // almost all of them: open gbm on a normal clone and entry 0 is both. The
 // case below opens the store on a *linked* worktree, so the two flags land on
 // different entries and a single field cannot answer for both. Same shape as
-// [REF-remote-name-is-not-local-name], where a local branch and its remote
-// counterpart share a name in nearly every fixture.
+// a local branch and its remote counterpart sharing a name in nearly every
+// fixture (`delete_branch_dialog_test.dart`'s `feature/x` vs `renamed-x`).
 //
 // The ordering premise -- entry 0 of `git worktree list --porcelain` is the
 // main worktree -- was measured on git 2.55.0 rather than read off the docs:

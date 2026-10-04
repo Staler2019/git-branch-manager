@@ -43,7 +43,7 @@ void main() {
       expect(tree[1] is BranchTreeLeaf, true);
       // `headRef` is `main` with `isHead: true` and still sorts *after*
       // `develop`: the current branch has no ordering priority at all -- see
-      // docs/ledger.md, 「側邊欄目前分支不再置頂」.
+      // docs/records/2026-10-04-sidebar-head-has-no-privilege.md.
       expect((tree[0] as BranchTreeLeaf).ref.shortName, 'develop');
       expect((tree[1] as BranchTreeLeaf).ref.shortName, 'main');
     });
@@ -797,7 +797,9 @@ void main() {
 
   // The current branch is sorted like any other leaf. This is a
   // **user-ratified deviation** from BRANCH_STATES' 「永遠置頂於所屬資料夾
-  // 內」 and P02-14 rule 7 -- see docs/ledger.md. Every fixture below keeps
+  // 內」 and P02-14 rule 7 (ruling:
+  // docs/records/2026-10-04-sidebar-head-has-no-privilege.md).
+  // Every fixture below keeps
   // HEAD alphabetically last among its siblings, so a reinstated pin fails
   // them rather than passing by coincidence.
   group('current branch has no sort priority', () {

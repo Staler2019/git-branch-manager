@@ -422,7 +422,9 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
     //
     // P02-14 rule 7 (「目前分支永遠置頂顯示，即使不符合條件也不會被濾掉」) and
     // BRANCH_STATES' 「不受 filter 影響」 both said otherwise, and both are a
-    // **user-ratified deviation** now -- see docs/ledger.md. The panel used to
+    // **user-ratified deviation** now (ruling:
+    // docs/records/2026-10-04-sidebar-head-has-no-privilege.md).
+    // The panel used to
     // add HEAD back into the builder's input when the query dropped it, which
     // also resurrected its ancestor folders (a row cannot sit inside a folder
     // that is not drawn), so a filtered sidebar showed a folder with no

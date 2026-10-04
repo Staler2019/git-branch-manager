@@ -8,7 +8,9 @@ import '../../data/models/ref_snapshot.dart';
 ///
 /// * [RefInfo.isGone] -- git's own `%(upstream:track)` reporting `[gone]`,
 ///   which only happens *after* the remote-tracking ref has been deleted
-///   locally (spec's stage 3, an explicit Remote -> Prune remote branches).
+///   locally -- spec's stage 3, which a fetch now does automatically for an
+///   unclaimed ref ([REF-fetch-auto-prunes]); Remote -> Prune remote
+///   branches is the manual fallback.
 /// * [gonePendingRefs] -- the dry-run's answer, which is how stages 1 and 2
 ///   can mark a row without deleting anything.
 ///

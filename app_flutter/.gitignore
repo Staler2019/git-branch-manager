@@ -264,3 +264,5 @@ Backups.backupdb
 .MobileBackups.trash
 MobileBackups.trash
 tmbootpicker.efi
+# Widget Preview related
+.widget_preview/

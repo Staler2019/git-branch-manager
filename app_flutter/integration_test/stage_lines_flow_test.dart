@@ -193,6 +193,107 @@ void main() {
     );
   });
 
+  // The keyboard half of the test above: `repositoryStageSelectedLines`
+  // reaches `_submitTemporary` with the selection still live, where the
+  // card's button arrives after its own tap has collapsed it.
+  //
+  // **It does not pin [FLU-clear-selection-before-dispatch].** Moving the
+  // clear after the dispatch -- synchronously, or post-frame as it was before
+  // 45ebc2f -- left this file 9/9 green, and the pre-fix shape left 45ebc2f's
+  // own copy of it 6/6 green too: the `ConcurrentModificationError` that
+  // commit fixed does not reproduce here (ledger: #167).
+  testWidgets('the stage-selected-lines shortcut stages what the drag framed', (
+    tester,
+  ) async {
+    await _openDiff(tester, repo);
+
+    final Rect rect = tester.getRect(
+      find.descendant(of: _unstagedPane, matching: find.text('INSERTED_TWO')),
+    );
+    final TestGesture gesture = await tester.startGesture(
+      Offset(rect.left + 1, rect.center.dy),
+      kind: PointerDeviceKind.mouse,
+    );
+    addTearDown(gesture.removePointer);
+    await tester.pump();
+    await gesture.moveTo(Offset(rect.right - 1, rect.center.dy));
+    await tester.pump();
+    await gesture.up();
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('一次性'), findsOneWidget);
+    // The diff column registers its submitter post-frame, so the shell's
+    // handler map holds it one frame after the card appears; a key pressed
+    // inside that frame reaches a null handler. A human never does.
+    await tester.pumpAndSettle();
+
+    // Cmd+Alt+S on macOS (`gbm_shortcuts.dart`); the device tier runs there.
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = _stagedDiff(repo);
+    expect(staged.contains('+INSERTED_TWO'), isTrue, reason: staged);
+    expect(
+      staged.contains('+INSERTED_ONE'),
+      isFalse,
+      reason: 'the selection framed one line; the other must stay unstaged',
+    );
+  });
+
+  // A drag made while an earlier selection holds focus: the case the well's
+  // `onPointerDown` focus guard is about, since only then does an
+  // unconditional `requestFocus()` take focus from the SelectableRegion.
+  //
+  // **It does not pin the guard.** Requesting focus on every pointer down
+  // left it green, and the widget tier showed why: the region asks for focus
+  // back as the drag starts, so the selection the drag makes survives either
+  // way (ledger: #167). Kept as coverage of replacing a selection.
+  testWidgets('a second drag replaces the first selection, not a cleared one', (
+    tester,
+  ) async {
+    await _openDiff(tester, repo);
+
+    Future<void> drag(String text) async {
+      final Rect rect = tester.getRect(
+        find.descendant(of: _unstagedPane, matching: find.text(text)),
+      );
+      final TestGesture gesture = await tester.startGesture(
+        Offset(rect.left + 1, rect.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      await tester.pump();
+      await tester.pump();
+      await gesture.moveTo(Offset(rect.right - 1, rect.center.dy));
+      await tester.pump();
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+      await gesture.removePointer();
+    }
+
+    await drag('INSERTED_ONE');
+    expect(find.text('一次性'), findsOneWidget);
+    await drag('INSERTED_TWO');
+    expect(find.text('一次性'), findsOneWidget);
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.textContaining('Stage'),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = _stagedDiff(repo);
+    expect(staged.contains('+INSERTED_TWO'), isTrue, reason: staged);
+    expect(staged.contains('+INSERTED_ONE'), isFalse, reason: staged);
+  });
+
   testWidgets('a card on the staged side unstages -- the 「往左」 direction', (
     tester,
   ) async {

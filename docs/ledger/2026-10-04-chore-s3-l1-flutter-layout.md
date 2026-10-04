@@ -38,7 +38,7 @@ L0 在上一片降到 28,705 後，接著處理 path-scoped 的 L1 檔，每份�
     - `GbmSplitPane.initState`、`_GbmSplitPaneState.initState` 就是 `split_pane.dart` 的 `initState`。
     - `maxHeight: double.infinity` 在 `scoped_diff_view.dart` 寫成 `maxHeight: infinity`。
     - `GbmButton(...)` 只是示意。
-  - **接受的真實遺失**：`floating-label` 那條附帶的量測，即 `errorText` 在同一個固定高的框內畫在 `y: 33–50`、本身沒有缺陷，以及 `helperText` 與它同屬一類。這兩項現在只留在 git 歷史（`HEAD~1:.claude/rules/fn-flutter-layout.md`）。它們描述的是「不需要修的東西」，留到 L1 也不會改變任何人的動作。
+  - **接受的真實遺失**：`floating-label` 那條附帶的量測，即 `errorText` 在同一個固定高的框內畫在 `y: 33–50`、本身沒有缺陷，以及 `helperText` 與它同屬一類。這兩項現在只留在 git 歷史（`2f0d42f:.claude/rules/fn-flutter-layout.md`）。它們描述的是「不需要修的東西」，留到 L1 也不會改變任何人的動作。
 - **其他檢查**：
   - `check-rule-pins.py`：163 條、96 個引用，懸空 0。
   - 連結檢查 broken 1，是 `docs/rules/README.md` 範本裡原本就有的 `<date>-<branch>` 佔位字串，不是這輪造成的。

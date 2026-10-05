@@ -251,9 +251,11 @@ class _MenuBarButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Text(
             label,
+            // `.mkbar{...color:var(--text-secondary)}`; the items are bare
+            // spans that take the bar's colour.
             style: TextStyle(
               fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
+              color: colors.textSecondary,
             ),
           ),
         ),

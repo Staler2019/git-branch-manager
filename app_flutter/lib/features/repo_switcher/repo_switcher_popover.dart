@@ -440,9 +440,11 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
           splashFactory: NoSplash.splashFactory,
           highlightColor: Colors.transparent,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+          // P2's mockup, in both drawings of it: `height:26px;padding:0 7px`
+          // inline -- not `.gbm-btn`'s 30, which this element does not use.
           child: Container(
-            height: 30,
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            height: 26,
+            padding: const EdgeInsets.symmetric(horizontal: 7),
             decoration: BoxDecoration(
               color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
               border: Border.all(color: colors.borderDefault),

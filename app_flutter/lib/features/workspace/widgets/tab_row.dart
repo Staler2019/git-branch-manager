@@ -334,7 +334,8 @@ class _Tab extends StatelessWidget {
           // by user ruling (#169): a surface-hover fill, a text-primary icon.
           IconButton(
             onPressed: onClose,
-            icon: const Icon(Icons.close, size: 14),
+            // `icClose: this.lucideIcon('x', 12, 'var(--text-secondary)')`.
+            icon: const Icon(Icons.close, size: 12),
             padding: const EdgeInsets.all(2),
             constraints: const BoxConstraints(),
             style: ButtonStyle(
@@ -354,7 +355,7 @@ class _Tab extends StatelessWidget {
                 (Set<WidgetState> states) =>
                     states.contains(WidgetState.hovered)
                     ? colors.textPrimary
-                    : colors.textTertiary,
+                    : colors.textSecondary,
               ),
               overlayColor: const WidgetStatePropertyAll<Color>(
                 Colors.transparent,

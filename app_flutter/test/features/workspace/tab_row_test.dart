@@ -169,6 +169,26 @@ void main() {
     // The mockup's close glyph is a bare icon with no hover; the user ruled
     // it takes `.gbm-iconbtn:hover` -- a surface-hover fill and a
     // text-primary icon (#169).
+    // The mockup's `icClose: this.lucideIcon('x', 12, 'var(--text-secondary)')`.
+    testWidgets('the close glyph is 12px in textSecondary at rest', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<Icon>(find.byIcon(Icons.close)).size, 12);
+      expect(
+        IconTheme.of(tester.element(find.byIcon(Icons.close))).color,
+        colors.textSecondary,
+      );
+    });
+
     testWidgets('the close button hovers like an icon button', (tester) async {
       await _pump(
         tester,

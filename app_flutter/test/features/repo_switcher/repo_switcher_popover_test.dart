@@ -440,6 +440,29 @@ void main() {
   });
 
   group('RepoSwitcherButton', () {
+    // P2's mockup, twice: `height:26px;padding:0 7px` inline on the trigger.
+    testWidgets('is 26 tall with 7px side padding', (tester) async {
+      await _pump(
+        tester,
+        const SizedBox(
+          width: 240,
+          child: RepoSwitcherButton(currentWorkDir: _workDir1),
+        ),
+        repos: <RepoRecord>[_record()],
+      );
+      final Finder box = find
+          .descendant(
+            of: find.byType(RepoSwitcherButton),
+            matching: find.byType(Container),
+          )
+          .first;
+      expect(tester.getSize(box).height, 26);
+      expect(
+        tester.widget<Container>(box).padding,
+        const EdgeInsets.symmetric(horizontal: 7),
+      );
+    });
+
     // The mockup's trigger is an inline-styled span with no hover rule; the
     // user ruled it hovers like a secondary button, `surface-hover` (#169).
     // Its own opaque fill sits above any InkWell ink, so the fill is what

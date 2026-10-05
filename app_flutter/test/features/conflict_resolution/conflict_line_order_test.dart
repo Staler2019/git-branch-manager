@@ -3,6 +3,20 @@ import 'package:gbm_flutter/features/conflict_resolution/conflict_line_order.dar
 
 void main() {
   group('ConflictLineOrderState', () {
+    test('unresolvedCount counts regions with no line and no hand edit', () {
+      final ConflictLineOrderState state = ConflictLineOrderState.initial(3);
+      expect(state.unresolvedCount, 3);
+
+      final ConflictLineOrderState taken = state.appendLine(
+        0,
+        ConflictLineSource.ours,
+        'line\n',
+      );
+      expect(taken.unresolvedCount, 2);
+      expect(taken.markManuallyEdited(2).unresolvedCount, 1);
+      expect(taken.resetRegion(0).unresolvedCount, 3);
+    });
+
     test('initial state creates regions with empty sequences', () {
       final state = ConflictLineOrderState.initial(2);
 

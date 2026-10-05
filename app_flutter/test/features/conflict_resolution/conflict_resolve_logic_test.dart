@@ -52,6 +52,30 @@ WorkingCopyEntry conflictedEntry(String path) => WorkingCopyEntry(
 );
 
 void main() {
+  group('adjacentConflictPath', () {
+    const List<String> painted = <String>['a', 'b', 'c'];
+
+    test('steps one file either way', () {
+      expect(adjacentConflictPath(painted, 'b', forward: true), 'c');
+      expect(adjacentConflictPath(painted, 'b', forward: false), 'a');
+    });
+
+    test('stops at the ends', () {
+      expect(adjacentConflictPath(painted, 'c', forward: true), 'c');
+      expect(adjacentConflictPath(painted, 'a', forward: false), 'a');
+    });
+
+    test('with nothing selected, down takes the first and up the last', () {
+      expect(adjacentConflictPath(painted, null, forward: true), 'a');
+      expect(adjacentConflictPath(painted, null, forward: false), 'c');
+      expect(adjacentConflictPath(painted, 'gone', forward: true), 'a');
+    });
+
+    test('an empty list has nowhere to go', () {
+      expect(adjacentConflictPath(const <String>[], null, forward: true), null);
+    });
+  });
+
   group('assembleConflictResolution', () {
     test('assembles the chosen side without any marker text', () {
       final ParsedConflictFile parsed = ParsedConflictFile(

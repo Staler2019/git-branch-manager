@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/parsed_conflict_file.dart';
+import '../../data/models/file_tree.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -23,6 +24,8 @@ import '../../data/repositories/app_preferences_repository.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_menu.dart';
+import '../../widgets/gbm_row.dart';
+import '../../widgets/lucide_icon.dart';
 import '../../widgets/split_pane.dart';
 import 'conflict_hunk_menu_items.dart';
 import 'conflict_line_order.dart';
@@ -46,8 +49,8 @@ import 'original_operation_message_dialog.dart';
 /// region has at least one line -- see gbm_parse_conflict_markers() and
 /// gbm_request_working_tree_content() in gbm_capi.h. A path with no
 /// parseable regions (binary, or markers the parser gave up on) falls back
-/// to the plain Take Ours/Take Theirs/Mark Resolved actions on the rail
-/// row, same as before this editor existed.
+/// to whole-file Take Ours/Take Theirs buttons in the editor's hint, with
+/// Mark Resolved on the bottom bar (#172).
 ///
 /// Deliberately reduced from the Qt original: no drag-and-drop of a region
 /// onto the result pane, no click-a-line/shift-click-a-range custom
@@ -194,6 +197,20 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     return '${entry.ancestorBlob}|${entry.oursBlob}|${entry.theirsBlob}';
   }
 
+  /// Remaining regions of a file the user opened and then left -- P8's rail
+  /// count, shown only for files already opened (#172: 「已開過的檔才顯示」).
+  /// The selected file reads [_lineOrder] live instead; see [_remainingFor].
+  Map<String, int> _remainingByPath = const <String, int>{};
+
+  /// Null for a file never opened, or one with nothing to resolve per
+  /// region (unparseable, or zero regions).
+  int? _remainingFor(String path) {
+    if (path != _selectedPath) return _remainingByPath[path];
+    final ConflictLineOrderState? order = _lineOrder;
+    if (order == null || order.regionCount == 0) return null;
+    return order.unresolvedCount;
+  }
+
   void _selectPath(String path) {
     final RepoSessionState currentSession = ref.read(
       repoSessionProvider(widget.identity),
@@ -204,7 +221,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       currentSession.workingCopyStatus.conflicted,
       path,
     );
+    final String? leaving = _selectedPath;
+    final ConflictLineOrderState? leavingOrder = _lineOrder;
     setState(() {
+      if (leaving != null && leavingOrder != null) {
+        _remainingByPath = <String, int>{
+          ..._remainingByPath,
+          leaving: leavingOrder.unresolvedCount,
+        };
+      }
       _selectedPath = path;
       _selectedConflictSignature = signature;
       _parsedForPath = null;
@@ -248,15 +273,34 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     });
   }
 
+  /// Resolves [path] as a whole to one side. The blob-missing flags tell
+  /// core which side was deleted, so a delete/modify conflict takes the
+  /// deletion rather than failing to read a blob that is not there.
+  void _takeWholeFile(String path, ConflictResolution side) {
+    final RepoSessionController session = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
+    final WorkingCopyEntry? wc = ref
+        .read(repoSessionProvider(widget.identity))
+        .workingCopyStatus
+        .conflicted
+        .cast<WorkingCopyEntry?>()
+        .firstWhere((e) => e?.path == path, orElse: () => null);
+    session.resolveConflict(
+      path,
+      side,
+      oursBlobMissing:
+          side == ConflictResolution.takeOurs &&
+          (wc?.oursBlob.isEmpty ?? false),
+      theirsBlobMissing:
+          side == ConflictResolution.takeTheirs &&
+          (wc?.theirsBlob.isEmpty ?? false),
+    );
+  }
+
   bool get _allResolved {
-    if (_lineOrder == null) return false;
-    for (int i = 0; i < _lineOrder!.regionCount; i++) {
-      final region = _lineOrder!.regions[i];
-      if (region.orderedLines.isEmpty && !region.manuallyEdited) {
-        return false;
-      }
-    }
-    return true;
+    final ConflictLineOrderState? order = _lineOrder;
+    return order != null && order.unresolvedCount == 0;
   }
 
   void _appendLines(
@@ -368,6 +412,29 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   /// Moves focus to the next conflict region.
+  /// The rail's files in painted order: the batch's own order in list mode,
+  /// the folder tree's leaf order in tree mode ([FileListModeSwitcher] builds
+  /// the same [FileTree] from the same paths).
+  List<String> _paintedPaths() {
+    final List<String> paths = <String>[
+      for (final ConflictBatchEntry e in _batch.entries) e.path,
+    ];
+    return ref.read(fileListViewModeProvider) == FileListViewMode.tree
+        ? FileTree.fromPaths(paths).getAllLeafPaths()
+        : paths;
+  }
+
+  void _stepFile({required bool forward}) {
+    final String? target = adjacentConflictPath(
+      _paintedPaths(),
+      _selectedPath,
+      forward: forward,
+    );
+    // At an end the target is the file already open; reselecting it would
+    // throw away its in-progress edits.
+    if (target != null && target != _selectedPath) _selectPath(target);
+  }
+
   void _handleNextConflict() {
     final int? nextIndex = _nextRegionIndex(1);
     if (nextIndex != null) {
@@ -578,31 +645,12 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
 
     Widget buildRailRow(ConflictBatchEntry entry, String label) {
-      final WorkingCopyEntry? wc = conflicted
-          .cast<WorkingCopyEntry?>()
-          .firstWhere((e) => e?.path == entry.path, orElse: () => null);
       return _ConflictRailRow(
         entry: entry,
         label: label,
         selected: entry.path == _selectedPath,
+        remaining: _remainingFor(entry.path),
         onTap: () => _selectPath(entry.path),
-        onTakeOurs: () => ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .resolveConflict(
-              entry.path,
-              ConflictResolution.takeOurs,
-              oursBlobMissing: wc?.oursBlob.isEmpty ?? false,
-            ),
-        onTakeTheirs: () => ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .resolveConflict(
-              entry.path,
-              ConflictResolution.takeTheirs,
-              theirsBlobMissing: wc?.theirsBlob.isEmpty ?? false,
-            ),
-        onMarkResolved: () => ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .resolveConflict(entry.path, ConflictResolution.markResolved),
       );
     }
 
@@ -612,6 +660,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       onTakeOursHunk: _handleTakeOursHunk,
       onTakeTheirsHunk: _handleTakeTheirsHunk,
       onNextConflict: _handleNextConflict,
+      onPreviousFile: () => _stepFile(forward: false),
+      onNextFile: () => _stepFile(forward: true),
       child: Scaffold(
         appBar: AppBar(
           leading: BackButton(
@@ -689,14 +739,21 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                             ),
                             Expanded(
                               child: viewMode == FileListViewMode.list
-                                  ? ListView(
-                                      children: <Widget>[
-                                        for (final entry in _batch.entries)
-                                          // List mode's label is the whole
-                                          // path; this arm is hand-rolled
-                                          // only to keep the ListView.
-                                          buildRailRow(entry, entry.path),
-                                      ],
+                                  // P8's rail list: `padding:6px; gap:2px`.
+                                  ? ListView.separated(
+                                      padding: const EdgeInsets.all(
+                                        _railListPadding,
+                                      ),
+                                      itemCount: _batch.entries.length,
+                                      separatorBuilder: (_, _) =>
+                                          const SizedBox(height: _railRowGap),
+                                      // List mode's label is the whole path;
+                                      // this arm is hand-rolled only to keep
+                                      // the ListView.
+                                      itemBuilder: (_, int i) => buildRailRow(
+                                        _batch.entries[i],
+                                        _batch.entries[i].path,
+                                      ),
                                     )
                                   // Tree mode has no scroll-offset
                                   // persistence: FileTreeList builds its own
@@ -828,14 +885,40 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       return const Center(child: CircularProgressIndicator());
     }
     if (parsed == null || parsed.regionCount == 0 || _lineOrder == null) {
-      // Not editable (binary/non-UTF8), or no parseable regions -- fall
-      // back to the rail row's whole-file Take Ours/Take Theirs/Mark
-      // Resolved actions; nothing more to show here.
+      // Not editable (binary/non-UTF8), or no parseable regions: nothing to
+      // apply line by line, so the way forward is a whole-file choice. The
+      // spec draws no whole-file take; the user ruled it lives here (#172).
+      // Mark resolved stays in the bottom bar, as P8 item 11 has it.
+      final String? path = _selectedPath;
       return Center(
-        child: Text(
-          'This file has no per-region conflict markers to resolve here.\nUse Take Ours / Take Theirs / Mark Resolved on the left.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: colors.textTertiary),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'This file has no per-region conflict markers to resolve here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.textTertiary),
+            ),
+            if (path != null) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  GbmButton(
+                    label: 'Take Ours',
+                    onPressed: () =>
+                        _takeWholeFile(path, ConflictResolution.takeOurs),
+                  ),
+                  const SizedBox(width: GbmSpacing.space2),
+                  GbmButton(
+                    label: 'Take Theirs',
+                    onPressed: () =>
+                        _takeWholeFile(path, ConflictResolution.takeTheirs),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
       );
     }
@@ -1213,117 +1296,92 @@ class _ConflictActionBar extends StatelessWidget {
   }
 }
 
+/// P8's rail list: `padding:6px` around the rows, `gap:2px` between them.
+const double _railListPadding = 6;
+const double _railRowGap = 2;
+
+/// One conflicted file in P8's rail: a `.gbm-row` (27px, `gap:6px`) holding
+/// a 6px status dot, the name at 10.5px, and -- once resolved -- a 12px
+/// `icCheck`, the whole row at `opacity:.55`. The whole-file actions are not
+/// here (#172): an unparseable file's live in the editor's hint, and Mark
+/// Resolved is on the bottom bar.
 class _ConflictRailRow extends StatelessWidget {
   const _ConflictRailRow({
     required this.entry,
     required this.label,
     required this.selected,
+    required this.remaining,
     required this.onTap,
-    required this.onTakeOurs,
-    required this.onTakeTheirs,
-    required this.onMarkResolved,
   });
+
+  static const double _height = 27;
+  static const double _countFontSize = 9.5;
+  static const double _gap = 6;
+  static const double _dotSize = 6;
+  static const double _nameFontSize = 10.5;
+  static const double _checkSize = 12;
+  static const double _resolvedOpacity = 0.55;
 
   final ConflictBatchEntry entry;
 
   /// What to draw as the row's name -- see `FileListModeSwitcher.leafBuilder`.
   final String label;
   final bool selected;
+
+  /// Unresolved regions left, or null when the file was never opened.
+  final int? remaining;
   final VoidCallback onTap;
-  final VoidCallback onTakeOurs;
-  final VoidCallback onTakeTheirs;
-  final VoidCallback onMarkResolved;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final bool resolved = entry.state == ConflictFileState.resolved;
-    return Material(
-      color: selected ? colors.surfaceSelected : Colors.transparent,
-      // `.gbm-row:hover` in the mockup's rail. Not a [GbmRow]: that fixes a
-      // height, and this row carries a second line of mini-buttons. The ink
-      // paints *over* this Material's colour, so a selected row turns its
-      // hover off: `.gbm-row.selected` is declared after `:hover` and wins.
-      child: InkWell(
-        onTap: onTap,
-        hoverColor: selected ? Colors.transparent : colors.surfaceHover,
-        splashFactory: NoSplash.splashFactory,
-        highlightColor: Colors.transparent,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(
-            horizontal: GbmSpacing.space3,
-            vertical: GbmSpacing.space2,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  Icon(
-                    resolved ? Icons.check_circle : Icons.error_outline,
-                    size: 14,
-                    color: resolved ? colors.diffAddText : colors.danger,
-                  ),
-                  const SizedBox(width: GbmSpacing.space1),
-                  Expanded(
-                    // `label`, not the path: in tree mode the folder
-                    // rows above already carry the prefix.
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.textPrimary,
-                        fontWeight: GbmTypography.weightMedium,
-                        decoration: resolved
-                            ? TextDecoration.lineThrough
-                            : null,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
+    final int? count = resolved ? null : remaining;
+    return GbmRow(
+      height: _height,
+      selected: selected,
+      onTap: onTap,
+      child: Opacity(
+        opacity: resolved ? _resolvedOpacity : 1,
+        child: Row(
+          children: <Widget>[
+            Container(
+              width: _dotSize,
+              height: _dotSize,
+              decoration: BoxDecoration(
+                color: resolved ? colors.success : colors.danger,
+                shape: BoxShape.circle,
               ),
-              if (!resolved) ...<Widget>[
-                const SizedBox(height: GbmSpacing.space1),
-                Wrap(
-                  spacing: GbmSpacing.space1,
-                  children: <Widget>[
-                    _MiniButton(label: 'Take Ours', onPressed: onTakeOurs),
-                    _MiniButton(label: 'Take Theirs', onPressed: onTakeTheirs),
-                    _MiniButton(
-                      label: 'Mark Resolved',
-                      onPressed: onMarkResolved,
-                    ),
-                  ],
+            ),
+            const SizedBox(width: _gap),
+            Expanded(
+              // `label`, not the path: in tree mode the folder rows above
+              // already carry the prefix.
+              child: Text(
+                label,
+                style: const TextStyle(fontSize: _nameFontSize),
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            if (count != null) ...<Widget>[
+              const SizedBox(width: _gap),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: _countFontSize,
+                  color: colors.textTertiary,
                 ),
-              ],
+              ),
             ],
-          ),
+            if (resolved) ...<Widget>[
+              const SizedBox(width: _gap),
+              LucideIcon('check', size: _checkSize, color: colors.success),
+            ],
+          ],
         ),
-      ),
-    );
-  }
-}
-
-class _MiniButton extends StatelessWidget {
-  const _MiniButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    return TextButton(
-      onPressed: onPressed,
-      style: TextButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        minimumSize: const Size(0, 24),
-        foregroundColor: colors.textSecondary,
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(fontSize: GbmTypography.textXs),
       ),
     );
   }
@@ -1718,9 +1776,20 @@ class _NextConflictIntent extends Intent {
   const _NextConflictIntent();
 }
 
+/// Intent for moving the file selection to the previous painted file.
+class _PreviousFileIntent extends Intent {
+  const _PreviousFileIntent();
+}
+
+/// Intent for moving the file selection to the next painted file.
+class _NextFileIntent extends Intent {
+  const _NextFileIntent();
+}
+
 /// Keyboard shortcuts + actions wrapper for the conflict resolve window.
-/// Handles Ctrl/Cmd+Z to undo the last discard, and Alt+Left/Right/Down for
-/// taking hunks and navigating regions. This is window-local and not tied
+/// Handles Ctrl/Cmd+Z to undo the last discard, Alt+Left/Right/Down for
+/// taking hunks and navigating regions, and Ctrl/Cmd+Up/Down for stepping
+/// through the file rail (spec P8-1). This is window-local and not tied
 /// to the app-wide edit undo or menu action systems.
 class _ConflictResolveWindowShortcuts extends StatelessWidget {
   const _ConflictResolveWindowShortcuts({
@@ -1730,6 +1799,8 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
     required this.onTakeOursHunk,
     required this.onTakeTheirsHunk,
     required this.onNextConflict,
+    required this.onPreviousFile,
+    required this.onNextFile,
   });
 
   final Widget child;
@@ -1738,6 +1809,8 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
   final VoidCallback onTakeOursHunk;
   final VoidCallback onTakeTheirsHunk;
   final VoidCallback onNextConflict;
+  final VoidCallback onPreviousFile;
+  final VoidCallback onNextFile;
 
   @override
   Widget build(BuildContext context) {
@@ -1753,6 +1826,16 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
           const _TakeTheirsHunkIntent(),
       SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
           const _NextConflictIntent(),
+      SingleActivator(
+        LogicalKeyboardKey.arrowUp,
+        control: !isMacOS,
+        meta: isMacOS,
+      ): const _PreviousFileIntent(),
+      SingleActivator(
+        LogicalKeyboardKey.arrowDown,
+        control: !isMacOS,
+        meta: isMacOS,
+      ): const _NextFileIntent(),
     };
 
     return Shortcuts(
@@ -1770,6 +1853,12 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
           ),
           _NextConflictIntent: CallbackAction<_NextConflictIntent>(
             onInvoke: (_) => onNextConflict(),
+          ),
+          _PreviousFileIntent: CallbackAction<_PreviousFileIntent>(
+            onInvoke: (_) => onPreviousFile(),
+          ),
+          _NextFileIntent: CallbackAction<_NextFileIntent>(
+            onInvoke: (_) => onNextFile(),
           ),
         },
         child: Focus(autofocus: true, child: child),

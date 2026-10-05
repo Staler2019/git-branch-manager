@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
         WorkingTreeContentReply,
         repoSessionProvider;
 import 'package:gbm_flutter/features/conflict_resolution/conflict_resolve_window.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -24,6 +25,8 @@ import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/file_list_mode_toggle_button.dart';
 import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -123,6 +126,29 @@ final WorkingCopyEntry _conflictEntryReoccurred = const WorkingCopyEntry(
   ancestorBlob: '',
   oursBlob: 'ours-hash-2',
   theirsBlob: 'theirs-hash-2',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: true,
+);
+
+/// [_conflictEntry] as a delete/modify conflict: ours deleted the file, so
+/// there is no ours blob.
+const WorkingCopyEntry _conflictEntryOursDeleted = WorkingCopyEntry(
+  path: 'conflict.txt',
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
+  conflict: ConflictKind.bothModified,
+  ancestorBlob: '',
+  oursBlob: '',
+  theirsBlob: 'theirs-hash',
   similarity: 0,
   isSubmodule: false,
   isConflicted: true,
@@ -393,50 +419,328 @@ void main() {
       );
     });
 
-    // A hand-rolled InkWell inherits `ThemeData.hoverColor` (~4% black/white),
-    // which is no hover at all on a real display. The mockup draws the rail's
-    // file rows as `.gbm-row`, whose `:hover` is `--surface-hover`.
-    testWidgets('a rail row hovers in surfaceHover', (tester) async {
+    // P8's rail draws each conflicted file as one `.gbm-row` -- 27px, a 6px
+    // status dot, the name at 10.5px with no declared weight -- and carries
+    // no whole-file buttons: those live in the editor's fallback hint and the
+    // bottom bar (#172). `.gbm-row.selected` wins over `:hover`, which
+    // [GbmRow] already paints; its own tests pin the two tokens.
+    testWidgets('a rail row is one 27px GbmRow with no whole-file buttons', (
+      tester,
+    ) async {
       await _pumpWindow(
         tester,
         identity,
         _sessionWith(_conflictEntry),
-        ParsedConflictFile(
-          segments: <ConflictSegment>[
-            _regionSegment(ours: <String>['a'], theirs: <String>['b']),
-          ],
-          regionCount: 1,
-          wellFormed: true,
+        _oneRegionFile(),
+      );
+
+      final Finder row = _railRow('conflict.txt');
+      expect(row, findsOneWidget);
+      expect(tester.getSize(row).height, 27);
+      for (final String label in <String>[
+        'Take Ours',
+        'Take Theirs',
+        'Mark Resolved',
+      ]) {
+        expect(
+          find.descendant(of: row, matching: find.text(label)),
+          findsNothing,
+          reason: label,
+        );
+      }
+      final Text name = tester.widget<Text>(
+        find.descendant(of: row, matching: find.text('conflict.txt')),
+      );
+      expect(name.style?.fontSize, 10.5);
+      expect(name.style?.fontWeight, isNull);
+      expect(name.style?.decoration, isNull);
+
+      expect(tester.widget<GbmRow>(row).selected, isFalse);
+      await _selectConflictFile(tester);
+      expect(tester.widget<GbmRow>(_railRow('conflict.txt')).selected, isTrue);
+    });
+
+    testWidgets('an unresolved rail row leads with a 6px danger dot', (
+      tester,
+    ) async {
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry),
+        _oneRegionFile(),
+      );
+
+      final Finder row = _railRow('conflict.txt');
+      final Finder dot = _statusDot(row);
+      expect(tester.getSize(dot), const Size(6, 6));
+      expect(
+        (tester.widget<Container>(dot).decoration! as BoxDecoration).color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+      expect(
+        tester.getTopLeft(find.text('conflict.txt')).dx -
+            tester.getTopRight(dot).dx,
+        6,
+      );
+      expect(tester.widget<Opacity>(_rowOpacity(row)).opacity, 1);
+      expect(
+        find.descendant(of: row, matching: find.byType(LucideIcon)),
+        findsNothing,
+      );
+    });
+
+    testWidgets(
+      'a resolved rail row fades to .55 with a success dot and a check',
+      (tester) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          _oneRegionFile(),
+        );
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus.empty,
+        );
+        await tester.pumpAndSettle();
+
+        final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+        final Finder row = _railRow('conflict.txt');
+        expect(
+          (tester.widget<Container>(_statusDot(row)).decoration!
+                  as BoxDecoration)
+              .color,
+          colors.success,
+        );
+        expect(tester.widget<Opacity>(_rowOpacity(row)).opacity, 0.55);
+        final LucideIcon check = tester.widget<LucideIcon>(
+          find.descendant(of: row, matching: find.byType(LucideIcon)),
+        );
+        expect(check.name, 'check');
+        expect(check.size, 12);
+        expect(check.color, colors.success);
+        expect(
+          tester.widget<Text>(find.text('conflict.txt')).style?.decoration,
+          isNull,
+          reason: 'line-through has no source in the spec',
+        );
+      },
+    );
+
+    testWidgets('the rail list pads 6px and spaces its rows 2px apart', (
+      tester,
+    ) async {
+      await _pumpWindow(
+        tester,
+        identity,
+        RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(
+            entries: <WorkingCopyEntry>[
+              _conflictAt('a.txt'),
+              _conflictAt('b.txt'),
+            ],
+          ),
+        ),
+        _oneRegionFile(),
+      );
+
+      final Rect a = tester.getRect(_railRow('a.txt'));
+      final Rect b = tester.getRect(_railRow('b.txt'));
+      expect(b.top - a.bottom, 2);
+      expect(a.left - tester.getRect(find.byType(GbmSplitPane).first).left, 6);
+    });
+
+    // P8's rail ends an unresolved row with its remaining-segment count
+    // (`gbm-mono`, 9.5px, `--text-tertiary`). The user ruled 「已開過的檔才
+    // 顯示」 (#172): a file never opened has not been parsed, so it shows
+    // nothing rather than a guess.
+    group('rail remaining count', () {
+      Finder remainingCount(String name) => find.descendant(
+        of: _railRow(name),
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is Text && w.style?.fontFamily == GbmTypography.fontMono,
         ),
       );
 
-      final InkWell row = tester.widget<InkWell>(
-        find
-            .ancestor(
-              of: find.text('conflict.txt'),
-              matching: find.byType(InkWell),
-            )
-            .first,
-      );
-      expect(
-        row.hoverColor,
-        tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+      final RepoSessionState twoFiles = RepoSessionState(
+        isOpen: true,
+        workingCopyStatus: WorkingCopyStatus(
+          entries: <WorkingCopyEntry>[
+            _conflictAt('a.txt'),
+            _conflictAt('b.txt'),
+          ],
+        ),
       );
 
-      await _selectConflictFile(tester);
-      final InkWell selected = tester.widget<InkWell>(
-        find
-            .ancestor(
-              of: find.text('conflict.txt').first,
-              matching: find.byType(InkWell),
-            )
-            .first,
+      testWidgets('an unopened file shows no remaining count', (tester) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+
+        expect(remainingCount('a.txt'), findsNothing);
+        expect(remainingCount('b.txt'), findsNothing);
+      });
+
+      testWidgets('the opened file counts its unresolved regions live', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+
+        final Text count = tester.widget<Text>(remainingCount('a.txt'));
+        expect(count.data, '2');
+        expect(count.style?.fontSize, 9.5);
+        expect(
+          count.style?.color,
+          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+        );
+        expect(remainingCount('b.txt'), findsNothing);
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Text>(remainingCount('a.txt')).data, '1');
+      });
+
+      testWidgets('a file keeps its remaining count once the selection moves', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('b.txt'));
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<Text>(remainingCount('a.txt')).data, '1');
+        expect(tester.widget<Text>(remainingCount('b.txt')).data, '2');
+      });
+
+      // The count and the editable-result gate read one source,
+      // `unresolvedCount`; this pins the gate's side of it.
+      testWidgets('the editable result waits for every region, not most', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Result (editable)'), findsNothing);
+
+        await tester.tap(_perRegionTakeButton('Ours').last);
+        await tester.pumpAndSettle();
+        expect(find.text('Result (editable)'), findsOneWidget);
+      });
+
+      testWidgets('a resolved file shows no count even after it was opened', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          twoFiles,
+          _twoRegionFile(),
+        );
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('b.txt'));
+        await tester.pumpAndSettle();
+        expect(remainingCount('a.txt'), findsOneWidget);
+
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus(
+            entries: <WorkingCopyEntry>[_conflictAt('b.txt')],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(remainingCount('a.txt'), findsNothing);
+      });
+    });
+
+    // P8-1: Ctrl/Cmd+↑↓ moves to the previous / next file in the order the
+    // rail paints them, stopping at the ends; tree mode skips folder rows
+    // (#172: 「上／下一個檔，到頭停住」, [SPEC-range-follows-paint-order]).
+    // List order and tree leaf order differ for these three paths: the tree
+    // groups b/d.txt under b/ ahead of a.txt.
+    group('Ctrl+Up/Down file stepping', () {
+      final RepoSessionState threeFiles = RepoSessionState(
+        isOpen: true,
+        workingCopyStatus: WorkingCopyStatus(
+          entries: <WorkingCopyEntry>[
+            _conflictAt('b/c.txt'),
+            _conflictAt('a.txt'),
+            _conflictAt('b/d.txt'),
+          ],
+        ),
       );
-      expect(
-        selected.hoverColor,
-        Colors.transparent,
-        reason: '.gbm-row.selected wins over :hover in the mockup',
-      );
+
+      Future<void> ctrl(WidgetTester tester, LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyDownEvent(key);
+        await tester.sendKeyUpEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      List<Object?> opened(ProviderContainer container) =>
+          (container.read(repoSessionProvider(identity).notifier)
+                  as FakeRepoSessionController)
+              .commandLog
+              .where((c) => c.name == 'requestWorkingTreeContent')
+              .map((c) => c.args['path'])
+              .toList();
+
+      testWidgets('list mode steps in list order and stops at the ends', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          threeFiles,
+          _oneRegionFile(),
+        );
+
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowUp);
+
+        expect(opened(container), <String>[
+          'b/c.txt',
+          'a.txt',
+          'b/d.txt',
+          'a.txt',
+        ]);
+      });
+
+      testWidgets('tree mode steps in leaf order, skipping folder rows', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          threeFiles,
+          _oneRegionFile(),
+          initialPrefs: <String, Object>{'fileListViewMode': 'tree'},
+        );
+
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+
+        expect(opened(container), <String>['b/c.txt', 'b/d.txt', 'a.txt']);
+      });
     });
 
     // A hunk side's single lines are clickable (one click applies that line)
@@ -468,6 +772,98 @@ void main() {
       expect(
         line.hoverColor,
         tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+      );
+    });
+
+    // A binary or marker-less file has no regions to apply line by line, so
+    // its only way forward is a whole-file choice. The spec draws no
+    // whole-file take anywhere; the user ruled it lives where the editor
+    // says there is nothing to edit (#172), with Mark resolved staying in
+    // the bottom bar as P8 item 11 has it.
+    testWidgets('an unparseable file offers whole-file Take Ours / Theirs in '
+        'the editor', (tester) async {
+      final ProviderContainer container = await _pumpWindow(
+        tester,
+        identity,
+        RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(entries: [_conflictEntry]),
+          lastWorkingTreeContent: const WorkingTreeContentReply(
+            path: 'conflict.txt',
+            editable: false,
+            content: '',
+          ),
+        ),
+        ParsedConflictFile(
+          segments: const <ConflictSegment>[],
+          regionCount: 0,
+          wellFormed: true,
+        ),
+      );
+      await _selectConflictFile(tester);
+      final FakeRepoSessionController fake = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Theirs'));
+      await tester.pump();
+
+      expect(
+        fake.resolveConflictCalls.map((c) => (c.path, c.resolution)).toList(),
+        <(String, Object?)>[
+          ('conflict.txt', ConflictResolution.takeOurs),
+          ('conflict.txt', ConflictResolution.takeTheirs),
+        ],
+      );
+    });
+
+    // A delete/modify conflict has no blob on the deleting side; the flag is
+    // what tells core to take the deletion instead of reading that blob.
+    testWidgets('a whole-file take flags the side whose blob is missing', (
+      tester,
+    ) async {
+      final ProviderContainer container = await _pumpWindow(
+        tester,
+        identity,
+        RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(
+            entries: [_conflictEntryOursDeleted],
+          ),
+          lastWorkingTreeContent: const WorkingTreeContentReply(
+            path: 'conflict.txt',
+            editable: false,
+            content: '',
+          ),
+        ),
+        ParsedConflictFile(
+          segments: const <ConflictSegment>[],
+          regionCount: 0,
+          wellFormed: true,
+        ),
+      );
+      await _selectConflictFile(tester);
+      final FakeRepoSessionController fake = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Theirs'));
+      await tester.pump();
+
+      final List<Map<String, Object?>> calls = fake.commandLog
+          .where((c) => c.name == 'resolveConflict')
+          .map((c) => c.args)
+          .toList();
+      expect(calls, hasLength(2));
+      expect(calls[0]['oursBlobMissing'], isTrue);
+      expect(
+        calls[1]['oursBlobMissing'],
+        isFalse,
+        reason: 'taking theirs reads their blob, which is present',
       );
     });
 
@@ -1369,6 +1765,46 @@ RepoSessionState _sessionWith(WorkingCopyEntry entry) => RepoSessionState(
   ),
 );
 
+/// A one-region file: enough for the editor to parse, so rail tests are not
+/// steered by the fallback hint.
+ParsedConflictFile _oneRegionFile() => ParsedConflictFile(
+  segments: <ConflictSegment>[
+    _regionSegment(ours: <String>['a'], theirs: <String>['b']),
+  ],
+  regionCount: 1,
+  wellFormed: true,
+);
+
+/// Two regions, so a rail count can move from 2 to 1 and stay off 0.
+ParsedConflictFile _twoRegionFile() => ParsedConflictFile(
+  segments: <ConflictSegment>[
+    _regionSegment(ours: <String>['a1'], theirs: <String>['b1']),
+    _regionSegment(ours: <String>['a2'], theirs: <String>['b2']),
+  ],
+  regionCount: 2,
+  wellFormed: true,
+);
+
+/// The rail's [GbmRow] for [name] -- an ancestor of the name's text, so the
+/// editor's own mentions of the path never match.
+Finder _railRow(String name) =>
+    find.ancestor(of: find.text(name), matching: find.byType(GbmRow));
+
+/// The 6px circle a rail row leads with.
+Finder _statusDot(Finder row) => find.descendant(
+  of: row,
+  matching: find.byWidgetPredicate(
+    (Widget w) =>
+        w is Container &&
+        w.decoration is BoxDecoration &&
+        (w.decoration! as BoxDecoration).shape == BoxShape.circle,
+  ),
+);
+
+/// The [Opacity] that fades a whole resolved row (`opacity:.55`).
+Finder _rowOpacity(Finder row) =>
+    find.descendant(of: row, matching: find.byType(Opacity)).first;
+
 /// Taps the conflicted-file rail row to drive `_selectPath`, which is the
 /// only thing that populates `_selectedPath` and, via
 /// `_applyParsedContentIfNeeded`, actually parses and renders the editor --
@@ -1378,12 +1814,11 @@ Future<void> _selectConflictFile(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-/// The rail row's whole-file "Take Ours"/"Take Theirs" mini-buttons and the
-/// per-region `_SidePane`'s buttons render identical text, so a bare
-/// `find.text('Take Ours')` is ambiguous. The rail lives in the OUTER
-/// GbmSplitPane (splitterCwFiles); the per-region side panes live in the
-/// INNER one (splitterCwPanes, nested inside the outer's editor child) --
-/// scoping to the inner (`.last`) picks the per-region button.
+/// Scopes 'Take Ours'/'Take Theirs' to the per-region `_SidePane`s, which
+/// live in the INNER GbmSplitPane (splitterCwPanes, nested inside the outer
+/// splitterCwFiles' editor child). The rail no longer carries whole-file
+/// buttons (#172), but the editor's fallback hint does, so the text alone
+/// still names more than one control across tests.
 Finder _perRegionTakeButton(String label) => find.descendant(
   of: find.byType(GbmSplitPane).last,
   matching: find.text('Take $label'),

@@ -287,7 +287,7 @@ class _MoreMenu extends StatelessWidget {
   }
 }
 
-class _Tab extends StatelessWidget {
+class _Tab extends StatefulWidget {
   const _Tab({
     required this.label,
     required this.active,
@@ -305,10 +305,35 @@ class _Tab extends StatelessWidget {
   final VoidCallback? onClose;
 
   @override
+  State<_Tab> createState() => _TabState();
+}
+
+class _TabState extends State<_Tab> {
+  bool _hovered = false;
+
+  /// `.gbm-tab` is `--text-secondary`, `.gbm-tab:hover` and `.active` are
+  /// `--text-primary`. A closable tab follows the mockup's Compare tab
+  /// instead, whose inline `color:var(--text-tertiary)` outranks `:hover`
+  /// (user ruling, #169); its active state keeps textPrimary, which the
+  /// mockup never draws.
+  Color _labelColor(GbmColors colors) {
+    if (widget.active) return colors.textPrimary;
+    if (widget.onClose != null) return colors.textTertiary;
+    return _hovered ? colors.textPrimary : colors.textSecondary;
+  }
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final bool active = widget.active;
+    final VoidCallback? onClose = widget.onClose;
+    // `.gbm-tab:hover` has no background, so the ink is off.
     return InkWell(
-      onTap: onTap,
+      onTap: widget.onTap,
+      onHover: (bool hovered) => setState(() => _hovered = hovered),
+      hoverColor: Colors.transparent,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
       child: Container(
         alignment: Alignment.center,
         padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
@@ -324,18 +349,18 @@ class _Tab extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             Text(
-              label,
+              widget.label,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
                 fontWeight: GbmTypography.weightMedium,
-                color: active ? colors.textPrimary : colors.textSecondary,
+                color: _labelColor(colors),
               ),
             ),
-            if (badgeCount > 0) ...<Widget>[
+            if (widget.badgeCount > 0) ...<Widget>[
               const SizedBox(width: GbmSpacing.space1),
               GbmBadge(
                 key: const Key('tab-row-pending-badge'),
-                label: '$badgeCount',
+                label: '${widget.badgeCount}',
               ),
             ],
             if (onClose != null) ...<Widget>[

@@ -3,6 +3,7 @@
 // GoRouter + a plain pendingChangeCount int: History/Working Copy tabs
 // navigate to the expected route, and the Working Copy tab shows a
 // change-count badge only when there is something to show.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
@@ -102,7 +103,70 @@ Future<GoRouter> _pump(
   return router;
 }
 
+Future<TestGesture> _hover(WidgetTester tester, Finder target) async {
+  final TestGesture mouse = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  addTearDown(mouse.removePointer);
+  await mouse.addPointer(location: const Offset(799, 599));
+  await mouse.moveTo(tester.getCenter(target));
+  await tester.pump();
+  return mouse;
+}
+
+Color? _labelColor(WidgetTester tester, String label) =>
+    tester.widget<Text>(find.text(label)).style!.color;
+
 void main() {
+  // `.gbm-tab:hover{color:var(--text-primary)}`: a tab's hover is its label
+  // colour and nothing else -- no fill, so the ink is switched off.
+  group('tab hover', () {
+    final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+    testWidgets('an inactive tab\'s label turns textPrimary on hover', (
+      tester,
+    ) async {
+      await _pump(tester, pendingChangeCount: 0);
+      await tester.pumpAndSettle();
+      expect(_labelColor(tester, 'Working Copy'), colors.textSecondary);
+
+      await _hover(tester, find.text('Working Copy'));
+
+      expect(_labelColor(tester, 'Working Copy'), colors.textPrimary);
+      final InkWell ink = tester.widget<InkWell>(
+        find
+            .ancestor(
+              of: find.text('Working Copy'),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      expect(ink.hoverColor, Colors.transparent);
+    });
+
+    // The mockup's Compare tab carries an inline `color:var(--text-tertiary)`
+    // that outranks `.gbm-tab:hover`; the user ruled that a closable tab
+    // follows it (2026-10-05, #169).
+    testWidgets('a closable tab rests at textTertiary and keeps it on hover', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      expect(_labelColor(tester, 'main vs feature'), colors.textTertiary);
+
+      await _hover(tester, find.text('main vs feature'));
+
+      expect(_labelColor(tester, 'main vs feature'), colors.textTertiary);
+    });
+  });
+
   testWidgets(
     'shows no badge on Working Copy when there are no pending changes',
     (tester) async {

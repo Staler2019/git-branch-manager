@@ -1240,8 +1240,15 @@ class _ConflictRailRow extends StatelessWidget {
     final bool resolved = entry.state == ConflictFileState.resolved;
     return Material(
       color: selected ? colors.surfaceSelected : Colors.transparent,
+      // `.gbm-row:hover` in the mockup's rail. Not a [GbmRow]: that fixes a
+      // height, and this row carries a second line of mini-buttons. The ink
+      // paints *over* this Material's colour, so a selected row turns its
+      // hover off: `.gbm-row.selected` is declared after `:hover` and wins.
       child: InkWell(
         onTap: onTap,
+        hoverColor: selected ? Colors.transparent : colors.surfaceHover,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: GbmSpacing.space3,

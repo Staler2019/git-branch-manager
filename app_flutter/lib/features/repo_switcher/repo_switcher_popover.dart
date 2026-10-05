@@ -379,6 +379,13 @@ class RepoSwitcherButton extends StatefulWidget {
 }
 
 class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
+  /// The mockup draws this trigger with no hover; the user ruled it hovers
+  /// like `.gbm-btn-secondary`, `--surface-hover` (#169). The fill below is
+  /// opaque and sits above any ink, so the fill itself changes. In the dark
+  /// themes that is no visible change: the spec gives `--surface-panel-raised`
+  /// and `--surface-hover` the same #161b22.
+  bool _hovered = false;
+
   @override
   void initState() {
     super.initState();
@@ -428,12 +435,16 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
         message: widget.currentWorkDir,
         child: InkWell(
           onTap: openPopover,
+          onHover: (bool hovered) => setState(() => _hovered = hovered),
+          hoverColor: Colors.transparent,
+          splashFactory: NoSplash.splashFactory,
+          highlightColor: Colors.transparent,
           borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
           child: Container(
             height: 30,
             padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
             decoration: BoxDecoration(
-              color: colors.surfacePanelRaised,
+              color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
               border: Border.all(color: colors.borderDefault),
               borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
             ),

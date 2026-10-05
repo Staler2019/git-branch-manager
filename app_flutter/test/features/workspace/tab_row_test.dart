@@ -165,6 +165,42 @@ void main() {
 
       expect(_labelColor(tester, 'main vs feature'), colors.textTertiary);
     });
+
+    // The mockup's close glyph is a bare icon with no hover; the user ruled
+    // it takes `.gbm-iconbtn:hover` -- a surface-hover fill and a
+    // text-primary icon (#169).
+    testWidgets('the close button hovers like an icon button', (tester) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      Color? iconColor() =>
+          IconTheme.of(tester.element(find.byIcon(Icons.close))).color;
+      Color? fill() => tester
+          .widget<Material>(
+            find
+                .ancestor(
+                  of: find.byIcon(Icons.close),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .color;
+      final Color? restIcon = iconColor();
+
+      await _hover(tester, find.byIcon(Icons.close));
+      // The button animates its icon colour to the hovered one.
+      await tester.pumpAndSettle();
+
+      expect(fill(), colors.surfaceHover);
+      expect(iconColor(), colors.textPrimary);
+      expect(restIcon, isNot(colors.textPrimary));
+    });
   });
 
   testWidgets(

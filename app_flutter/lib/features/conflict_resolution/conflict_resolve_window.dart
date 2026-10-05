@@ -1969,7 +1969,12 @@ class _SidePaneState extends State<_SidePane> {
                     GestureDetector(
                       onSecondaryTapDown: (TapDownDetails details) =>
                           _openHunkContextMenu(details, line),
+                      // No hover in the mockup; the row hover by user
+                      // ruling (#169), since one click applies the line.
                       child: InkWell(
+                        hoverColor: colors.surfaceHover,
+                        splashFactory: NoSplash.splashFactory,
+                        highlightColor: Colors.transparent,
                         onTap: () => widget.onApplyLines(
                           widget.regionIndex,
                           widget.source,

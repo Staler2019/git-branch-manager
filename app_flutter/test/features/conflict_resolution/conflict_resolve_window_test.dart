@@ -439,6 +439,38 @@ void main() {
       );
     });
 
+    // A hunk side's single lines are clickable (one click applies that line)
+    // but the mockup draws no hover for them; the user ruled they take the
+    // row hover, `surface-hover` (#169).
+    testWidgets('a hunk side line hovers in surfaceHover', (tester) async {
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry),
+        ParsedConflictFile(
+          segments: <ConflictSegment>[
+            _regionSegment(ours: <String>['ours-line'], theirs: <String>['b']),
+          ],
+          regionCount: 1,
+          wellFormed: true,
+        ),
+      );
+      await _selectConflictFile(tester);
+
+      final InkWell line = tester.widget<InkWell>(
+        find
+            .ancestor(
+              of: find.text('ours-line'),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      expect(
+        line.hoverColor,
+        tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+      );
+    });
+
     testWidgets('single-line click appends only that line', (tester) async {
       final parsed = ParsedConflictFile(
         segments: <ConflictSegment>[

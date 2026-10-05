@@ -330,9 +330,36 @@ class _Tab extends StatelessWidget {
         ],
         if (onClose != null) ...<Widget>[
           const SizedBox(width: GbmSpacing.space1),
-          InkWell(
-            onTap: onClose,
-            child: Icon(Icons.close, size: 14, color: colors.textTertiary),
+          // A bare glyph in the mockup, with no hover; `.gbm-iconbtn:hover`
+          // by user ruling (#169): a surface-hover fill, a text-primary icon.
+          IconButton(
+            onPressed: onClose,
+            icon: const Icon(Icons.close, size: 14),
+            padding: const EdgeInsets.all(2),
+            constraints: const BoxConstraints(),
+            style: ButtonStyle(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: WidgetStatePropertyAll<OutlinedBorder>(
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+                ),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (Set<WidgetState> states) =>
+                    states.contains(WidgetState.hovered)
+                    ? colors.surfaceHover
+                    : Colors.transparent,
+              ),
+              iconColor: WidgetStateProperty.resolveWith(
+                (Set<WidgetState> states) =>
+                    states.contains(WidgetState.hovered)
+                    ? colors.textPrimary
+                    : colors.textTertiary,
+              ),
+              overlayColor: const WidgetStatePropertyAll<Color>(
+                Colors.transparent,
+              ),
+            ),
           ),
         ],
       ],

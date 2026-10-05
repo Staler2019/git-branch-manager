@@ -61,6 +61,7 @@ Future<GoRouter> _pump(
   List<RecentRepoEntry> recents = const <RecentRepoEntry>[],
   List<RepoRecord> repos = const <RepoRecord>[],
   _TestRecentsRepository? recentsRepository,
+  GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -95,7 +96,7 @@ Future<GoRouter> _pump(
         ),
       ],
       child: MaterialApp.router(
-        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        theme: buildGbmTheme(variant),
         routerConfig: router,
       ),
     ),
@@ -439,6 +440,53 @@ void main() {
   });
 
   group('RepoSwitcherButton', () {
+    // The mockup's trigger is an inline-styled span with no hover rule; the
+    // user ruled it hovers like a secondary button, `surface-hover` (#169).
+    // Its own opaque fill sits above any InkWell ink, so the fill is what
+    // has to change.
+    //
+    // Light IDE, not the dark default: the spec itself makes dark's
+    // `--surface-panel-raised` and `--surface-hover` the same #161b22, so in
+    // dark this assertion could not tell the two fills apart.
+    testWidgets('hover swaps the fill to surfaceHover', (tester) async {
+      const GbmThemeVariant variant = GbmThemeVariant.lightIde;
+      final GbmColors colors = tokensFor(variant);
+      expect(colors.surfaceHover, isNot(colors.surfacePanelRaised));
+      await _pump(
+        tester,
+        const SizedBox(
+          width: 240,
+          child: RepoSwitcherButton(currentWorkDir: _workDir1),
+        ),
+        repos: <RepoRecord>[_record()],
+        variant: variant,
+      );
+      Color? fill() =>
+          (tester
+                      .widget<Container>(
+                        find
+                            .descendant(
+                              of: find.byType(RepoSwitcherButton),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .color;
+      expect(fill(), colors.surfacePanelRaised);
+
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(799, 599));
+      await mouse.moveTo(tester.getCenter(find.byType(RepoSwitcherButton)));
+      await tester.pump();
+
+      expect(fill(), colors.surfaceHover);
+    });
+
     testWidgets('shows the current repository and opens the popover', (
       tester,
     ) async {

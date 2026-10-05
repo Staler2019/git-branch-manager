@@ -3,7 +3,7 @@
 Rules live in two directories with one format. Every file next to this one is
 `@import`ed by [CLAUDE.md](../../CLAUDE.md) and auto-loaded into every session;
 every file in [.claude/rules/](../../.claude/rules/) carries a `paths:` frontmatter
-and is loaded only when a file matching it is read or edited. This file is the format;
+and is loaded only when a file matching it is read or edited (never on a search). This file is the format;
 [CLAUDE.md](../../CLAUDE.md)'s own header is the filing rule that decides what
 lands here at all.
 
@@ -61,7 +61,7 @@ collision, it is agreement.
 | `TEST-` | `arch-testing.md`, `arch-testing-device.md` | `.claude/rules/` |
 | `REF-` | `fn-refs-branches.md` | `.claude/rules/` |
 | `GIT-` | `fn-git-commands.md` | `.claude/rules/` |
-| `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-input.md` | `.claude/rules/` |
+| `FLU-` | `fn-flutter-state.md`, `fn-flutter-layout.md`, `fn-flutter-layout-test.md`, `fn-flutter-split-pane.md`, `fn-flutter-input.md` | `.claude/rules/` |
 | `CPP-` | `fn-cpp-core.md` | `.claude/rules/` |
 | `CI-` | `ops-toolchain-ci.md` | `.claude/rules/` |
 | `SPEC-` | `ops-spec-reading.md` | `.claude/rules/` |
@@ -80,8 +80,7 @@ Two forms, and which one you use depends on which side of the freeze the
 evidence is on:
 
 - **Frozen history** (the 101 rounds in [../ledger.md](../ledger.md)) — plain
-  text, `ledger: <section name>`. That file's own preamble says "Grep the
-  heading text there"; an anchor slug generated from a Chinese heading is
+  text, `ledger: <section name>`; an anchor slug generated from a Chinese heading is
   fragile and unverifiable, and the plain form is what every existing citation
   in this repo already uses.
 - **A new round** — a real relative link,
@@ -101,14 +100,14 @@ evidence is on:
    when it passes a line count. Length is a bad proxy: what causes a conflict
    is two branches editing the same *region*, and a file of independent `##`
    rules merges cleanly however long it is. Add the new file to CLAUDE.md's
-   import list, or give it `paths:` under `.claude/rules/`; the prefix may stay the same (`TEST-` and `FLU-` each span
-   more than one file already).
+   import list, or give it `paths:` under `.claude/rules/`; the prefix may stay the same.
 
    The largest files today, and why each is one file:
    ~~`arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
    route trees and field tables — reference material, edited a row at a time;~~
-   both retired 2026-10-04. `arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.
-   `ops-spec-reading.md` (167, `.claude/rules/`) and `ops-repo-culture.md` (153) are prose but
+   both retired 2026-10-04. ~~`arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.~~
+   `arch-actions.md` (143) is one design; its rules cite each other.
+   `ops-spec-reading.md` (~~167~~ 62) and `ops-repo-culture.md` (~~153~~ 29) are prose but
    have no second group to split at. If one of these does grow a second
    group, split it then.
 4. **Choosing the directory** → `.claude/rules/` when the whole category is
@@ -118,9 +117,8 @@ evidence is on:
    **characters** because that is what Claude Code's 150k-character startup
    limit counts — and it counts the user's own `~/.claude` files too (44k at
    the time). Importing every file was ~316KB; ~~the imported half is now
-   ~125KB~~ the imported half is now ~89k characters, ~133k with `~/.claude`.
-   Path-scoped rules trigger on Read/Write/Edit
-   only, never on a search.
+   ~125KB~~ ~~the imported half is now ~89k characters, ~133k with `~/.claude`.~~
+   L0 is 28.7k chars, 73k with `~/.claude` (2026-10-05).
 5. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.

@@ -15,6 +15,7 @@ import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:go_router/go_router.dart';
 
 const String _workDir1 = '/Users/test/repo1';
@@ -284,6 +285,73 @@ void main() {
       name: 'test-repo-1',
       isManual: false,
     );
+
+    // The mockup draws the popover's repositories as `.gbm-menu-item`, whose
+    // `:hover` is an accent fill with `--text-on-accent` text -- the same
+    // hover every other menu in the app paints, not a list row's grey.
+    testWidgets('hover paints the menu-item accent', (tester) async {
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+      await _pump(
+        tester,
+        RepoSwitcherRow(
+          entry: const RepoSwitcherEntry(
+            workDir: _workDir1,
+            name: 'test-repo-1',
+            isManual: true,
+          ),
+          onTap: () {},
+          isCurrent: true,
+        ),
+      );
+      Color? fill() =>
+          (tester
+                      .widget<Container>(
+                        find
+                            .descendant(
+                              of: find.byType(RepoSwitcherRow),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .color;
+      Color? nameColor() =>
+          tester.widget<Text>(find.text('test-repo-1')).style!.color;
+      Color? tagColor() =>
+          tester.widget<Text>(find.text('manual')).style!.color;
+      Color? iconColor() => tester
+          .widget<LucideIcon>(
+            find.descendant(
+              of: find.byType(RepoSwitcherRow),
+              matching: find.byType(LucideIcon),
+            ),
+          )
+          .color;
+
+      expect(fill(), colors.surfaceSelected);
+      expect(nameColor(), colors.textPrimary);
+
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(mouse.removePointer);
+      // A corner the row (pumped at the top-left) does not reach.
+      const Offset outside = Offset(799, 599);
+      await mouse.addPointer(location: outside);
+      await mouse.moveTo(tester.getCenter(find.byType(RepoSwitcherRow)));
+      await tester.pump();
+
+      expect(fill(), colors.accent);
+      expect(nameColor(), colors.textOnAccent);
+      expect(iconColor(), colors.textOnAccent);
+      // `.gbm-menu-item:hover .gbm-menu-shortcut`: the tag sits in that slot.
+      expect(tagColor(), colors.textOnAccent.withValues(alpha: 0.8));
+
+      await mouse.moveTo(outside);
+      await tester.pump();
+      expect(fill(), colors.surfaceSelected);
+    });
 
     testWidgets('right-click shows the 05-A menu', (tester) async {
       await _pump(tester, RepoSwitcherRow(entry: scanned, onTap: () {}));

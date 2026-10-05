@@ -738,7 +738,7 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
 /// Presentational: every action arrives as a callback so the row stays
 /// widget-testable against a bare `GoRouter` with no `ProviderScope`, the
 /// same split `MenuBarRow`/`TopBar`/`TabRow` follow.
-class RepoSwitcherRow extends StatelessWidget {
+class RepoSwitcherRow extends StatefulWidget {
   const RepoSwitcherRow({
     super.key,
     required this.entry,
@@ -762,22 +762,39 @@ class RepoSwitcherRow extends StatelessWidget {
   final VoidCallback? onRemoveFromList;
 
   @override
+  State<RepoSwitcherRow> createState() => _RepoSwitcherRowState();
+}
+
+class _RepoSwitcherRowState extends State<RepoSwitcherRow> {
+  /// `.gbm-menu-item:hover` -- the mockup draws this popover's repositories
+  /// as menu items, so hover is an accent fill with `--text-on-accent` text,
+  /// as in every other menu here; the InkWell's own ink is switched off.
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    // The trailing tag sits where a menu item's shortcut does, and takes
+    // `.gbm-menu-item:hover .gbm-menu-shortcut`: on-accent at .8 opacity.
+    final Color trailingOnAccent = colors.textOnAccent.withValues(alpha: 0.8);
     return Semantics(
       button: true,
-      selected: isCurrent,
-      label: entry.isMissing
-          ? '${entry.name}, ${entry.workDir}, missing'
-          : '${entry.name}, ${entry.workDir}',
+      selected: widget.isCurrent,
+      label: widget.entry.isMissing
+          ? '${widget.entry.name}, ${widget.entry.workDir}, missing'
+          : '${widget.entry.name}, ${widget.entry.workDir}',
       child: GestureDetector(
         onSecondaryTapDown: (TapDownDetails details) =>
             _openContextMenu(context, details),
         child: Tooltip(
-          message: entry.workDir,
+          message: widget.entry.workDir,
           waitDuration: const Duration(milliseconds: 600),
           child: InkWell(
-            onTap: onTap,
+            onTap: widget.onTap,
+            onHover: (bool hovered) => setState(() => _hovered = hovered),
+            hoverColor: Colors.transparent,
+            splashFactory: NoSplash.splashFactory,
+            highlightColor: Colors.transparent,
             borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
             child: Container(
               height: GbmSpacing.rowHeightCompact,
@@ -785,7 +802,9 @@ class RepoSwitcherRow extends StatelessWidget {
                 horizontal: GbmSpacing.space2,
               ),
               decoration: BoxDecoration(
-                color: isCurrent ? colors.surfaceSelected : null,
+                color: _hovered
+                    ? colors.accent
+                    : (widget.isCurrent ? colors.surfaceSelected : null),
                 borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
               ),
               child: Row(
@@ -793,31 +812,37 @@ class RepoSwitcherRow extends StatelessWidget {
                   LucideIcon(
                     'git-fork',
                     size: 13,
-                    color: isCurrent ? colors.accent : colors.textSecondary,
+                    color: _hovered
+                        ? colors.textOnAccent
+                        : (widget.isCurrent
+                              ? colors.accent
+                              : colors.textSecondary),
                   ),
                   const SizedBox(width: GbmSpacing.space2),
                   Expanded(
                     child: Text(
-                      entry.name,
+                      widget.entry.name,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: GbmTypography.textSm,
-                        fontWeight: isCurrent
+                        fontWeight: widget.isCurrent
                             ? GbmTypography.weightSemibold
                             : GbmTypography.weightRegular,
-                        color: colors.textPrimary,
+                        color: _hovered
+                            ? colors.textOnAccent
+                            : colors.textPrimary,
                       ),
                     ),
                   ),
-                  if (entry.isMissing)
+                  if (widget.entry.isMissing)
                     Text(
                       'offline',
                       style: TextStyle(
                         fontSize: GbmTypography.textXs,
-                        color: colors.danger,
+                        color: _hovered ? trailingOnAccent : colors.danger,
                       ),
                     )
-                  else if (entry.isManual)
+                  else if (widget.entry.isManual)
                     // Spec page 11: rows say which source they came from, so
                     // it is obvious why only some of them can be removed
                     // here.
@@ -825,7 +850,9 @@ class RepoSwitcherRow extends StatelessWidget {
                       'manual',
                       style: TextStyle(
                         fontSize: GbmTypography.textXs,
-                        color: colors.textTertiary,
+                        color: _hovered
+                            ? trailingOnAccent
+                            : colors.textTertiary,
                       ),
                     ),
                 ],
@@ -845,17 +872,17 @@ class RepoSwitcherRow extends StatelessWidget {
       GbmMenuItem(
         label: 'Open',
         icon: Icons.folder_open_outlined,
-        onTap: onTap,
+        onTap: widget.onTap,
       ),
       GbmMenuItem(
         label: 'Open in file manager',
         icon: Icons.folder_outlined,
-        onTap: onOpenInFileManager,
+        onTap: widget.onOpenInFileManager,
       ),
       GbmMenuItem(
         label: 'Open in terminal',
         icon: Icons.terminal_outlined,
-        onTap: onOpenInTerminal,
+        onTap: widget.onOpenInTerminal,
       ),
       GbmMenuItem(
         label: 'Settings…',
@@ -863,7 +890,7 @@ class RepoSwitcherRow extends StatelessWidget {
         onTap: () => pushDialogRoute(
           context,
           RoutePaths.repositorySettingsDialogFor(
-            Uri.encodeComponent(entry.workDir),
+            Uri.encodeComponent(widget.entry.workDir),
           ),
         ),
       ),
@@ -872,7 +899,7 @@ class RepoSwitcherRow extends StatelessWidget {
         label: 'Remove from list',
         icon: Icons.delete_outline,
         danger: true,
-        onTap: onRemoveFromList,
+        onTap: widget.onRemoveFromList,
       ),
     ]);
   }

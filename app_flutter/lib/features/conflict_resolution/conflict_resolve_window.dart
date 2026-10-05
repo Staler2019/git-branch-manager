@@ -248,6 +248,31 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     });
   }
 
+  /// Resolves [path] as a whole to one side. The blob-missing flags tell
+  /// core which side was deleted, so a delete/modify conflict takes the
+  /// deletion rather than failing to read a blob that is not there.
+  void _takeWholeFile(String path, ConflictResolution side) {
+    final RepoSessionController session = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
+    final WorkingCopyEntry? wc = ref
+        .read(repoSessionProvider(widget.identity))
+        .workingCopyStatus
+        .conflicted
+        .cast<WorkingCopyEntry?>()
+        .firstWhere((e) => e?.path == path, orElse: () => null);
+    session.resolveConflict(
+      path,
+      side,
+      oursBlobMissing:
+          side == ConflictResolution.takeOurs &&
+          (wc?.oursBlob.isEmpty ?? false),
+      theirsBlobMissing:
+          side == ConflictResolution.takeTheirs &&
+          (wc?.theirsBlob.isEmpty ?? false),
+    );
+  }
+
   bool get _allResolved {
     if (_lineOrder == null) return false;
     for (int i = 0; i < _lineOrder!.regionCount; i++) {
@@ -578,28 +603,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
 
     Widget buildRailRow(ConflictBatchEntry entry, String label) {
-      final WorkingCopyEntry? wc = conflicted
-          .cast<WorkingCopyEntry?>()
-          .firstWhere((e) => e?.path == entry.path, orElse: () => null);
       return _ConflictRailRow(
         entry: entry,
         label: label,
         selected: entry.path == _selectedPath,
         onTap: () => _selectPath(entry.path),
-        onTakeOurs: () => ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .resolveConflict(
-              entry.path,
-              ConflictResolution.takeOurs,
-              oursBlobMissing: wc?.oursBlob.isEmpty ?? false,
-            ),
-        onTakeTheirs: () => ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .resolveConflict(
-              entry.path,
-              ConflictResolution.takeTheirs,
-              theirsBlobMissing: wc?.theirsBlob.isEmpty ?? false,
-            ),
+        onTakeOurs: () =>
+            _takeWholeFile(entry.path, ConflictResolution.takeOurs),
+        onTakeTheirs: () =>
+            _takeWholeFile(entry.path, ConflictResolution.takeTheirs),
         onMarkResolved: () => ref
             .read(repoSessionProvider(widget.identity).notifier)
             .resolveConflict(entry.path, ConflictResolution.markResolved),
@@ -828,14 +840,40 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       return const Center(child: CircularProgressIndicator());
     }
     if (parsed == null || parsed.regionCount == 0 || _lineOrder == null) {
-      // Not editable (binary/non-UTF8), or no parseable regions -- fall
-      // back to the rail row's whole-file Take Ours/Take Theirs/Mark
-      // Resolved actions; nothing more to show here.
+      // Not editable (binary/non-UTF8), or no parseable regions: nothing to
+      // apply line by line, so the way forward is a whole-file choice. The
+      // spec draws no whole-file take; the user ruled it lives here (#172).
+      // Mark resolved stays in the bottom bar, as P8 item 11 has it.
+      final String? path = _selectedPath;
       return Center(
-        child: Text(
-          'This file has no per-region conflict markers to resolve here.\nUse Take Ours / Take Theirs / Mark Resolved on the left.',
-          textAlign: TextAlign.center,
-          style: TextStyle(color: colors.textTertiary),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'This file has no per-region conflict markers to resolve here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: colors.textTertiary),
+            ),
+            if (path != null) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space3),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  GbmButton(
+                    label: 'Take Ours',
+                    onPressed: () =>
+                        _takeWholeFile(path, ConflictResolution.takeOurs),
+                  ),
+                  const SizedBox(width: GbmSpacing.space2),
+                  GbmButton(
+                    label: 'Take Theirs',
+                    onPressed: () =>
+                        _takeWholeFile(path, ConflictResolution.takeTheirs),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
       );
     }

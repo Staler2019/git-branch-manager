@@ -149,6 +149,8 @@ class FakeRepoSessionController extends RepoSessionController {
       FakeCommand('resolveConflict', <String, Object?>{
         'path': path,
         'resolution': resolution,
+        'oursBlobMissing': oursBlobMissing,
+        'theirsBlobMissing': theirsBlobMissing,
       }),
     );
   }

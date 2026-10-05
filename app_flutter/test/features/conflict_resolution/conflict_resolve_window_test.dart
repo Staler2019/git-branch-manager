@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
         WorkingTreeContentReply,
         repoSessionProvider;
 import 'package:gbm_flutter/features/conflict_resolution/conflict_resolve_window.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -123,6 +124,29 @@ final WorkingCopyEntry _conflictEntryReoccurred = const WorkingCopyEntry(
   ancestorBlob: '',
   oursBlob: 'ours-hash-2',
   theirsBlob: 'theirs-hash-2',
+  similarity: 0,
+  isSubmodule: false,
+  isConflicted: true,
+);
+
+/// [_conflictEntry] as a delete/modify conflict: ours deleted the file, so
+/// there is no ours blob.
+const WorkingCopyEntry _conflictEntryOursDeleted = WorkingCopyEntry(
+  path: 'conflict.txt',
+  oldPath: '',
+  untracked: false,
+  staged: false,
+  indexStatus: FileChangeKind.modified,
+  hasUnstagedChange: true,
+  worktreeStatus: FileChangeKind.modified,
+  unstagedAdded: 0,
+  unstagedRemoved: 0,
+  stagedAdded: 0,
+  stagedRemoved: 0,
+  conflict: ConflictKind.bothModified,
+  ancestorBlob: '',
+  oursBlob: '',
+  theirsBlob: 'theirs-hash',
   similarity: 0,
   isSubmodule: false,
   isConflicted: true,
@@ -468,6 +492,98 @@ void main() {
       expect(
         line.hoverColor,
         tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+      );
+    });
+
+    // A binary or marker-less file has no regions to apply line by line, so
+    // its only way forward is a whole-file choice. The spec draws no
+    // whole-file take anywhere; the user ruled it lives where the editor
+    // says there is nothing to edit (#172), with Mark resolved staying in
+    // the bottom bar as P8 item 11 has it.
+    testWidgets('an unparseable file offers whole-file Take Ours / Theirs in '
+        'the editor', (tester) async {
+      final ProviderContainer container = await _pumpWindow(
+        tester,
+        identity,
+        RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(entries: [_conflictEntry]),
+          lastWorkingTreeContent: const WorkingTreeContentReply(
+            path: 'conflict.txt',
+            editable: false,
+            content: '',
+          ),
+        ),
+        ParsedConflictFile(
+          segments: const <ConflictSegment>[],
+          regionCount: 0,
+          wellFormed: true,
+        ),
+      );
+      await _selectConflictFile(tester);
+      final FakeRepoSessionController fake = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Theirs'));
+      await tester.pump();
+
+      expect(
+        fake.resolveConflictCalls.map((c) => (c.path, c.resolution)).toList(),
+        <(String, Object?)>[
+          ('conflict.txt', ConflictResolution.takeOurs),
+          ('conflict.txt', ConflictResolution.takeTheirs),
+        ],
+      );
+    });
+
+    // A delete/modify conflict has no blob on the deleting side; the flag is
+    // what tells core to take the deletion instead of reading that blob.
+    testWidgets('a whole-file take flags the side whose blob is missing', (
+      tester,
+    ) async {
+      final ProviderContainer container = await _pumpWindow(
+        tester,
+        identity,
+        RepoSessionState(
+          isOpen: true,
+          workingCopyStatus: WorkingCopyStatus(
+            entries: [_conflictEntryOursDeleted],
+          ),
+          lastWorkingTreeContent: const WorkingTreeContentReply(
+            path: 'conflict.txt',
+            editable: false,
+            content: '',
+          ),
+        ),
+        ParsedConflictFile(
+          segments: const <ConflictSegment>[],
+          regionCount: 0,
+          wellFormed: true,
+        ),
+      );
+      await _selectConflictFile(tester);
+      final FakeRepoSessionController fake = container.read(
+        repoSessionProvider(identity).notifier,
+      ) as FakeRepoSessionController;
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Ours'));
+      await tester.pump();
+      await tester.tap(find.widgetWithText(GbmButton, 'Take Theirs'));
+      await tester.pump();
+
+      final List<Map<String, Object?>> calls = fake.commandLog
+          .where((c) => c.name == 'resolveConflict')
+          .map((c) => c.args)
+          .toList();
+      expect(calls, hasLength(2));
+      expect(calls[0]['oursBlobMissing'], isTrue);
+      expect(
+        calls[1]['oursBlobMissing'],
+        isFalse,
+        reason: 'taking theirs reads their blob, which is present',
       );
     });
 

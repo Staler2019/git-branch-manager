@@ -239,16 +239,23 @@ class _MenuBarButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return Builder(
+      // The mockup's menu bar items are bare spans with no hover; a button's
+      // `--surface-hover` by user ruling (#169).
       builder: (buttonContext) => InkWell(
         onTap: () => _open(buttonContext, items),
+        hoverColor: colors.surfaceHover,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
         borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Text(
             label,
+            // `.mkbar{...color:var(--text-secondary)}`; the items are bare
+            // spans that take the bar's colour.
             style: TextStyle(
               fontSize: GbmTypography.textSm,
-              color: colors.textPrimary,
+              color: colors.textSecondary,
             ),
           ),
         ),

@@ -150,10 +150,16 @@ class _NavItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    // `.gbm-row:hover` in the mockup's nav. The selected fill sits on the
+    // child Container, above the ink, so a selected entry keeps it on hover
+    // as `.gbm-row.selected` does.
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
+        hoverColor: colors.surfaceHover,
+        splashFactory: NoSplash.splashFactory,
+        highlightColor: Colors.transparent,
         borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
         child: Container(
           padding: const EdgeInsets.symmetric(

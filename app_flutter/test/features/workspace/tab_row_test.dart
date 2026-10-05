@@ -3,6 +3,7 @@
 // GoRouter + a plain pendingChangeCount int: History/Working Copy tabs
 // navigate to the expected route, and the Working Copy tab shows a
 // change-count badge only when there is something to show.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
@@ -102,7 +103,126 @@ Future<GoRouter> _pump(
   return router;
 }
 
+Future<TestGesture> _hover(WidgetTester tester, Finder target) async {
+  final TestGesture mouse = await tester.createGesture(
+    kind: PointerDeviceKind.mouse,
+  );
+  addTearDown(mouse.removePointer);
+  await mouse.addPointer(location: const Offset(799, 599));
+  await mouse.moveTo(tester.getCenter(target));
+  await tester.pump();
+  return mouse;
+}
+
+Color? _labelColor(WidgetTester tester, String label) =>
+    tester.widget<Text>(find.text(label)).style!.color;
+
 void main() {
+  // `.gbm-tab:hover{color:var(--text-primary)}`: a tab's hover is its label
+  // colour and nothing else -- no fill, so the ink is switched off.
+  group('tab hover', () {
+    final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+    testWidgets('an inactive tab\'s label turns textPrimary on hover', (
+      tester,
+    ) async {
+      await _pump(tester, pendingChangeCount: 0);
+      await tester.pumpAndSettle();
+      expect(_labelColor(tester, 'Working Copy'), colors.textSecondary);
+
+      await _hover(tester, find.text('Working Copy'));
+
+      expect(_labelColor(tester, 'Working Copy'), colors.textPrimary);
+      final InkWell ink = tester.widget<InkWell>(
+        find
+            .ancestor(
+              of: find.text('Working Copy'),
+              matching: find.byType(InkWell),
+            )
+            .first,
+      );
+      expect(ink.hoverColor, Colors.transparent);
+    });
+
+    // The mockup's Compare tab carries an inline `color:var(--text-tertiary)`
+    // that outranks `.gbm-tab:hover`; the user ruled that a closable tab
+    // follows it (2026-10-05, #169).
+    testWidgets('a closable tab rests at textTertiary and keeps it on hover', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      expect(_labelColor(tester, 'main vs feature'), colors.textTertiary);
+
+      await _hover(tester, find.text('main vs feature'));
+
+      expect(_labelColor(tester, 'main vs feature'), colors.textTertiary);
+    });
+
+    // The mockup's close glyph is a bare icon with no hover; the user ruled
+    // it takes `.gbm-iconbtn:hover` -- a surface-hover fill and a
+    // text-primary icon (#169).
+    // The mockup's `icClose: this.lucideIcon('x', 12, 'var(--text-secondary)')`.
+    testWidgets('the close glyph is 12px in textSecondary at rest', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      expect(tester.widget<Icon>(find.byIcon(Icons.close)).size, 12);
+      expect(
+        IconTheme.of(tester.element(find.byIcon(Icons.close))).color,
+        colors.textSecondary,
+      );
+    });
+
+    testWidgets('the close button hovers like an icon button', (tester) async {
+      await _pump(
+        tester,
+        pendingChangeCount: 0,
+        compareTabs: const <CompareTabSpec>[
+          CompareTabSpec(id: 'compare-0', left: 'main', right: 'feature'),
+        ],
+        onCloseCompareTab: (_) {},
+      );
+      await tester.pumpAndSettle();
+      Color? iconColor() =>
+          IconTheme.of(tester.element(find.byIcon(Icons.close))).color;
+      Color? fill() => tester
+          .widget<Material>(
+            find
+                .ancestor(
+                  of: find.byIcon(Icons.close),
+                  matching: find.byType(Material),
+                )
+                .first,
+          )
+          .color;
+      final Color? restIcon = iconColor();
+
+      await _hover(tester, find.byIcon(Icons.close));
+      // The button animates its icon colour to the hovered one.
+      await tester.pumpAndSettle();
+
+      expect(fill(), colors.surfaceHover);
+      expect(iconColor(), colors.textPrimary);
+      expect(restIcon, isNot(colors.textPrimary));
+    });
+  });
+
   testWidgets(
     'shows no badge on Working Copy when there are no pending changes',
     (tester) async {

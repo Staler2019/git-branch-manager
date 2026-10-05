@@ -17,9 +17,10 @@ name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
 
 - **Rule**: about 4% black/white, invisible on a real display; `lib/widgets/gbm_row.dart` exists to pass `surfaceHover`/`surfaceSelected` for you.
 - **Do**: reach for `GbmRow` for anything row-shaped and **assert the token by identity**; a hover test that only checks for no exception proves nothing.
+- **Do**: read the element's class in the mockup before picking a token: `.gbm-tab:hover` is a label colour only (`GbmTab`), `.gbm-menu-item:hover` is an accent fill; only `.gbm-row` and buttons are `surfaceHover`.
 - **Do**: at the end of any round that touches widgets, grep every `InkWell(`/`GestureDetector(` in the changed files. It recurred five times (branch rows, `FileTreeFolderRow`, a private mini-button, `_StashRow`, the conflicted-file row).
 - **Do**: when `GbmRow` would force an invented interaction (no `onDoubleTap`; an `InkWell` with no callback is not hover-enabled), paint the same token from a `MouseRegion` and say why in the doc comment (`_ConflictedFileRow`).
-- **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上 hover/選取/選單](../../docs/ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md); [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md)
+- **Evidence**: ledger: Sidebar branch rows; [ledger: 側邊欄 STASH 列補上 hover/選取/選單](../../docs/ledger/2026-09-01-claude-sidebar-stash-styling-date-3dvzmu.md); [ledger: Working Copy 檔案清單改成左側垂直](../../docs/ledger/2026-09-05-feat-working-copy-vertical-file-lists.md); [ledger: #169](../../docs/ledger/2026-10-05-fix-issue-169-inkwell-hover.md)
 
 ## [FLU-gesture-arena-taxes-double-tap] The gesture arena taxes double-clickable rows, and it is not local
 

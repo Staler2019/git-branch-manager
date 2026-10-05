@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../widgets/gbm_tab.dart';
 import 'workspace_tab.dart';
 import '../../../routing/dialog_route.dart';
 
@@ -287,6 +288,8 @@ class _MoreMenu extends StatelessWidget {
   }
 }
 
+/// A workspace tab: [GbmTab] plus the pending-count badge and, for a closable
+/// tab, the close button.
 class _Tab extends StatelessWidget {
   const _Tab({
     required this.label,
@@ -307,47 +310,60 @@ class _Tab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return InkWell(
+    final VoidCallback? onClose = this.onClose;
+    return GbmTab(
+      label: label,
+      active: active,
       onTap: onTap,
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: active ? colors.accent : Colors.transparent,
-              width: 2,
+      // A closable tab follows the mockup's Compare tab, whose inline
+      // `color:var(--text-tertiary)` outranks `.gbm-tab:hover` (user ruling,
+      // #169); its active state keeps textPrimary, which the mockup never
+      // draws.
+      restColor: onClose != null ? colors.textTertiary : null,
+      trailing: <Widget>[
+        if (badgeCount > 0) ...<Widget>[
+          const SizedBox(width: GbmSpacing.space1),
+          GbmBadge(
+            key: const Key('tab-row-pending-badge'),
+            label: '$badgeCount',
+          ),
+        ],
+        if (onClose != null) ...<Widget>[
+          const SizedBox(width: GbmSpacing.space1),
+          // A bare glyph in the mockup, with no hover; `.gbm-iconbtn:hover`
+          // by user ruling (#169): a surface-hover fill, a text-primary icon.
+          IconButton(
+            onPressed: onClose,
+            // `icClose: this.lucideIcon('x', 12, 'var(--text-secondary)')`.
+            icon: const Icon(Icons.close, size: 12),
+            padding: const EdgeInsets.all(2),
+            constraints: const BoxConstraints(),
+            style: ButtonStyle(
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: WidgetStatePropertyAll<OutlinedBorder>(
+                RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(GbmSpacing.radiusSm),
+                ),
+              ),
+              backgroundColor: WidgetStateProperty.resolveWith(
+                (Set<WidgetState> states) =>
+                    states.contains(WidgetState.hovered)
+                    ? colors.surfaceHover
+                    : Colors.transparent,
+              ),
+              iconColor: WidgetStateProperty.resolveWith(
+                (Set<WidgetState> states) =>
+                    states.contains(WidgetState.hovered)
+                    ? colors.textPrimary
+                    : colors.textSecondary,
+              ),
+              overlayColor: const WidgetStatePropertyAll<Color>(
+                Colors.transparent,
+              ),
             ),
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                fontWeight: GbmTypography.weightMedium,
-                color: active ? colors.textPrimary : colors.textSecondary,
-              ),
-            ),
-            if (badgeCount > 0) ...<Widget>[
-              const SizedBox(width: GbmSpacing.space1),
-              GbmBadge(
-                key: const Key('tab-row-pending-badge'),
-                label: '$badgeCount',
-              ),
-            ],
-            if (onClose != null) ...<Widget>[
-              const SizedBox(width: GbmSpacing.space1),
-              InkWell(
-                onTap: onClose,
-                child: Icon(Icons.close, size: 14, color: colors.textTertiary),
-              ),
-            ],
-          ],
-        ),
-      ),
+        ],
+      ],
     );
   }
 }

@@ -15,6 +15,7 @@ import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:go_router/go_router.dart';
 
 const String _workDir1 = '/Users/test/repo1';
@@ -60,6 +61,7 @@ Future<GoRouter> _pump(
   List<RecentRepoEntry> recents = const <RecentRepoEntry>[],
   List<RepoRecord> repos = const <RepoRecord>[],
   _TestRecentsRepository? recentsRepository,
+  GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -94,7 +96,7 @@ Future<GoRouter> _pump(
         ),
       ],
       child: MaterialApp.router(
-        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        theme: buildGbmTheme(variant),
         routerConfig: router,
       ),
     ),
@@ -285,6 +287,73 @@ void main() {
       isManual: false,
     );
 
+    // The mockup draws the popover's repositories as `.gbm-menu-item`, whose
+    // `:hover` is an accent fill with `--text-on-accent` text -- the same
+    // hover every other menu in the app paints, not a list row's grey.
+    testWidgets('hover paints the menu-item accent', (tester) async {
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+      await _pump(
+        tester,
+        RepoSwitcherRow(
+          entry: const RepoSwitcherEntry(
+            workDir: _workDir1,
+            name: 'test-repo-1',
+            isManual: true,
+          ),
+          onTap: () {},
+          isCurrent: true,
+        ),
+      );
+      Color? fill() =>
+          (tester
+                      .widget<Container>(
+                        find
+                            .descendant(
+                              of: find.byType(RepoSwitcherRow),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .color;
+      Color? nameColor() =>
+          tester.widget<Text>(find.text('test-repo-1')).style!.color;
+      Color? tagColor() =>
+          tester.widget<Text>(find.text('manual')).style!.color;
+      Color? iconColor() => tester
+          .widget<LucideIcon>(
+            find.descendant(
+              of: find.byType(RepoSwitcherRow),
+              matching: find.byType(LucideIcon),
+            ),
+          )
+          .color;
+
+      expect(fill(), colors.surfaceSelected);
+      expect(nameColor(), colors.textPrimary);
+
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(mouse.removePointer);
+      // A corner the row (pumped at the top-left) does not reach.
+      const Offset outside = Offset(799, 599);
+      await mouse.addPointer(location: outside);
+      await mouse.moveTo(tester.getCenter(find.byType(RepoSwitcherRow)));
+      await tester.pump();
+
+      expect(fill(), colors.accent);
+      expect(nameColor(), colors.textOnAccent);
+      expect(iconColor(), colors.textOnAccent);
+      // `.gbm-menu-item:hover .gbm-menu-shortcut`: the tag sits in that slot.
+      expect(tagColor(), colors.textOnAccent.withValues(alpha: 0.8));
+
+      await mouse.moveTo(outside);
+      await tester.pump();
+      expect(fill(), colors.surfaceSelected);
+    });
+
     testWidgets('right-click shows the 05-A menu', (tester) async {
       await _pump(tester, RepoSwitcherRow(entry: scanned, onTap: () {}));
       await _rightClick(tester, find.byType(RepoSwitcherRow));
@@ -371,6 +440,76 @@ void main() {
   });
 
   group('RepoSwitcherButton', () {
+    // P2's mockup, twice: `height:26px;padding:0 7px` inline on the trigger.
+    testWidgets('is 26 tall with 7px side padding', (tester) async {
+      await _pump(
+        tester,
+        const SizedBox(
+          width: 240,
+          child: RepoSwitcherButton(currentWorkDir: _workDir1),
+        ),
+        repos: <RepoRecord>[_record()],
+      );
+      final Finder box = find
+          .descendant(
+            of: find.byType(RepoSwitcherButton),
+            matching: find.byType(Container),
+          )
+          .first;
+      expect(tester.getSize(box).height, 26);
+      expect(
+        tester.widget<Container>(box).padding,
+        const EdgeInsets.symmetric(horizontal: 7),
+      );
+    });
+
+    // The mockup's trigger is an inline-styled span with no hover rule; the
+    // user ruled it hovers like a secondary button, `surface-hover` (#169).
+    // Its own opaque fill sits above any InkWell ink, so the fill is what
+    // has to change.
+    //
+    // Light IDE, not the dark default: the spec itself makes dark's
+    // `--surface-panel-raised` and `--surface-hover` the same #161b22, so in
+    // dark this assertion could not tell the two fills apart.
+    testWidgets('hover swaps the fill to surfaceHover', (tester) async {
+      const GbmThemeVariant variant = GbmThemeVariant.lightIde;
+      final GbmColors colors = tokensFor(variant);
+      expect(colors.surfaceHover, isNot(colors.surfacePanelRaised));
+      await _pump(
+        tester,
+        const SizedBox(
+          width: 240,
+          child: RepoSwitcherButton(currentWorkDir: _workDir1),
+        ),
+        repos: <RepoRecord>[_record()],
+        variant: variant,
+      );
+      Color? fill() =>
+          (tester
+                      .widget<Container>(
+                        find
+                            .descendant(
+                              of: find.byType(RepoSwitcherButton),
+                              matching: find.byType(Container),
+                            )
+                            .first,
+                      )
+                      .decoration!
+                  as BoxDecoration)
+              .color;
+      expect(fill(), colors.surfacePanelRaised);
+
+      final TestGesture mouse = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(mouse.removePointer);
+      await mouse.addPointer(location: const Offset(799, 599));
+      await mouse.moveTo(tester.getCenter(find.byType(RepoSwitcherButton)));
+      await tester.pump();
+
+      expect(fill(), colors.surfaceHover);
+    });
+
     testWidgets('shows the current repository and opens the popover', (
       tester,
     ) async {

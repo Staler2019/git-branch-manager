@@ -96,6 +96,44 @@ GoRoute dialogRoute({
 }
 
 void main() {
+  // The mockup's menu bar items are bare spans with no hover rule; the user
+  // ruled they take a button's `surface-hover` (#169). A hand-rolled InkWell
+  // otherwise inherits `ThemeData.hoverColor`, a grey no display shows.
+  // `.mkbar{...color:var(--text-secondary)}` -- the mockup's bar items are
+  // bare spans, so they take the bar's colour.
+  testWidgets('top-level menu labels are textSecondary', (tester) async {
+    await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+    );
+    expect(
+      tester.widget<Text>(find.text('File')).style?.color,
+      tokensFor(GbmThemeVariant.darkTechnical).textSecondary,
+    );
+  });
+
+  testWidgets('a top-level menu button hovers in surfaceHover', (tester) async {
+    await _pump(
+      tester,
+      onToggleSidebar: () {},
+      onFetch: () {},
+      onPull: () {},
+      onPush: () {},
+    );
+    final InkWell button = tester.widget<InkWell>(
+      find
+          .ancestor(of: find.text('File'), matching: find.byType(InkWell))
+          .first,
+    );
+    expect(
+      button.hoverColor,
+      tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+    );
+  });
+
   testWidgets(
     'opening the View menu shows History/Working copy, not Diff or dialog-opening items now owned by other menus',
     (tester) async {

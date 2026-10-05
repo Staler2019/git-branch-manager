@@ -86,7 +86,7 @@ reached 5,900 lines with every round appending to the same end-of-file.
 ## Rules
 
 Which file a category lives in is a context-cost decision, recorded in
-[docs/rules/README.md](docs/rules/README.md)'s prefix table: the twelve
+[docs/rules/README.md](docs/rules/README.md)'s prefix table: the
 path-scoped ones under `.claude/rules/` are loaded only when their subtree is
 touched, the rest are imported here.
 

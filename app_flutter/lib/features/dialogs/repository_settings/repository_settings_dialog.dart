@@ -14,6 +14,7 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_tab.dart';
 import '../../../routing/dialog_route.dart';
 import '../../workspace/workspace_screen.dart' show repoIdForRoute;
 
@@ -160,11 +161,8 @@ class _RepositorySettingsDialogContentState
   }
 }
 
-/// A horizontal tab strip. Local to this dialog rather than promoted to
-/// `widgets/`: the workspace's own `TabRow` is a different component with
-/// close buttons and badges, and nothing else in the app needs a plain strip
-/// yet -- promoting it on a sample of one would be guessing at the shared
-/// shape.
+/// A horizontal tab strip. The strip stays local to this dialog; each tab
+/// is a [GbmTab], the `.gbm-tab` the workspace's `TabRow` draws too.
 class _TabStrip<T> extends StatelessWidget {
   const _TabStrip({
     required this.tabs,
@@ -188,36 +186,16 @@ class _TabStrip<T> extends StatelessWidget {
       child: Row(
         children: <Widget>[
           for (final T tab in tabs)
-            InkWell(
+            GbmTab(
+              label: labelOf(tab),
+              active: tab == current,
               onTap: () => onSelected(tab),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space3,
-                  vertical: GbmSpacing.space2,
-                ),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: tab == current
-                          ? colors.accent
-                          : Colors.transparent,
-                      width: 2,
-                    ),
-                  ),
-                ),
-                child: Text(
-                  labelOf(tab),
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    fontWeight: tab == current
-                        ? GbmTypography.weightSemibold
-                        : GbmTypography.weightRegular,
-                    color: tab == current
-                        ? colors.textPrimary
-                        : colors.textSecondary,
-                  ),
-                ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space3,
+                vertical: GbmSpacing.space2,
               ),
+              fontWeight: GbmTypography.weightRegular,
+              activeFontWeight: GbmTypography.weightSemibold,
             ),
         ],
       ),

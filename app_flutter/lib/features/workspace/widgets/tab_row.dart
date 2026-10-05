@@ -8,6 +8,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
+import '../../../widgets/gbm_tab.dart';
 import 'workspace_tab.dart';
 import '../../../routing/dialog_route.dart';
 
@@ -287,7 +288,9 @@ class _MoreMenu extends StatelessWidget {
   }
 }
 
-class _Tab extends StatefulWidget {
+/// A workspace tab: [GbmTab] plus the pending-count badge and, for a closable
+/// tab, the close button.
+class _Tab extends StatelessWidget {
   const _Tab({
     required this.label,
     required this.active,
@@ -305,74 +308,34 @@ class _Tab extends StatefulWidget {
   final VoidCallback? onClose;
 
   @override
-  State<_Tab> createState() => _TabState();
-}
-
-class _TabState extends State<_Tab> {
-  bool _hovered = false;
-
-  /// `.gbm-tab` is `--text-secondary`, `.gbm-tab:hover` and `.active` are
-  /// `--text-primary`. A closable tab follows the mockup's Compare tab
-  /// instead, whose inline `color:var(--text-tertiary)` outranks `:hover`
-  /// (user ruling, #169); its active state keeps textPrimary, which the
-  /// mockup never draws.
-  Color _labelColor(GbmColors colors) {
-    if (widget.active) return colors.textPrimary;
-    if (widget.onClose != null) return colors.textTertiary;
-    return _hovered ? colors.textPrimary : colors.textSecondary;
-  }
-
-  @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final bool active = widget.active;
-    final VoidCallback? onClose = widget.onClose;
-    // `.gbm-tab:hover` has no background, so the ink is off.
-    return InkWell(
-      onTap: widget.onTap,
-      onHover: (bool hovered) => setState(() => _hovered = hovered),
-      hoverColor: Colors.transparent,
-      splashFactory: NoSplash.splashFactory,
-      highlightColor: Colors.transparent,
-      child: Container(
-        alignment: Alignment.center,
-        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
-        decoration: BoxDecoration(
-          border: Border(
-            bottom: BorderSide(
-              color: active ? colors.accent : Colors.transparent,
-              width: 2,
-            ),
+    final VoidCallback? onClose = this.onClose;
+    return GbmTab(
+      label: label,
+      active: active,
+      onTap: onTap,
+      // A closable tab follows the mockup's Compare tab, whose inline
+      // `color:var(--text-tertiary)` outranks `.gbm-tab:hover` (user ruling,
+      // #169); its active state keeps textPrimary, which the mockup never
+      // draws.
+      restColor: onClose != null ? colors.textTertiary : null,
+      trailing: <Widget>[
+        if (badgeCount > 0) ...<Widget>[
+          const SizedBox(width: GbmSpacing.space1),
+          GbmBadge(
+            key: const Key('tab-row-pending-badge'),
+            label: '$badgeCount',
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Text(
-              widget.label,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                fontWeight: GbmTypography.weightMedium,
-                color: _labelColor(colors),
-              ),
-            ),
-            if (widget.badgeCount > 0) ...<Widget>[
-              const SizedBox(width: GbmSpacing.space1),
-              GbmBadge(
-                key: const Key('tab-row-pending-badge'),
-                label: '${widget.badgeCount}',
-              ),
-            ],
-            if (onClose != null) ...<Widget>[
-              const SizedBox(width: GbmSpacing.space1),
-              InkWell(
-                onTap: onClose,
-                child: Icon(Icons.close, size: 14, color: colors.textTertiary),
-              ),
-            ],
-          ],
-        ),
-      ),
+        ],
+        if (onClose != null) ...<Widget>[
+          const SizedBox(width: GbmSpacing.space1),
+          InkWell(
+            onTap: onClose,
+            child: Icon(Icons.close, size: 14, color: colors.textTertiary),
+          ),
+        ],
+      ],
     );
   }
 }

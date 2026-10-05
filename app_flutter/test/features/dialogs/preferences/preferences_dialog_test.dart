@@ -138,6 +138,23 @@ _pump(
 }
 
 void main() {
+  // The mockup's nav entries are `.gbm-row`, whose `:hover` is
+  // `--surface-hover`. A hand-rolled InkWell inherits `ThemeData.hoverColor`
+  // (~4% black/white) instead, which no real display shows.
+  testWidgets('a nav entry hovers in surfaceHover', (tester) async {
+    await _pump(tester);
+
+    final InkWell entry = tester.widget<InkWell>(
+      find
+          .ancestor(of: find.text('Developer'), matching: find.byType(InkWell))
+          .first,
+    );
+    expect(
+      entry.hoverColor,
+      tokensFor(GbmThemeVariant.darkTechnical).surfaceHover,
+    );
+  });
+
   group('PreferencesDialogContent - Appearance', () {
     testWidgets('soft wrap is off until it is turned on', (tester) async {
       final result = await _pump(tester, section: 'Appearance');

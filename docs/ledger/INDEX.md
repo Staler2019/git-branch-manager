@@ -48,3 +48,4 @@ this file positionally.
 - 2026-10-05 — [test/issue-167-missing-tests](2026-10-05-test-issue-167-missing-tests.md) — #167：看門狗 exit 改由子行程測試釘住；clear-selection 順序與 focus guard 的 mutation 在 device 皆 9/9 綠，連修正當時的 45ebc2f 都重現不了當機，新增 Cmd+Alt+S 與第二次拖曳兩支 device 測試並照實註明不釘防護。
 - 2026-10-05 — [fix/issue-169-inkwell-hover](2026-10-05-fix-issue-169-inkwell-hover.md) — #169：九處手寫 InkWell 補 hover，逐站依 mockup class 取值（.gbm-row／.gbm-tab 只改字色／.gbm-menu-item accent），無出處四處依使用者裁定；_Tab 提升為 GbmTab；順修觸發鈕 26px、關閉 icon、選單列字色。
 - 2026-10-05 — [docs/rules-readme-sizes](2026-10-05-docs-rules-readme-sizes.md) — 更正 rules README 過時的行數、arch-testing 主表說法、imported 字元數，前綴表補兩個 FLU- 檔，CLAUDE.md 拿掉 twelve 計數；刪三處重述文字讓 L0 守在 28,705。
+- 2026-10-05 — [fix/issue-172-conflict-rail-row](2026-10-05-fix-issue-172-conflict-rail-row.md) — #172：衝突檔案列照 P8 改成單行 27px（狀態點、10.5px 名稱、已解 .55＋check），整檔 Take Ours／Theirs 移到編輯區提示；開過的檔顯示剩餘段數；Ctrl/Cmd+↑↓ 依繪製順序換檔、到頭停住。

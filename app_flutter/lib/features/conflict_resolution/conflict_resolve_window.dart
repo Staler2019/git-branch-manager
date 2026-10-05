@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/parsed_conflict_file.dart';
+import '../../data/models/file_tree.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -411,6 +412,29 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   /// Moves focus to the next conflict region.
+  /// The rail's files in painted order: the batch's own order in list mode,
+  /// the folder tree's leaf order in tree mode ([FileListModeSwitcher] builds
+  /// the same [FileTree] from the same paths).
+  List<String> _paintedPaths() {
+    final List<String> paths = <String>[
+      for (final ConflictBatchEntry e in _batch.entries) e.path,
+    ];
+    return ref.read(fileListViewModeProvider) == FileListViewMode.tree
+        ? FileTree.fromPaths(paths).getAllLeafPaths()
+        : paths;
+  }
+
+  void _stepFile({required bool forward}) {
+    final String? target = adjacentConflictPath(
+      _paintedPaths(),
+      _selectedPath,
+      forward: forward,
+    );
+    // At an end the target is the file already open; reselecting it would
+    // throw away its in-progress edits.
+    if (target != null && target != _selectedPath) _selectPath(target);
+  }
+
   void _handleNextConflict() {
     final int? nextIndex = _nextRegionIndex(1);
     if (nextIndex != null) {
@@ -636,6 +660,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       onTakeOursHunk: _handleTakeOursHunk,
       onTakeTheirsHunk: _handleTakeTheirsHunk,
       onNextConflict: _handleNextConflict,
+      onPreviousFile: () => _stepFile(forward: false),
+      onNextFile: () => _stepFile(forward: true),
       child: Scaffold(
         appBar: AppBar(
           leading: BackButton(
@@ -1750,9 +1776,20 @@ class _NextConflictIntent extends Intent {
   const _NextConflictIntent();
 }
 
+/// Intent for moving the file selection to the previous painted file.
+class _PreviousFileIntent extends Intent {
+  const _PreviousFileIntent();
+}
+
+/// Intent for moving the file selection to the next painted file.
+class _NextFileIntent extends Intent {
+  const _NextFileIntent();
+}
+
 /// Keyboard shortcuts + actions wrapper for the conflict resolve window.
-/// Handles Ctrl/Cmd+Z to undo the last discard, and Alt+Left/Right/Down for
-/// taking hunks and navigating regions. This is window-local and not tied
+/// Handles Ctrl/Cmd+Z to undo the last discard, Alt+Left/Right/Down for
+/// taking hunks and navigating regions, and Ctrl/Cmd+Up/Down for stepping
+/// through the file rail (spec P8-1). This is window-local and not tied
 /// to the app-wide edit undo or menu action systems.
 class _ConflictResolveWindowShortcuts extends StatelessWidget {
   const _ConflictResolveWindowShortcuts({
@@ -1762,6 +1799,8 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
     required this.onTakeOursHunk,
     required this.onTakeTheirsHunk,
     required this.onNextConflict,
+    required this.onPreviousFile,
+    required this.onNextFile,
   });
 
   final Widget child;
@@ -1770,6 +1809,8 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
   final VoidCallback onTakeOursHunk;
   final VoidCallback onTakeTheirsHunk;
   final VoidCallback onNextConflict;
+  final VoidCallback onPreviousFile;
+  final VoidCallback onNextFile;
 
   @override
   Widget build(BuildContext context) {
@@ -1785,6 +1826,16 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
           const _TakeTheirsHunkIntent(),
       SingleActivator(LogicalKeyboardKey.arrowDown, alt: true):
           const _NextConflictIntent(),
+      SingleActivator(
+        LogicalKeyboardKey.arrowUp,
+        control: !isMacOS,
+        meta: isMacOS,
+      ): const _PreviousFileIntent(),
+      SingleActivator(
+        LogicalKeyboardKey.arrowDown,
+        control: !isMacOS,
+        meta: isMacOS,
+      ): const _NextFileIntent(),
     };
 
     return Shortcuts(
@@ -1802,6 +1853,12 @@ class _ConflictResolveWindowShortcuts extends StatelessWidget {
           ),
           _NextConflictIntent: CallbackAction<_NextConflictIntent>(
             onInvoke: (_) => onNextConflict(),
+          ),
+          _PreviousFileIntent: CallbackAction<_PreviousFileIntent>(
+            onInvoke: (_) => onPreviousFile(),
+          ),
+          _NextFileIntent: CallbackAction<_NextFileIntent>(
+            onInvoke: (_) => onNextFile(),
           ),
         },
         child: Focus(autofocus: true, child: child),

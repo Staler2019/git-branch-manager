@@ -667,6 +667,82 @@ void main() {
       });
     });
 
+    // P8-1: Ctrl/Cmd+↑↓ moves to the previous / next file in the order the
+    // rail paints them, stopping at the ends; tree mode skips folder rows
+    // (#172: 「上／下一個檔，到頭停住」, [SPEC-range-follows-paint-order]).
+    // List order and tree leaf order differ for these three paths: the tree
+    // groups b/d.txt under b/ ahead of a.txt.
+    group('Ctrl+Up/Down file stepping', () {
+      final RepoSessionState threeFiles = RepoSessionState(
+        isOpen: true,
+        workingCopyStatus: WorkingCopyStatus(
+          entries: <WorkingCopyEntry>[
+            _conflictAt('b/c.txt'),
+            _conflictAt('a.txt'),
+            _conflictAt('b/d.txt'),
+          ],
+        ),
+      );
+
+      Future<void> ctrl(WidgetTester tester, LogicalKeyboardKey key) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        await tester.sendKeyDownEvent(key);
+        await tester.sendKeyUpEvent(key);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      List<Object?> opened(ProviderContainer container) =>
+          (container.read(repoSessionProvider(identity).notifier)
+                  as FakeRepoSessionController)
+              .commandLog
+              .where((c) => c.name == 'requestWorkingTreeContent')
+              .map((c) => c.args['path'])
+              .toList();
+
+      testWidgets('list mode steps in list order and stops at the ends', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          threeFiles,
+          _oneRegionFile(),
+        );
+
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowUp);
+
+        expect(opened(container), <String>[
+          'b/c.txt',
+          'a.txt',
+          'b/d.txt',
+          'a.txt',
+        ]);
+      });
+
+      testWidgets('tree mode steps in leaf order, skipping folder rows', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          threeFiles,
+          _oneRegionFile(),
+          initialPrefs: <String, Object>{'fileListViewMode': 'tree'},
+        );
+
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+        await ctrl(tester, LogicalKeyboardKey.arrowDown);
+
+        expect(opened(container), <String>['b/c.txt', 'b/d.txt', 'a.txt']);
+      });
+    });
+
     // A hunk side's single lines are clickable (one click applies that line)
     // but the mockup draws no hover for them; the user ruled they take the
     // row hover, `surface-hover` (#169).

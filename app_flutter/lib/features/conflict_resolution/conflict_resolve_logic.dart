@@ -123,3 +123,24 @@ class ConflictBatch {
   bool get allResolved =>
       _entries.isNotEmpty && resolvedCount == _entries.length;
 }
+
+/// Where Ctrl/Cmd+↑/↓ moves the conflict window's file selection: one step
+/// through [paintedPaths] -- the rail's files in the order they are painted,
+/// folder rows already left out -- stopping at either end (#172:
+/// 「上／下一個檔，到頭停住」). With nothing selected, or a selection no
+/// longer in the list, down takes the first file and up the last. Null only
+/// when there is no file at all.
+String? adjacentConflictPath(
+  List<String> paintedPaths,
+  String? selected, {
+  required bool forward,
+}) {
+  if (paintedPaths.isEmpty) return null;
+  final int index = selected == null ? -1 : paintedPaths.indexOf(selected);
+  if (index < 0) return forward ? paintedPaths.first : paintedPaths.last;
+  final int next = (index + (forward ? 1 : -1)).clamp(
+    0,
+    paintedPaths.length - 1,
+  );
+  return paintedPaths[next];
+}

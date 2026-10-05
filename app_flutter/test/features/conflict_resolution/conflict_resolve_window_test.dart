@@ -553,6 +553,120 @@ void main() {
       expect(a.left - tester.getRect(find.byType(GbmSplitPane).first).left, 6);
     });
 
+    // P8's rail ends an unresolved row with its remaining-segment count
+    // (`gbm-mono`, 9.5px, `--text-tertiary`). The user ruled 「已開過的檔才
+    // 顯示」 (#172): a file never opened has not been parsed, so it shows
+    // nothing rather than a guess.
+    group('rail remaining count', () {
+      Finder remainingCount(String name) => find.descendant(
+        of: _railRow(name),
+        matching: find.byWidgetPredicate(
+          (Widget w) =>
+              w is Text && w.style?.fontFamily == GbmTypography.fontMono,
+        ),
+      );
+
+      final RepoSessionState twoFiles = RepoSessionState(
+        isOpen: true,
+        workingCopyStatus: WorkingCopyStatus(
+          entries: <WorkingCopyEntry>[
+            _conflictAt('a.txt'),
+            _conflictAt('b.txt'),
+          ],
+        ),
+      );
+
+      testWidgets('an unopened file shows no remaining count', (tester) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+
+        expect(remainingCount('a.txt'), findsNothing);
+        expect(remainingCount('b.txt'), findsNothing);
+      });
+
+      testWidgets('the opened file counts its unresolved regions live', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+
+        final Text count = tester.widget<Text>(remainingCount('a.txt'));
+        expect(count.data, '2');
+        expect(count.style?.fontSize, 9.5);
+        expect(
+          count.style?.color,
+          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+        );
+        expect(remainingCount('b.txt'), findsNothing);
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(tester.widget<Text>(remainingCount('a.txt')).data, '1');
+      });
+
+      testWidgets('a file keeps its remaining count once the selection moves', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('b.txt'));
+        await tester.pumpAndSettle();
+
+        expect(tester.widget<Text>(remainingCount('a.txt')).data, '1');
+        expect(tester.widget<Text>(remainingCount('b.txt')).data, '2');
+      });
+
+      // The count and the editable-result gate read one source,
+      // `unresolvedCount`; this pins the gate's side of it.
+      testWidgets('the editable result waits for every region, not most', (
+        tester,
+      ) async {
+        await _pumpWindow(tester, identity, twoFiles, _twoRegionFile());
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(find.text('Result (editable)'), findsNothing);
+
+        await tester.tap(_perRegionTakeButton('Ours').last);
+        await tester.pumpAndSettle();
+        expect(find.text('Result (editable)'), findsOneWidget);
+      });
+
+      testWidgets('a resolved file shows no count even after it was opened', (
+        tester,
+      ) async {
+        final container = await _pumpWindow(
+          tester,
+          identity,
+          twoFiles,
+          _twoRegionFile(),
+        );
+        await tester.tap(find.text('a.txt'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('b.txt'));
+        await tester.pumpAndSettle();
+        expect(remainingCount('a.txt'), findsOneWidget);
+
+        final controller = container.read(
+          repoSessionProvider(identity).notifier,
+        ) as FakeRepoSessionController;
+        controller.state = controller.state.copyWith(
+          workingCopyStatus: WorkingCopyStatus(
+            entries: <WorkingCopyEntry>[_conflictAt('b.txt')],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(remainingCount('a.txt'), findsNothing);
+      });
+    });
+
     // A hunk side's single lines are clickable (one click applies that line)
     // but the mockup draws no hover for them; the user ruled they take the
     // row hover, `surface-hover` (#169).
@@ -1582,6 +1696,16 @@ ParsedConflictFile _oneRegionFile() => ParsedConflictFile(
     _regionSegment(ours: <String>['a'], theirs: <String>['b']),
   ],
   regionCount: 1,
+  wellFormed: true,
+);
+
+/// Two regions, so a rail count can move from 2 to 1 and stay off 0.
+ParsedConflictFile _twoRegionFile() => ParsedConflictFile(
+  segments: <ConflictSegment>[
+    _regionSegment(ours: <String>['a1'], theirs: <String>['b1']),
+    _regionSegment(ours: <String>['a2'], theirs: <String>['b2']),
+  ],
+  regionCount: 2,
   wellFormed: true,
 );
 

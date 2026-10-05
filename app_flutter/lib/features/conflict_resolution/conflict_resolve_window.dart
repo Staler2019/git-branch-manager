@@ -196,6 +196,20 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     return '${entry.ancestorBlob}|${entry.oursBlob}|${entry.theirsBlob}';
   }
 
+  /// Remaining regions of a file the user opened and then left -- P8's rail
+  /// count, shown only for files already opened (#172: 「已開過的檔才顯示」).
+  /// The selected file reads [_lineOrder] live instead; see [_remainingFor].
+  Map<String, int> _remainingByPath = const <String, int>{};
+
+  /// Null for a file never opened, or one with nothing to resolve per
+  /// region (unparseable, or zero regions).
+  int? _remainingFor(String path) {
+    if (path != _selectedPath) return _remainingByPath[path];
+    final ConflictLineOrderState? order = _lineOrder;
+    if (order == null || order.regionCount == 0) return null;
+    return order.unresolvedCount;
+  }
+
   void _selectPath(String path) {
     final RepoSessionState currentSession = ref.read(
       repoSessionProvider(widget.identity),
@@ -206,7 +220,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       currentSession.workingCopyStatus.conflicted,
       path,
     );
+    final String? leaving = _selectedPath;
+    final ConflictLineOrderState? leavingOrder = _lineOrder;
     setState(() {
+      if (leaving != null && leavingOrder != null) {
+        _remainingByPath = <String, int>{
+          ..._remainingByPath,
+          leaving: leavingOrder.unresolvedCount,
+        };
+      }
       _selectedPath = path;
       _selectedConflictSignature = signature;
       _parsedForPath = null;
@@ -276,14 +298,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   }
 
   bool get _allResolved {
-    if (_lineOrder == null) return false;
-    for (int i = 0; i < _lineOrder!.regionCount; i++) {
-      final region = _lineOrder!.regions[i];
-      if (region.orderedLines.isEmpty && !region.manuallyEdited) {
-        return false;
-      }
-    }
-    return true;
+    final ConflictLineOrderState? order = _lineOrder;
+    return order != null && order.unresolvedCount == 0;
   }
 
   void _appendLines(
@@ -609,6 +625,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         entry: entry,
         label: label,
         selected: entry.path == _selectedPath,
+        remaining: _remainingFor(entry.path),
         onTap: () => _selectPath(entry.path),
       );
     }
@@ -1267,10 +1284,12 @@ class _ConflictRailRow extends StatelessWidget {
     required this.entry,
     required this.label,
     required this.selected,
+    required this.remaining,
     required this.onTap,
   });
 
   static const double _height = 27;
+  static const double _countFontSize = 9.5;
   static const double _gap = 6;
   static const double _dotSize = 6;
   static const double _nameFontSize = 10.5;
@@ -1282,12 +1301,16 @@ class _ConflictRailRow extends StatelessWidget {
   /// What to draw as the row's name -- see `FileListModeSwitcher.leafBuilder`.
   final String label;
   final bool selected;
+
+  /// Unresolved regions left, or null when the file was never opened.
+  final int? remaining;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final bool resolved = entry.state == ConflictFileState.resolved;
+    final int? count = resolved ? null : remaining;
     return GbmRow(
       height: _height,
       selected: selected,
@@ -1316,6 +1339,17 @@ class _ConflictRailRow extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
+            if (count != null) ...<Widget>[
+              const SizedBox(width: _gap),
+              Text(
+                '$count',
+                style: TextStyle(
+                  fontFamily: GbmTypography.fontMono,
+                  fontSize: _countFontSize,
+                  color: colors.textTertiary,
+                ),
+              ),
+            ],
             if (resolved) ...<Widget>[
               const SizedBox(width: _gap),
               LucideIcon('check', size: _checkSize, color: colors.success),

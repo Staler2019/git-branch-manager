@@ -188,6 +188,11 @@ class ConflictLineOrderState {
   /// Gets the region count (number of conflict regions).
   int get regionCount => regions.length;
 
+  /// Regions still unresolved: no line taken and no hand edit. The window's
+  /// "all resolved" gate and the rail's remaining count both read this.
+  int get unresolvedCount =>
+      regions.where((r) => r.orderedLines.isEmpty && !r.manuallyEdited).length;
+
   /// Creates an initial unresolved state for [regionCount] conflict regions.
   factory ConflictLineOrderState.initial(int regionCount) {
     return ConflictLineOrderState(

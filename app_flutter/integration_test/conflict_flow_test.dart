@@ -77,10 +77,10 @@ void main() {
       // (see ConflictOps.h's MarkResolved doc comment).
       File('$repoPath/README.md')
           .writeAsStringSync('# gbm e2e fixture\n\nresolved line.\n');
-      // "Mark Resolved" renders twice -- once inline on the file-list row,
-      // once on the bottom action bar -- either dispatches the same
-      // resolveConflict() call, so tapping the first is sufficient.
-      await tester.tap(find.text('Mark Resolved').first);
+      // The bottom action bar's "Mark Resolved" is the only one: the file
+      // rail's row carries no buttons (#172), and it acts on the file
+      // selected above.
+      await tester.tap(find.text('Mark Resolved'));
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       // Note: the sidebar's own status label still reads "Merge in

@@ -717,26 +717,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: GbmSpacing.space3,
-                                vertical: GbmSpacing.space1,
-                              ),
-                              child: Row(
-                                children: <Widget>[
-                                  Expanded(
-                                    child: Text(
-                                      '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                                      style: TextStyle(
-                                        fontSize: GbmTypography.textXs,
-                                        color: colors.textTertiary,
-                                      ),
-                                    ),
-                                  ),
-                                  const FileListModeToggleButton(),
-                                ],
-                              ),
-                            ),
+                            const _RailTitle(),
                             Expanded(
                               child: viewMode == FileListViewMode.list
                                   // P8's rail list: `padding:6px; gap:2px`.
@@ -1291,6 +1272,54 @@ class _ConflictActionBar extends StatelessWidget {
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// P8's rail pane label, `.mklbl` 「Conflicted files」:
+/// `font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+/// color:var(--text-tertiary);padding:6px 10px;border-bottom:1px solid
+/// var(--border-subtle);white-space:nowrap`, laid out `display:flex;gap:6px`.
+/// P03 item 10 puts the List/Tree toggle on every file-list title's right,
+/// the Conflict window's included, though P8's mock omits it (#175).
+class _RailTitle extends StatelessWidget {
+  const _RailTitle();
+
+  static const double _fontSize = 10;
+  static const double _letterSpacingEm = 0.06;
+  static const double _gap = 6;
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 6,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      padding: _padding,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              'Conflicted files'.toUpperCase(),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.clip,
+              style: TextStyle(
+                fontSize: _fontSize,
+                letterSpacing: _fontSize * _letterSpacingEm,
+                color: colors.textTertiary,
+              ),
+            ),
+          ),
+          const SizedBox(width: _gap),
+          const FileListModeToggleButton(),
+        ],
       ),
     );
   }

@@ -419,6 +419,56 @@ void main() {
       );
     });
 
+    // P8's rail pane is labelled `.mklbl` 「Conflicted files」: 10px,
+    // uppercase, letter-spacing .06em (0.6px at 10px), --text-tertiary,
+    // padding 6px 10px, a 1px --border-subtle bottom border. P03 item 10
+    // keeps the List/Tree toggle on that title's right; the old 「x of y
+    // resolved」 count had no source and is gone (#175 rulings).
+    testWidgets('the rail is titled Conflicted files in .mklbl style', (
+      tester,
+    ) async {
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry),
+        _oneRegionFile(),
+      );
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      final Finder title = find.text('CONFLICTED FILES');
+      final TextStyle? style = tester.widget<Text>(title).style;
+      expect(style?.fontSize, 10);
+      expect(style?.letterSpacing, closeTo(0.6, 1e-9));
+      expect(style?.color, colors.textTertiary);
+      expect(find.text('0 of 1 resolved'), findsNothing);
+
+      final Container header = tester.widget<Container>(
+        find
+            .ancestor(
+              of: title,
+              matching: find.byWidgetPredicate(
+                (Widget w) =>
+                    w is Container &&
+                    w.decoration is BoxDecoration &&
+                    (w.decoration! as BoxDecoration).border != null,
+              ),
+            )
+            .first,
+      );
+      expect(
+        header.padding,
+        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      );
+      final Border border =
+          (header.decoration! as BoxDecoration).border! as Border;
+      expect(border.bottom, BorderSide(color: colors.borderSubtle));
+
+      final Rect titleRect = tester.getRect(title);
+      final Rect toggle = tester.getRect(find.byType(FileListModeToggleButton));
+      expect(toggle.left, greaterThan(titleRect.right));
+      expect(toggle.center.dy, closeTo(titleRect.center.dy, 1));
+    });
+
     // P8's rail draws each conflicted file as one `.gbm-row` -- 27px, a 6px
     // status dot, the name at 10.5px with no declared weight -- and carries
     // no whole-file buttons: those live in the editor's fallback hint and the

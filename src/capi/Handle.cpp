@@ -3,6 +3,7 @@
 #include "capi/JsonCodec.h"
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
+#include "core/git/GitCommand.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -41,6 +42,11 @@ GBM_API void gbm_last_result_json_copy(uint8_t* out, int32_t outLen) {
     const std::string& buffer = stagingBuffer();
     const std::size_t n = std::min(static_cast<std::size_t>(outLen), buffer.size());
     std::memcpy(out, buffer.data(), n);
+}
+
+GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier) {
+    setTimeoutMultiplier(static_cast<int>(multiplier));
+    return static_cast<int32_t>(timeoutMultiplier());
 }
 
 GBM_API GbmSessionHandle gbm_session_open(const char* workDir,

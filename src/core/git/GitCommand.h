@@ -232,4 +232,21 @@ struct ProcessResult {
     bool succeeded() const noexcept { return exitCode == 0 && !timedOut && !cancelled; }
 };
 
+/// A user-set multiplier on every finite `GitCommand::timeout`, so a machine
+/// that is slow for reasons outside this app (security scanners hooking every
+/// file open, a loaded laptop) can stretch the deadlines this codebase
+/// measured on a fast one. Process-wide and read by the real runner at each
+/// execution, so a runner built before the user changed it still obeys it.
+///
+/// Never applied to `timeout = 0` (no deadline stays no deadline) or to
+/// `idleTimeout` (its ceiling is already ten minutes of silence). Values
+/// below 1 are refused: the preference can lengthen a deadline, never cut
+/// one the code chose on purpose. Defaults to 1.
+void setTimeoutMultiplier(int multiplier);
+int timeoutMultiplier();
+/// Back to 1. For tests, which share one process.
+void resetTimeoutMultiplier();
+/// `timeout` scaled by timeoutMultiplier(); 0 stays 0.
+std::chrono::milliseconds scaledTimeout(std::chrono::milliseconds timeout);
+
 }  // namespace gbm

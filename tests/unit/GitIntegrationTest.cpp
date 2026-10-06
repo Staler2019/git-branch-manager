@@ -5443,5 +5443,51 @@ TEST(ProcessRunnerTimeout, AChildStillDrippingOutputOutlivesTheIdleDeadline) {
         << "returned too early to have waited out the whole dripping phase";
 }
 
+/// Puts the process-wide multiplier back to 1 whatever the test did, so no
+/// later test in this binary inherits a stretched deadline.
+struct TimeoutMultiplierReset {
+    TimeoutMultiplierReset() = default;
+    TimeoutMultiplierReset(const TimeoutMultiplierReset&) = delete;
+    TimeoutMultiplierReset& operator=(const TimeoutMultiplierReset&) = delete;
+
+    ~TimeoutMultiplierReset() { resetTimeoutMultiplier(); }
+};
+
+// The user-set multiplier (Preferences, gbm_set_timeout_multiplier) stretches
+// every finite total deadline. Read at each execution and process-wide, so a
+// runner that already exists picks up a change -- the session's runners are
+// built long before the user opens Preferences.
+//
+// The subject is the elapsed *floor*: with 250ms and a multiplier of 4, a
+// runner that ignores the multiplier times out at ~250ms, well under 1000.
+TEST(ProcessRunnerTimeout, TheMultiplierStretchesAFiniteDeadline) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(4);
+
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(250);
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->run(command, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, std::chrono::milliseconds(1000));
+}
+
+// A multiplier below 1 would *shorten* deadlines the code chose on purpose,
+// and 0 would turn every finite deadline into "no deadline". Neither is
+// something the preference can mean, so both are refused.
+TEST(ProcessRunnerTimeout, AMultiplierBelowOneIsRefused) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    setTimeoutMultiplier(0);
+    EXPECT_EQ(timeoutMultiplier(), 3);
+    setTimeoutMultiplier(-2);
+    EXPECT_EQ(timeoutMultiplier(), 3);
+}
+
 }  // namespace
 }  // namespace gbm

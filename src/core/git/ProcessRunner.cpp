@@ -1033,7 +1033,7 @@ private:
                     &result.err,
                     onProgress,
                     command.stdinData ? &*command.stdinData : nullptr,
-                    command.timeout,
+                    scaledTimeout(command.timeout),
                     command.idleTimeout,
                     &result.timedOut,
                     &sinkStopped);

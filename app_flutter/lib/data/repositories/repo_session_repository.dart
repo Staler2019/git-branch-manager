@@ -1145,6 +1145,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(isRefreshing: false);
         } else {
           state = state.copyWith(isRefreshing: false, lastError: error);
+          if (error != null) {
+            state = state.withOperationRecord(
+              AppLogEvents.errorOccurred(
+                codeName: error.codeName,
+                message: error.message,
+                atEpochMs: _nowEpochMs(),
+              ),
+              maxEntries: maxOperationLogEntries,
+            );
+          }
         }
       case GbmEventType.operationFinished:
         _readRepoState();

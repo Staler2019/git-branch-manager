@@ -102,4 +102,24 @@ abstract final class AppLogEvents {
       message: 'Pruned ${names.length} $noun on $remote: ${names.join(', ')}',
     );
   }
+
+  /// A failure that reached `RepoSessionState.lastError` -- a background read
+  /// (worktree list, working copy) or any other `GBM_EVENT_ERROR_OCCURRED`.
+  /// `lastError` keeps only the latest one, so without this line a failure
+  /// was gone the moment the next replaced it, and the export had no trace.
+  ///
+  /// Takes the code name and message only, never `GitError.argv`: argv is
+  /// where a remote URL, and so a token, would be. The message is git's own
+  /// text, which the git row for the same invocation already carries.
+  static AppLogEntry errorOccurred({
+    required String codeName,
+    required String message,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: '$codeName: $message',
+    );
+  }
 }

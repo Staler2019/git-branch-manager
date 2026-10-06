@@ -13,6 +13,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -212,6 +213,37 @@ void main() {
       c.debugHandleEvent(_unrelatedError());
 
       expect(c.state.lastError?.message, 'push rejected');
+    });
+  });
+
+  // An error that reaches lastError used to be visible only until the next one
+  // replaced it -- nothing about it was ever written to the log drawer, so a
+  // failure on a slow machine left no trace the user could export.
+  group('an error that surfaces is also written to the log', () {
+    int errorRows(FakeRepoSessionController c) => c.state.operationLog
+        .whereType<AppLogEntry>()
+        .where((AppLogEntry e) => e.level == OperationLogLevel.error)
+        .length;
+
+    test('one error event appends one error row', () {
+      final FakeRepoSessionController c = controller();
+
+      c.debugHandleEvent(_unrelatedError());
+
+      expect(errorRows(c), 1);
+      expect(
+        c.state.operationLog.whereType<AppLogEntry>().single.message,
+        'AuthFailed: push rejected',
+      );
+    });
+
+    test('a suppressed automatic preview failure writes no row', () {
+      final FakeRepoSessionController c = controller();
+      fetchAndAwaitPreview(c, 'origin');
+
+      c.debugHandleEvent(_prunePreviewError('origin'));
+
+      expect(errorRows(c), 0);
     });
   });
 }

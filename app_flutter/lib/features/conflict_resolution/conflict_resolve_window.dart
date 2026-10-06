@@ -1187,6 +1187,11 @@ class SequencerBanner extends ConsumerWidget {
 
 /// Presentational action bar with Previous, Next, Mark Resolved, Abort, Continue buttons.
 /// Takes all state and callbacks as plain parameters so it can be tested directly.
+/// P8's bottom action bar (callout 11): `gap:9px;padding:8px 11px;
+/// border-top:1px solid var(--border-subtle);
+/// background:var(--surface-panel-raised)`, every button `gbm-btn-sm`.
+/// Continue keeps the prose's label rather than the mock's
+/// `Continue rebase` (#175 ruling).
 class _ConflictActionBar extends StatelessWidget {
   const _ConflictActionBar({
     required this.identity,
@@ -1216,6 +1221,12 @@ class _ConflictActionBar extends StatelessWidget {
   final VoidCallback onAbort;
   final VoidCallback onContinue;
 
+  static const double _gap = 9;
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: 11,
+    vertical: 8,
+  );
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -1224,32 +1235,32 @@ class _ConflictActionBar extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space3,
-        vertical: GbmSpacing.space2,
+      padding: _padding,
+      decoration: BoxDecoration(
+        color: colors.surfacePanelRaised,
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
-      color: colors.surfacePanelRaised,
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          spacing: _gap,
           children: <Widget>[
-            // Previous button
             GbmButton(
               label: 'Previous',
+              size: GbmButtonSize.sm,
               onPressed: hasMultipleRegions ? onPrevious : null,
             ),
-            const SizedBox(width: GbmSpacing.space1),
-            // Next button
             GbmButton(
-              label: 'Next',
+              label: 'Next conflict',
+              size: GbmButtonSize.sm,
               onPressed: hasMultipleRegions ? onNext : null,
             ),
-            const SizedBox(width: GbmSpacing.space2),
-            // Mark Resolved button
-            GbmButton(label: 'Mark Resolved', onPressed: onMarkResolved),
-            const SizedBox(width: GbmSpacing.space4),
-            // Abort button
+            GbmButton(
+              label: 'Mark resolved',
+              size: GbmButtonSize.sm,
+              onPressed: onMarkResolved,
+            ),
             if (hasSequencerOperation) ...<Widget>[
               Tooltip(
                 message: isRevert
@@ -1257,15 +1268,17 @@ class _ConflictActionBar extends StatelessWidget {
                     : '',
                 child: GbmButton(
                   label: 'Abort',
+                  kind: GbmButtonKind.danger,
+                  size: GbmButtonSize.sm,
                   onPressed: isRevert ? null : onAbort,
                 ),
               ),
-              const SizedBox(width: GbmSpacing.space1),
-              // Continue button
               Tooltip(
-                message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark Resolved on each file instead',
+                message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark resolved on each file instead',
                 child: GbmButton(
                   label: 'Continue',
+                  kind: GbmButtonKind.primary,
+                  size: GbmButtonSize.sm,
                   onPressed: canContinue ? onContinue : null,
                 ),
               ),

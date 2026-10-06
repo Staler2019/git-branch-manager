@@ -490,7 +490,7 @@ void main() {
       for (final String label in <String>[
         'Take Ours',
         'Take Theirs',
-        'Mark Resolved',
+        'Mark resolved',
       ]) {
         expect(
           find.descendant(of: row, matching: find.text(label)),
@@ -1157,27 +1157,71 @@ void main() {
       expect(find.text('②'), findsOneWidget);
     });
 
-    testWidgets('bottom action bar renders with expected buttons', (
+    // P8's bottom bar (callout 11): `display:flex;gap:9px;padding:8px 11px;
+    // border-top:1px solid var(--border-subtle);
+    // background:var(--surface-panel-raised)`, five `gbm-btn-sm` buttons --
+    // Previous / Next conflict / Mark resolved secondary, Abort danger,
+    // Continue primary. Continue keeps the prose's label, not the mock's
+    // `Continue rebase` (#175 ruling, [SPEC-mockup-is-not-prose]).
+    testWidgets('the action bar follows P8: labels, kinds, sm size, 9px gaps', (
       tester,
     ) async {
-      final parsed = ParsedConflictFile(
-        segments: <ConflictSegment>[
-          _regionSegment(
-            ours: <String>['ours-line1'],
-            theirs: <String>['theirs-line1'],
-          ),
-        ],
-        regionCount: 1,
-        wellFormed: true,
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge)),
+        _oneRegionFile(),
       );
-
-      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
       await _selectConflictFile(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
 
-      // Verify action bar buttons exist
-      expect(find.text('Previous'), findsWidgets);
-      expect(find.text('Next'), findsWidgets);
-      expect(find.text('Mark Resolved'), findsWidgets);
+      final Finder bar = _actionBar();
+      final List<GbmButton> buttons = tester
+          .widgetList<GbmButton>(
+            find.descendant(of: bar, matching: find.byType(GbmButton)),
+          )
+          .toList();
+      expect(buttons.map((GbmButton b) => b.label), <String>[
+        'Previous',
+        'Next conflict',
+        'Mark resolved',
+        'Abort',
+        'Continue',
+      ]);
+      expect(buttons.map((GbmButton b) => b.kind), <GbmButtonKind>[
+        GbmButtonKind.secondary,
+        GbmButtonKind.secondary,
+        GbmButtonKind.secondary,
+        GbmButtonKind.danger,
+        GbmButtonKind.primary,
+      ]);
+      for (final GbmButton b in buttons) {
+        expect(b.size, GbmButtonSize.sm, reason: b.label);
+      }
+
+      final List<Rect> rects = <Rect>[
+        for (final GbmButton b in buttons) tester.getRect(find.byWidget(b)),
+      ];
+      for (int i = 1; i < rects.length; i++) {
+        expect(
+          rects[i].left - rects[i - 1].right,
+          9,
+          reason: 'gap before ${buttons[i].label}',
+        );
+      }
+
+      final Container container = tester.widget<Container>(bar);
+      expect(
+        container.padding,
+        const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      );
+      final BoxDecoration decoration = container.decoration! as BoxDecoration;
+      expect(decoration.color, colors.surfacePanelRaised);
+      expect(
+        (decoration.border! as Border).top,
+        BorderSide(color: colors.borderSubtle),
+      );
     });
 
     testWidgets('merge: Abort dispatches mergeAbort, Continue is disabled', (
@@ -1385,7 +1429,7 @@ void main() {
           repoSessionProvider(identity).notifier,
         ) as FakeRepoSessionController;
 
-        await tester.tap(find.text('Mark Resolved').last);
+        await tester.tap(find.text('Mark resolved'));
         await tester.pumpAndSettle();
 
         expect(controller.resolveConflictCalls, hasLength(1));
@@ -1529,7 +1573,7 @@ void main() {
 
       // With 1 region, Previous/Next should be disabled
       final previousButton = find.text('Previous');
-      final nextButton = find.text('Next');
+      final nextButton = find.text('Next conflict');
 
       // The buttons should exist but be disabled (onPressed is null)
       // Since we can't directly inspect onPressed, we just verify they exist
@@ -1560,7 +1604,7 @@ void main() {
 
       // With 2 regions, Previous/Next buttons should be present
       final previousButton = find.text('Previous');
-      final nextButton = find.text('Next');
+      final nextButton = find.text('Next conflict');
 
       expect(previousButton, findsWidgets);
       expect(nextButton, findsWidgets);
@@ -1834,6 +1878,19 @@ ParsedConflictFile _twoRegionFile() => ParsedConflictFile(
   regionCount: 2,
   wellFormed: true,
 );
+
+/// P8's bottom action bar: the bordered [Container] around 'Previous'.
+Finder _actionBar() => find
+    .ancestor(
+      of: find.widgetWithText(GbmButton, 'Previous'),
+      matching: find.byWidgetPredicate(
+        (Widget w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration! as BoxDecoration).border != null,
+      ),
+    )
+    .first;
 
 /// The rail's [GbmRow] for [name] -- an ancestor of the name's text, so the
 /// editor's own mentions of the path never match.

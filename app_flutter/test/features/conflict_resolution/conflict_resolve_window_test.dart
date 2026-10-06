@@ -469,6 +469,71 @@ void main() {
       expect(toggle.center.dy, closeTo(titleRect.center.dy, 1));
     });
 
+    // P8's bar opens with the selected file's state, `font-size:10.5px;
+    // color:var(--text-tertiary);flex:1` (mock: 「LaneAllocator.dart — 衝突
+    // 2 段，已解 1 段」), drawn in English like the conflict banner (#175).
+    group('action bar status text', () {
+      Finder status() => find.descendant(
+        of: _actionBar(),
+        matching: find.textContaining(' — '),
+      );
+
+      testWidgets('counts the selected file\'s conflicts and resolved ones', (
+        tester,
+      ) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          _twoRegionFile(),
+        );
+        expect(status(), findsNothing, reason: 'nothing selected yet');
+
+        await _selectConflictFile(tester);
+        final Text text = tester.widget<Text>(status());
+        expect(text.data, 'conflict.txt — 2 conflicts, 0 resolved');
+        expect(text.style?.fontSize, 10.5);
+        expect(
+          text.style?.color,
+          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+        );
+        final Rect bar = tester.getRect(_actionBar());
+        final Rect previous = tester.getRect(
+          find.widgetWithText(GbmButton, 'Previous'),
+        );
+        expect(tester.getRect(status()).left, bar.left + 11);
+        expect(
+          previous.right,
+          greaterThan(bar.right - 600),
+          reason: 'flex:1 pushes the buttons to the right end',
+        );
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<Text>(status()).data,
+          'conflict.txt — 2 conflicts, 1 resolved',
+        );
+      });
+
+      testWidgets('says conflict, not conflicts, for one region', (
+        tester,
+      ) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          _oneRegionFile(),
+        );
+        await _selectConflictFile(tester);
+
+        expect(
+          tester.widget<Text>(status()).data,
+          'conflict.txt — 1 conflict, 0 resolved',
+        );
+      });
+    });
+
     // P8's rail draws each conflicted file as one `.gbm-row` -- 27px, a 6px
     // status dot, the name at 10.5px with no declared weight -- and carries
     // no whole-file buttons: those live in the editor's fallback hint and the

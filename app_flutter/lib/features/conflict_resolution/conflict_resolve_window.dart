@@ -1222,10 +1222,24 @@ class _ConflictActionBar extends StatelessWidget {
   final VoidCallback onContinue;
 
   static const double _gap = 9;
+  static const double _statusFontSize = 10.5;
   static const EdgeInsets _padding = EdgeInsets.symmetric(
     horizontal: 11,
     vertical: 8,
   );
+
+  /// The mock's 「LaneAllocator.dart — 衝突 2 段，已解 1 段」, in English like the
+  /// conflict banner (#175 ruling). Null with no file selected, or a file
+  /// with no per-region conflicts to count.
+  String? _statusText() {
+    final String? path = selectedPath;
+    final ConflictLineOrderState? order = lineOrder;
+    if (path == null || order == null || order.regionCount == 0) return null;
+    final int total = order.regionCount;
+    final int resolved = total - order.unresolvedCount;
+    final String noun = total == 1 ? 'conflict' : 'conflicts';
+    return '$path — $total $noun, $resolved resolved';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1240,51 +1254,58 @@ class _ConflictActionBar extends StatelessWidget {
         color: colors.surfacePanelRaised,
         border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          spacing: _gap,
-          children: <Widget>[
-            GbmButton(
-              label: 'Previous',
-              size: GbmButtonSize.sm,
-              onPressed: hasMultipleRegions ? onPrevious : null,
-            ),
-            GbmButton(
-              label: 'Next conflict',
-              size: GbmButtonSize.sm,
-              onPressed: hasMultipleRegions ? onNext : null,
-            ),
-            GbmButton(
-              label: 'Mark resolved',
-              size: GbmButtonSize.sm,
-              onPressed: onMarkResolved,
-            ),
-            if (hasSequencerOperation) ...<Widget>[
-              Tooltip(
-                message: isRevert
-                    ? 'Revert has no abort (use Resolve manual actions)'
-                    : '',
-                child: GbmButton(
-                  label: 'Abort',
-                  kind: GbmButtonKind.danger,
-                  size: GbmButtonSize.sm,
-                  onPressed: isRevert ? null : onAbort,
-                ),
+      child: Row(
+        spacing: _gap,
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              _statusText() ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: _statusFontSize,
+                color: colors.textTertiary,
               ),
-              Tooltip(
-                message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark resolved on each file instead',
-                child: GbmButton(
-                  label: 'Continue',
-                  kind: GbmButtonKind.primary,
-                  size: GbmButtonSize.sm,
-                  onPressed: canContinue ? onContinue : null,
-                ),
+            ),
+          ),
+          GbmButton(
+            label: 'Previous',
+            size: GbmButtonSize.sm,
+            onPressed: hasMultipleRegions ? onPrevious : null,
+          ),
+          GbmButton(
+            label: 'Next conflict',
+            size: GbmButtonSize.sm,
+            onPressed: hasMultipleRegions ? onNext : null,
+          ),
+          GbmButton(
+            label: 'Mark resolved',
+            size: GbmButtonSize.sm,
+            onPressed: onMarkResolved,
+          ),
+          if (hasSequencerOperation) ...<Widget>[
+            Tooltip(
+              message: isRevert
+                  ? 'Revert has no abort (use Resolve manual actions)'
+                  : '',
+              child: GbmButton(
+                label: 'Abort',
+                kind: GbmButtonKind.danger,
+                size: GbmButtonSize.sm,
+                onPressed: isRevert ? null : onAbort,
               ),
-            ],
+            ),
+            Tooltip(
+              message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark resolved on each file instead',
+              child: GbmButton(
+                label: 'Continue',
+                kind: GbmButtonKind.primary,
+                size: GbmButtonSize.sm,
+                onPressed: canContinue ? onContinue : null,
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }

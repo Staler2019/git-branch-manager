@@ -717,26 +717,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: <Widget>[
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: GbmSpacing.space3,
-                                vertical: GbmSpacing.space1,
-                              ),
-                              child: Row(
-                                children: <Widget>[
-                                  Expanded(
-                                    child: Text(
-                                      '${_batch.resolvedCount} of ${_batch.entries.length} resolved',
-                                      style: TextStyle(
-                                        fontSize: GbmTypography.textXs,
-                                        color: colors.textTertiary,
-                                      ),
-                                    ),
-                                  ),
-                                  const FileListModeToggleButton(),
-                                ],
-                              ),
-                            ),
+                            const _RailTitle(),
                             Expanded(
                               child: viewMode == FileListViewMode.list
                                   // P8's rail list: `padding:6px; gap:2px`.
@@ -813,6 +794,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               canContinue:
                   activeSequencerOperation(session.repoState)?.canContinue ??
                   false,
+              // P8 callout 1: 「全綠時 Continue 才可按」 (#175).
+              allFilesResolved: _batch.allResolved,
               onAbort: () => _handleAbort(session),
               onContinue: _handleContinue,
             ),
@@ -1206,6 +1189,11 @@ class SequencerBanner extends ConsumerWidget {
 
 /// Presentational action bar with Previous, Next, Mark Resolved, Abort, Continue buttons.
 /// Takes all state and callbacks as plain parameters so it can be tested directly.
+/// P8's bottom action bar (callout 11): `gap:9px;padding:8px 11px;
+/// border-top:1px solid var(--border-subtle);
+/// background:var(--surface-panel-raised)`, every button `gbm-btn-sm`.
+/// Continue keeps the prose's label rather than the mock's
+/// `Continue rebase` (#175 ruling).
 class _ConflictActionBar extends StatelessWidget {
   const _ConflictActionBar({
     required this.identity,
@@ -1218,6 +1206,7 @@ class _ConflictActionBar extends StatelessWidget {
     required this.hasSequencerOperation,
     required this.isRevert,
     required this.canContinue,
+    required this.allFilesResolved,
     required this.onAbort,
     required this.onContinue,
   });
@@ -1232,8 +1221,32 @@ class _ConflictActionBar extends StatelessWidget {
   final bool hasSequencerOperation;
   final bool isRevert;
   final bool canContinue;
+
+  /// Every rail row is green; Continue waits for it even when the
+  /// sequencer itself could continue.
+  final bool allFilesResolved;
   final VoidCallback onAbort;
   final VoidCallback onContinue;
+
+  static const double _gap = 9;
+  static const double _statusFontSize = 10.5;
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: 11,
+    vertical: 8,
+  );
+
+  /// The mock's 「LaneAllocator.dart — 衝突 2 段，已解 1 段」, in English like the
+  /// conflict banner (#175 ruling). Null with no file selected, or a file
+  /// with no per-region conflicts to count.
+  String? _statusText() {
+    final String? path = selectedPath;
+    final ConflictLineOrderState? order = lineOrder;
+    if (path == null || order == null || order.regionCount == 0) return null;
+    final int total = order.regionCount;
+    final int resolved = total - order.unresolvedCount;
+    final String noun = total == 1 ? 'conflict' : 'conflicts';
+    return '$path — $total $noun, $resolved resolved';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1243,54 +1256,115 @@ class _ConflictActionBar extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space3,
-        vertical: GbmSpacing.space2,
+      padding: _padding,
+      decoration: BoxDecoration(
+        color: colors.surfacePanelRaised,
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
-      color: colors.surfacePanelRaised,
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            // Previous button
-            GbmButton(
-              label: 'Previous',
-              onPressed: hasMultipleRegions ? onPrevious : null,
-            ),
-            const SizedBox(width: GbmSpacing.space1),
-            // Next button
-            GbmButton(
-              label: 'Next',
-              onPressed: hasMultipleRegions ? onNext : null,
-            ),
-            const SizedBox(width: GbmSpacing.space2),
-            // Mark Resolved button
-            GbmButton(label: 'Mark Resolved', onPressed: onMarkResolved),
-            const SizedBox(width: GbmSpacing.space4),
-            // Abort button
-            if (hasSequencerOperation) ...<Widget>[
-              Tooltip(
-                message: isRevert
-                    ? 'Revert has no abort (use Resolve manual actions)'
-                    : '',
-                child: GbmButton(
-                  label: 'Abort',
-                  onPressed: isRevert ? null : onAbort,
-                ),
+      child: Row(
+        spacing: _gap,
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              _statusText() ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: _statusFontSize,
+                color: colors.textTertiary,
               ),
-              const SizedBox(width: GbmSpacing.space1),
-              // Continue button
-              Tooltip(
-                message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark Resolved on each file instead',
-                child: GbmButton(
-                  label: 'Continue',
-                  onPressed: canContinue ? onContinue : null,
-                ),
+            ),
+          ),
+          GbmButton(
+            label: 'Previous',
+            size: GbmButtonSize.sm,
+            onPressed: hasMultipleRegions ? onPrevious : null,
+          ),
+          GbmButton(
+            label: 'Next conflict',
+            size: GbmButtonSize.sm,
+            onPressed: hasMultipleRegions ? onNext : null,
+          ),
+          GbmButton(
+            label: 'Mark resolved',
+            size: GbmButtonSize.sm,
+            onPressed: onMarkResolved,
+          ),
+          if (hasSequencerOperation) ...<Widget>[
+            Tooltip(
+              message: isRevert
+                  ? 'Revert has no abort (use Resolve manual actions)'
+                  : '',
+              child: GbmButton(
+                label: 'Abort',
+                kind: GbmButtonKind.danger,
+                size: GbmButtonSize.sm,
+                onPressed: isRevert ? null : onAbort,
               ),
-            ],
+            ),
+            Tooltip(
+              message: !canContinue
+                  ? 'Continue not available for merge/revert yet -- use Mark resolved on each file instead'
+                  : allFilesResolved
+                  ? ''
+                  : 'Mark every file resolved first',
+              child: GbmButton(
+                label: 'Continue',
+                kind: GbmButtonKind.primary,
+                size: GbmButtonSize.sm,
+                onPressed: canContinue && allFilesResolved ? onContinue : null,
+              ),
+            ),
           ],
-        ),
+        ],
+      ),
+    );
+  }
+}
+
+/// P8's rail pane label, `.mklbl` 「Conflicted files」:
+/// `font-size:10px;letter-spacing:.06em;text-transform:uppercase;
+/// color:var(--text-tertiary);padding:6px 10px;border-bottom:1px solid
+/// var(--border-subtle);white-space:nowrap`, laid out `display:flex;gap:6px`.
+/// P03 item 10 puts the List/Tree toggle on every file-list title's right,
+/// the Conflict window's included, though P8's mock omits it (#175).
+class _RailTitle extends StatelessWidget {
+  const _RailTitle();
+
+  static const double _fontSize = 10;
+  static const double _letterSpacingEm = 0.06;
+  static const double _gap = 6;
+  static const EdgeInsets _padding = EdgeInsets.symmetric(
+    horizontal: 10,
+    vertical: 6,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      padding: _padding,
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              'Conflicted files'.toUpperCase(),
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.clip,
+              style: TextStyle(
+                fontSize: _fontSize,
+                letterSpacing: _fontSize * _letterSpacingEm,
+                color: colors.textTertiary,
+              ),
+            ),
+          ),
+          const SizedBox(width: _gap),
+          const FileListModeToggleButton(),
+        ],
       ),
     );
   }

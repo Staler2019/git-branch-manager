@@ -419,6 +419,150 @@ void main() {
       );
     });
 
+    // P8's rail pane is labelled `.mklbl` 「Conflicted files」: 10px,
+    // uppercase, letter-spacing .06em (0.6px at 10px), --text-tertiary,
+    // padding 6px 10px, a 1px --border-subtle bottom border. P03 item 10
+    // keeps the List/Tree toggle on that title's right; the old 「x of y
+    // resolved」 count had no source and is gone (#175 rulings).
+    testWidgets('the rail is titled Conflicted files in .mklbl style', (
+      tester,
+    ) async {
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry),
+        _oneRegionFile(),
+      );
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+      final Finder title = find.text('CONFLICTED FILES');
+      final TextStyle? style = tester.widget<Text>(title).style;
+      expect(style?.fontSize, 10);
+      expect(style?.letterSpacing, closeTo(0.6, 1e-9));
+      expect(style?.color, colors.textTertiary);
+      expect(find.text('0 of 1 resolved'), findsNothing);
+
+      final Container header = tester.widget<Container>(
+        find
+            .ancestor(
+              of: title,
+              matching: find.byWidgetPredicate(
+                (Widget w) =>
+                    w is Container &&
+                    w.decoration is BoxDecoration &&
+                    (w.decoration! as BoxDecoration).border != null,
+              ),
+            )
+            .first,
+      );
+      expect(
+        header.padding,
+        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      );
+      final Border border =
+          (header.decoration! as BoxDecoration).border! as Border;
+      expect(border.bottom, BorderSide(color: colors.borderSubtle));
+
+      final Rect titleRect = tester.getRect(title);
+      final Rect toggle = tester.getRect(find.byType(FileListModeToggleButton));
+      expect(toggle.left, greaterThan(titleRect.right));
+      expect(toggle.center.dy, closeTo(titleRect.center.dy, 1));
+    });
+
+    // P8's bar opens with the selected file's state, `font-size:10.5px;
+    // color:var(--text-tertiary);flex:1` (mock: 「LaneAllocator.dart — 衝突
+    // 2 段，已解 1 段」), drawn in English like the conflict banner (#175).
+    group('action bar status text', () {
+      Finder status() => find.descendant(
+        of: _actionBar(),
+        matching: find.textContaining(' — '),
+      );
+
+      testWidgets('counts the selected file\'s conflicts and resolved ones', (
+        tester,
+      ) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          _twoRegionFile(),
+        );
+        expect(status(), findsNothing, reason: 'nothing selected yet');
+
+        await _selectConflictFile(tester);
+        final Text text = tester.widget<Text>(status());
+        expect(text.data, 'conflict.txt — 2 conflicts, 0 resolved');
+        expect(text.style?.fontSize, 10.5);
+        expect(
+          text.style?.color,
+          tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+        );
+        final Rect bar = tester.getRect(_actionBar());
+        final Rect previous = tester.getRect(
+          find.widgetWithText(GbmButton, 'Previous'),
+        );
+        expect(tester.getRect(status()).left, bar.left + 11);
+        expect(
+          previous.right,
+          greaterThan(bar.right - 600),
+          reason: 'flex:1 pushes the buttons to the right end',
+        );
+
+        await tester.tap(_perRegionTakeButton('Ours').first);
+        await tester.pumpAndSettle();
+        expect(
+          tester.widget<Text>(status()).data,
+          'conflict.txt — 2 conflicts, 1 resolved',
+        );
+      });
+
+      testWidgets('says conflict, not conflicts, for one region', (
+        tester,
+      ) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          _oneRegionFile(),
+        );
+        await _selectConflictFile(tester);
+
+        expect(
+          tester.widget<Text>(status()).data,
+          'conflict.txt — 1 conflict, 0 resolved',
+        );
+      });
+    });
+
+    // P8 callout 1: 「全綠時 Continue 才可按」, and the prose 「全部檔案標記
+    // resolved 後按 Continue」 -- a sequencer that can continue still waits
+    // for every rail row to turn green (#175 ruling).
+    testWidgets('Continue waits until every file is resolved', (tester) async {
+      final container = await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge)),
+        _oneRegionFile(),
+      );
+      await _selectConflictFile(tester);
+      GbmButton continueButton() =>
+          tester.widget<GbmButton>(find.widgetWithText(GbmButton, 'Continue'));
+      expect(continueButton().onPressed, isNull);
+
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+      expect(
+        continueButton().onPressed,
+        isNull,
+        reason: 'every region taken is not the file marked resolved',
+      );
+
+      _resolveAll(container, identity);
+      await tester.pumpAndSettle();
+      expect(continueButton().onPressed, isNotNull);
+    });
+
     // P8's rail draws each conflicted file as one `.gbm-row` -- 27px, a 6px
     // status dot, the name at 10.5px with no declared weight -- and carries
     // no whole-file buttons: those live in the editor's fallback hint and the
@@ -440,7 +584,7 @@ void main() {
       for (final String label in <String>[
         'Take Ours',
         'Take Theirs',
-        'Mark Resolved',
+        'Mark resolved',
       ]) {
         expect(
           find.descendant(of: row, matching: find.text(label)),
@@ -1107,27 +1251,71 @@ void main() {
       expect(find.text('②'), findsOneWidget);
     });
 
-    testWidgets('bottom action bar renders with expected buttons', (
+    // P8's bottom bar (callout 11): `display:flex;gap:9px;padding:8px 11px;
+    // border-top:1px solid var(--border-subtle);
+    // background:var(--surface-panel-raised)`, five `gbm-btn-sm` buttons --
+    // Previous / Next conflict / Mark resolved secondary, Abort danger,
+    // Continue primary. Continue keeps the prose's label, not the mock's
+    // `Continue rebase` (#175 ruling, [SPEC-mockup-is-not-prose]).
+    testWidgets('the action bar follows P8: labels, kinds, sm size, 9px gaps', (
       tester,
     ) async {
-      final parsed = ParsedConflictFile(
-        segments: <ConflictSegment>[
-          _regionSegment(
-            ours: <String>['ours-line1'],
-            theirs: <String>['theirs-line1'],
-          ),
-        ],
-        regionCount: 1,
-        wellFormed: true,
+      await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge)),
+        _oneRegionFile(),
       );
-
-      await _pumpWindow(tester, identity, _sessionWith(_conflictEntry), parsed);
       await _selectConflictFile(tester);
+      final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
 
-      // Verify action bar buttons exist
-      expect(find.text('Previous'), findsWidgets);
-      expect(find.text('Next'), findsWidgets);
-      expect(find.text('Mark Resolved'), findsWidgets);
+      final Finder bar = _actionBar();
+      final List<GbmButton> buttons = tester
+          .widgetList<GbmButton>(
+            find.descendant(of: bar, matching: find.byType(GbmButton)),
+          )
+          .toList();
+      expect(buttons.map((GbmButton b) => b.label), <String>[
+        'Previous',
+        'Next conflict',
+        'Mark resolved',
+        'Abort',
+        'Continue',
+      ]);
+      expect(buttons.map((GbmButton b) => b.kind), <GbmButtonKind>[
+        GbmButtonKind.secondary,
+        GbmButtonKind.secondary,
+        GbmButtonKind.secondary,
+        GbmButtonKind.danger,
+        GbmButtonKind.primary,
+      ]);
+      for (final GbmButton b in buttons) {
+        expect(b.size, GbmButtonSize.sm, reason: b.label);
+      }
+
+      final List<Rect> rects = <Rect>[
+        for (final GbmButton b in buttons) tester.getRect(find.byWidget(b)),
+      ];
+      for (int i = 1; i < rects.length; i++) {
+        expect(
+          rects[i].left - rects[i - 1].right,
+          9,
+          reason: 'gap before ${buttons[i].label}',
+        );
+      }
+
+      final Container container = tester.widget<Container>(bar);
+      expect(
+        container.padding,
+        const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+      );
+      final BoxDecoration decoration = container.decoration! as BoxDecoration;
+      expect(decoration.color, colors.surfacePanelRaised);
+      expect(
+        (decoration.border! as Border).top,
+        BorderSide(color: colors.borderSubtle),
+      );
     });
 
     testWidgets('merge: Abort dispatches mergeAbort, Continue is disabled', (
@@ -1188,6 +1376,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(controller.cherryPickAbortCalled, isTrue);
 
+        _resolveAll(container, identity);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
@@ -1235,6 +1425,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(controller.abortRebaseCalled, isTrue);
 
+        _resolveAll(container, identity);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
@@ -1335,7 +1527,7 @@ void main() {
           repoSessionProvider(identity).notifier,
         ) as FakeRepoSessionController;
 
-        await tester.tap(find.text('Mark Resolved').last);
+        await tester.tap(find.text('Mark resolved'));
         await tester.pumpAndSettle();
 
         expect(controller.resolveConflictCalls, hasLength(1));
@@ -1479,7 +1671,7 @@ void main() {
 
       // With 1 region, Previous/Next should be disabled
       final previousButton = find.text('Previous');
-      final nextButton = find.text('Next');
+      final nextButton = find.text('Next conflict');
 
       // The buttons should exist but be disabled (onPressed is null)
       // Since we can't directly inspect onPressed, we just verify they exist
@@ -1510,7 +1702,7 @@ void main() {
 
       // With 2 regions, Previous/Next buttons should be present
       final previousButton = find.text('Previous');
-      final nextButton = find.text('Next');
+      final nextButton = find.text('Next conflict');
 
       expect(previousButton, findsWidgets);
       expect(nextButton, findsWidgets);
@@ -1784,6 +1976,30 @@ ParsedConflictFile _twoRegionFile() => ParsedConflictFile(
   regionCount: 2,
   wellFormed: true,
 );
+
+/// P8's bottom action bar: the bordered [Container] around 'Previous'.
+Finder _actionBar() => find
+    .ancestor(
+      of: find.widgetWithText(GbmButton, 'Previous'),
+      matching: find.byWidgetPredicate(
+        (Widget w) =>
+            w is Container &&
+            w.decoration is BoxDecoration &&
+            (w.decoration! as BoxDecoration).border != null,
+      ),
+    )
+    .first;
+
+/// Drops every file out of `conflicted`, as the status refresh after the
+/// last Mark resolved does, leaving the sequencer state alone.
+void _resolveAll(ProviderContainer container, RepoIdentity identity) {
+  final controller = container.read(
+    repoSessionProvider(identity).notifier,
+  ) as FakeRepoSessionController;
+  controller.state = controller.state.copyWith(
+    workingCopyStatus: WorkingCopyStatus.empty,
+  );
+}
 
 /// The rail's [GbmRow] for [name] -- an ancestor of the name's text, so the
 /// editor's own mentions of the path never match.

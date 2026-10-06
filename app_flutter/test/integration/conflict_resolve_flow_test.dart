@@ -191,6 +191,17 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Resolved'), findsOneWidget);
 
+        // P8: Continue waits for every file to be marked resolved (#175);
+        // the status refresh after Mark resolved drops it from conflicted.
+        await tester.tap(find.text('Mark resolved'));
+        await tester.pumpAndSettle();
+        pumped.controller.emit(
+          pumped.controller.state.copyWith(
+            workingCopyStatus: WorkingCopyStatus.empty,
+          ),
+        );
+        await tester.pumpAndSettle();
+
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 

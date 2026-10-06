@@ -794,6 +794,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               canContinue:
                   activeSequencerOperation(session.repoState)?.canContinue ??
                   false,
+              // P8 callout 1: 「全綠時 Continue 才可按」 (#175).
+              allFilesResolved: _batch.allResolved,
               onAbort: () => _handleAbort(session),
               onContinue: _handleContinue,
             ),
@@ -1204,6 +1206,7 @@ class _ConflictActionBar extends StatelessWidget {
     required this.hasSequencerOperation,
     required this.isRevert,
     required this.canContinue,
+    required this.allFilesResolved,
     required this.onAbort,
     required this.onContinue,
   });
@@ -1218,6 +1221,10 @@ class _ConflictActionBar extends StatelessWidget {
   final bool hasSequencerOperation;
   final bool isRevert;
   final bool canContinue;
+
+  /// Every rail row is green; Continue waits for it even when the
+  /// sequencer itself could continue.
+  final bool allFilesResolved;
   final VoidCallback onAbort;
   final VoidCallback onContinue;
 
@@ -1296,12 +1303,16 @@ class _ConflictActionBar extends StatelessWidget {
               ),
             ),
             Tooltip(
-              message: canContinue ? '' : 'Continue not available for merge/revert yet -- use Mark resolved on each file instead',
+              message: !canContinue
+                  ? 'Continue not available for merge/revert yet -- use Mark resolved on each file instead'
+                  : allFilesResolved
+                  ? ''
+                  : 'Mark every file resolved first',
               child: GbmButton(
                 label: 'Continue',
                 kind: GbmButtonKind.primary,
                 size: GbmButtonSize.sm,
-                onPressed: canContinue ? onContinue : null,
+                onPressed: canContinue && allFilesResolved ? onContinue : null,
               ),
             ),
           ],

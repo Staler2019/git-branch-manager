@@ -534,6 +534,35 @@ void main() {
       });
     });
 
+    // P8 callout 1: 「全綠時 Continue 才可按」, and the prose 「全部檔案標記
+    // resolved 後按 Continue」 -- a sequencer that can continue still waits
+    // for every rail row to turn green (#175 ruling).
+    testWidgets('Continue waits until every file is resolved', (tester) async {
+      final container = await _pumpWindow(
+        tester,
+        identity,
+        _sessionWith(_conflictEntry)
+            .copyWith(repoState: _stateWith(RepoStateFlags.rebaseMerge)),
+        _oneRegionFile(),
+      );
+      await _selectConflictFile(tester);
+      GbmButton continueButton() =>
+          tester.widget<GbmButton>(find.widgetWithText(GbmButton, 'Continue'));
+      expect(continueButton().onPressed, isNull);
+
+      await tester.tap(_perRegionTakeButton('Ours'));
+      await tester.pumpAndSettle();
+      expect(
+        continueButton().onPressed,
+        isNull,
+        reason: 'every region taken is not the file marked resolved',
+      );
+
+      _resolveAll(container, identity);
+      await tester.pumpAndSettle();
+      expect(continueButton().onPressed, isNotNull);
+    });
+
     // P8's rail draws each conflicted file as one `.gbm-row` -- 27px, a 6px
     // status dot, the name at 10.5px with no declared weight -- and carries
     // no whole-file buttons: those live in the editor's fallback hint and the
@@ -1347,6 +1376,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(controller.cherryPickAbortCalled, isTrue);
 
+        _resolveAll(container, identity);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
@@ -1394,6 +1425,8 @@ void main() {
         await tester.pumpAndSettle();
         expect(controller.abortRebaseCalled, isTrue);
 
+        _resolveAll(container, identity);
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Continue'));
         await tester.pumpAndSettle();
 
@@ -1956,6 +1989,17 @@ Finder _actionBar() => find
       ),
     )
     .first;
+
+/// Drops every file out of `conflicted`, as the status refresh after the
+/// last Mark resolved does, leaving the sequencer state alone.
+void _resolveAll(ProviderContainer container, RepoIdentity identity) {
+  final controller = container.read(
+    repoSessionProvider(identity).notifier,
+  ) as FakeRepoSessionController;
+  controller.state = controller.state.copyWith(
+    workingCopyStatus: WorkingCopyStatus.empty,
+  );
+}
 
 /// The rail's [GbmRow] for [name] -- an ancestor of the name's text, so the
 /// editor's own mentions of the path never match.

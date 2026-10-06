@@ -122,4 +122,18 @@ abstract final class AppLogEvents {
       message: '$codeName: $message',
     );
   }
+
+  /// An event whose data was not valid UTF-8 (or not valid JSON). Names the
+  /// event type only -- the bytes themselves are whatever failed to decode,
+  /// and could be anything, file content included.
+  static AppLogEntry eventUndecodable({
+    required int eventType,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Event $eventType: its data could not be decoded',
+    );
+  }
 }

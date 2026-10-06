@@ -1120,7 +1120,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     unawaited(_recents.recordOpen(_identity.workDir));
   }
 
+  /// Both UTF-8 decoders this reducer reaches are strict --
+  /// `decodeEventPayload` for an event's own payload, `readLastResultJson`
+  /// for the staging buffer a handler reads after a no-payload event. A
+  /// FormatException from either used to escape into the stream's zone,
+  /// which dropped that one event and left no trace anywhere: the git row,
+  /// the worktree list, the working copy simply never arrived. It now leaves
+  /// an error row instead. Anything else still propagates.
   void _onEvent(GbmEvent event) {
+    try {
+      _handleEvent(event);
+    } on FormatException {
+      state = state.withOperationRecord(
+        AppLogEvents.eventUndecodable(
+          eventType: event.type,
+          atEpochMs: _nowEpochMs(),
+        ),
+        maxEntries: maxOperationLogEntries,
+      );
+    }
+  }
+
+  void _handleEvent(GbmEvent event) {
     switch (event.type) {
       case GbmEventType.refsUpdated:
         _readRefs();

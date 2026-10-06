@@ -209,6 +209,7 @@ if(GBM_BUILD_CAPI)
         capi/StashApiTest.cpp
         capi/SubmoduleApiTest.cpp
         capi/TagApiTest.cpp
+        capi/Utf8PathApiTest.cpp
         capi/UndoApiTest.cpp
         capi/WorkingCopyApiTest.cpp
         capi/WorktreeApiTest.cpp

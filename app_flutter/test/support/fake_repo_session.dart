@@ -1158,6 +1158,14 @@ class FakeGbmBindings implements GbmBindings {
   UndoJournalJsonDart get undoJournalJson =>
       (Pointer<Void> session) => 1;
 
+  // `repoSessionProvider` pushes the git timeout multiplier before it builds
+  // the controller, unconditionally -- so, like the two above, every
+  // provider-level test would die here without it. Echoes the value, which
+  // is what core answers for any multiplier it accepts.
+  @override
+  SetTimeoutMultiplierDart get setTimeoutMultiplier =>
+      (int multiplier) => multiplier;
+
   @override
   Never noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('Not implemented for testing');

@@ -4358,6 +4358,14 @@ repoSessionProvider =
       final int maxOperationLogEntries = ref
           .read(appPreferencesProvider)
           .logMemoryLimit;
+      // Before the controller exists, because its constructor opens the
+      // session and the open starts the first reads: a multiplier pushed
+      // after that leaves the very reads a slow machine times out on at 1x.
+      // Process-wide in core, so the last session to open (or the listener
+      // below) simply re-asserts the same value.
+      bindings.setTimeoutMultiplier(
+        ref.read(appPreferencesProvider).gitTimeoutMultiplier,
+      );
       final RepoSessionController controller = RepoSessionController(
         bindings,
         identity,
@@ -4378,6 +4386,9 @@ repoSessionProvider =
         AppPreferences next,
       ) {
         controller.refreshFlags = RefreshFlags.fromPreferences(next);
+        if (previous?.gitTimeoutMultiplier != next.gitTimeoutMultiplier) {
+          bindings.setTimeoutMultiplier(next.gitTimeoutMultiplier);
+        }
       });
       return controller;
     });

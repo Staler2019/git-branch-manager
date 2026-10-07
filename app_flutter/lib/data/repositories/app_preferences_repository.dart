@@ -39,6 +39,7 @@ class AppPreferences {
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
     this.tieredRefresh = true,
+    this.gitTimeoutMultiplier = 1,
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -161,6 +162,12 @@ class AppPreferences {
   /// does. Read live off `RepoSessionController.refreshFlags`.
   final bool tieredRefresh;
 
+  /// Advanced. Not from the spec. Multiplies every finite git timeout
+  /// (core's setTimeoutMultiplier) for a machine that is slow for reasons
+  /// outside this app -- security scanners hooking every file open being the
+  /// case that asked for it. 1 keeps the deadlines as measured.
+  final int gitTimeoutMultiplier;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -180,6 +187,7 @@ class AppPreferences {
     bool? showRefreshTimings,
     bool? keepDiffDuringRefresh,
     bool? tieredRefresh,
+    int? gitTimeoutMultiplier,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -205,6 +213,7 @@ class AppPreferences {
       keepDiffDuringRefresh:
           keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
       tieredRefresh: tieredRefresh ?? this.tieredRefresh,
+      gitTimeoutMultiplier: gitTimeoutMultiplier ?? this.gitTimeoutMultiplier,
     );
   }
 }
@@ -271,6 +280,9 @@ class AppPreferencesRepository {
           defaults.keepDiffDuringRefresh,
       tieredRefresh:
           _prefs.getBool('${_kPrefix}tieredRefresh') ?? defaults.tieredRefresh,
+      gitTimeoutMultiplier:
+          _prefs.getInt('${_kPrefix}gitTimeoutMultiplier') ??
+          defaults.gitTimeoutMultiplier,
     );
   }
 
@@ -311,6 +323,10 @@ class AppPreferencesRepository {
       p.keepDiffDuringRefresh,
     );
     await _prefs.setBool('${_kPrefix}tieredRefresh', p.tieredRefresh);
+    await _prefs.setInt(
+      '${_kPrefix}gitTimeoutMultiplier',
+      p.gitTimeoutMultiplier,
+    );
   }
 }
 

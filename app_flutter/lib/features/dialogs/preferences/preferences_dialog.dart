@@ -1333,7 +1333,7 @@ class _DeveloperSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('刷新分層（fix/refresh-ui-first-tiering）'),
+        const _SectionHeading('刷新分層'),
         _SettingSwitch(
           title: '刷新期間保留舊的 diff',
           subtitle: '依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。',
@@ -1354,13 +1354,34 @@ class _DeveloperSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('除錯'),
+        // Headings name the screen area a switch changes -- 「依照畫面範圍去
+        // 製作標題，像是狀態列、log之類」 -- not the branch it came from.
+        const _SectionHeading('狀態列'),
         _SettingSwitch(
           title: '在狀態列顯示刷新耗時',
           subtitle: '切回視窗到目前分支、working copy 狀態、diff 各自到齊的毫秒數。',
           value: prefs.showRefreshTimings,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(showRefreshTimings: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space4),
+        const _SectionHeading('LOG'),
+        _SettingSwitch(
+          title: '在 Log 顯示每個指令的時限',
+          subtitle: 'Log 多一欄，寫出這個指令實際套用的時限（已乘逾時倍率）：本地指令是總時限，網路指令是無傳輸上限。',
+          value: prefs.showLogTimeouts,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(showLogTimeouts: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        _SettingSwitch(
+          title: '在 Log 顯示欄名列',
+          subtitle: 'Log 最上面多一列欄名：層級、時間、指令、耗時、exit，以及開啟時的時限。',
+          value: prefs.showLogColumnHeaders,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(showLogColumnHeaders: v),
           ),
         ),
       ],

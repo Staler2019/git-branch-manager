@@ -569,7 +569,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               fixedPaneEnd: GbmFixedPaneEnd.trailing,
               controller: _logDrawerController,
               children: <Widget>[
-                LogDrawer(records: session.operationLog),
+                LogDrawer(
+                  records: session.operationLog,
+                  showTimeouts: ref.watch(
+                    appPreferencesProvider.select(
+                      (AppPreferences p) => p.showLogTimeouts,
+                    ),
+                  ),
+                  showColumnHeaders: ref.watch(
+                    appPreferencesProvider.select(
+                      (AppPreferences p) => p.showLogColumnHeaders,
+                    ),
+                  ),
+                ),
                 if (_sidebarVisible)
                   GbmSplitPane(
                     axis: Axis.horizontal,

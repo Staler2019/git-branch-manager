@@ -2201,8 +2201,10 @@ TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {
 class CommandSpy {
 public:
     explicit CommandSpy(std::string flag) : flag_(std::move(flag)) {
+        // Counts invocations, and a running record is the first half of one.
         Log::instance().setOperationSink([this](const OperationRecord& record) {
-            if (std::find(record.argv.begin(), record.argv.end(), flag_) != record.argv.end()) {
+            if (!record.running &&
+                std::find(record.argv.begin(), record.argv.end(), flag_) != record.argv.end()) {
                 ++count_;
             }
         });
@@ -5132,16 +5134,28 @@ public:
     RecordSpy(const RecordSpy&) = delete;
     RecordSpy& operator=(const RecordSpy&) = delete;
 
-    /// The last record whose argv ends with `tail`, or nullopt. Matching on the
+    /// The last finished record whose argv ends with `tail`, or nullopt. Matching on the
     /// tail rather than the whole argv keeps the fixture out of the assertion:
     /// globalFlags() and `-C <tempdir>` sit in front of every invocation.
     std::optional<OperationRecord> lastEndingWith(const std::vector<std::string>& tail) const {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
-            if (it->argv.size() < tail.size()) continue;
+            if (it->running || it->argv.size() < tail.size()) continue;
             if (std::equal(tail.rbegin(), tail.rend(), it->argv.rbegin())) return *it;
         }
         return std::nullopt;
+    }
+
+    /// Every record whose argv ends with `tail`, running ones included, in the
+    /// order they were recorded.
+    std::vector<OperationRecord> allEndingWith(const std::vector<std::string>& tail) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<OperationRecord> out;
+        for (const auto& record : records_) {
+            if (record.argv.size() < tail.size()) continue;
+            if (std::equal(tail.rbegin(), tail.rend(), record.argv.rbegin())) out.push_back(record);
+        }
+        return out;
     }
 
 private:
@@ -5340,6 +5354,52 @@ TEST_F(RealRepoTest, ASinkThatReadsEverythingIsNotRecordedAsBenign) {
     ASSERT_TRUE(record.has_value());
     ASSERT_EQ(record->exitCode, 0);
     EXPECT_FALSE(record->benignExit);
+}
+
+// A read that has not ended used to leave nothing in the operation log, so a
+// slow machine showed an empty log for minutes and a hang looked like nothing
+// at all. The running record must exist while the process is still producing
+// output -- recording it just before the outcome would pass an order-only check.
+TEST_F(RealRepoTest, ACommandIsRecordedAsRunningBeforeItsFirstOutputLine) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    GitCommand command(repo_, {"rev-parse", "HEAD"});
+    bool runningSeenFirst = false;
+    auto result = runner_->stream(
+        command,
+        [&](std::string_view) {
+            const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+            runningSeenFirst = records.size() == 1 && records.front().running;
+            return true;
+        },
+        nullptr,
+        CancellationToken{});
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(runningSeenFirst);
+}
+
+TEST_F(RealRepoTest, TheRunningAndTheFinalRecordShareOneId) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_TRUE(records[0].running);
+    EXPECT_FALSE(records[1].running);
+    EXPECT_NE(records[0].id, 0u);
+    EXPECT_EQ(records[0].id, records[1].id);
+}
+
+TEST_F(RealRepoTest, TwoInvocationsAreRecordedUnderTwoIds) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 4u);
+    EXPECT_NE(records[1].id, records[3].id);
 }
 
 // `GitCommand::timeout` had no test at all before this one, on either platform:

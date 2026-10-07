@@ -400,7 +400,7 @@ void main() {
 
   test('OperationRecord.fromJson decodes argv and exposes failed', () {
     final Map<String, dynamic> json = jsonDecode(
-      '{"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
+      '{"id":3,"running":false,"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
       '"exitCode":1,"durationMs":5,"stderrText":"error","cancelled":false,"timedOut":false,'
       '"benignExit":false}',
     );
@@ -408,6 +408,8 @@ void main() {
 
     expect(record.argv, <String>['git', 'status']);
     expect(record.failed, isTrue);
+    expect(record.id, 3);
+    expect(record.running, isFalse);
   });
 
   // A raw-JSON fixture is invisible to a grep for the constructor, so this one
@@ -418,7 +420,7 @@ void main() {
   // -- this is an in-process event stream, nothing is persisted or replayed.
   test('OperationRecord.fromJson decodes a declared benign exit', () {
     final Map<String, dynamic> json = jsonDecode(
-      '{"whenEpochMs":1000,"repoDir":"/repo",'
+      '{"id":3,"running":false,"whenEpochMs":1000,"repoDir":"/repo",'
       '"argv":["git","config","--local","--get","user.name"],'
       '"commandLine":"git config --local --get user.name",'
       '"exitCode":1,"durationMs":5,"stderrText":"","cancelled":false,"timedOut":false,'

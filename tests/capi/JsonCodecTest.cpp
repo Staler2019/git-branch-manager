@@ -251,6 +251,20 @@ TEST(JsonCodecTest, WorktreeEncodesEverySkipAndFailureState) {
 // git records no creation time for a worktree; this is the unix timestamp of
 // the first entry in its own `logs/HEAD`, and 0 means "git did not record
 // one" rather than the epoch.
+// The two halves of one invocation reach Dart as two events; `id` is what lets
+// it replace the running row with the outcome instead of appending a second.
+TEST(JsonCodecTest, OperationRecordCarriesItsIdAndWhetherItIsRunning) {
+    OperationRecord record;
+    record.id = 42;
+    record.running = true;
+    const std::string json = toJson(record);
+    EXPECT_NE(json.find("\"id\":42,"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"running\":true"), std::string::npos) << json;
+
+    record.running = false;
+    EXPECT_NE(toJson(record).find("\"running\":false"), std::string::npos);
+}
+
 TEST(JsonCodecTest, WorktreeCreatedAtIsAbsentAsZero) {
     WorktreeInfo worktree;
     EXPECT_NE(toJson(worktree).find("\"createdAtUnix\":0"), std::string::npos);

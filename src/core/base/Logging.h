@@ -37,6 +37,15 @@ struct OperationRecord {
     /// `cancelled` and `timedOut`, so there is one place that decides how
     /// severely a row reads.
     bool benignExit = false;
+    /// Process-wide, never 0 on a recorded invocation. One invocation is
+    /// recorded twice -- once with `running` set when the process has been
+    /// spawned, once with the outcome when it has ended -- and both carry the
+    /// same id, so a reader can replace the first with the second.
+    std::uint64_t id = 0;
+    /// True on the record taken at spawn: nothing about the outcome is known
+    /// yet, so exitCode/durationMs/stderrText are placeholders, not answers.
+    /// A slow read used to leave no trace at all until it ended.
+    bool running = false;
 
     /// argv rendered for display, quoting only arguments that need it.
     std::string commandLine() const;

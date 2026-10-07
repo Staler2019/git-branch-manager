@@ -58,6 +58,8 @@ GbmEvent _gitRecord(String argv0) => GbmEvent(
   GbmEventType.operationLogRecord,
   utf8.encode(
     jsonEncode(<String, dynamic>{
+      'id': 1,
+      'running': false,
       'whenEpochMs': 1,
       'repoDir': '/test/repo',
       'argv': <String>[argv0, 'status'],

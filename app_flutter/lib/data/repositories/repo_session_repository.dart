@@ -1275,10 +1275,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.operationLogRecord:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.withOperationRecord(
-            OperationRecord.fromJson(payload),
-            maxEntries: maxOperationLogEntries,
-          );
+          final OperationRecord record = OperationRecord.fromJson(payload);
+          // The running half is dropped until the drawer can draw a row with
+          // no outcome yet: as-is it reads as INFO with a check mark.
+          if (!record.running) {
+            state = state.withOperationRecord(
+              record,
+              maxEntries: maxOperationLogEntries,
+            );
+          }
         }
       case GbmEventType.blameReady:
         final Object? payload = decodeEventPayload(event.payload);

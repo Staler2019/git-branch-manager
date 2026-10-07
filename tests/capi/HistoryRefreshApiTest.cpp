@@ -103,10 +103,13 @@ struct EventLog {
     /// invocation (`rev-parse --revs-only HEAD --symbolic-full-name HEAD`) --
     /// RefStore::readHead()'s doc comment explains why that's one process,
     /// not two. Caller must hold `mutex`, matching completedWalksLocked().
+    /// Finished records only: a running record is the first half of the same
+    /// invocation, not a second one.
     std::size_t headReadInvocationCountLocked() const {
         std::size_t count = 0;
         for (const auto& [type, payload] : events) {
             if (type == GBM_EVENT_OPERATION_LOG_RECORD &&
+                payload.find("\"running\":false") != std::string::npos &&
                 payload.find("\"rev-parse\"") != std::string::npos &&
                 payload.find("\"--symbolic-full-name\"") != std::string::npos) {
                 ++count;

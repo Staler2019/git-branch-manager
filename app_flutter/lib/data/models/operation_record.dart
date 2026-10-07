@@ -57,10 +57,14 @@ class OperationRecord extends GbmLogEntry {
     required this.cancelled,
     required this.timedOut,
     this.benignExit = false,
+    this.id = 0,
+    this.running = false,
   });
 
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
     return OperationRecord(
+      id: json['id'] as int,
+      running: json['running'] as bool,
       whenEpochMs: json['whenEpochMs'] as int,
       repoDir: json['repoDir'] as String,
       argv: (json['argv'] as List<dynamic>).cast<String>(),
@@ -73,6 +77,16 @@ class OperationRecord extends GbmLogEntry {
       benignExit: json['benignExit'] as bool,
     );
   }
+
+  /// Names one invocation process-wide: core records it twice, at spawn
+  /// ([running]) and at its end, under the same id.
+  final int id;
+
+  /// True on the record taken at spawn; its exit code, duration and stderr
+  /// are placeholders. The repository drops these until the log drawer can
+  /// draw a row whose outcome is not known yet -- every getter below would
+  /// otherwise read it as a success.
+  final bool running;
 
   @override
   final int whenEpochMs;

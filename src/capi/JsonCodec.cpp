@@ -662,7 +662,11 @@ std::string toJson(const std::vector<CompareCommitEntry>& entries) {
 
 std::string toJson(const OperationRecord& record) {
     std::string out = "{";
-    out += "\"whenEpochMs\":";
+    out += "\"id\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(record.id));
+    out += ",\"running\":";
+    jsonAppendBool(out, record.running);
+    out += ",\"whenEpochMs\":";
     jsonAppendInt(
         out,
         std::chrono::duration_cast<std::chrono::milliseconds>(record.when.time_since_epoch())

@@ -222,8 +222,10 @@ TEST_F(OperationLogApiTest, ReadingAnUnsetLocalIdentityIsRecordedAsBenign) {
     }));
 
     const std::vector<std::string> records = log_.payloadsOfType(GBM_EVENT_OPERATION_LOG_RECORD);
+    // The finished record: the running one taken at spawn carries no exit code.
     const auto isTheIdentityRead = [](const std::string& record) {
-        return record.find("\"--get\",\"user.name\"") != std::string::npos;
+        return record.find("\"--get\",\"user.name\"") != std::string::npos &&
+               record.find("\"running\":false") != std::string::npos;
     };
     const auto identityRead = std::find_if(records.begin(), records.end(), isTheIdentityRead);
     ASSERT_NE(identityRead, records.end()) << "no `config --local --get user.name` was recorded";

@@ -72,6 +72,15 @@ jobs:
       # fast. Historically this caught Qt specifically (src/app, since
       # removed in favour of the Flutter UI in app_flutter/); the rule itself
       # -- core never depends on whatever UI sits on top of it -- still holds.
+      # Windows narrow path conversions use the active code page, not UTF-8:
+      # a Chinese repository path threw under CI's 1252 and lost characters
+      # under a user's CP950. Only the spelled forms are caught -- an implicit
+      # std::string -> path conversion is not, and the script says so.
+      - name: no narrow path conversions in src
+        run: |
+          python3 scripts/test_check_narrow_path_conversions.py
+          python3 scripts/check-narrow-path-conversions.py
+
       - name: core must not depend on Qt
         run: |
           if grep -rEn '#include\s*[<"]Q' src/core; then

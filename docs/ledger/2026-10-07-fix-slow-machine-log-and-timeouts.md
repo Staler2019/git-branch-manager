@@ -91,7 +91,7 @@ H3 非 git 錯誤（今天不進 Log）、H4 Log 被清空。本輪沒有在使�
   小視窗下早已會溢出；本輪未改。
 - `GIT_LFS_FORCE_PROGRESS` 的行為**未實測**~~（本機沒有 git-lfs，兩個 lfs 測試 SKIPPED）~~。
   **更正**：CI 的 runner 映像裡有 git-lfs，兩個 lfs 測試在 CI 五個 job 都真的跑過；但它們只測
-  track/untrack/add，沒有任何測試透過 pipe 跑 `git lfs fetch/pull/push` 看進度輸出，所以仍未實測。
+  track/untrack/add，沒有任何測試透過 pipe 跑 `git lfs fetch/pull/push` 看進度輸出，所以仍未實測。追蹤於 **#178**。
 
 ## Result
 

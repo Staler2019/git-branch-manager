@@ -448,6 +448,7 @@ class RepoSessionState {
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
     this.operationLog = const <GbmLogEntry>[],
+    this.operationLogRevision = 0,
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.commitFileCountCache = const <String, int>{},
@@ -515,6 +516,12 @@ class RepoSessionState {
   /// Newest-last, capped at [RepoSessionController.maxOperationLogEntries]
   /// (sourced from [AppPreferences.logMemoryLimit]).
   final List<GbmLogEntry> operationLog;
+
+  /// Moves on every change to [operationLog] -- an append *and* a running
+  /// row replaced in place by its outcome. The status bar's unread badge
+  /// compares this, not the log's length: a replacement leaves the length
+  /// alone, and so does an append once the log is at its cap.
+  final int operationLogRevision;
   final BlameResult? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
@@ -703,6 +710,7 @@ class RepoSessionState {
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
     List<GbmLogEntry>? operationLog,
+    int? operationLogRevision,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     Map<String, int>? commitFileCountCache,
@@ -756,6 +764,7 @@ class RepoSessionState {
           ? null
           : (credentialPrompt ?? this.credentialPrompt),
       operationLog: operationLog ?? this.operationLog,
+      operationLogRevision: operationLogRevision ?? this.operationLogRevision,
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
       commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
@@ -927,15 +936,41 @@ class RepoSessionState {
   /// real cap is [RepoSessionController.maxOperationLogEntries] (sourced
   /// from [AppPreferences.logMemoryLimit]), which this pure state class has
   /// no way to read for itself.
+  ///
+  /// A git invocation's outcome replaces its own running row where it stands
+  /// (same non-zero [OperationRecord.id]), so a slow command is one row that
+  /// changes rather than two. When the cap has already trimmed that running
+  /// row, the outcome is appended like any other record -- never dropped.
+  /// Either way [operationLogRevision] moves.
   RepoSessionState withOperationRecord(
     GbmLogEntry record, {
     required int maxEntries,
   }) {
+    final int runningAt = _runningRowOf(record);
+    if (runningAt >= 0) {
+      return copyWith(
+        operationLog: <GbmLogEntry>[
+          for (int i = 0; i < operationLog.length; i++)
+            i == runningAt ? record : operationLog[i],
+        ],
+        operationLogRevision: operationLogRevision + 1,
+      );
+    }
     final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
     return copyWith(
       operationLog: updated.length > maxEntries
           ? updated.sublist(updated.length - maxEntries)
           : updated,
+      operationLogRevision: operationLogRevision + 1,
+    );
+  }
+
+  /// Index of the running row [record] finishes, or -1. id 0 is not from
+  /// core's sequence and matches nothing.
+  int _runningRowOf(GbmLogEntry record) {
+    if (record is! OperationRecord || record.id == 0) return -1;
+    return operationLog.indexWhere(
+      (GbmLogEntry e) => e is OperationRecord && e.running && e.id == record.id,
     );
   }
 }
@@ -1275,15 +1310,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.operationLogRecord:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          final OperationRecord record = OperationRecord.fromJson(payload);
-          // The running half is dropped until the drawer can draw a row with
-          // no outcome yet: as-is it reads as INFO with a check mark.
-          if (!record.running) {
-            state = state.withOperationRecord(
-              record,
-              maxEntries: maxOperationLogEntries,
-            );
-          }
+          // The running half is a RUNNING row until its outcome replaces it.
+          state = state.withOperationRecord(
+            OperationRecord.fromJson(payload),
+            maxEntries: maxOperationLogEntries,
+          );
         }
       case GbmEventType.blameReady:
         final Object? payload = decodeEventPayload(event.payload);

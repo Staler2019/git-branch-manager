@@ -104,7 +104,9 @@ const Duration kFocusRefreshThrottle = Duration(seconds: 2);
 
 class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
-  int _lastSeenOperationLogIndex = 0;
+
+  /// [RepoSessionState.operationLogRevision] when the log was last opened.
+  int _lastSeenOperationLogRevision = 0;
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
   final FocusNode _branchFilterFocusNode = FocusNode();
   final RepoSwitcherController _switcherController = RepoSwitcherController();
@@ -314,6 +316,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           s.lastError,
           s.workingCopyStatus,
           s.operationLog,
+          s.operationLogRevision,
           s.gonePendingByRemote,
           // Every refreshRepoStatus() stamp (refs/status/first-diff/
           // background-done) republishes this field alongside whichever
@@ -470,10 +473,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ),
     );
 
-    // Track whether log has unread entries (newest entry > lastSeen index)
+    // Unread while the log has moved since it was last opened. ~~(newest
+    // entry > lastSeen index)~~ Compared by revision, not length: a running
+    // row replaced by its outcome, or an append at the cap, leaves the
+    // length where it was.
     final bool hasUnreadLog =
-        session.operationLog.isNotEmpty &&
-        (session.operationLog.length > _lastSeenOperationLogIndex);
+        session.operationLogRevision > _lastSeenOperationLogRevision;
 
     // Build the main scaffold content
     final Widget scaffoldContent = Scaffold(
@@ -657,7 +662,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                   : null,
               onOpenLog: () {
                 setState(() {
-                  _lastSeenOperationLogIndex = session.operationLog.length;
+                  _lastSeenOperationLogRevision = session.operationLogRevision;
                 });
                 // Un-collapse the log drawer if the user has never dragged it
                 // open -- otherwise the badge would clear with nothing visibly
@@ -914,7 +919,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         // it must not clear a badge for records the user never saw.
         if (!_logDrawerController.isOpen) {
           setState(() {
-            _lastSeenOperationLogIndex = session.operationLog.length;
+            _lastSeenOperationLogRevision = session.operationLogRevision;
           });
         }
         _logDrawerController.toggle();

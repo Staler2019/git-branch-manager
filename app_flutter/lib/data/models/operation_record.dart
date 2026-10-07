@@ -87,9 +87,11 @@ class OperationRecord extends GbmLogEntry {
   final int id;
 
   /// True on the record taken at spawn; its exit code, duration and stderr
-  /// are placeholders. The repository drops these until the log drawer can
+  /// are placeholders. ~~The repository drops these until the log drawer can
   /// draw a row whose outcome is not known yet -- every getter below would
-  /// otherwise read it as a success.
+  /// otherwise read it as a success.~~ The drawer draws it as RUNNING, and
+  /// [RepoSessionState.withOperationRecord] replaces it with the outcome of
+  /// the same [id].
   final bool running;
 
   /// The total limit this invocation ran under, multiplier applied; 0 when

@@ -81,7 +81,9 @@ H3 非 git 錯誤（今天不進 Log）、H4 Log 被清空。本輪沒有在使�
 - verifier（CONFIRMED）的 P3：`collapseCarriageReturns` 在 `\r` 當下清行，進度列在 `\r` 後被砍斷時
   最後狀態整段消失（本輪引入）。已修，見 `fix: 進度列在 \r 後被砍斷時保留最後狀態`。
 - verifier 的 P4：倍率只在建立 session 時推給 core，歡迎畫面（還沒開任何 repo）的 clone 跑在 ×1；
-  session 未開時改倍率也不會推。**未修，待使用者決定。**
+  session 未開時改倍率也不會推。~~**未修，待使用者決定。**~~ 使用者裁定「just fix it here」：
+  改由 `gitTimeoutMultiplierSyncProvider`（GbmApp watch、session 開啟前 read）推送，見
+  `fix: 逾時倍率由 app 推給 core，不再只在開 repo 時推`。
 - verifier 的 P4：push/pull hook 靜默超過 60 秒×倍率會被砍（原本 10 分鐘）。符合裁定「超過1分鐘沒
   有資料傳輸就卡掉」，記錄行為變化，不改。
 

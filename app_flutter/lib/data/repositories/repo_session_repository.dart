@@ -42,6 +42,7 @@ import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'app_preferences_repository.dart';
 import 'gbm_bindings_provider.dart';
+import 'git_timeout_multiplier_sync.dart';
 import 'pending_operation_tracker.dart';
 import 'recents_repository.dart';
 import 'open_repo_sessions.dart';
@@ -4397,11 +4398,11 @@ repoSessionProvider =
       // Before the controller exists, because its constructor opens the
       // session and the open starts the first reads: a multiplier pushed
       // after that leaves the very reads a slow machine times out on at 1x.
-      // Process-wide in core, so the last session to open (or the listener
-      // below) simply re-asserts the same value.
-      bindings.setTimeoutMultiplier(
-        ref.read(appPreferencesProvider).gitTimeoutMultiplier,
-      );
+      // ~~Process-wide in core, so the last session to open (or the listener
+      // below) simply re-asserts the same value.~~ The push is the app's
+      // (gitTimeoutMultiplierSyncProvider, which GbmApp watches); reading it
+      // here only guarantees it has happened before this session opens.
+      ref.read(gitTimeoutMultiplierSyncProvider);
       final RepoSessionController controller = RepoSessionController(
         bindings,
         identity,
@@ -4422,9 +4423,6 @@ repoSessionProvider =
         AppPreferences next,
       ) {
         controller.refreshFlags = RefreshFlags.fromPreferences(next);
-        if (previous?.gitTimeoutMultiplier != next.gitTimeoutMultiplier) {
-          bindings.setTimeoutMultiplier(next.gitTimeoutMultiplier);
-        }
       });
       return controller;
     });

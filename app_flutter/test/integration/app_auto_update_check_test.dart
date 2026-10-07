@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/app.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
+import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/repositories/build_version_repository.dart';
+import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 import 'package:gbm_flutter/features/app_lifecycle/app_exit_session_cleanup.dart';
@@ -19,6 +21,8 @@ import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../support/fake_repo_session.dart';
 
 /// Crosses the one seam the widget tier cannot: `GbmApp` really mounts the
 /// two startup update widgets, and the callback it hands [AutoUpdateCheck]
@@ -111,11 +115,24 @@ GoRouter _router() {
   );
 }
 
+/// Records the git timeout multipliers `GbmApp` pushes into core.
+class _MultiplierBindings extends FakeGbmBindings {
+  final List<int> pushed = <int>[];
+
+  @override
+  SetTimeoutMultiplierDart get setTimeoutMultiplier => (int multiplier) {
+    pushed.add(multiplier);
+    return multiplier;
+  };
+}
+
 Future<_StubGateway> _pumpApp(
   WidgetTester tester, {
   String tag = 'v9.9.9',
+  Map<String, Object> storedPrefs = const <String, Object>{},
+  _MultiplierBindings? bindings,
 }) async {
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+  SharedPreferences.setMockInitialValues(storedPrefs);
   final SharedPreferences store = await SharedPreferences.getInstance();
   final _StubGateway gateway = _StubGateway(tag);
 
@@ -123,6 +140,9 @@ Future<_StubGateway> _pumpApp(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(store),
+        gbmBindingsProvider.overrideWithValue(
+          bindings ?? _MultiplierBindings(),
+        ),
         appRouterProvider.overrideWithValue(_router()),
         githubReleaseGatewayProvider.overrideWithValue(gateway),
         buildVersionProvider.overrideWithValue(const AppVersion(0, 30, 0)),
@@ -136,6 +156,22 @@ Future<_StubGateway> _pumpApp(
 }
 
 void main() {
+  // A clone from the welcome screen runs git with no repository open, so the
+  // user's multiplier has to reach core from the app, not from a session.
+  testWidgets('the stored git timeout multiplier reaches core with no '
+      'repository open', (WidgetTester tester) async {
+    final _MultiplierBindings bindings = _MultiplierBindings();
+    await _pumpApp(
+      tester,
+      storedPrefs: <String, Object>{'appPrefs.gitTimeoutMultiplier': 4},
+      bindings: bindings,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('welcome'), findsOneWidget);
+    expect(bindings.pushed, <int>[4]);
+  });
+
   group('GbmApp startup update check', () {
     testWidgets('mounts the check above the router', (
       WidgetTester tester,

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
 import 'features/update/auto_update_check.dart';
 import 'features/update/update_leftover_sweep.dart';
@@ -15,6 +16,10 @@ class GbmApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Above the router for the same reason as AutoUpdateCheck below: git
+    // runs from the welcome screen too (clone), with no session to push the
+    // user's timeout multiplier.
+    ref.watch(gitTimeoutMultiplierSyncProvider);
     return MaterialApp.router(
       title: 'git-branch-manager',
       debugShowCheckedModeBanner: false,

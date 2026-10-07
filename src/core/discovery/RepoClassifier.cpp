@@ -25,9 +25,10 @@ bool isRegularFile(const std::filesystem::path& path) {
 /// every repository into a "linked worktree".
 std::filesystem::path normalizeDir(const std::filesystem::path& path) {
     std::filesystem::path normalized = path.lexically_normal();
-    const std::string text = normalized.generic_string();
+    const std::u8string generic = normalized.generic_u8string();
+    const std::string text(generic.begin(), generic.end());
     if (text.size() > 1 && text.back() == '/') {
-        return std::filesystem::path(text.substr(0, text.size() - 1));
+        return fsutil::pathFromUtf8(text.substr(0, text.size() - 1));
     }
     return normalized;
 }
@@ -141,7 +142,8 @@ ClassifiedRepo RepoClassifier::classify(const std::filesystem::path& directory) 
         }
 
         const std::filesystem::path commonDir = resolveCommonDir(*gitDir);
-        const std::string gitDirText = gitDir->generic_string();
+        const std::u8string genericGitDir = gitDir->generic_u8string();
+        const std::string gitDirText(genericGitDir.begin(), genericGitDir.end());
 
         // The target path tells us which case this is: `.../worktrees/<name>` for
         // a linked worktree, `.../modules/<name>` for a submodule.

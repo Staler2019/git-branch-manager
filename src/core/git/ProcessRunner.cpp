@@ -1,4 +1,5 @@
 #include "core/base/Logging.h"
+#include "core/base/FsUtil.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/IProcessRunner.h"
 
@@ -92,13 +93,13 @@ private:
 std::vector<std::string> buildArgv(const std::filesystem::path& exe, const GitCommand& command) {
     std::vector<std::string> argv;
     argv.reserve(command.args.size() + 8);
-    argv.push_back(exe.string());
+    argv.push_back(fsutil::utf8FromPath(exe));
     for (auto& flag : GitCommand::globalFlags()) {
         argv.push_back(std::move(flag));
     }
     if (!command.repoDir.empty()) {
         argv.emplace_back("-C");
-        argv.push_back(command.repoDir.string());
+        argv.push_back(fsutil::utf8FromPath(command.repoDir));
     }
     argv.insert(argv.end(), command.args.begin(), command.args.end());
     return argv;
@@ -1104,7 +1105,7 @@ private:
                                 bool sinkStopped = false) {
         OperationRecord record;
         record.when = std::chrono::system_clock::now();
-        record.repoDir = command.repoDir.string();
+        record.repoDir = fsutil::utf8FromPath(command.repoDir);
         record.argv = argv;
         record.exitCode = exitCode;
         record.durationMs =

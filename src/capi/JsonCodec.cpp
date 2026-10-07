@@ -1,4 +1,5 @@
 #include "capi/JsonCodec.h"
+#include "core/base/FsUtil.h"
 
 #include "capi/JsonWriter.h"
 
@@ -552,7 +553,7 @@ const char* pendingCountStateName(WorktreePendingCountState state) {
 std::string toJson(const WorktreeInfo& worktree) {
     std::string out = "{";
     out += "\"path\":";
-    jsonAppendEscaped(out, worktree.path.string());
+    jsonAppendEscaped(out, fsutil::utf8FromPath(worktree.path));
     out += ",\"headOid\":";
     jsonAppendEscaped(out, worktree.headOid);
     out += ",\"branch\":";

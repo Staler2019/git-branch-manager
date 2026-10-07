@@ -129,7 +129,11 @@ bool pathsEquivalent(std::string_view a, std::string_view b) {
 }
 
 std::string canonicalKey(const std::filesystem::path& path) {
-    std::string text = path.lexically_normal().generic_string();
+    // UTF-8 with '/' separators: generic_string() would encode with the active
+    // code page on Windows, so a Chinese path threw or lost characters, and
+    // every key built from it compared wrong.
+    const std::u8string generic = path.lexically_normal().generic_u8string();
+    std::string text(generic.begin(), generic.end());
     while (text.size() > 1 && text.back() == '/') {
         text.pop_back();
     }

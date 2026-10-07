@@ -31,7 +31,7 @@ void wire(GitCommand& command, const std::filesystem::path& dir) {
     command.envOverrides.emplace_back("SSH_ASKPASS_REQUIRE", "force");
     command.envOverrides.emplace_back("DISPLAY", ":0");
     command.envOverrides.emplace_back("GBM_ASKPASS_MODE", "1");
-    command.envOverrides.emplace_back("GBM_ASKPASS_DIR", dir.string());
+    command.envOverrides.emplace_back("GBM_ASKPASS_DIR", fsutil::utf8FromPath(dir));
 }
 
 std::filesystem::path makeRequestDir() {
@@ -102,12 +102,25 @@ int runClientForDir(const std::filesystem::path& dir, const std::string& prompt)
 }
 
 int runClient(int argc, char** argv) {
+    // The parent wrote this variable as UTF-8, widened into a wide
+    // environment block (ProcessRunner's buildEnvironmentBlock). On Windows the
+    // narrow getenv() would hand it back in the active code page, which loses
+    // a Chinese temp directory; the wide read returns it exactly.
+#if defined(_WIN32)
+    const wchar_t* dirEnv = ::_wgetenv(L"GBM_ASKPASS_DIR");
+    if (dirEnv == nullptr || *dirEnv == L'\0') {
+        return 1;
+    }
+    const std::filesystem::path dir(dirEnv);
+#else
     const char* dirEnv = std::getenv("GBM_ASKPASS_DIR");
     if (dirEnv == nullptr || *dirEnv == '\0') {
         return 1;
     }
+    const std::filesystem::path dir = fsutil::pathFromUtf8(dirEnv);
+#endif
     const std::string prompt = argc > 1 ? argv[1] : "";
-    return runClientForDir(std::filesystem::path(dirEnv), prompt);
+    return runClientForDir(dir, prompt);
 }
 
 }  // namespace gbm::askpass

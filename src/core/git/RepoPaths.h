@@ -1,5 +1,7 @@
 #pragma once
 
+#include "core/base/FsUtil.h"
+
 #include <filesystem>
 #include <string>
 #include <utility>
@@ -113,11 +115,11 @@ public:
     /// the git directory for bare repos).
     std::string displayName() const {
         if (!workDir_.empty()) {
-            return workDir_.filename().string();
+            return fsutil::utf8FromPath(workDir_.filename());
         }
-        std::string name = gitDir_.filename().string();
+        std::string name = fsutil::utf8FromPath(gitDir_.filename());
         if (name == ".git" && gitDir_.has_parent_path()) {
-            return gitDir_.parent_path().filename().string();
+            return fsutil::utf8FromPath(gitDir_.parent_path().filename());
         }
         return name;
     }

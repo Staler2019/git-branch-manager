@@ -1,4 +1,5 @@
 #include "core/git/ops/RebaseOps.h"
+#include "core/base/FsUtil.h"
 
 #include <atomic>
 #include <chrono>
@@ -67,7 +68,7 @@ std::filesystem::path writeTempFile(const std::string& content) {
 /// than passed bare.
 std::string shellQuote(const std::filesystem::path& path) {
     std::string quoted = "'";
-    for (char c : path.string()) {
+    for (char c : fsutil::utf8FromPath(path)) {
         if (c == '\'') {
             quoted += "'\\''";
         } else {

@@ -1,4 +1,5 @@
 #include "core/git/ops/PatchOps.h"
+#include "core/base/FsUtil.h"
 
 #include <utility>
 
@@ -39,7 +40,7 @@ public:
                                 "--start-number",
                                 std::to_string(i + 1),
                                 "-o",
-                                request_.outputDir.string()});
+                                fsutil::utf8FromPath(request_.outputDir)});
             command.timeout = std::chrono::seconds(60);
 
             auto result = runner.run(command, token);
@@ -51,7 +52,7 @@ public:
         }
         outcome.succeeded = true;
         outcome.summary = std::to_string(request_.commits.size()) + " patch(es) written to " +
-                          request_.outputDir.string();
+                          fsutil::utf8FromPath(request_.outputDir);
         return outcome;
     }
 
@@ -83,7 +84,7 @@ public:
             args.emplace_back("--index");
         }
         for (const auto& file : request_.patchFiles) {
-            args.push_back(file.string());
+            args.push_back(fsutil::utf8FromPath(file));
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
@@ -131,7 +132,7 @@ public:
             args.emplace_back("--3way");
         }
         for (const auto& file : request_.patchFiles) {
-            args.push_back(file.string());
+            args.push_back(fsutil::utf8FromPath(file));
         }
 
         GitCommand command(paths.commandDir(), std::move(args));

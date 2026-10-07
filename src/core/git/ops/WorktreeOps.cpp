@@ -96,7 +96,7 @@ WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
     WorktreeInfo info;
     for (std::string_view line : lines) {
         if (line.rfind("worktree ", 0) == 0) {
-            info.path = std::filesystem::path(std::string(line.substr(9)));
+            info.path = fsutil::pathFromUtf8(line.substr(9));
         } else if (line.rfind("HEAD ", 0) == 0) {
             info.headOid = std::string(line.substr(5));
         } else if (line.rfind("branch ", 0) == 0) {
@@ -138,7 +138,7 @@ class AddWorktreeOperation final : public Operation {
 public:
     explicit AddWorktreeOperation(AddWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Add worktree at " + request_.path.string(); }
+    std::string describe() const override { return "Add worktree at " + fsutil::utf8FromPath(request_.path); }
 
     bool killableMidFlight() const override { return false; }
 
@@ -167,7 +167,7 @@ public:
         } else if (request_.detach) {
             args.emplace_back("--detach");
         }
-        args.push_back(request_.path.string());
+        args.push_back(fsutil::utf8FromPath(request_.path));
         if (!request_.branch.empty()) {
             args.push_back(request_.branch);
         }
@@ -182,7 +182,7 @@ public:
             return outcome;
         }
         outcome.succeeded = true;
-        outcome.summary = "Added worktree at " + request_.path.string();
+        outcome.summary = "Added worktree at " + fsutil::utf8FromPath(request_.path);
         return outcome;
     }
 
@@ -195,7 +195,7 @@ public:
     explicit RemoveWorktreeOperation(RemoveWorktreeRequest request)
         : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Remove worktree " + request_.path.string(); }
+    std::string describe() const override { return "Remove worktree " + fsutil::utf8FromPath(request_.path); }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
@@ -205,14 +205,14 @@ public:
         if (request_.force) {
             args.emplace_back("--force");
         }
-        args.push_back(request_.path.string());
+        args.push_back(fsutil::utf8FromPath(request_.path));
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (result) {
             outcome.succeeded = true;
-            outcome.summary = "Removed worktree " + request_.path.string();
+            outcome.summary = "Removed worktree " + fsutil::utf8FromPath(request_.path);
             return outcome;
         }
 
@@ -285,7 +285,7 @@ class LockWorktreeOperation final : public Operation {
 public:
     explicit LockWorktreeOperation(LockWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Lock worktree " + request_.path.string(); }
+    std::string describe() const override { return "Lock worktree " + fsutil::utf8FromPath(request_.path); }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
@@ -296,7 +296,7 @@ public:
             args.emplace_back("--reason");
             args.push_back(request_.reason);
         }
-        args.push_back(request_.path.string());
+        args.push_back(fsutil::utf8FromPath(request_.path));
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::seconds(30);
@@ -307,7 +307,7 @@ public:
             return outcome;
         }
         outcome.succeeded = true;
-        outcome.summary = "Locked " + request_.path.string();
+        outcome.summary = "Locked " + fsutil::utf8FromPath(request_.path);
         return outcome;
     }
 
@@ -320,13 +320,13 @@ public:
     explicit UnlockWorktreeOperation(UnlockWorktreeRequest request)
         : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Unlock worktree " + request_.path.string(); }
+    std::string describe() const override { return "Unlock worktree " + fsutil::utf8FromPath(request_.path); }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
-        GitCommand command(paths.commandDir(), {"worktree", "unlock", request_.path.string()});
+        GitCommand command(paths.commandDir(), {"worktree", "unlock", fsutil::utf8FromPath(request_.path)});
         command.timeout = std::chrono::seconds(30);
         auto result = runner.run(command, token);
         if (!result) {
@@ -335,7 +335,7 @@ public:
             return outcome;
         }
         outcome.succeeded = true;
-        outcome.summary = "Unlocked " + request_.path.string();
+        outcome.summary = "Unlocked " + fsutil::utf8FromPath(request_.path);
         return outcome;
     }
 
@@ -347,14 +347,14 @@ class MoveWorktreeOperation final : public Operation {
 public:
     explicit MoveWorktreeOperation(MoveWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Move worktree to " + request_.to.string(); }
+    std::string describe() const override { return "Move worktree to " + fsutil::utf8FromPath(request_.to); }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
         GitCommand command(paths.commandDir(),
-                           {"worktree", "move", request_.from.string(), request_.to.string()});
+                           {"worktree", "move", fsutil::utf8FromPath(request_.from), fsutil::utf8FromPath(request_.to)});
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (!result) {
@@ -363,7 +363,7 @@ public:
             return outcome;
         }
         outcome.succeeded = true;
-        outcome.summary = "Moved worktree to " + request_.to.string();
+        outcome.summary = "Moved worktree to " + fsutil::utf8FromPath(request_.to);
         return outcome;
     }
 

@@ -1,4 +1,5 @@
 #include "core/git/ops/BlobOps.h"
+#include "core/base/FsUtil.h"
 
 #include <fstream>
 #include <system_error>
@@ -48,7 +49,7 @@ GitResult<std::uint64_t> BlobStore::exportFileAtRevision(FileAtRevisionRequest r
     std::ofstream out(request.destination, std::ios::binary | std::ios::trunc);
     if (!out) {
         return fail(GitError::Code::Io,
-                    "Could not open '" + request.destination.string() + "' for writing");
+                    "Could not open '" + fsutil::utf8FromPath(request.destination) + "' for writing");
     }
     out.write(object->content.data(), static_cast<std::streamsize>(object->content.size()));
     out.close();
@@ -57,7 +58,7 @@ GitResult<std::uint64_t> BlobStore::exportFileAtRevision(FileAtRevisionRequest r
         // the OS a truncated image, or save a corrupt copy over a good one.
         std::error_code ec;
         std::filesystem::remove(request.destination, ec);
-        return fail(GitError::Code::Io, "Could not write '" + request.destination.string() + "'");
+        return fail(GitError::Code::Io, "Could not write '" + fsutil::utf8FromPath(request.destination) + "'");
     }
     return static_cast<std::uint64_t>(object->content.size());
 }

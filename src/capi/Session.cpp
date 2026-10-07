@@ -103,7 +103,7 @@ GitResult<GitInstallation> sharedGitInstallation() {
         // GitExecutable::detect()'s PATH/fallback search order.
         const char* overridePath = std::getenv("GBM_GIT_PATH");
         cachedGitInstallation() =
-            GitExecutable::detect(overridePath != nullptr ? std::filesystem::path(overridePath)
+            GitExecutable::detect(overridePath != nullptr ? fsutil::pathFromUtf8(overridePath)
                                                           : std::filesystem::path{});
         // Only a *successful* detection is cached. Detection failing once (git
         // not yet installed, a permission problem not yet fixed) must not lock
@@ -138,7 +138,7 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         return nullptr;
     }
 
-    RepoPaths paths(std::move(workDir), std::move(gitDir), std::move(commonDir));
+    RepoPaths paths(fsutil::pathFromUtf8(workDir), fsutil::pathFromUtf8(gitDir), fsutil::pathFromUtf8(commonDir));
     if (!paths.isValid()) {
         if (outError != nullptr) {
             *outError = GitError(GitError::Code::InvalidArgument, "gitDir must not be empty");
@@ -820,7 +820,7 @@ void Session::requestWorkingTreeContent(std::string path) {
         // editor -- mirrors RepositorySession::requestWorkingTreeContent's
         // own cap exactly.
         constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
-        const std::filesystem::path target = paths_.workDir() / path;
+        const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
         const std::optional<std::string> raw =
             fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
 
@@ -858,7 +858,7 @@ void Session::exportFileAtRevision(std::string revision, std::string path, std::
         FileAtRevisionRequest request;
         request.revision = revision;
         request.path = path;
-        request.destination = std::filesystem::path(destPath);
+        request.destination = fsutil::pathFromUtf8(destPath);
         const GitResult<std::uint64_t> result =
             blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
 
@@ -1167,7 +1167,7 @@ void Session::publishOperationLogRecord(const OperationRecord& record) {
 void Session::dispatchOperationLogRecord(const OperationRecord& record) {
     std::lock_guard<std::mutex> lock(liveSessionsMutex());
     for (Session* session : liveSessions()) {
-        if (session->paths_.workDir().string() == record.repoDir) {
+        if (fsutil::utf8FromPath(session->paths_.workDir()) == record.repoDir) {
             session->publishOperationLogRecord(record);
         }
     }

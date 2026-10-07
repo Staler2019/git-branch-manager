@@ -1,4 +1,5 @@
 #include "core/git/CatFileBatch.h"
+#include "core/base/FsUtil.h"
 
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
@@ -49,12 +50,12 @@ public:
 
     GitResult<void> spawn(const std::filesystem::path& git, const RepoPaths& paths) {
         std::vector<std::string> argv;
-        argv.push_back(git.string());
+        argv.push_back(fsutil::utf8FromPath(git));
         for (auto& flag : GitCommand::globalFlags()) {
             argv.push_back(std::move(flag));
         }
         argv.emplace_back("-C");
-        argv.push_back(paths.commandDir().string());
+        argv.push_back(fsutil::utf8FromPath(paths.commandDir()));
         argv.emplace_back("cat-file");
         argv.emplace_back("--batch");
 

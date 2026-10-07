@@ -1,4 +1,5 @@
 #include "core/discovery/Scanner.h"
+#include "core/base/FsUtil.h"
 
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
@@ -140,7 +141,7 @@ void Scanner::workerLoop(SharedState& state,
                 // The raw native path, not the canonical key: repo rows store
                 // native separators, so a forward-slashed key would never match
                 // the prefix on Windows.
-                auto touched = db_.touchReposUnder(baseFolder.id, item.path.string(), generation);
+                auto touched = db_.touchReposUnder(baseFolder.id, fsutil::utf8FromPath(item.path), generation);
                 if (!touched) {
                     std::lock_guard<std::mutex> lock(state.mutex);
                     state.failed = true;
@@ -161,9 +162,9 @@ void Scanner::workerLoop(SharedState& state,
             hadRepo = true;
             RepoRecord record;
             record.baseFolderId = baseFolder.id;
-            record.workDir = classified.paths.workDir().string();
-            record.gitDir = classified.paths.gitDir().string();
-            record.commonDir = classified.paths.commonDir().string();
+            record.workDir = fsutil::utf8FromPath(classified.paths.workDir());
+            record.gitDir = fsutil::utf8FromPath(classified.paths.gitDir());
+            record.commonDir = fsutil::utf8FromPath(classified.paths.commonDir());
             record.kind = classified.kind;
             record.name = classified.paths.displayName();
             record.depth = item.depth;
@@ -285,7 +286,7 @@ void Scanner::workerLoop(SharedState& state,
                 progress.directoriesSkipped = state.skipped;
                 progress.reposFound = state.found;
             }
-            progress.currentPath = item.path.string();
+            progress.currentPath = fsutil::utf8FromPath(item.path);
             std::lock_guard<std::mutex> callbackLock(callbackMutex_);
             onProgress(progress);
         }
@@ -320,7 +321,7 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
     }
 
     SharedState state;
-    state.queue.push_back({std::filesystem::path(baseFolder.path), 0});
+    state.queue.push_back({fsutil::pathFromUtf8(baseFolder.path), 0});
 
     const std::size_t workers = workerCountFor(baseFolder.path);
     std::vector<std::thread> threads;

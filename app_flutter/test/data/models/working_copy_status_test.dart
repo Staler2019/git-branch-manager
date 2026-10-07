@@ -67,4 +67,18 @@ void main() {
       expect(entry.untrackedMtimeTicks, 0);
     });
   });
+
+  group('WorkingCopyStatus.fromJson lineCountsUnavailable', () {
+    test('reads the flag in both states', () {
+      for (final bool flag in <bool>[false, true]) {
+        final WorkingCopyStatus status = WorkingCopyStatus.fromJson(
+          <String, dynamic>{
+            'entries': <dynamic>[],
+            'lineCountsUnavailable': flag,
+          },
+        );
+        expect(status.lineCountsUnavailable, flag);
+      }
+    });
+  });
 }

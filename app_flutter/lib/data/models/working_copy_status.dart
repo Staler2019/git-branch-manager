@@ -144,13 +144,17 @@ class WorkingCopyEntry {
 /// Mirrors `gbm::WorkingCopyStatus` as serialized by
 /// `capi::toJson(const WorkingCopyStatus&)`.
 class WorkingCopyStatus {
-  const WorkingCopyStatus({required this.entries});
+  const WorkingCopyStatus({
+    required this.entries,
+    this.lineCountsUnavailable = false,
+  });
 
   factory WorkingCopyStatus.fromJson(Map<String, dynamic> json) {
     return WorkingCopyStatus(
       entries: (json['entries'] as List<dynamic>)
           .map((e) => WorkingCopyEntry.fromJson(e as Map<String, dynamic>))
           .toList(growable: false),
+      lineCountsUnavailable: json['lineCountsUnavailable'] as bool,
     );
   }
 
@@ -159,6 +163,12 @@ class WorkingCopyStatus {
   );
 
   final List<WorkingCopyEntry> entries;
+
+  /// A `git diff --numstat` pass failed (core's
+  /// `WorkingCopyStatus::lineCountsUnavailable`), so every entry's line
+  /// counts are 0 -- not measured -- while the entries and their conflicts
+  /// are still here.
+  final bool lineCountsUnavailable;
 
   bool get isClean => entries.isEmpty;
 

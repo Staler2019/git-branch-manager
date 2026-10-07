@@ -180,7 +180,7 @@ void main() {
       '"unstagedAdded":0,"unstagedRemoved":0,"stagedAdded":0,"stagedRemoved":0,'
       '"conflict":0,"ancestorBlob":"",'
       '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false}'
-      ']}',
+      '],"lineCountsUnavailable":false}',
     );
     final WorkingCopyStatus status = WorkingCopyStatus.fromJson(json);
 

@@ -77,6 +77,9 @@ GitResult<ProcessResult> FakeProcessRunner::run(const GitCommand& command,
     }
 
     const Response& response = responseFor(command);
+    if (response.cancelled) {
+        return cancelled();
+    }
     ProcessResult result;
     result.exitCode = response.exitCode;
     result.out = response.out;
@@ -114,6 +117,9 @@ GitResult<ProcessResult> FakeProcessRunner::streamSeparated(const GitCommand& co
     }
 
     const Response& response = responseFor(command);
+    if (response.cancelled) {
+        return cancelled();
+    }
     if (response.timedOut) {
         GitError error(GitError::Code::Timeout, "Git did not finish in time", response.err);
         error.argv = command.args;

@@ -107,6 +107,17 @@ TEST(JsonCodecTest, WorkingCopyEntryEncodesAllFourLineCountsIndependently) {
     EXPECT_NE(json.find("\"stagedRemoved\":3"), std::string::npos) << json;
 }
 
+// The flag that says why every count is 0 crosses the FFI as its own key, in
+// both states -- a missing key would be a cast failure on the Dart side.
+TEST(JsonCodecTest, WorkingCopyStatusCarriesWhetherLineCountsAreUnavailable) {
+    WorkingCopyStatus status;
+    EXPECT_NE(toJson(status).find("\"lineCountsUnavailable\":false"), std::string::npos)
+        << toJson(status);
+    status.lineCountsUnavailable = true;
+    EXPECT_NE(toJson(status).find("\"lineCountsUnavailable\":true"), std::string::npos)
+        << toJson(status);
+}
+
 // Zero is "not measured", never "measured zero" -- binary files, mode-only
 // changes and oversized untracked files all arrive here as 0 and the UI draws
 // no badge for them. The keys still have to be present: a missing key becomes

@@ -23,6 +23,9 @@ public:
         std::string out;
         std::string err;
         bool timedOut = false;
+        /// Answers as a cancelled invocation would -- for a reader that must
+        /// tell "cancelled partway" apart from every other failure.
+        bool cancelled = false;
         /// Stops the stream after this many records, simulating a killed child.
         std::size_t truncateAfterRecords = 0;
     };

@@ -49,8 +49,9 @@ const List<String> _tier2Commands = <String>[
   'refreshEffectiveIdentity',
 ];
 
-WorkingCopyStatus _emptyStatus() =>
-    WorkingCopyStatus.fromJson(<String, dynamic>{'entries': <dynamic>[]});
+WorkingCopyStatus _emptyStatus() => WorkingCopyStatus.fromJson(
+  <String, dynamic>{'entries': <dynamic>[], 'lineCountsUnavailable': false},
+);
 
 Future<void> _leaveAndReturn(WidgetTester tester) async {
   // The real desktop sequence: focus loss parks the app in `inactive`, and

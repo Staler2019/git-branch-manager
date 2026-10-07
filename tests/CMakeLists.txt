@@ -29,6 +29,7 @@ add_executable(gbm_core_tests
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/SpawnCostVerdictTest.cpp
+    unit/WorkingCopyStatusReadTest.cpp
     unit/WorktreeCreatedAtTest.cpp
     unit/WorktreePendingCountTest.cpp
     unit/WorktreePrimaryTest.cpp

@@ -365,7 +365,9 @@ std::string toJson(const WorkingCopyStatus& status) {
         if (i != 0) out += ',';
         out += workingCopyEntryJson(status.entries[i]);
     }
-    out += "]}";
+    out += "],\"lineCountsUnavailable\":";
+    jsonAppendBool(out, status.lineCountsUnavailable);
+    out += '}';
     return out;
 }
 

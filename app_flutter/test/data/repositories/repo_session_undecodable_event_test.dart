@@ -70,6 +70,8 @@ GbmEvent _gitRecord(String argv0) => GbmEvent(
       'cancelled': false,
       'timedOut': false,
       'benignExit': false,
+      'timeoutMs': 120000,
+      'idleTimeoutMs': 0,
     }),
   ),
 );

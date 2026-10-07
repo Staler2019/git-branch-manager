@@ -5549,5 +5549,35 @@ TEST(ProcessRunnerTimeout, AMultiplierBelowOneIsRefused) {
     EXPECT_EQ(timeoutMultiplier(), 3);
 }
 
+TEST(EffectiveDeadlines, TheTotalIsScaledAndTheIdleIsCarried) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    GitCommand command({}, {"status"});
+    command.timeout = std::chrono::milliseconds(1000);
+    command.idleTimeout = std::chrono::milliseconds(700);
+
+    const EffectiveDeadlines deadlines = effectiveDeadlines(command);
+    EXPECT_EQ(deadlines.total, std::chrono::milliseconds(3000));
+    EXPECT_EQ(deadlines.idle, std::chrono::milliseconds(700));
+}
+
+// Both halves of an invocation carry the limits it ran under, so the log can
+// show a still-running command's deadline as well as a finished one's.
+TEST_F(RealRepoTest, TheRecordCarriesTheDeadlinesTheCommandRanUnder) {
+    commitFile("a.txt", "a\n", "a");
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    RecordSpy spy;
+    GitCommand command(repo_, {"rev-parse", "HEAD"});
+    command.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(command, CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 2u);
+    for (const auto& record : records) {
+        EXPECT_EQ(record.timeoutMs, 60000) << (record.running ? "running" : "final");
+    }
+}
+
 }  // namespace
 }  // namespace gbm

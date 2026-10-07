@@ -692,6 +692,10 @@ std::string toJson(const OperationRecord& record) {
     jsonAppendBool(out, record.timedOut);
     out += ",\"benignExit\":";
     jsonAppendBool(out, record.benignExit);
+    out += ",\"timeoutMs\":";
+    jsonAppendInt(out, record.timeoutMs);
+    out += ",\"idleTimeoutMs\":";
+    jsonAppendInt(out, record.idleTimeoutMs);
     out += '}';
     return out;
 }

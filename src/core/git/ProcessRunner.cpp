@@ -998,6 +998,7 @@ private:
         // Shared by every runner, so an id names one invocation process-wide.
         static std::atomic<std::uint64_t> nextOperationId{1};
         const std::uint64_t operationId = nextOperationId.fetch_add(1);
+        const EffectiveDeadlines deadlines = effectiveDeadlines(command);
 
         if (token.isCancelled()) {
             return cancelled();
@@ -1007,7 +1008,8 @@ private:
         if (auto spawned = child->spawn(argv, command, command.stdinData.has_value()); !spawned) {
             GitError error = std::move(spawned).error();
             error.argv = argv;
-            recordOperation(operationId, command, argv, error.detail, -1, started, false, false);
+            recordOperation(
+                operationId, deadlines, command, argv, error.detail, -1, started, false, false);
             return fail(std::move(error));
         }
 
@@ -1024,7 +1026,7 @@ private:
         // unregisters the callback on every return path below, and the
         // shared_ptr is belt-and-braces against any callback that is already
         // mid-fire when that happens.
-        recordRunning(operationId, command, argv);
+        recordRunning(operationId, deadlines, command, argv);
 
         auto cancelObserved = std::make_shared<std::atomic_bool>(false);
         CancellationToken::Registration cancelReg = token.onCancel([child, cancelObserved] {
@@ -1039,8 +1041,8 @@ private:
                     &result.err,
                     onProgress,
                     command.stdinData ? &*command.stdinData : nullptr,
-                    scaledTimeout(command.timeout),
-                    command.idleTimeout,
+                    deadlines.total,
+                    deadlines.idle,
                     &result.timedOut,
                     &sinkStopped);
 
@@ -1057,6 +1059,7 @@ private:
         cancelReg.reset();
 
         recordOperation(operationId,
+                        deadlines,
                         command,
                         argv,
                         result.err,
@@ -1104,9 +1107,12 @@ private:
     /// The record taken right after spawn: argv and repoDir are known, the
     /// outcome is not. The final record reuses `id`.
     static void recordRunning(std::uint64_t id,
+                              const EffectiveDeadlines& deadlines,
                               const GitCommand& command,
                               const std::vector<std::string>& argv) {
         OperationRecord record;
+        record.timeoutMs = deadlines.total.count();
+        record.idleTimeoutMs = deadlines.idle.count();
         record.when = std::chrono::system_clock::now();
         record.repoDir = fsutil::utf8FromPath(command.repoDir);
         record.argv = argv;
@@ -1116,6 +1122,7 @@ private:
     }
 
     static void recordOperation(std::uint64_t id,
+                                const EffectiveDeadlines& deadlines,
                                 const GitCommand& command,
                                 const std::vector<std::string>& argv,
                                 const std::string& stderrText,
@@ -1126,6 +1133,8 @@ private:
                                 bool sinkStopped = false) {
         OperationRecord record;
         record.id = id;
+        record.timeoutMs = deadlines.total.count();
+        record.idleTimeoutMs = deadlines.idle.count();
         record.when = std::chrono::system_clock::now();
         record.repoDir = fsutil::utf8FromPath(command.repoDir);
         record.argv = argv;

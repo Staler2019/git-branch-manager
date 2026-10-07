@@ -59,6 +59,8 @@ class OperationRecord extends GbmLogEntry {
     this.benignExit = false,
     this.id = 0,
     this.running = false,
+    this.timeoutMs = 0,
+    this.idleTimeoutMs = 0,
   });
 
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
@@ -75,6 +77,8 @@ class OperationRecord extends GbmLogEntry {
       cancelled: json['cancelled'] as bool,
       timedOut: json['timedOut'] as bool,
       benignExit: json['benignExit'] as bool,
+      timeoutMs: json['timeoutMs'] as int,
+      idleTimeoutMs: json['idleTimeoutMs'] as int,
     );
   }
 
@@ -87,6 +91,14 @@ class OperationRecord extends GbmLogEntry {
   /// draw a row whose outcome is not known yet -- every getter below would
   /// otherwise read it as a success.
   final bool running;
+
+  /// The total limit this invocation ran under, multiplier applied; 0 when
+  /// none applied. Core arms exactly this number, so a TIMEOUT row's limit
+  /// is the one that fired.
+  final int timeoutMs;
+
+  /// The no-output limit, likewise; 0 when none applied.
+  final int idleTimeoutMs;
 
   @override
   final int whenEpochMs;

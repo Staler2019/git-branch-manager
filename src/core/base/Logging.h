@@ -46,6 +46,11 @@ struct OperationRecord {
     /// yet, so exitCode/durationMs/stderrText are placeholders, not answers.
     /// A slow read used to leave no trace at all until it ended.
     bool running = false;
+    /// The deadlines this invocation actually ran under, multiplier applied:
+    /// the total limit and the no-output limit, 0 where none applies. Shown
+    /// in the log so a TIMEOUT row says how long it was allowed.
+    std::int64_t timeoutMs = 0;
+    std::int64_t idleTimeoutMs = 0;
 
     /// argv rendered for display, quoting only arguments that need it.
     std::string commandLine() const;

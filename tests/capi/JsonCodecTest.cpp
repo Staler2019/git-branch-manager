@@ -265,6 +265,15 @@ TEST(JsonCodecTest, OperationRecordCarriesItsIdAndWhetherItIsRunning) {
     EXPECT_NE(toJson(record).find("\"running\":false"), std::string::npos);
 }
 
+TEST(JsonCodecTest, OperationRecordCarriesTheDeadlinesItRanUnder) {
+    OperationRecord record;
+    record.timeoutMs = 120000;
+    record.idleTimeoutMs = 60000;
+    const std::string json = toJson(record);
+    EXPECT_NE(json.find("\"timeoutMs\":120000,"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"idleTimeoutMs\":60000"), std::string::npos) << json;
+}
+
 TEST(JsonCodecTest, WorktreeCreatedAtIsAbsentAsZero) {
     WorktreeInfo worktree;
     EXPECT_NE(toJson(worktree).find("\"createdAtUnix\":0"), std::string::npos);

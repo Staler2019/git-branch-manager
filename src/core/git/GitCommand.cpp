@@ -32,4 +32,8 @@ std::chrono::milliseconds scaledTimeout(std::chrono::milliseconds timeout) {
     return timeout * timeoutMultiplier();
 }
 
+EffectiveDeadlines effectiveDeadlines(const GitCommand& command) {
+    return {scaledTimeout(command.timeout), command.idleTimeout};
+}
+
 }  // namespace gbm

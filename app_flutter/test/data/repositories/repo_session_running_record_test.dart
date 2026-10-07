@@ -30,6 +30,8 @@ GbmEvent _record({required int id, required bool running}) => GbmEvent(
       'cancelled': false,
       'timedOut': false,
       'benignExit': false,
+      'timeoutMs': 120000,
+      'idleTimeoutMs': 0,
     }),
   ),
 );

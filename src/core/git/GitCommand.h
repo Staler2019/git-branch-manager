@@ -249,4 +249,14 @@ void resetTimeoutMultiplier();
 /// `timeout` scaled by timeoutMultiplier(); 0 stays 0.
 std::chrono::milliseconds scaledTimeout(std::chrono::milliseconds timeout);
 
+/// The deadlines one invocation actually runs under. The runner arms exactly
+/// these and the operation log records exactly these, so the number a
+/// TIMEOUT row shows is the number that fired.
+struct EffectiveDeadlines {
+    std::chrono::milliseconds total{0};
+    std::chrono::milliseconds idle{0};
+};
+
+EffectiveDeadlines effectiveDeadlines(const GitCommand& command);
+
 }  // namespace gbm

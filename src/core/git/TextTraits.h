@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <string_view>
 
 namespace gbm {
@@ -39,5 +40,10 @@ struct TextTraits {
 /// std::string prior to any QString conversion, which is where this is
 /// meant to be called from.
 TextTraits detectTextTraits(std::string_view rawBytes);
+
+/// For a log of git's stderr: git `--progress` redraws one line in place with
+/// '\r', so each line keeps only the text after its last lone '\r'. "\r\n"
+/// is a line end, not a redraw, and is kept as is.
+std::string collapseCarriageReturns(std::string_view text);
 
 }  // namespace gbm

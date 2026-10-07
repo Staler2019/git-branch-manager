@@ -2,6 +2,7 @@
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/IProcessRunner.h"
+#include "core/git/TextTraits.h"
 
 #include <algorithm>
 #include <atomic>
@@ -984,7 +985,7 @@ public:
 private:
     /// `capturedStdout`, when provided, lets the failure path look at stdout as
     /// well as stderr — see the classification note below.
-    GitResult<ProcessResult> execute(const GitCommand& command,
+    GitResult<ProcessResult> execute(const GitCommand& requested,
                                      char separator,
                                      const LineSink& onLine,
                                      const ProgressSink& onProgress,
@@ -994,6 +995,9 @@ private:
         // never happen on the UI thread.
         GBM_ASSERT_NOT_UI_THREAD();
 
+        // A network command runs with `--progress`, so its pipe shows whether
+        // data still moves -- the only thing its deadline judges.
+        const GitCommand command = withTransferProgress(requested);
         const auto argv = buildArgv(git_, command);
         const auto started = Clock::now();
         // Shared by every runner, so an id names one invocation process-wide.
@@ -1051,6 +1055,9 @@ private:
         result.duration =
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started);
         result.cancelled = cancelObserved->load() || token.isCancelled();
+        // Progress redraws are for a live terminal; the log and any error
+        // shown to the user keep what each line finally said.
+        result.err = collapseCarriageReturns(result.err);
 
         // The child has been waited on (reaped) by this point, and every
         // path below only reports the result -- nothing past here needs the

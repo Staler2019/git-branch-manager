@@ -136,5 +136,20 @@ TEST(TextTraits, EmptyContentIsDetectedAsUtf8) {
     EXPECT_EQ(traits.encoding, EncodingKind::Utf8);
 }
 
+// git's `--progress` rewrites one line with '\r'; the log keeps what the line
+// finally said.
+TEST(CollapseCarriageReturns, KeepsTheLastStateOfEachLine) {
+    EXPECT_EQ(collapseCarriageReturns("Receiving:  50%\rReceiving: 100%, done.\nfatal: x\n"),
+              "Receiving: 100%, done.\nfatal: x\n");
+}
+
+TEST(CollapseCarriageReturns, AWindowsLineEndingIsALineEndNotARewrite) {
+    EXPECT_EQ(collapseCarriageReturns("error: a\r\nerror: b\r\n"), "error: a\r\nerror: b\r\n");
+}
+
+TEST(CollapseCarriageReturns, AnUnterminatedLastLineKeepsItsLastState) {
+    EXPECT_EQ(collapseCarriageReturns("a\rb\rc"), "c");
+}
+
 }  // namespace
 }  // namespace gbm

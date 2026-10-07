@@ -54,7 +54,11 @@ struct GitCommand {
     /// legitimately quiet inside its own budget.
     std::chrono::milliseconds idleTimeout{0};
 
-    /// The hang ceiling for a command that declares `timeout = 0`.
+    /// ~~The hang ceiling for a command that declares `timeout = 0`.~~
+    /// **Removed 2026-10-07** (`kHangCeiling`, ten minutes): no command is
+    /// unbounded any more, and a network command now runs with `--progress`,
+    /// which is the "separate decision" the last paragraph below names. The
+    /// census is kept because it is still why kNetworkIdle needs `--progress`.
     ///
     /// **Measured, and the measurement is why it is this large rather than
     /// tight.** Two censuses on this repository, git 2.55, macOS:
@@ -79,7 +83,12 @@ struct GitCommand {
     /// tightened a great deal; it also changes what lands in `stderr` for error
     /// classification and the operation log, so it is a separate decision and
     /// deliberately not taken here.
-    static constexpr std::chrono::milliseconds kHangCeiling{std::chrono::minutes(10)};
+
+    /// How long a network command may go without any data on its pipes:
+    /// 「超過1分鐘沒有資料傳輸就卡掉」. It can be this short only because the
+    /// command runs with `--progress` (withTransferProgress()); the census
+    /// above is why it could not be without it.
+    static constexpr std::chrono::milliseconds kNetworkIdle{std::chrono::minutes(1)};
 
     /// The longest any local command may run at a multiplier of 1: 「使用者
     /// 的耐心最多就5分鐘」. Not measured -- a product limit; the multiplier
@@ -268,7 +277,7 @@ std::chrono::milliseconds scaledTimeout(std::chrono::milliseconds timeout);
 ///
 /// Local command: total = min(timeout, kLocalCeiling) with 0 read as the
 /// ceiling, then scaled; never unbounded. Network command (fetch, pull,
-/// push, clone, ls-remote, submodule update/add, lfs fetch/pull/push): no
+/// push, clone, submodule update/add, lfs fetch/pull/push): no
 /// total, only an idle limit.
 struct EffectiveDeadlines {
     std::chrono::milliseconds total{0};
@@ -276,5 +285,11 @@ struct EffectiveDeadlines {
 };
 
 EffectiveDeadlines effectiveDeadlines(const GitCommand& command);
+
+/// A copy of `command` that asks git for transfer progress when it is a
+/// network command, so its pipe carries a sign of life the idle limit can
+/// see: `--progress` after the subcommand, or GIT_LFS_FORCE_PROGRESS=1 for
+/// git-lfs. Any other command comes back unchanged.
+GitCommand withTransferProgress(GitCommand command);
 
 }  // namespace gbm

@@ -107,4 +107,22 @@ TextTraits detectTextTraits(std::string_view rawBytes) {
     return traits;
 }
 
+std::string collapseCarriageReturns(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    std::size_t lineStart = 0;  // index in `out` where the current line began
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '\r' && (i + 1 >= text.size() || text[i + 1] != '\n')) {
+            out.resize(lineStart);  // a redraw: drop what this line said so far
+            continue;
+        }
+        out.push_back(c);
+        if (c == '\n') {
+            lineStart = out.size();
+        }
+    }
+    return out;
+}
+
 }  // namespace gbm

@@ -5503,6 +5503,63 @@ TEST(ProcessRunnerTimeout, AChildStillDrippingOutputOutlivesTheIdleDeadline) {
         << "returned too early to have waited out the whole dripping phase";
 }
 
+// End to end through the real runner and a real git: a fetch asks for
+// progress, the progress reaches the pipe, and the log keeps only each line's
+// final state.
+TEST_F(RemoteRepoTest, AFetchReportsProgressThroughThePipe) {
+    // The remote must hold objects this repository lacks, or the fetch has
+    // nothing to transfer and git, rightly, prints no progress.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "elsewhere"}));
+    commitFile("b.txt", "2\n", "c2");
+    ASSERT_TRUE(run({"push", "origin", "elsewhere"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    ASSERT_TRUE(run({"branch", "-D", "elsewhere"}));
+    ASSERT_TRUE(run({"update-ref", "-d", "refs/remotes/origin/elsewhere"}));
+    ASSERT_TRUE(run({"reflog", "expire", "--expire=now", "--all"}));
+    ASSERT_TRUE(run({"gc", "--quiet", "--prune=now"}));
+
+    RecordSpy spy;
+    std::string progress;
+    GitCommand fetch(repo_, {"fetch", "origin"});
+    auto result = runner_->stream(
+        fetch, [](std::string_view) { return true; },
+        [&progress](std::string_view chunk) { progress.append(chunk); }, CancellationToken{});
+    ASSERT_TRUE(result) << (result ? "" : result.error().detail);
+
+    const auto record = spy.lastEndingWith({"fetch", "--progress", "origin"});
+    ASSERT_TRUE(record.has_value()) << "fetch ran without --progress";
+    EXPECT_FALSE(progress.empty()) << "git wrote no progress to the pipe";
+    EXPECT_EQ(record->stderrText.find('\r'), std::string::npos) << record->stderrText;
+}
+
+// The network rule rests on this: a fetch with `--progress` writes only to
+// stderr, so stderr reads have to count as progress or a healthy transfer is
+// killed at the idle limit. Windows reads stderr on a thread of its own
+// (ProcessRunner.cpp's stderrThread), which is why this runs on Windows CI too.
+TEST(ProcessRunnerTimeout, ProgressOnStderrAloneKeepsAChildAlive) {
+    constexpr int kDripLines = 6;
+    constexpr auto kDripInterval = std::chrono::milliseconds(200);
+
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    GitCommand command({}, {"--gbm-hang-forever", "--drip-stderr", std::to_string(kDripLines)});
+    command.idleTimeout = std::chrono::milliseconds(500);
+
+    std::string progress;
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->stream(
+        command, [](std::string_view) { return true; },
+        [&progress](std::string_view chunk) { progress.append(chunk); }, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, kDripInterval * kDripLines)
+        << "killed while stderr was still reporting progress";
+    EXPECT_NE(progress.find("100%"), std::string::npos) << progress;
+}
+
 /// Puts the process-wide multiplier back to 1 whatever the test did, so no
 /// later test in this binary inherits a stretched deadline.
 struct TimeoutMultiplierReset {
@@ -5581,6 +5638,37 @@ TEST(EffectiveDeadlines, ANetworkCommandHasNoTotalButAnIdleLimit) {
         EXPECT_EQ(deadlines.total, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
         EXPECT_GT(deadlines.idle, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
     }
+}
+
+TEST(EffectiveDeadlines, ANetworkCommandStopsAfterAMinuteWithoutData) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    GitCommand command({}, {"fetch", "origin"});
+    EXPECT_EQ(effectiveDeadlines(command).idle, std::chrono::minutes(2));
+}
+
+// git prints transfer progress only to a terminal unless asked; ours is a
+// pipe, so without the flag a fetch is silent until it ends and the idle limit
+// would kill every transfer longer than a minute.
+TEST(TransferProgress, ANetworkCommandAsksForProgress) {
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"fetch", "origin"})).args,
+              (std::vector<std::string>{"fetch", "--progress", "origin"}));
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"submodule", "update", "--init"})).args,
+              (std::vector<std::string>{"submodule", "update", "--progress", "--init"}));
+}
+
+TEST(TransferProgress, LfsIsAskedThroughItsEnvironment) {
+    const GitCommand command = withTransferProgress(GitCommand({}, {"lfs", "fetch"}));
+    EXPECT_EQ(command.args, (std::vector<std::string>{"lfs", "fetch"}));
+    const auto& env = command.envOverrides;
+    EXPECT_NE(std::find(env.begin(), env.end(),
+                        std::pair<std::string, std::string>{"GIT_LFS_FORCE_PROGRESS", "1"}),
+              env.end());
+}
+
+TEST(TransferProgress, ALocalCommandIsLeftAlone) {
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"status", "-z"})).args,
+              (std::vector<std::string>{"status", "-z"}));
 }
 
 TEST(EffectiveDeadlines, ALocalSubcommandOfANetworkFamilyIsLocal) {

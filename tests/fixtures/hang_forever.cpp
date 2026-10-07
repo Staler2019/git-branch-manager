@@ -19,6 +19,13 @@
 //               the top of the loop -- the path that already worked -- would
 //               fire. The defect only exists while the pipe stays empty.
 //
+//   --drip-stderr N
+//               The same, on stderr and in git's `--progress` shape: each
+//               update rewrites one line with '\r' and only the last ends in
+//               '\n'. It is how a network command shows it is alive, and the
+//               Windows pump reads stderr on its own thread, so this is the
+//               mode that proves that thread counts as progress there.
+//
 //   --drip N    Print N lines `kDripIntervalMs` apart, then fall silent
 //               forever. This is the one that tells an *idle* deadline apart
 //               from a *total-duration* one: a total-duration deadline kills
@@ -48,10 +55,25 @@ constexpr int kDripIntervalMs = 200;
 
 int main(int argc, char** argv) {
     int dripLines = 0;
+    bool toStderr = false;
     for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--drip") == 0 && i + 1 < argc) {
+        if ((std::strcmp(argv[i], "--drip") == 0 || std::strcmp(argv[i], "--drip-stderr") == 0) &&
+            i + 1 < argc) {
+            toStderr = std::strcmp(argv[i], "--drip-stderr") == 0;
             dripLines = std::atoi(argv[i + 1]);
             break;
+        }
+    }
+
+    if (toStderr) {
+        for (int i = 0; i < dripLines; ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(kDripIntervalMs));
+            std::fprintf(stderr, "Receiving objects: %3d%%%s", (i + 1) * 100 / dripLines,
+                         i + 1 == dripLines ? "\n" : "\r");
+            std::fflush(stderr);
+        }
+        for (;;) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
     }
 

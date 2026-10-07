@@ -11,6 +11,7 @@ import '../../../widgets/file_tree_folder_row.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_row.dart';
+import '../../../widgets/lucide_icon.dart';
 import '../../../widgets/split_pane.dart';
 import '../working_copy_file_identity.dart';
 import '../working_copy_selection_state.dart';
@@ -62,6 +63,7 @@ class WorkingCopyBoard extends StatefulWidget {
     this.onFileActivated,
     this.rowWrapper,
     this.mode = FileListViewMode.list,
+    this.lineCountsUnavailable = false,
   });
 
   /// Files with unstaged changes, in display order.
@@ -101,6 +103,11 @@ class WorkingCopyBoard extends StatefulWidget {
 
   /// Display mode: flat list or hierarchical tree.
   final FileListViewMode mode;
+
+  /// `WorkingCopyStatus.lineCountsUnavailable`: the lists are current but
+  /// numstat failed, so no row has a +N/-N badge. The board says so in one
+  /// line above both columns (使用者裁定「Working Copy 內一行提示」).
+  final bool lineCountsUnavailable;
 
   @override
   State<WorkingCopyBoard> createState() => _WorkingCopyBoardState();
@@ -224,6 +231,53 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
 
   @override
   Widget build(BuildContext context) {
+    final Widget columns = _buildColumns(context);
+    if (!widget.lineCountsUnavailable) return columns;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _lineCountsNotice(context),
+        Expanded(child: columns),
+      ],
+    );
+  }
+
+  /// One line, the whole board's width, above both columns. Height, fill,
+  /// padding and type are the column header's own; the bottom border is what
+  /// sets it apart from the Unstaged header right under it. Warning, not the
+  /// banner's error colour: nothing failed that the user has to undo.
+  /// Not clickable -- the Log opens from the status bar.
+  Widget _lineCountsNotice(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      key: const ValueKey<String>('wc-line-counts-unavailable'),
+      height: GbmSpacing.rowHeightCompact,
+      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+      decoration: BoxDecoration(
+        color: colors.surfacePanelRaised,
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: Row(
+        children: <Widget>[
+          LucideIcon('alert-triangle', size: 14, color: colors.warning),
+          const SizedBox(width: GbmSpacing.space2),
+          Expanded(
+            child: Text(
+              '無法取得行數（numstat 失敗），清單仍是最新的。詳情見 Log。',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildColumns(BuildContext context) {
     return GbmSplitPane(
       // Vertical, and it used to be horizontal -- 「改成左側垂直，unstaged
       // 一樣在上」. Page 09's SPLITTERS row for `wc.columns` says

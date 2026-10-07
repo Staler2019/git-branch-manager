@@ -19,9 +19,22 @@ enum _LogLevel { all, info, warning, error }
 /// displayed newest-first. No external dependencies — takes record list as
 /// constructor param only.
 class LogDrawer extends StatefulWidget {
-  const LogDrawer({super.key, required this.records});
+  const LogDrawer({
+    super.key,
+    required this.records,
+    this.showTimeouts = false,
+    this.showColumnHeaders = false,
+  });
 
   final List<GbmLogEntry> records;
+
+  /// Preferences → Developer → LOG, 「在 Log 顯示每個指令的時限」: a column
+  /// with the limit each command actually ran under, multiplier applied.
+  final bool showTimeouts;
+
+  /// Preferences → Developer → LOG, 「在 Log 顯示欄名列」: a row naming the
+  /// columns above the list. A switch of its own, by ruling.
+  final bool showColumnHeaders;
 
   @override
   State<LogDrawer> createState() => _LogDrawerState();
@@ -66,11 +79,19 @@ class _LogDrawerState extends State<LogDrawer> {
     // An app-level event is not a process: printing `(exit 0, 0ms)` after it
     // would read as a git invocation that succeeded instantly.
     // A running record has no exit code or duration yet; its placeholders
-    // would read as an instant success.
+    // would read as an instant success. The limit is exported whether or not
+    // the drawer shows its column: a pasted log is where it gets read.
     return switch (entry) {
-      OperationRecord(running: true) => head,
+      OperationRecord(running: true) => switch (_limitForExport(entry)) {
+        final String limit => '$head  ($limit)',
+        null => head,
+      },
       OperationRecord(:final int exitCode, :final int durationMs) =>
-        '$head  (exit $exitCode, ${durationMs}ms)',
+        '$head  (exit $exitCode, ${durationMs}ms'
+            '${switch (_limitForExport(entry)) {
+              final String limit => ', $limit',
+              null => '',
+            }})',
       AppLogEntry() => head,
     };
   }
@@ -193,6 +214,9 @@ class _LogDrawerState extends State<LogDrawer> {
             ),
           ),
 
+          if (widget.showColumnHeaders)
+            _LogColumnNames(showLimit: widget.showTimeouts),
+
           // Operation list
           Expanded(
             child: _filteredRecords.isEmpty
@@ -208,7 +232,10 @@ class _LogDrawerState extends State<LogDrawer> {
                     itemBuilder: (context, index) {
                       final record =
                           _filteredRecords[_filteredRecords.length - 1 - index];
-                      return _LogRow(entry: record);
+                      return _LogRow(
+                        entry: record,
+                        showLimit: widget.showTimeouts,
+                      );
                     },
                   ),
           ),
@@ -226,10 +253,141 @@ String _formatTime(int epochMs) {
   return '${pad(when.hour)}:${pad(when.minute)}:${pad(when.second)}';
 }
 
+/// The limit an invocation ran under, as the limit column writes it: a local
+/// command's total (「限 120s」), a network command's no-data limit (「無傳輸
+/// 60s」). Both already carry the user's multiplier -- core arms exactly this
+/// number. Empty when neither applies.
+String _limitLabel(OperationRecord record) {
+  if (record.timeoutMs > 0) return '限 ${_seconds(record.timeoutMs)}';
+  if (record.idleTimeoutMs > 0) return '無傳輸 ${_seconds(record.idleTimeoutMs)}';
+  return '';
+}
+
+/// The same choice as [_limitLabel], in the export's own words and units.
+String? _limitForExport(OperationRecord record) {
+  if (record.timeoutMs > 0) return 'limit ${record.timeoutMs}ms';
+  if (record.idleTimeoutMs > 0) return 'idle limit ${record.idleTimeoutMs}ms';
+  return null;
+}
+
+String _seconds(int ms) => ms % 1000 == 0 ? '${ms ~/ 1000}s' : '${ms}ms';
+
+/// Column widths from the design spec's screen 3. The time column is fixed
+/// so a header can sit over it; HH:mm:ss in a mono face is one width anyway.
+const double _kIconWidth = 14;
+const double _kLevelWidth = 68;
+const double _kTimeWidth = 56;
+const double _kDurationWidth = 72;
+const double _kExitWidth = 44;
+const double _kLimitWidth = 84;
+
+/// The one layout the column-name row and every log row are built from, so
+/// a name cannot drift from the cells under it -- the defect reported on
+/// the first draft (「欄位名稱與欄位內容位置沒有對起來」).
+class _LogColumns extends StatelessWidget {
+  const _LogColumns({
+    required this.icon,
+    required this.level,
+    required this.time,
+    required this.command,
+    required this.duration,
+    required this.exit,
+    required this.limit,
+    required this.showLimit,
+  });
+
+  final Widget icon;
+  final Widget level;
+  final Widget time;
+  final Widget command;
+  final Widget duration;
+  final Widget exit;
+  final Widget limit;
+  final bool showLimit;
+
+  @override
+  Widget build(BuildContext context) {
+    const Widget gap = SizedBox(width: GbmSpacing.space2);
+    return Row(
+      children: <Widget>[
+        SizedBox(width: _kIconWidth, child: icon),
+        gap,
+        SizedBox(width: _kLevelWidth, child: level),
+        gap,
+        SizedBox(width: _kTimeWidth, child: time),
+        gap,
+        Expanded(child: command),
+        gap,
+        SizedBox(
+          width: _kDurationWidth,
+          child: Align(alignment: Alignment.centerRight, child: duration),
+        ),
+        gap,
+        SizedBox(width: _kExitWidth, child: exit),
+        if (showLimit) ...<Widget>[
+          gap,
+          Container(
+            width: _kLimitWidth,
+            padding: const EdgeInsets.only(left: GbmSpacing.space2),
+            decoration: BoxDecoration(
+              border: Border(
+                left: BorderSide(color: context.gbmColors.borderSubtle),
+              ),
+            ),
+            child: limit,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// 「顯示欄位名稱」: 11px names over the same columns, with 時限 only while
+/// its column is shown.
+class _LogColumnNames extends StatelessWidget {
+  const _LogColumnNames({required this.showLimit});
+
+  final bool showLimit;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    Widget name(String text) => Text(
+      text,
+      maxLines: 1,
+      softWrap: false,
+      style: TextStyle(
+        fontSize: GbmTypography.textXs,
+        color: colors.textTertiary,
+      ),
+    );
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space3,
+        vertical: GbmSpacing.space1,
+      ),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
+      ),
+      child: _LogColumns(
+        icon: const SizedBox.shrink(),
+        level: name('層級'),
+        time: name('時間'),
+        command: name('指令'),
+        duration: name('耗時'),
+        exit: name('exit'),
+        limit: name('時限'),
+        showLimit: showLimit,
+      ),
+    );
+  }
+}
+
 class _LogRow extends StatelessWidget {
-  const _LogRow({required this.entry});
+  const _LogRow({required this.entry, required this.showLimit});
 
   final GbmLogEntry entry;
+  final bool showLimit;
 
   /// The icon for a git invocation stays a four-way on the *cause*, which is
   /// finer than the three levels and orthogonal to them -- a timeout and a
@@ -270,6 +428,10 @@ class _LogRow extends StatelessWidget {
             OperationLogLevel.warning => colors.warning,
             OperationLogLevel.error => colors.danger,
           };
+    final TextStyle metaStyle = TextStyle(
+      fontSize: GbmTypography.textXs,
+      color: colors.textTertiary,
+    );
     // Null for an app-level event: it has no process, so the duration, exit
     // code and stderr blocks below are absent rather than zeroed.
     final OperationRecord? git = switch (entry) {
@@ -285,72 +447,72 @@ class _LogRow extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Row(
-            children: <Widget>[
-              if (isRunning)
-                _RunningLoader(color: statusColor)
-              else
-                Icon(_iconFor(entry), size: 14, color: statusColor),
-              const SizedBox(width: GbmSpacing.space2),
-              // Spec page 10 item 4 lists the level as a field of a log row.
-              // It existed only in the export until now; on screen the sole
-              // signal was the icon's colour, so "cancelled" and "failed"
-              // were indistinguishable at a glance. Fixed width so the
-              // timestamps below it stay in a column.
-              SizedBox(
-                width: 68,
-                child: Text(
-                  entry.levelLabel,
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    fontFamily: GbmTypography.fontMono,
-                    color: statusColor,
-                  ),
-                ),
+          _LogColumns(
+            showLimit: showLimit,
+            icon: isRunning
+                ? _RunningLoader(color: statusColor)
+                : Icon(_iconFor(entry), size: 14, color: statusColor),
+            // Spec page 10 item 4 lists the level as a field of a log row.
+            // It existed only in the export until now; on screen the sole
+            // signal was the icon's colour, so "cancelled" and "failed"
+            // were indistinguishable at a glance.
+            level: Text(
+              entry.levelLabel,
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontFamily: GbmTypography.fontMono,
+                color: statusColor,
               ),
-              const SizedBox(width: GbmSpacing.space2),
-              Text(
-                _formatTime(entry.whenEpochMs),
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  fontFamily: GbmTypography.fontMono,
-                  color: colors.textTertiary,
-                ),
+            ),
+            time: Text(
+              _formatTime(entry.whenEpochMs),
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                fontFamily: GbmTypography.fontMono,
+                color: colors.textTertiary,
               ),
-              const SizedBox(width: GbmSpacing.space2),
-              Expanded(
-                child: SelectableText(
-                  escapeControlChars(entry.message),
-                  style: TextStyle(
-                    fontSize: GbmTypography.textSm,
-                    fontFamily: GbmTypography.fontMono,
-                    color: colors.textPrimary,
-                  ),
-                ),
+            ),
+            command: SelectableText(
+              escapeControlChars(entry.message),
+              style: TextStyle(
+                fontSize: GbmTypography.textSm,
+                fontFamily: GbmTypography.fontMono,
+                color: colors.textPrimary,
               ),
-              // 「最後面就不用執行中敘述了」: a running row has nothing to say
-              // here until its outcome arrives and replaces it.
-              if (git != null && !git.running) ...<Widget>[
-                const SizedBox(width: GbmSpacing.space2),
-                Text(
-                  '${git.durationMs}ms',
-                  style: TextStyle(
-                    fontSize: GbmTypography.textXs,
-                    color: colors.textTertiary,
+            ),
+            // 「最後面就不用執行中敘述了」: a running row has no duration or
+            // exit until its outcome arrives and replaces it. An app event
+            // has neither at all. Both keep the cells, empty, so the columns
+            // to their right stay in line.
+            duration: git == null || git.running
+                ? const SizedBox.shrink()
+                : Text(
+                    '${git.durationMs}ms',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: metaStyle,
                   ),
-                ),
-                if (git.failed && git.exitCode != 0) ...<Widget>[
-                  const SizedBox(width: GbmSpacing.space1),
-                  Text(
+            exit: git != null && git.failed && git.exitCode != 0
+                ? Text(
                     'exit ${git.exitCode}',
+                    maxLines: 1,
+                    softWrap: false,
                     style: TextStyle(
                       fontSize: GbmTypography.textXs,
                       color: statusColor,
                     ),
+                  )
+                : const SizedBox.shrink(),
+            limit: git == null
+                ? const SizedBox.shrink()
+                : Text(
+                    _limitLabel(git),
+                    maxLines: 1,
+                    softWrap: false,
+                    style: metaStyle,
                   ),
-                ],
-              ],
-            ],
           ),
           if (git != null && git.failed && git.stderrText.isNotEmpty)
             Padding(

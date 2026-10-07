@@ -781,4 +781,179 @@ void main() {
       expect(clipboardText, isNot(contains('ms)')));
     });
   });
+
+  // 「log限時欄位與作業時間隔開成為獨立一欄」「顯示欄位名稱應該是另一個開關」
+  // 「你目前欄位名稱與欄位內容位置沒有對起來」 -- design spec screen 3.
+  group('LogDrawer columns', () {
+    OperationRecord git({
+      required String commandLine,
+      int exitCode = 0,
+      int durationMs = 1500,
+      bool timedOut = false,
+      bool running = false,
+      int timeoutMs = 120000,
+      int idleTimeoutMs = 0,
+      int id = 1,
+    }) => OperationRecord(
+      whenEpochMs: 1692000000000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git'],
+      commandLine: commandLine,
+      exitCode: exitCode,
+      durationMs: durationMs,
+      stderrText: '',
+      cancelled: false,
+      timedOut: timedOut,
+      id: id,
+      running: running,
+      timeoutMs: timeoutMs,
+      idleTimeoutMs: idleTimeoutMs,
+    );
+
+    final OperationRecord local = git(commandLine: 'git status', id: 1);
+    final OperationRecord network = git(
+      commandLine: 'git fetch --progress origin',
+      exitCode: 1,
+      durationMs: 61020,
+      timedOut: true,
+      timeoutMs: 0,
+      idleTimeoutMs: 60000,
+      id: 2,
+    );
+    final OperationRecord running = git(
+      commandLine: 'git diff --numstat',
+      running: true,
+      durationMs: 0,
+      id: 3,
+    );
+
+    Future<void> pumpDrawer(
+      WidgetTester tester,
+      List<GbmLogEntry> records, {
+      bool showTimeouts = false,
+      bool showColumnHeaders = false,
+    }) async {
+      await tester.binding.setSurfaceSize(const Size(1000, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: LogDrawer(
+              records: records,
+              showTimeouts: showTimeouts,
+              showColumnHeaders: showColumnHeaders,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('no limit column and no header row by default', (tester) async {
+      await pumpDrawer(tester, <GbmLogEntry>[local]);
+
+      expect(find.text('限 120s'), findsNothing);
+      expect(find.text('層級'), findsNothing);
+    });
+
+    testWidgets('the limit column says which limit each command ran under', (
+      tester,
+    ) async {
+      await pumpDrawer(tester, <GbmLogEntry>[
+        local,
+        network,
+        running,
+      ], showTimeouts: true);
+
+      expect(find.text('限 120s'), findsNWidgets(2), reason: 'local + running');
+      expect(find.text('無傳輸 60s'), findsOneWidget);
+    });
+
+    testWidgets('the header row names the columns, 時限 only with its column', (
+      tester,
+    ) async {
+      await pumpDrawer(tester, <GbmLogEntry>[local], showColumnHeaders: true);
+      for (final String name in <String>['層級', '時間', '指令', '耗時', 'exit']) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      expect(find.text('時限'), findsNothing);
+
+      await pumpDrawer(
+        tester,
+        <GbmLogEntry>[local],
+        showColumnHeaders: true,
+        showTimeouts: true,
+      );
+      expect(find.text('時限'), findsOneWidget);
+    });
+
+    // The defect the user reported on the first draft: names and contents
+    // drifting apart. Every name is compared with the cell under it.
+    testWidgets('each column name sits over its column', (tester) async {
+      await pumpDrawer(
+        tester,
+        <GbmLogEntry>[network],
+        showColumnHeaders: true,
+        showTimeouts: true,
+      );
+
+      double left(String text) => tester.getRect(find.text(text)).left;
+      double right(String text) => tester.getRect(find.text(text)).right;
+      final DateTime when = DateTime.fromMillisecondsSinceEpoch(1692000000000);
+      final String time =
+          '${when.hour.toString().padLeft(2, '0')}:'
+          '${when.minute.toString().padLeft(2, '0')}:'
+          '${when.second.toString().padLeft(2, '0')}';
+
+      expect(left('層級'), left('TIMEOUT'));
+      expect(left('時間'), left(time));
+      expect(left('指令'), left('git fetch --progress origin'));
+      expect(right('耗時'), right('61020ms'));
+      expect(left('exit'), left('exit 1'));
+      expect(left('時限'), left('無傳輸 60s'));
+    });
+
+    // Fixed width, right-aligned: durations of any length end on one edge,
+    // which is what lets the limit column line up at all.
+    testWidgets('durations end on one edge', (tester) async {
+      await pumpDrawer(tester, <GbmLogEntry>[local, network]);
+
+      expect(
+        tester.getRect(find.text('1500ms')).right,
+        tester.getRect(find.text('61020ms')).right,
+      );
+    });
+
+    testWidgets('the export carries the limit whether or not it is shown', (
+      tester,
+    ) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            clipboardText =
+                (methodCall.arguments as Map<Object?, Object?>)['text']
+                    as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpDrawer(tester, <GbmLogEntry>[local, network, running]);
+      await tester.tap(find.text('Copy All'));
+      await tester.pump();
+
+      expect(clipboardText, contains('(exit 0, 1500ms, limit 120000ms)'));
+      expect(clipboardText, contains('(exit 1, 61020ms, idle limit 60000ms)'));
+      expect(clipboardText, contains('git diff --numstat  (limit 120000ms)'));
+    });
+  });
 }

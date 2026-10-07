@@ -1,6 +1,6 @@
 #include "core/discovery/Scanner.h"
-#include "core/base/FsUtil.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 
@@ -141,7 +141,8 @@ void Scanner::workerLoop(SharedState& state,
                 // The raw native path, not the canonical key: repo rows store
                 // native separators, so a forward-slashed key would never match
                 // the prefix on Windows.
-                auto touched = db_.touchReposUnder(baseFolder.id, fsutil::utf8FromPath(item.path), generation);
+                auto touched =
+                    db_.touchReposUnder(baseFolder.id, fsutil::utf8FromPath(item.path), generation);
                 if (!touched) {
                     std::lock_guard<std::mutex> lock(state.mutex);
                     state.failed = true;

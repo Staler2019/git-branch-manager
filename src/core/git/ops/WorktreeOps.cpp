@@ -138,7 +138,9 @@ class AddWorktreeOperation final : public Operation {
 public:
     explicit AddWorktreeOperation(AddWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Add worktree at " + fsutil::utf8FromPath(request_.path); }
+    std::string describe() const override {
+        return "Add worktree at " + fsutil::utf8FromPath(request_.path);
+    }
 
     bool killableMidFlight() const override { return false; }
 
@@ -195,7 +197,9 @@ public:
     explicit RemoveWorktreeOperation(RemoveWorktreeRequest request)
         : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Remove worktree " + fsutil::utf8FromPath(request_.path); }
+    std::string describe() const override {
+        return "Remove worktree " + fsutil::utf8FromPath(request_.path);
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
@@ -285,7 +289,9 @@ class LockWorktreeOperation final : public Operation {
 public:
     explicit LockWorktreeOperation(LockWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Lock worktree " + fsutil::utf8FromPath(request_.path); }
+    std::string describe() const override {
+        return "Lock worktree " + fsutil::utf8FromPath(request_.path);
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
@@ -320,13 +326,16 @@ public:
     explicit UnlockWorktreeOperation(UnlockWorktreeRequest request)
         : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Unlock worktree " + fsutil::utf8FromPath(request_.path); }
+    std::string describe() const override {
+        return "Unlock worktree " + fsutil::utf8FromPath(request_.path);
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
-        GitCommand command(paths.commandDir(), {"worktree", "unlock", fsutil::utf8FromPath(request_.path)});
+        GitCommand command(paths.commandDir(),
+                           {"worktree", "unlock", fsutil::utf8FromPath(request_.path)});
         command.timeout = std::chrono::seconds(30);
         auto result = runner.run(command, token);
         if (!result) {
@@ -347,14 +356,19 @@ class MoveWorktreeOperation final : public Operation {
 public:
     explicit MoveWorktreeOperation(MoveWorktreeRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Move worktree to " + fsutil::utf8FromPath(request_.to); }
+    std::string describe() const override {
+        return "Move worktree to " + fsutil::utf8FromPath(request_.to);
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {
         OperationOutcome outcome;
         GitCommand command(paths.commandDir(),
-                           {"worktree", "move", fsutil::utf8FromPath(request_.from), fsutil::utf8FromPath(request_.to)});
+                           {"worktree",
+                            "move",
+                            fsutil::utf8FromPath(request_.from),
+                            fsutil::utf8FromPath(request_.to)});
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (!result) {

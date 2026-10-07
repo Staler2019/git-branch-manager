@@ -1,6 +1,6 @@
 #include "core/git/OperationRunner.h"
-#include "core/base/FsUtil.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/RefStore.h"
 

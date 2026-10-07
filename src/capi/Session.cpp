@@ -102,9 +102,8 @@ GitResult<GitInstallation> sharedGitInstallation() {
         // macOS sandboxing) pin the exact executable rather than depend on
         // GitExecutable::detect()'s PATH/fallback search order.
         const char* overridePath = std::getenv("GBM_GIT_PATH");
-        cachedGitInstallation() =
-            GitExecutable::detect(overridePath != nullptr ? fsutil::pathFromUtf8(overridePath)
-                                                          : std::filesystem::path{});
+        cachedGitInstallation() = GitExecutable::detect(
+            overridePath != nullptr ? fsutil::pathFromUtf8(overridePath) : std::filesystem::path{});
         // Only a *successful* detection is cached. Detection failing once (git
         // not yet installed, a permission problem not yet fixed) must not lock
         // that failure in for the rest of the process's lifetime -- the app has
@@ -138,7 +137,9 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         return nullptr;
     }
 
-    RepoPaths paths(fsutil::pathFromUtf8(workDir), fsutil::pathFromUtf8(gitDir), fsutil::pathFromUtf8(commonDir));
+    RepoPaths paths(fsutil::pathFromUtf8(workDir),
+                    fsutil::pathFromUtf8(gitDir),
+                    fsutil::pathFromUtf8(commonDir));
     if (!paths.isValid()) {
         if (outError != nullptr) {
             *outError = GitError(GitError::Code::InvalidArgument, "gitDir must not be empty");

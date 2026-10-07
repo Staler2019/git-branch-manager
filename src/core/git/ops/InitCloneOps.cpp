@@ -1,6 +1,6 @@
 #include "core/git/ops/InitCloneOps.h"
-#include "core/base/FsUtil.h"
 
+#include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
 
 #include <utility>

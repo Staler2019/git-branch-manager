@@ -1,6 +1,6 @@
 #include "core/git/GitExecutable.h"
-#include "core/base/FsUtil.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/IProcessRunner.h"
 
@@ -160,7 +160,8 @@ GitCapabilities GitExecutable::capabilitiesFor(const GitVersion& version) {
 GitResult<GitInstallation> GitExecutable::probe(const std::filesystem::path& candidate) {
     std::error_code ec;
     if (candidate.empty() || !std::filesystem::exists(candidate, ec)) {
-        return fail(GitError::Code::NotFound, "No git executable at " + fsutil::utf8FromPath(candidate));
+        return fail(GitError::Code::NotFound,
+                    "No git executable at " + fsutil::utf8FromPath(candidate));
     }
 
     // A candidate found by name (PATH lookup, a hardcoded fallback) can still be
@@ -171,7 +172,8 @@ GitResult<GitInstallation> GitExecutable::probe(const std::filesystem::path& can
     // spawn failure with no path attached.
     const auto permissions = std::filesystem::status(candidate, ec).permissions();
     if (ec) {
-        return fail(GitError::Code::Io, "Could not read permissions for " + fsutil::utf8FromPath(candidate));
+        return fail(GitError::Code::Io,
+                    "Could not read permissions for " + fsutil::utf8FromPath(candidate));
     }
     constexpr std::filesystem::perms kAnyExecute = std::filesystem::perms::owner_exec |
                                                    std::filesystem::perms::group_exec |
@@ -253,8 +255,9 @@ GitResult<GitInstallation> GitExecutable::detect(const std::filesystem::path& pr
         }
         if (!probed->isUsable()) {
             return fail(GitError::Code::Unsupported,
-                        "Git " + probed->version.toString() + " at " + fsutil::utf8FromPath(preferred) +
-                            " is too old; " + GitInstallation::minimumSupported().toString() +
+                        "Git " + probed->version.toString() + " at " +
+                            fsutil::utf8FromPath(preferred) + " is too old; " +
+                            GitInstallation::minimumSupported().toString() +
                             " or newer is required");
         }
         return probed;
@@ -272,17 +275,20 @@ GitResult<GitInstallation> GitExecutable::detect(const std::filesystem::path& pr
     for (const auto& candidate : candidates) {
         auto probed = probe(candidate);
         if (!probed) {
-            attempts.push_back(fsutil::utf8FromPath(candidate) + " (" + probed.error().message + ")");
+            attempts.push_back(fsutil::utf8FromPath(candidate) + " (" + probed.error().message +
+                               ")");
             continue;
         }
         if (!probed->isUsable()) {
-            attempts.push_back(fsutil::utf8FromPath(candidate) + " (Git " + probed->version.toString() +
-                               " is too old; " + GitInstallation::minimumSupported().toString() +
+            attempts.push_back(fsutil::utf8FromPath(candidate) + " (Git " +
+                               probed->version.toString() + " is too old; " +
+                               GitInstallation::minimumSupported().toString() +
                                " or newer is required)");
             continue;
         }
-        logMessage(LogLevel::Info,
-                   "Using git " + probed->version.toString() + " at " + fsutil::utf8FromPath(candidate));
+        logMessage(
+            LogLevel::Info,
+            "Using git " + probed->version.toString() + " at " + fsutil::utf8FromPath(candidate));
         return probed;
     }
 

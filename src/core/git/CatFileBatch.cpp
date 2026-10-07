@@ -1,6 +1,6 @@
 #include "core/git/CatFileBatch.h"
-#include "core/base/FsUtil.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/GitCommand.h"

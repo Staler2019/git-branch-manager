@@ -205,6 +205,80 @@ void main() {
     });
   });
 
+  // 「拖拉四段＋右側自由輸入倍率」: four stops on a slider, any whole
+  // multiplier in the field. No seconds are shown anywhere.
+  group('PreferencesDialogContent - Advanced, git timeout multiplier', () {
+    Slider slider(WidgetTester tester) =>
+        tester.widget<Slider>(find.byKey(const Key('gitTimeoutSlider')));
+    TextField field(WidgetTester tester) =>
+        tester.widget<TextField>(find.byKey(const Key('gitTimeoutField')));
+
+    testWidgets('starts at 1x', (tester) async {
+      await _pump(tester, section: 'Advanced');
+
+      expect(slider(tester).value, 0);
+      expect(field(tester).controller!.text, '1');
+    });
+
+    testWidgets('dragging to the third stop stores 4', (tester) async {
+      final result = await _pump(tester, section: 'Advanced');
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutSlider')));
+      slider(tester).onChanged!(2);
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        4,
+      );
+      expect(field(tester).controller!.text, '4');
+    });
+
+    testWidgets('typing 3 stores 3 and rests the slider on 2x', (tester) async {
+      final result = await _pump(tester, section: 'Advanced');
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutField')));
+      await tester.enterText(find.byKey(const Key('gitTimeoutField')), '3');
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        3,
+      );
+      expect(slider(tester).value, 1);
+    });
+
+    testWidgets('typing 0 or text stores nothing', (tester) async {
+      final result = await _pump(
+        tester,
+        section: 'Advanced',
+        initialPrefs: <String, Object>{'appPrefs.gitTimeoutMultiplier': 2},
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutField')));
+      for (final String text in <String>['0', 'abc']) {
+        await tester.enterText(find.byKey(const Key('gitTimeoutField')), text);
+        await tester.pumpAndSettle();
+      }
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        2,
+      );
+    });
+
+    testWidgets('a stored 8 shows on both controls', (tester) async {
+      await _pump(
+        tester,
+        section: 'Advanced',
+        initialPrefs: <String, Object>{'appPrefs.gitTimeoutMultiplier': 8},
+      );
+
+      expect(slider(tester).value, 3);
+      expect(field(tester).controller!.text, '8');
+    });
+  });
+
   group('PreferencesDialogContent - Developer', () {
     testWidgets('the two behaviour flags default on, timings default off', (
       tester,

@@ -78,11 +78,20 @@ H3 非 git 錯誤（今天不進 Log）、H4 Log 被清空。本輪沒有在使�
 
 ### 已知殘留
 
+- verifier（CONFIRMED）的 P3：`collapseCarriageReturns` 在 `\r` 當下清行，進度列在 `\r` 後被砍斷時
+  最後狀態整段消失（本輪引入）。已修，見 `fix: 進度列在 \r 後被砍斷時保留最後狀態`。
+- verifier 的 P4：倍率只在建立 session 時推給 core，歡迎畫面（還沒開任何 repo）的 clone 跑在 ×1；
+  session 未開時改倍率也不會推。**未修，待使用者決定。**
+- verifier 的 P4：push/pull hook 靜默超過 60 秒×倍率會被砍（原本 10 分鐘）。符合裁定「超過1分鐘沒
+  有資料傳輸就卡掉」，記錄行為變化，不改。
+
 - `CatFileBatch` 逾時後「不 poison」的 mutation 存活：死掉的 pipe 在 `exchangeLocked` 內已經 poison，
   該行只涵蓋「回答與 kill 同時到達」的競態，無法穩定製造；註解已說明。
 - C3 出現時看板高度門檻上移 26px（2×96+5+26）。`working_copy_view` 本來就沒有替看板保證高度下限，
   小視窗下早已會溢出；本輪未改。
-- `GIT_LFS_FORCE_PROGRESS` 的行為**未實測**（本機沒有 git-lfs，兩個 lfs 測試 SKIPPED）。
+- `GIT_LFS_FORCE_PROGRESS` 的行為**未實測**~~（本機沒有 git-lfs，兩個 lfs 測試 SKIPPED）~~。
+  **更正**：CI 的 runner 映像裡有 git-lfs，兩個 lfs 測試在 CI 五個 job 都真的跑過；但它們只測
+  track/untrack/add，沒有任何測試透過 pipe 跑 `git lfs fetch/pull/push` 看進度輸出，所以仍未實測。
 
 ## Result
 
@@ -91,8 +100,11 @@ H3 非 git 錯誤（今天不進 Log）、H4 Log 被清空。本輪沒有在使�
 - Mutation（每顆 commit 各記「跑了幾個／幾個測試紅」）：numstat 2/2、running 6＋2、逾時倍率與有效時限
   4、本地 300 秒 4、網路 5×1、cat-file 5 有效（含 1 存活）、C3 4、RUNNING 列 7、revision 6、欄與欄名列 7、
   LOG 開關 7（M2 第一次存活，補測試後重跑變紅）。
-- CI：**Windows 的進度測試結果以 PR #177 該次 run 為準**（`ProgressOnStderrAloneKeepsAChildAlive`、
-  `AFetchReportsProgressThroughThePipe`）；本檔寫成時尚未看到，不在此宣稱 Windows 可用。
+- CI：~~**Windows 的進度測試結果以 PR #177 該次 run 為準**（`ProgressOnStderrAloneKeepsAChildAlive`、
+  `AFetchReportsProgressThroughThePipe`）；本檔寫成時尚未看到，不在此宣稱 Windows 可用。~~
+  **更正**：run 37639308439（HEAD bd8b57e）的 `capi (FFI) - Windows` 736/736 通過，兩個進度測試與
+  兩個 `CatFileBatchDeadline` 測試都是 `Passed`（ctest 對 gtest skip 會印 `***Skipped`，所以是真的
+  跑了）。這證明 Windows 的 stderr 執行緒把進度算進閒置時限；使用者機器上的真因仍未驗證。
 - **使用者的機器上哪個假說（H1–H4）是真因，仍未驗證。** 裝新版後請在 Windows 上：重現一次、等
   ≥7 分鐘、Log「Save as…」匯出；回報 status／`diff --numstat`／`worktree list` 各列是 TIMEOUT、
   ERROR 還是不存在及其耗時；有沒有 App 層 error 列與「資料無法解碼」列；期間是否重開過 repo。再以

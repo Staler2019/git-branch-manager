@@ -191,9 +191,9 @@ Session::~Session() {
     // Cancel before draining, not merely alongside it: cancelOperations(0)
     // trips every in-flight/queued operation's token, so operations_->drain()
     // below waits on work this session's own cancellation already told to
-    // stop instead of waiting for it to finish naturally -- unbounded for
-    // the ~28 commands GitCommand runs with no deadline
-    // (GitCommand::kHangCeiling is their only floor). A cancelled
+    // stop instead of waiting for it to finish naturally -- ~~unbounded for
+    // the ~28 commands GitCommand runs with no deadline~~ up to a whole
+    // deadline (effectiveDeadlines(); every command has one since 2026-10-07). A cancelled
     // operation takes the failure branch, so it never reaches the onSuccess
     // path that chains a new sharedReadPool() post -- the ordering
     // invariant the comment below describes is unaffected by cancelling

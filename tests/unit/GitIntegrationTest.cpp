@@ -5549,6 +5549,45 @@ TEST(ProcessRunnerTimeout, AMultiplierBelowOneIsRefused) {
     EXPECT_EQ(timeoutMultiplier(), 3);
 }
 
+// 「以後沒有沒時限的東西」: a local command that declares no deadline gets the
+// five-minute ceiling, and one that declares more is cut to it.
+TEST(EffectiveDeadlines, ALocalCommandWithNoDeadlineGetsTheCeiling) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    GitCommand command({}, {"rebase", "main"});
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(10));
+}
+
+TEST(EffectiveDeadlines, ALocalDeadlineAboveTheCeilingIsCut) {
+    GitCommand command({}, {"stash", "push"});
+    command.timeout = std::chrono::seconds(600);
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(5));
+}
+
+// A transfer is judged by whether data still moves, not by how long it takes:
+// a large clone on a slow link is slow, not stuck.
+TEST(EffectiveDeadlines, ANetworkCommandHasNoTotalButAnIdleLimit) {
+    for (const std::vector<std::string>& args :
+         std::vector<std::vector<std::string>>{{"fetch", "origin"},
+                                               {"pull", "--rebase"},
+                                               {"push", "origin", "main"},
+                                               {"clone", "https://example.invalid/r.git", "d"},
+                                               {"submodule", "update", "--init"},
+                                               {"submodule", "add", "u", "p"},
+                                               {"lfs", "fetch"},
+                                               {"lfs", "pull"}}) {
+        GitCommand command({}, args);
+        const EffectiveDeadlines deadlines = effectiveDeadlines(command);
+        EXPECT_EQ(deadlines.total, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
+        EXPECT_GT(deadlines.idle, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
+    }
+}
+
+TEST(EffectiveDeadlines, ALocalSubcommandOfANetworkFamilyIsLocal) {
+    GitCommand command({}, {"submodule", "status"});
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(5));
+}
+
 TEST(EffectiveDeadlines, TheTotalIsScaledAndTheIdleIsCarried) {
     const TimeoutMultiplierReset reset;
     setTimeoutMultiplier(3);
@@ -5559,6 +5598,16 @@ TEST(EffectiveDeadlines, TheTotalIsScaledAndTheIdleIsCarried) {
     const EffectiveDeadlines deadlines = effectiveDeadlines(command);
     EXPECT_EQ(deadlines.total, std::chrono::milliseconds(3000));
     EXPECT_EQ(deadlines.idle, std::chrono::milliseconds(700));
+}
+
+// The ceiling is what the runner arms, not only what the function says.
+TEST_F(RealRepoTest, ALocalCommandWithNoDeclaredDeadlineRunsUnderTheCeiling) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+    const auto record = spy.lastEndingWith({"rev-parse", "HEAD"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_EQ(record->timeoutMs, 300000);
 }
 
 // Both halves of an invocation carry the limits it ran under, so the log can

@@ -54,8 +54,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);
@@ -93,7 +91,7 @@ public:
             GitCommand stash(
                 paths.commandDir(),
                 {"stash", "push", "--include-untracked", "-m", "git-branch-manager: before pull"});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -114,8 +112,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);
@@ -180,8 +176,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(command, request_.askpassDir);
 
         auto result = runner.run(command, token);

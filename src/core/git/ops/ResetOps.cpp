@@ -43,10 +43,11 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        // A hard reset over a very large tree can legitimately take a while;
-        // Cancel is the right control, not a timeout.
-        command.timeout = request_.mode == ResetMode::Hard ? std::chrono::milliseconds(0)
-                                                           : std::chrono::seconds(60);
+        // A hard reset over a very large tree can legitimately take a while, so
+        // it gets the whole local ceiling. ~~Cancel is the right control, not a
+        // timeout.~~ (It ran unbounded until 2026-10-07.)
+        command.timeout =
+            request_.mode == ResetMode::Hard ? GitCommand::kLocalCeiling : std::chrono::seconds(60);
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -100,8 +101,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {
@@ -143,8 +142,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {

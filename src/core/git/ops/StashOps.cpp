@@ -51,7 +51,7 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::seconds(600);
+        command.timeout = GitCommand::kLocalCeiling;
         auto result = runner.run(command, token);
         if (!result) {
             outcome.error = std::move(result).error();

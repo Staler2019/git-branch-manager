@@ -665,9 +665,10 @@ public:
         // cancel its own blocked I/O, so the cancel has to arrive from a second
         // thread rather than from after the loop.
         //
-        // Armed only when a deadline exists, `timeout` or `idleTimeout`. Every
-        // timeout-0 network and sequencer command sets `idleTimeout` to
-        // GitCommand::kHangCeiling, so only a command with neither starts none.
+        // Armed only when a deadline exists, `timeout` or `idleTimeout`.
+        // effectiveDeadlines() gives every command one of the two, so a
+        // watchdog always starts (2026-10-07; before that, a few commands had
+        // neither).
         // If either handle cannot be made, no watchdog is started and the
         // behaviour degrades to what it was -- same fallback discipline as a
         // spawn that could not get a job object.

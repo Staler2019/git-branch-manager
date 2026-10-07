@@ -23,9 +23,14 @@ struct GitCommand {
     std::vector<std::pair<std::string, std::string>> envOverrides;
     std::optional<std::string> stdinData;
 
-    /// 0 means no timeout. Network operations must use 0 and rely on
+    /// ~~0 means no timeout. Network operations must use 0 and rely on
     /// cancellation instead: a fetch of a 500 MB repository on a slow link is
-    /// slow, not broken, and killing it would be wrong.
+    /// slow, not broken, and killing it would be wrong.~~
+    /// **Overruled 2026-10-07** (「以後沒有沒時限的東西」): the total deadline
+    /// for a *local* command. 0 means kLocalCeiling, and anything above it is
+    /// cut to it. A network command ignores this and is judged by whether
+    /// data still moves -- see effectiveDeadlines(), the only place either
+    /// rule lives.
     std::chrono::milliseconds timeout{0};
 
     /// How long since the last *I/O progress* counts as hung. 0 means "do not
@@ -33,8 +38,9 @@ struct GitCommand {
     ///
     /// `timeout` asks "how long has this run in total"; this asks "is it still
     /// alive". For a fetch that is actively transferring, those two questions
-    /// have different answers, and that difference is the whole reason the 28
-    /// commands above set `timeout = 0`: a 500 MB clone on a slow link is slow,
+    /// have different answers, and that difference is the whole reason
+    /// ~~the 28 commands above set `timeout = 0`~~ a network command gets no
+    /// total deadline from effectiveDeadlines(): a 500 MB clone on a slow link is slow,
     /// not broken, so a total-duration deadline would kill legitimate work.
     /// Nothing arriving for minutes is a different claim, and a safe one.
     ///
@@ -74,6 +80,11 @@ struct GitCommand {
     /// classification and the operation log, so it is a separate decision and
     /// deliberately not taken here.
     static constexpr std::chrono::milliseconds kHangCeiling{std::chrono::minutes(10)};
+
+    /// The longest any local command may run at a multiplier of 1: 「使用者
+    /// 的耐心最多就5分鐘」. Not measured -- a product limit; the multiplier
+    /// is how a slow machine stretches it.
+    static constexpr std::chrono::milliseconds kLocalCeiling{std::chrono::minutes(5)};
 
     bool mergeStderrIntoStdout = false;
 
@@ -238,8 +249,10 @@ struct ProcessResult {
 /// measured on a fast one. Process-wide and read by the real runner at each
 /// execution, so a runner built before the user changed it still obeys it.
 ///
-/// Never applied to `timeout = 0` (no deadline stays no deadline) or to
-/// `idleTimeout` (its ceiling is already ten minutes of silence). Values
+/// ~~Never applied to `timeout = 0` (no deadline stays no deadline) or to
+/// `idleTimeout` (its ceiling is already ten minutes of silence).~~ Applied
+/// through effectiveDeadlines(), which since 2026-10-07 reads `timeout = 0`
+/// as the local ceiling, so nothing is unbounded any more. Values
 /// below 1 are refused: the preference can lengthen a deadline, never cut
 /// one the code chose on purpose. Defaults to 1.
 void setTimeoutMultiplier(int multiplier);
@@ -252,6 +265,11 @@ std::chrono::milliseconds scaledTimeout(std::chrono::milliseconds timeout);
 /// The deadlines one invocation actually runs under. The runner arms exactly
 /// these and the operation log records exactly these, so the number a
 /// TIMEOUT row shows is the number that fired.
+///
+/// Local command: total = min(timeout, kLocalCeiling) with 0 read as the
+/// ceiling, then scaled; never unbounded. Network command (fetch, pull,
+/// push, clone, ls-remote, submodule update/add, lfs fetch/pull/push): no
+/// total, only an idle limit.
 struct EffectiveDeadlines {
     std::chrono::milliseconds total{0};
     std::chrono::milliseconds idle{0};

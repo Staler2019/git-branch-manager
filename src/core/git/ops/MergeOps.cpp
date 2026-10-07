@@ -47,7 +47,7 @@ public:
                               "--include-untracked",
                               "-m",
                               "git-branch-manager: before merging " + request_.target});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -82,10 +82,9 @@ public:
         args.push_back(request_.target);
 
         GitCommand command(paths.commandDir(), std::move(args));
-        // A merge across a very large tree can legitimately take a while; give it
-        // a working Cancel rather than a timeout.
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
+        // A merge across a very large tree can legitimately take a while; it gets
+        // a working Cancel ~~rather than a timeout~~ and, since 2026-10-07, the
+        // local ceiling too (effectiveDeadlines()).
 
         auto result = runner.run(command, token);
         if (result) {

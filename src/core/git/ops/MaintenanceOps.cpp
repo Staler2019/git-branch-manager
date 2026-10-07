@@ -58,11 +58,10 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         // A commit-graph write over a repository with hundreds of thousands of
-        // commits can legitimately take a while; cancellation (not a timeout) is
-        // the right way to stop it, same reasoning as CheckoutOperation's
-        // network-op timeout of 0.
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
+        // commits can legitimately take a while. ~~cancellation (not a timeout)
+        // is the right way to stop it~~ Overruled 2026-10-07: every command has
+        // a deadline now -- this one GitCommand::kLocalCeiling (5 min x the
+        // user's multiplier) via effectiveDeadlines(); Cancel still works inside it.
 
         auto result = runner.run(command, token);
         if (result) {

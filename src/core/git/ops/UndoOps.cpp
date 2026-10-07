@@ -42,8 +42,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), {"reset", "--hard", request_.headBefore.hex()});
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {

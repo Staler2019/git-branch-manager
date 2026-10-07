@@ -316,12 +316,11 @@ private:
             return outcome;
         }
 
-        // No local timeout on either remote step: the budget belongs to the
-        // network, exactly as PushTagOperation/DeleteTagOperation do it.
+        // Both remote steps are network commands: effectiveDeadlines() gives
+        // them an idle limit instead of a total one, exactly as for
+        // PushTagOperation/DeleteTagOperation.
         GitCommand push(paths.commandDir(),
                         {"push", "--set-upstream", request_.remoteName, request_.to});
-        push.timeout = std::chrono::milliseconds(0);
-        push.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(push, request_.askpassDir);
         auto pushed = runner.run(push, token);
         if (!pushed) {
@@ -334,8 +333,6 @@ private:
 
         GitCommand deleteOld(paths.commandDir(),
                              {"push", request_.remoteName, "--delete", request_.from});
-        deleteOld.timeout = std::chrono::milliseconds(0);
-        deleteOld.idleTimeout = GitCommand::kHangCeiling;
         askpass::wire(deleteOld, request_.askpassDir);
         auto deleted = runner.run(deleteOld, token);
         if (!deleted) {
@@ -421,8 +418,9 @@ public:
         args.insert(args.end(), targets.begin(), targets.end());
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout =
-            request_.isRemote ? std::chrono::milliseconds(0) : std::chrono::milliseconds(60000);
+        // A remote delete is `push --delete`, a network command: its deadline is
+        // the idle limit and this total is ignored (effectiveDeadlines()).
+        command.timeout = std::chrono::milliseconds(60000);
 
         auto result = runner.run(command, token);
         if (result) {

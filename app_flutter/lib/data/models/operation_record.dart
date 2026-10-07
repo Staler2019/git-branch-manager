@@ -138,7 +138,11 @@ class OperationRecord extends GbmLogEntry {
   /// A declared answer is not a failure — that is the whole point of
   /// [benignExit] — but a cancellation or a timeout stays one whatever the
   /// caller declared, because neither is an answer to anything.
-  bool get failed => (exitCode != 0 && !benignExit) || cancelled || timedOut;
+  ///
+  /// A [running] record has no outcome yet, so it has not failed: its exit
+  /// code is a placeholder.
+  bool get failed =>
+      !running && ((exitCode != 0 && !benignExit) || cancelled || timedOut);
 
   /// The single source of truth for how severely this record should read --
   /// the drawer's filter, its row styling, and the plain-text export all go
@@ -180,12 +184,19 @@ class OperationRecord extends GbmLogEntry {
   /// `warning` maps to `CANCELLED` because cancellation is currently its
   /// only cause; a second warning cause must split this arm rather than
   /// widen the word.
+  ///
+  /// `RUNNING` is the one word not decided by [level]: 使用者裁定「新增
+  /// RUNNING 字樣」 for a record whose outcome is not known yet, filed under
+  /// info for the drawer's filter because `LOGRULES` defines three levels
+  /// and no fourth button was asked for.
   @override
-  String get levelLabel => switch (level) {
-    OperationLogLevel.info => 'INFO',
-    OperationLogLevel.warning => 'CANCELLED',
-    OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
-  };
+  String get levelLabel => running
+      ? 'RUNNING'
+      : switch (level) {
+          OperationLogLevel.info => 'INFO',
+          OperationLogLevel.warning => 'CANCELLED',
+          OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
+        };
 
   @override
   String get message => commandLine;

@@ -5,6 +5,7 @@ import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/features/log_drawer/log_drawer.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 
 void main() {
   group('LogDrawer', () {
@@ -658,6 +659,126 @@ void main() {
 
       expect(clipboardText, contains('INFO'));
       expect(clipboardText, contains('(exit 1, 3ms)'));
+    });
+  });
+
+  // 「新增 RUNNING 字樣」「最後面就不用執行中敘述了」.
+  group('LogDrawer draws a running row', () {
+    final OperationRecord running = OperationRecord(
+      whenEpochMs: 1692000000000,
+      repoDir: '/path/to/repo',
+      argv: const <String>['git', 'diff', '--numstat'],
+      commandLine: 'git diff --numstat',
+      exitCode: 0,
+      durationMs: 0,
+      stderrText: '',
+      cancelled: false,
+      timedOut: false,
+      id: 41,
+      running: true,
+    );
+
+    Future<void> pumpRunning(
+      WidgetTester tester, {
+      bool reduceMotion = false,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: reduceMotion),
+            child: Scaffold(body: LogDrawer(records: <GbmLogEntry>[running])),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    Finder loader() => find.byWidgetPredicate(
+      (Widget w) => w is LucideIcon && w.name == 'loader-circle',
+    );
+
+    testWidgets('the row reads RUNNING in the accent colour, with a loader', (
+      tester,
+    ) async {
+      await pumpRunning(tester);
+
+      final Text label = tester.widget<Text>(find.text('RUNNING'));
+      final GbmColors colors = tester.element(find.text('RUNNING')).gbmColors;
+      expect(label.style?.color, colors.accent);
+      expect(find.text('INFO'), findsNothing);
+      expect(loader(), findsOneWidget);
+      expect(tester.widget<LucideIcon>(loader()).color, colors.accent);
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+    });
+
+    testWidgets('no duration and no exit while the outcome is unknown', (
+      tester,
+    ) async {
+      await pumpRunning(tester);
+
+      expect(find.text('0ms'), findsNothing);
+      expect(find.textContaining('exit'), findsNothing);
+      expect(find.textContaining('執行中'), findsNothing);
+    });
+
+    testWidgets('the loader turns, unless motion is reduced', (tester) async {
+      await pumpRunning(tester);
+      expect(
+        find.ancestor(of: loader(), matching: find.byType(RotationTransition)),
+        findsOneWidget,
+      );
+
+      await pumpRunning(tester, reduceMotion: true);
+      expect(
+        find.ancestor(of: loader(), matching: find.byType(RotationTransition)),
+        findsNothing,
+      );
+      expect(loader(), findsOneWidget);
+    });
+
+    testWidgets('Info shows it and Error does not', (tester) async {
+      await pumpRunning(tester);
+
+      await tester.tap(find.text('Error'));
+      await tester.pump();
+      expect(find.text('git diff --numstat'), findsNothing);
+
+      await tester.tap(find.text('Info'));
+      await tester.pump();
+      expect(find.text('git diff --numstat'), findsOneWidget);
+    });
+
+    testWidgets('the export writes RUNNING with no exit or duration', (
+      tester,
+    ) async {
+      String? clipboardText;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall methodCall) async {
+          if (methodCall.method == 'Clipboard.setData') {
+            clipboardText =
+                (methodCall.arguments as Map<Object?, Object?>)['text']
+                    as String?;
+          }
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpRunning(tester);
+      await tester.tap(find.text('Copy All'));
+      await tester.pump();
+
+      expect(clipboardText, contains('RUNNING'));
+      expect(clipboardText, contains('git diff --numstat'));
+      expect(clipboardText, isNot(contains('exit ')));
+      expect(clipboardText, isNot(contains('ms)')));
     });
   });
 }

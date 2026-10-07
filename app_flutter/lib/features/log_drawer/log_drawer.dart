@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../data/models/operation_record.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/lucide_icon.dart';
 
 enum _LogLevel { all, info, warning, error }
 
@@ -64,7 +65,10 @@ class _LogDrawerState extends State<LogDrawer> {
         '$when  ${entry.levelLabel}  ${escapeControlChars(entry.message)}';
     // An app-level event is not a process: printing `(exit 0, 0ms)` after it
     // would read as a git invocation that succeeded instantly.
+    // A running record has no exit code or duration yet; its placeholders
+    // would read as an instant success.
     return switch (entry) {
+      OperationRecord(running: true) => head,
       OperationRecord(:final int exitCode, :final int durationMs) =>
         '$head  (exit $exitCode, ${durationMs}ms)',
       AppLogEntry() => head,
@@ -238,6 +242,9 @@ class _LogRow extends StatelessWidget {
   /// to re-derive the condition, and that is precisely how a row could end up
   /// labelled INFO next to a red error icon once a non-zero exit stopped
   /// automatically meaning failure ([CULT-single-source-of-truth]).
+  ///
+  /// A running record is answered before any of this, in [build]: it is
+  /// drawn with a turning Lucide loader rather than a Material glyph.
   static IconData _iconFor(GbmLogEntry entry) => switch (entry) {
     OperationRecord(cancelled: true) => Icons.stop_circle,
     OperationRecord(timedOut: true) => Icons.schedule,
@@ -254,12 +261,15 @@ class _LogRow extends StatelessWidget {
     // Colour follows the level, not `failed`: a cancelled read used to be
     // painted the same danger red as a genuinely rejected command, which is
     // what made a superseded refresh look like a failure.
-    final Color statusColor = switch (entry.level) {
-      OperationLogLevel.info => colors.textTertiary,
-      OperationLogLevel.warning => colors.warning,
-      OperationLogLevel.error => colors.danger,
-    };
-    final IconData statusIcon = _iconFor(entry);
+    final GbmLogEntry shown = entry;
+    final bool isRunning = shown is OperationRecord && shown.running;
+    final Color statusColor = isRunning
+        ? colors.accent
+        : switch (entry.level) {
+            OperationLogLevel.info => colors.textTertiary,
+            OperationLogLevel.warning => colors.warning,
+            OperationLogLevel.error => colors.danger,
+          };
     // Null for an app-level event: it has no process, so the duration, exit
     // code and stderr blocks below are absent rather than zeroed.
     final OperationRecord? git = switch (entry) {
@@ -277,7 +287,10 @@ class _LogRow extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Icon(statusIcon, size: 14, color: statusColor),
+              if (isRunning)
+                _RunningLoader(color: statusColor)
+              else
+                Icon(_iconFor(entry), size: 14, color: statusColor),
               const SizedBox(width: GbmSpacing.space2),
               // Spec page 10 item 4 lists the level as a field of a log row.
               // It existed only in the export until now; on screen the sole
@@ -315,7 +328,9 @@ class _LogRow extends StatelessWidget {
                   ),
                 ),
               ),
-              if (git != null) ...<Widget>[
+              // 「最後面就不用執行中敘述了」: a running row has nothing to say
+              // here until its outcome arrives and replaces it.
+              if (git != null && !git.running) ...<Widget>[
                 const SizedBox(width: GbmSpacing.space2),
                 Text(
                   '${git.durationMs}ms',
@@ -352,5 +367,46 @@ class _LogRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// spec P10's `icLoader`, at the 14px every other row icon uses, turning once
+/// per 1.2 seconds -- and standing still when the platform asks for reduced
+/// motion.
+class _RunningLoader extends StatefulWidget {
+  const _RunningLoader({required this.color});
+
+  final Color color;
+
+  @override
+  State<_RunningLoader> createState() => _RunningLoaderState();
+}
+
+class _RunningLoaderState extends State<_RunningLoader>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _turn = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  );
+
+  @override
+  void dispose() {
+    _turn.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget icon = LucideIcon(
+      'loader-circle',
+      size: 14,
+      color: widget.color,
+    );
+    if (MediaQuery.of(context).disableAnimations) {
+      _turn.stop();
+      return icon;
+    }
+    if (!_turn.isAnimating) _turn.repeat();
+    return RotationTransition(turns: _turn, child: icon);
   }
 }

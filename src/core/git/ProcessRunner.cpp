@@ -2,6 +2,7 @@
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/IProcessRunner.h"
+#include "core/git/OperationId.h"
 #include "core/git/TextTraits.h"
 
 #include <algorithm>
@@ -1000,9 +1001,7 @@ private:
         const GitCommand command = withTransferProgress(requested);
         const auto argv = buildArgv(git_, command);
         const auto started = Clock::now();
-        // Shared by every runner, so an id names one invocation process-wide.
-        static std::atomic<std::uint64_t> nextOperationId{1};
-        const std::uint64_t operationId = nextOperationId.fetch_add(1);
+        const std::uint64_t operationId = nextOperationId();
         const EffectiveDeadlines deadlines = effectiveDeadlines(command);
 
         if (token.isCancelled()) {

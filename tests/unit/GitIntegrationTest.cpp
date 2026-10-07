@@ -5716,5 +5716,65 @@ TEST_F(RealRepoTest, TheRecordCarriesTheDeadlinesTheCommandRanUnder) {
     }
 }
 
+// CatFileBatch's requests had no deadline at all: a `cat-file --batch` child
+// that stops answering left the reading thread blocked in a pipe read for as
+// long as the child lived (「以後沒有沒時限的東西」). The subject is the same
+// silent child as the runner's timeout tests, standing in for git: it takes
+// the request on stdin and never says a word back.
+//
+// Returning at all is most of the claim -- the child cannot exit on its own,
+// so the only way out of read() is the deadline killing it.
+TEST(CatFileBatchDeadline, AChildThatNeverAnswersIsStoppedAndLogged) {
+    RecordSpy spy;
+    CatFileBatch batch(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                       RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                       std::chrono::milliseconds(300));
+
+    auto first = batch.read("HEAD");
+
+    ASSERT_FALSE(first);
+    EXPECT_EQ(first.error().code, GitError::Code::Timeout);
+    EXPECT_FALSE(batch.isRunning()) << "a child that missed its deadline is not reused";
+
+    const auto record = spy.lastEndingWith({"cat-file", "--batch"});
+    ASSERT_TRUE(record.has_value()) << "a TIMEOUT that leaves no Log row is the bug this round fixes";
+    EXPECT_TRUE(record->timedOut);
+    EXPECT_FALSE(record->cancelled);
+    EXPECT_EQ(record->timeoutMs, 300);
+    EXPECT_NE(record->id, 0u);
+
+    // The next request starts a fresh child rather than failing on the dead
+    // one -- and that child is held to the same deadline, under its own id.
+    auto second = batch.read("HEAD");
+    ASSERT_FALSE(second);
+    EXPECT_EQ(second.error().code, GitError::Code::Timeout);
+    const auto records = spy.allEndingWith({"cat-file", "--batch"});
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_NE(records[0].id, records[1].id);
+}
+
+// The per-request deadline is a declared value like any other, so the user's
+// multiplier stretches it. The elapsed floor is the half an unscaled deadline
+// cannot satisfy: 200ms × 3 cannot return before ~600ms.
+TEST(CatFileBatchDeadline, TheMultiplierStretchesTheRequestDeadline) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    RecordSpy spy;
+    CatFileBatch batch(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                       RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                       std::chrono::milliseconds(200));
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = batch.read("HEAD");
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, std::chrono::milliseconds(550));
+    const auto record = spy.lastEndingWith({"cat-file", "--batch"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_EQ(record->timeoutMs, 600);
+}
+
 }  // namespace
 }  // namespace gbm

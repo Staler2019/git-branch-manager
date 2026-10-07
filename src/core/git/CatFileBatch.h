@@ -5,6 +5,7 @@
 #include "core/git/CommitMeta.h"
 #include "core/git/RepoPaths.h"
 
+#include <chrono>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -27,7 +28,16 @@ namespace gbm {
 /// `size` bytes of payload, then a single LF.
 class CatFileBatch {
 public:
-    CatFileBatch(std::filesystem::path gitExecutable, RepoPaths paths);
+    /// How long one request may wait for the child's answer before the child
+    /// is killed and the request fails with Timeout. Multiplied by
+    /// timeoutMultiplier() at each request. A proposed figure, not a measured
+    /// one: a healthy answer is a memcpy from a pipe, so anything near this is
+    /// a stuck child, not a slow one.
+    static constexpr std::chrono::milliseconds kRequestDeadline{std::chrono::seconds(30)};
+
+    CatFileBatch(std::filesystem::path gitExecutable,
+                 RepoPaths paths,
+                 std::chrono::milliseconds requestDeadline = kRequestDeadline);
     ~CatFileBatch();
 
     CatFileBatch(const CatFileBatch&) = delete;
@@ -53,14 +63,22 @@ public:
     /// `token` is checked once at entry, before any I/O, so a request that is
     /// still queued behind a cancellation (repository switch, closing the
     /// session) never starts. It is *not* checked mid-flight: the read/write
-    /// calls to the child's pipe are plain blocking calls with no deadline, so
-    /// a request already in progress runs to completion (or to the child's own
-    /// I/O error) before this returns. That is a real, currently-unbounded
+    /// calls to the child's pipe are plain blocking calls ~~with no deadline~~,
+    /// so a request already in progress runs to completion (or to the child's
+    /// own I/O error) before this returns. ~~That is a real, currently-unbounded
     /// wait if the child process itself hangs. It is accepted rather than
     /// fixed here because the child is a `git cat-file --batch` process this
     /// app spawns and owns, expected to answer promptly -- a hang there is a
     /// distinct failure mode from the freed-object crash this cancellation
-    /// exists to prevent (see `ThreadPool::cancelQueuedAndDrain`).
+    /// exists to prevent (see `ThreadPool::cancelQueuedAndDrain`).~~
+    /// **Corrected (2026-10-07, 「以後沒有沒時限的東西」)**: each request is
+    /// bounded by `kRequestDeadline` × timeoutMultiplier(). Past it, a watchdog
+    /// kills the child, which is what returns the blocked read; the request
+    /// fails with Timeout, a TIMEOUT row goes to the operation log, and the
+    /// next request starts a new child. Cancellation still does not interrupt
+    /// a request in flight -- that is a distinct failure mode from the
+    /// freed-object crash it exists to prevent (see
+    /// `ThreadPool::cancelQueuedAndDrain`).
     GitResult<Object> read(std::string_view revision, CancellationToken token = {});
 
     /// Reads and parses a commit. The common case, called in viewport batches.
@@ -83,6 +101,13 @@ public:
 private:
     class Impl;
 
+    /// One request/answer over the child's pipes, under `mutex_`, with the
+    /// watchdog already armed by read().
+    GitResult<Object> exchangeLocked(std::string_view revision);
+    void recordTimeoutLocked(std::string_view revision,
+                             std::chrono::milliseconds deadline,
+                             std::chrono::steady_clock::time_point started) const;
+
     /// The child speaks a strictly sequential protocol, so every request holds
     /// the lock. Requests are short (a memcpy from a pipe), and callers already
     /// batch, so this is not a contention point in practice.
@@ -90,6 +115,7 @@ private:
     std::unique_ptr<Impl> impl_;
     std::filesystem::path git_;
     RepoPaths paths_;
+    std::chrono::milliseconds requestDeadline_;
     /// Set after a protocol desynchronisation; forces a restart on next use
     /// rather than returning data from the wrong request.
     bool poisoned_ = false;

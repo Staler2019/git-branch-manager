@@ -4,9 +4,13 @@
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/GitCommand.h"
+#include "core/git/OperationId.h"
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstring>
+#include <optional>
+#include <thread>
 #include <utility>
 
 #if defined(_WIN32)
@@ -46,10 +50,37 @@ bool readExact(ReadFn&& readSome, char* out, std::size_t count) {
 /// header leaks into the rest of the codebase.
 class CatFileBatch::Impl {
 public:
-    ~Impl() { close(); }
+    using Clock = std::chrono::steady_clock;
+
+    ~Impl() {
+        stopWatchdog();
+        close();
+    }
+
+    const std::vector<std::string>& argv() const { return argv_; }
+
+    /// Starts the clock on one request. If it is still armed when `deadline`
+    /// passes, the watchdog kills the child: that is what makes the blocked
+    /// pipe read on the requesting thread return, since nothing else can.
+    void arm(std::chrono::milliseconds deadline) {
+        {
+            std::lock_guard<std::mutex> lock(watchMutex_);
+            due_ = Clock::now() + deadline;
+            fired_ = false;
+        }
+        watchCv_.notify_one();
+    }
+
+    /// Ends the request's clock; true when the watchdog had already killed the
+    /// child for it.
+    bool disarm() {
+        std::lock_guard<std::mutex> lock(watchMutex_);
+        due_.reset();
+        return fired_;
+    }
 
     GitResult<void> spawn(const std::filesystem::path& git, const RepoPaths& paths) {
-        std::vector<std::string> argv;
+        std::vector<std::string>& argv = argv_;
         argv.push_back(fsutil::utf8FromPath(git));
         for (auto& flag : GitCommand::globalFlags()) {
             argv.push_back(std::move(flag));
@@ -60,10 +91,14 @@ public:
         argv.emplace_back("--batch");
 
 #if defined(_WIN32)
-        return spawnWindows(argv);
+        auto spawned = spawnWindows(argv);
 #else
-        return spawnPosix(argv);
+        auto spawned = spawnPosix(argv);
 #endif
+        if (spawned) {
+            watchdog_ = std::thread([this] { watch(); });
+        }
+        return spawned;
     }
 
     bool write(std::string_view data) {
@@ -194,6 +229,59 @@ public:
     }
 
 private:
+    void watch() {
+        std::unique_lock<std::mutex> lock(watchMutex_);
+        while (!stopping_) {
+            if (!due_) {
+                watchCv_.wait(lock);
+                continue;
+            }
+            const Clock::time_point due = *due_;
+            if (Clock::now() >= due) {
+                killChild();
+                fired_ = true;
+                due_.reset();
+                continue;
+            }
+            watchCv_.wait_until(lock, due);
+        }
+    }
+
+    void stopWatchdog() {
+        {
+            std::lock_guard<std::mutex> lock(watchMutex_);
+            stopping_ = true;
+        }
+        watchCv_.notify_one();
+        if (watchdog_.joinable()) {
+            watchdog_.join();
+        }
+    }
+
+    /// Only signals: the pipes and the process handle stay open for close() to
+    /// release, so this never races the requesting thread's read on them.
+    void killChild() {
+#if defined(_WIN32)
+        if (process_ != nullptr) {
+            ::TerminateProcess(process_, 1);
+        }
+#else
+        if (pid_ > 0) {
+            ::kill(pid_, SIGKILL);
+        }
+#endif
+    }
+
+    std::vector<std::string> argv_;
+    std::mutex watchMutex_;
+    std::condition_variable watchCv_;
+    std::optional<Clock::time_point> due_;
+    bool fired_ = false;
+    bool stopping_ = false;
+    /// Started after a successful spawn and joined before close(), so the
+    /// pid/handle it signals is never released or reused under it.
+    std::thread watchdog_;
+
 #if defined(_WIN32)
     GitResult<void> spawnWindows(const std::vector<std::string>& argv) {
         SECURITY_ATTRIBUTES sa{};
@@ -322,8 +410,10 @@ private:
 #endif
 };
 
-CatFileBatch::CatFileBatch(std::filesystem::path gitExecutable, RepoPaths paths)
-    : git_(std::move(gitExecutable)), paths_(std::move(paths)) {}
+CatFileBatch::CatFileBatch(std::filesystem::path gitExecutable,
+                           RepoPaths paths,
+                           std::chrono::milliseconds requestDeadline)
+    : git_(std::move(gitExecutable)), paths_(std::move(paths)), requestDeadline_(requestDeadline) {}
 
 CatFileBatch::~CatFileBatch() = default;
 
@@ -379,6 +469,44 @@ GitResult<CatFileBatch::Object> CatFileBatch::read(std::string_view revision,
         }
     }
 
+    const std::chrono::milliseconds deadline = scaledTimeout(requestDeadline_);
+    const auto started = Impl::Clock::now();
+    impl_->arm(deadline);
+    auto object = exchangeLocked(revision);
+    if (impl_->disarm()) {
+        // Whatever the read returned, the child is dead: this request's answer
+        // never arrived in time, and the next request starts a new child.
+        // Usually the dead pipe has already poisoned the batch inside
+        // exchangeLocked(); this covers an answer that landed just as the kill
+        // did, which no test can arrange on demand (its mutation survives).
+        poisoned_ = true;
+        recordTimeoutLocked(revision, deadline, started);
+        return fail(
+            GitError::Code::Timeout,
+            "git cat-file did not answer within " + std::to_string(deadline.count()) + " ms");
+    }
+    return object;
+}
+
+void CatFileBatch::recordTimeoutLocked(std::string_view revision,
+                                       std::chrono::milliseconds deadline,
+                                       std::chrono::steady_clock::time_point started) const {
+    OperationRecord record;
+    record.id = nextOperationId();
+    record.when = std::chrono::system_clock::now();
+    record.repoDir = fsutil::utf8FromPath(paths_.commandDir());
+    record.argv = impl_->argv();
+    record.exitCode = -1;
+    record.durationMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - started)
+                            .count();
+    record.stderrText = "No answer for request: " + std::string(revision);
+    record.timedOut = true;
+    record.timeoutMs = deadline.count();
+    Log::instance().recordOperation(record);
+}
+
+GitResult<CatFileBatch::Object> CatFileBatch::exchangeLocked(std::string_view revision) {
     std::string request(revision);
     request.push_back('\n');
     if (!impl_->write(request)) {

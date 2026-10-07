@@ -520,19 +520,40 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
     // and the cost of a diff over an unchanged side is a git process that
     // prints nothing.
     //
-    // A numstat failure fails the whole read rather than silently returning
+    // ~~A numstat failure fails the whole read rather than silently returning
     // entries with no counts: a file list with no badges is indistinguishable
     // from a repository where nothing changed size, so a swallowed error here
-    // would surface as a UI that is quietly wrong rather than one that says so.
-    if (auto counts = attachNumstat(runner_, paths_, /*staged=*/false, status->entries, token);
-        !counts) {
-        return fail(std::move(counts).error());
+    // would surface as a UI that is quietly wrong rather than one that says so.~~
+    // Overruled 2026-10-06: failing the whole read also threw away the
+    // conflict list, which for a plain merge is the only source of
+    // `conflictActive` -- so on a machine slow enough for numstat's rename
+    // detection to time out, a merge's conflicts never appeared at all.
+    // Conflicts are material state and badges are not. A failed pass now
+    // publishes the entries with `lineCountsUnavailable` set, which is what
+    // keeps "no badges" from being silent; the failure itself is in the
+    // operation log as the numstat row. A *cancelled* pass still fails the
+    // read: that is abandoned work, and publishing it would blank real badges
+    // on every repository switch.
+    for (const bool staged : {false, true}) {
+        auto counts = attachNumstat(runner_, paths_, staged, status->entries, token);
+        if (counts) {
+            continue;
+        }
+        if (counts.error().code == GitError::Code::Cancelled) {
+            return fail(std::move(counts).error());
+        }
+        status->lineCountsUnavailable = true;
+        for (WorkingCopyEntry& entry : status->entries) {
+            entry.unstagedAdded = entry.unstagedRemoved = 0;
+            entry.stagedAdded = entry.stagedRemoved = 0;
+        }
+        break;
     }
-    if (auto counts = attachNumstat(runner_, paths_, /*staged=*/true, status->entries, token);
-        !counts) {
-        return fail(std::move(counts).error());
+    // Skipped with the rest: one set of badges measured and another not would
+    // read as a partial answer, and the flag says *every* count is 0.
+    if (!status->lineCountsUnavailable) {
+        countUntrackedLines(paths_, status->entries, untrackedLineCounts_);
     }
-    countUntrackedLines(paths_, status->entries, untrackedLineCounts_);
 
     return WorkingCopyStatusPtr(status);
 }

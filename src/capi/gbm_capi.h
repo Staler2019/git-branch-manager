@@ -251,6 +251,13 @@ GBM_API void gbm_free_event_payload(const uint8_t* payload);
 GBM_API int32_t gbm_last_result_json_len(void);
 GBM_API void gbm_last_result_json_copy(uint8_t* out, int32_t outLen);
 
+// --- Process-wide settings ---------------------------------------------
+
+/// Multiplies every finite git timeout, for every session, from the next git
+/// process on (core's setTimeoutMultiplier, GitCommand.h). Values below 1 are
+/// refused and change nothing. Returns the multiplier now in effect.
+GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier);
+
 // --- Session lifecycle -------------------------------------------------
 
 /// Opens a repository. `commonDir` may be empty (defaults to gitDir) for a

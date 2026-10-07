@@ -67,6 +67,9 @@ typedef GbmEventCallbackNative = Void Function(
 typedef _FreeEventPayloadNative = Void Function(Pointer<Uint8> payload);
 typedef FreeEventPayloadDart = void Function(Pointer<Uint8> payload);
 
+typedef _SetTimeoutMultiplierNative = Int32 Function(Int32 multiplier);
+typedef SetTimeoutMultiplierDart = int Function(int multiplier);
+
 typedef _LastResultJsonLenNative = Int32 Function();
 typedef LastResultJsonLenDart = int Function();
 
@@ -1307,6 +1310,11 @@ class GbmBindings {
           .lookupFunction<_FreeEventPayloadNative, FreeEventPayloadDart>(
             'gbm_free_event_payload',
           ),
+      setTimeoutMultiplier = library
+          .lookupFunction<
+            _SetTimeoutMultiplierNative,
+            SetTimeoutMultiplierDart
+          >('gbm_set_timeout_multiplier'),
       lastResultJsonLen = library
           .lookupFunction<_LastResultJsonLenNative, LastResultJsonLenDart>(
             'gbm_last_result_json_len',
@@ -1868,6 +1876,10 @@ class GbmBindings {
           >('gbm_discovery_set_base_folder_depth');
 
   final FreeEventPayloadDart freeEventPayload;
+
+  /// gbm_set_timeout_multiplier(): process-wide, no session. Returns the
+  /// multiplier now in effect.
+  final SetTimeoutMultiplierDart setTimeoutMultiplier;
   final LastResultJsonLenDart lastResultJsonLen;
   final LastResultJsonCopyDart lastResultJsonCopy;
   final SessionOpenDart sessionOpen;

@@ -1,0 +1,542 @@
+<title>慢機器逾時與 Log 畫面</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet — each screen is a framed mock in the app's own tokens, with its value-source table beside/below it. */
+/* App tokens: app_flutter/lib/theme/tokens.dart — light = _lightIde, dark = _darkTechnical (the app default). */
+:root {
+  --surface-app: #FFFFFF; --surface-panel: #FFFFFF; --surface-raised: #FFFFFF;
+  --surface-sunken: #F5F6F8; --surface-hover: #F0F2F5; --surface-selected: #E4EDFD; --surface-overlay: #FFFFFF;
+  --border-subtle: #EAECEF; --border-default: #DCDFE4; --border-strong: #C6CAD1;
+  --text-primary: #1C2128; --text-secondary: #57606A; --text-tertiary: #8B949E; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #EAF1FE;
+  --success: #1A7F37; --danger: #CF222E; --warning: #9A6700;
+  --diff-add-bg: #E9FBEE; --diff-add-text: #116329; --diff-del-bg: #FFEBE9; --diff-del-text: #82241F;
+  /* page chrome (not app tokens): everything outside the .mock frames, plus the frames' own width/radius, is page layout, not a drawn value */
+  --page-bg: #F3F5F8; --page-ink: #1C2128; --page-muted: #57606A; --page-rule: #DCDFE4;
+  --tag-new-bg: #FFF4DB; --tag-new-ink: #7A5200; --tag-code-bg: #E4EDFD; --tag-code-ink: #1857B8; --tag-rule-bg: #E6F6EC; --tag-rule-ink: #136C37;
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-page: -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page-bg); color: var(--page-ink); font-family: var(--font-page); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--page-muted); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--page-muted); font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--page-muted); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--page-rule); padding-top: 18px; }
+.rulings { display: flex; flex-wrap: wrap; gap: 8px; }
+.ruling { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--page-muted); align-items: center; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--tag-code-bg); color: var(--tag-code-ink); }
+.tag.new { background: var(--tag-new-bg); color: var(--tag-new-ink); }
+.tag.rule { background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+
+.stage { overflow-x: auto; padding: 20px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 8px; }
+.mock { font-family: var(--font-ui); color: var(--text-primary); background: var(--surface-app); }
+.mono { font-family: var(--font-mono); }
+
+/* ---------- Preferences dialog ---------- */
+.dlg { width: 720px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.dlg-title { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; font-weight: 600; }
+.dlg-body { display: flex; height: 420px; padding: 0 16px; margin-block: 16px; }
+.nav { width: 168px; display: flex; flex-direction: column; }
+.nav div { padding: 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.nav div.on { background: var(--surface-selected); color: var(--text-primary); font-weight: 600; }
+.vdiv { width: 1px; background: var(--border-subtle); }
+.pane { flex: 1; padding-left: 16px; display: flex; flex-direction: column; }
+.sh { font-size: 11px; font-weight: 600; color: var(--text-tertiary); letter-spacing: .5px; padding-bottom: 8px; }
+.gap4 { height: 16px; } .gap2 { height: 8px; } .gap1 { height: 4px; }
+.chk { display: flex; gap: 10px; align-items: flex-start; }
+.chk .box { width: 18px; height: 18px; margin-top: 1px; border-radius: 2px; background: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+.t-sm { font-size: 12.5px; } .t-xs { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+.fl { font-size: 11px; color: var(--text-secondary); }
+.inp { height: 30px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-panel); display: flex; align-items: center; padding: 0 12px; font-size: 12.5px; gap: 6px; }
+.inp .sfx { color: var(--text-tertiary); margin-left: auto; }
+.new-block { position: relative; outline: 2px dashed var(--warning); outline-offset: 6px; border-radius: 2px; }
+.mult-row { display: flex; align-items: center; gap: 16px; }
+.slider { position: relative; width: 240px; height: 30px; margin-bottom: 14px; }
+.slider .track { position: absolute; left: 8px; right: 8px; top: 13px; height: 4px; border-radius: 2px; background: var(--border-default); }
+.slider .fill { position: absolute; left: 8px; top: 13px; height: 4px; border-radius: 2px; background: var(--accent); }
+.slider .tick { position: absolute; top: 11px; width: 2px; height: 8px; background: var(--border-strong); transform: translateX(-1px); }
+.slider .thumb { position: absolute; top: 7px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-overlay); box-shadow: 0 0 0 1px var(--accent); transform: translateX(-8px); cursor: grab; }
+.slider .lbls { position: absolute; top: 30px; left: 0; right: 0; height: 14px; }
+.slider .lbls span { position: absolute; transform: translateX(-50%); font-size: 11px; color: var(--text-tertiary); }
+.slider .lbls span.on { color: var(--text-primary); font-weight: 600; }
+.slider input[type=range] { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; margin: 0; }
+.slider:focus-within .thumb { box-shadow: 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-subtle); }
+.mult-inp { width: 88px; }
+.mult-inp input { width: 100%; border: 0; background: transparent; color: var(--text-primary); font: inherit; outline: none; font-variant-numeric: tabular-nums; }
+.inp:focus-within { border-color: var(--accent); }
+.dlg-foot { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border-subtle); }
+.btn-primary { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); font-size: 11px; display: inline-flex; align-items: center; font-weight: 500; }
+
+/* ---------- Working copy ---------- */
+.wc { width: 520px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; background: var(--surface-panel); }
+.wc-notice { display: flex; gap: 8px; align-items: center; height: 26px; padding: 0 8px; background: var(--surface-raised); border-bottom: 1px solid var(--border-subtle); font-size: 11px; color: var(--text-secondary); }
+.wc-notice span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-notice svg { flex-shrink: 0; }
+.wc-head { height: 26px; display: flex; align-items: center; padding: 0 8px; background: var(--surface-raised); font-size: 11px; font-weight: 700; color: var(--text-secondary); gap: 8px; }
+.wc-head .tgl { margin-left: auto; color: var(--text-tertiary); display: grid; }
+.wc-row { height: 26px; display: flex; align-items: center; gap: 4px; padding: 0 8px; font-size: 12.5px; }
+.wc-row .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wc-split { height: 1px; background: var(--border-subtle); }
+.badge { font-size: 10.5px; padding: 0 5px; border-radius: 999px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-weight: 600; }
+.badge.add { background: var(--diff-add-bg); color: var(--diff-add-text); }
+.badge.del { background: var(--diff-del-bg); color: var(--diff-del-text); }
+.hint { margin: 0 8px 8px; border: 1px solid var(--border-default); border-radius: 6px; padding: 8px; text-align: center; font-size: 11px; color: var(--text-tertiary); }
+.pair { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.pair figure { margin: 0; display: grid; gap: 8px; }
+.pair figcaption { font-size: 12.5px; color: var(--page-muted); }
+
+/* ---------- Log drawer ---------- */
+.drawer { width: 920px; border-top: 1px solid var(--border-subtle); background: var(--surface-panel); }
+.dr-head { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
+.dr-head .lbl { font-size: 12.5px; color: var(--text-secondary); }
+.flt { font-size: 11px; padding: 3px 8px; border-radius: 4px; color: var(--text-primary); }
+.dr-head .flts { display: flex; gap: 4px; }
+.flt.on { background: var(--surface-selected); }
+.dr-head .sp { flex: 1; }
+.tbtn { font-size: 11px; color: var(--accent); display: inline-flex; align-items: center; gap: 4px; }
+.dr-head .btns { display: flex; gap: 8px; }
+.lrow { padding: 4px 12px; transition: background .4s; }
+.lrow .line { display: flex; align-items: center; gap: 8px; }
+.lrow .ic { display: grid; flex-shrink: 0; }
+.lrow .lv { width: 68px; flex-shrink: 0; }
+.lrow .cmd { flex: 1; min-width: 0; }
+.lrow .lv { font-family: var(--font-mono); font-size: 11px; }
+.lrow .tm { font-family: var(--font-mono); font-size: 11px; color: var(--text-tertiary); }
+.lrow .cmd { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-primary); overflow-wrap: anywhere; }
+.lrow .dur, .lrow .ex, .lrow .lim { font-size: 11px; color: var(--text-tertiary); white-space: nowrap; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.lrow .tm { width: 56px; flex-shrink: 0; }
+.lrow .dur { width: 72px; text-align: right; }
+.lrow .ex { width: 44px; }
+.lrow .lim { width: 84px; padding-left: 8px; border-left: 1px solid var(--border-subtle); }
+.lrow.cols { border-bottom: 1px solid var(--border-subtle); }
+.lrow.cols .line > span { font-family: var(--font-ui); font-size: 11px; color: var(--text-tertiary); font-weight: 400; }
+.lrow.cols .ic { width: 14px; }
+.drawer.no-lim .lim { display: none; }
+.drawer.no-cols .lrow.cols { display: none; }
+.dev-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--page-ink); cursor: pointer; }
+.dev-toggle input { width: 16px; height: 16px; accent-color: var(--accent); }
+.lrow .err { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--diff-del-text); padding-top: 4px; white-space: pre-wrap; }
+.lrow.flash { background: var(--accent-subtle); }
+.lv-info, .ic-info { color: var(--text-tertiary); }
+.lv-run, .ic-run { color: var(--accent); }
+.lv-err, .ic-err { color: var(--danger); }
+.spin { animation: spin 1.2s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation: none; } .lrow { transition: none; } }
+.sbar { width: 920px; height: 32px; display: flex; align-items: center; gap: 12px; padding: 4px 16px; font-size: 11px; color: var(--text-tertiary); background: var(--surface-panel); border-top: 1px solid var(--border-subtle); }
+.sbar .br { font-size: 12.5px; font-weight: 500; color: var(--text-primary); }
+.sbar .sp { flex: 1; }
+.sbar .dot { font-size: 10.5px; padding: 0 5px; border-radius: 999px; min-width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; font-weight: 600; background: var(--diff-del-bg); color: var(--diff-del-text); font-family: var(--font-mono); cursor: pointer; }
+.ctl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+button.sim { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--page-rule); background: var(--surface-panel); color: var(--page-ink); cursor: pointer; }
+button.sim:hover { border-color: var(--accent); }
+button.sim:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ctl .state { font-size: 12.5px; color: var(--page-muted); }
+pre.export { margin: 0; padding: 12px 14px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; overflow-x: auto; color: var(--page-ink); }
+
+/* ---------- tables ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+th { font-weight: 600; color: var(--page-muted); font-size: 12px; }
+td code, p code, li code { font-family: var(--font-mono); font-size: 11.5px; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } h1 { font-size: 22px; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">fix/slow-machine-log-and-timeouts · G1 設計稿 · 2026-10-07</div>
+    <h1>慢機器逾時與 Log 畫面</h1>
+    <p class="lede">四個畫面的實作細節：逾時倍率偏好、行數無法取得提示、Log 的 RUNNING 列與時限欄，以及 Developer 裡的時限欄開關。畫面用 app 自己的 token 繪製，跟著瀏覽器的亮暗主題切換：亮色是 Light IDE，暗色是 Dark technical。畫面下方的表列出每個值的出處；框外的排版只是這份文件的版面。框內沿用現況的部分照程式畫（例如記憶體保留預設 2000 筆，spec LOGRULES 寫 500，屬既有差異，本輪不動）。</p>
+    <div class="legend">
+      <span><span class="tag code">code</span> 沿用現有程式（檔名:行）</span>
+      <span><span class="tag rule">裁定</span> 你在這一輪的裁定</span>
+      <span><span class="tag new">新增</span> 沒有出處，等你裁定</span>
+    </div>
+  </header>
+
+  <!-- ===================== Runtime rules ===================== -->
+  <section class="screen" id="rules">
+    <div class="screen-head">
+      <div class="eyebrow">底層規則 · 畫面以外</div>
+      <h2>每個 git 動作都有時限</h2>
+      <div class="rulings">
+        <span class="ruling">「以後沒有沒時限的東西」</span>
+        <span class="ruling">「依賴網路的…超過1分鐘沒有資料傳輸就卡掉」</span>
+        <span class="ruling">「本地動作…使用者的耐心最多就5分鐘」</span>
+        <span class="ruling">cat-file：「一併改」</span>
+      </div>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr><th>種類</th><th>判定方式</th><th class="num">1×</th><th class="num">4×</th><th>出處</th></tr></thead>
+        <tbody>
+          <tr><td>本地指令（status、diff、rebase、merge、reset…）</td><td>總時限；原本寫 0 的一律改成 300 秒，600 秒的 8 處也降到 300 秒</td><td class="num">≤ 300 s</td><td class="num">≤ 1200 s</td><td><span class="tag rule">裁定</span></td></tr>
+          <tr><td>已設 5–180 秒的讀取（status 120、numstat 120、worktree list 30…）</td><td>維持原值，乘上倍率</td><td class="num">5–180 s</td><td class="num">20–720 s</td><td><span class="tag code">ProcessRunner.cpp:1042 scaledTimeout</span> · 下限 <span class="tag code">BranchOps.cpp:50</span></td></tr>
+          <tr><td>網路指令（fetch、clone、push、pull、submodule update）</td><td>沒有總時限；連續 60 秒管線沒有資料就結束。要加 <code>--progress</code> 才有傳輸訊號（git 對 pipe 預設不印進度）</td><td class="num">閒置 60 s</td><td class="num">閒置 240 s</td><td>60 s <span class="tag rule">裁定</span> · <code>--progress</code>、閒置也乘倍率 <span class="tag new">新增</span>（目前 <code>GitCommand.h:241</code> 明寫倍率不乘閒置上限）</td></tr>
+          <tr><td>cat-file --batch 常駐行程（圖表、blob）</td><td>每次讀取的時限；逾時就結束子行程、記一筆 TIMEOUT，下次讀取自動重開</td><td class="num">30 s</td><td class="num">120 s</td><td>範圍 <span class="tag rule">裁定</span> · 30 s 與行為 <span class="tag new">新增</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>Windows 上抓得到進度嗎</h3>
+    <ul class="notes">
+      <li>閒置判定看的是「任何一條管線有資料」。Windows 的 stderr 讀取執行緒每讀到一段就更新進度時間（<code>ProcessRunner.cpp:619</code>），stdout（<code>:759</code>）、stdin（<code>:647</code>）也一樣，所以 <code>--progress</code> 的輸出會被算成有傳輸。這是讀程式碼得到的結論，還要用測試證明。</li>
+      <li>證明方式：在 Windows CI 跑兩個新測試。(1) 從本機 <code>file://</code> 遠端 <code>fetch --progress</code>，斷言 stderr 管線確實收到進度輸出（git 只有加 <code>--progress</code> 才會對 pipe 印）；(2) 一個持續輸出進度、總時間超過閒置上限的子行程不會被砍，一個完全不出聲的子行程會在閒置上限被砍。這兩個測試都會在 PR #177 的 Windows CI 上跑，結果列進 ledger。</li>
+      <li>進度列以 <code>\r</code> 覆寫同一行。寫進 Log 的 stderr 只保留每行最後一段，錯誤分類照樣看得到 <code>fatal:</code> 行。</li>
+    </ul>
+  </section>
+
+  <!-- ===================== B3 Preferences ===================== -->
+  <section class="screen" id="prefs">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · Preferences → Advanced</div>
+      <h2>逾時倍率：四段拖拉加自由輸入</h2>
+      <div class="rulings">
+        <span class="ruling">「拖拉四段＋右側自由輸入倍率」</span>
+        <span class="ruling">「不需要顯示超時秒數」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="mock dlg">
+        <div class="dlg-title">Preferences</div>
+        <div class="dlg-body">
+          <div class="nav"><div>General</div><div>Repository sources</div><div>Git</div><div>Appearance</div><div>Shortcuts</div><div class="on">Advanced</div><div>Developer</div></div>
+          <div class="vdiv"></div>
+          <div class="pane">
+            <div class="sh">確認</div>
+            <div class="chk"><div class="box"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.5 8.5 2.5" fill="none" stroke="#fff" stroke-width="1.6"/></svg></div><div><div class="t-sm">force-push 前先確認</div><div class="t-xs">執行前顯示這次 push 會覆蓋掉多少筆 remote commit。</div></div></div>
+            <div class="gap4"></div>
+            <div class="sh">記錄</div>
+            <div class="fl">記憶體中保留</div><div class="gap1"></div>
+            <div class="inp" style="width:200px">2000<span class="sfx">筆</span></div>
+            <div class="gap2"></div>
+            <div class="fl">記錄檔保留</div><div class="gap1"></div>
+            <div class="inp" style="width:200px">7<span class="sfx">天</span></div>
+            <div class="gap2"></div>
+            <div class="t-xs">密碼、內嵌在 remote URL 裡的 token，以及檔案內容，都不會寫進記錄。</div>
+            <div class="gap4"></div>
+            <div class="new-block">
+              <div class="sh">GIT 指令逾時倍率</div>
+              <div class="mult-row">
+                <div class="slider" id="slider">
+                  <div class="track"></div><div class="fill" id="fill"></div>
+                  <div class="tick" style="left:8px"></div><div class="tick" style="left:82.67px"></div><div class="tick" style="left:157.33px"></div><div class="tick" style="left:232px"></div>
+                  <div class="thumb" id="thumb"></div>
+                  <div class="lbls"><span style="left:8px">1×</span><span style="left:82.67px">2×</span><span style="left:157.33px">4×</span><span style="left:232px">8×</span></div>
+                  <input type="range" id="mult-range" min="0" max="3" step="1" value="0" aria-label="Git 指令逾時倍率">
+                </div>
+                <label class="inp mult-inp" for="mult-input"><input id="mult-input" type="text" inputmode="numeric" value="1" aria-label="自訂倍率"><span class="sfx">×</span></label>
+              </div>
+              <div class="gap2"></div>
+              <div class="t-xs">電腦慢（防毒、資安掃描）、Log 常出現 TIMEOUT 時調高。改了從下一個指令開始生效。</div>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-foot"><span class="btn-primary">Close</span></div>
+      </div>
+    </div>
+    <div class="ctl"><span class="state" id="mult-state">拖拉會吸附 1 / 2 / 4 / 8；右側輸入任意正整數。輸入不在四段上的值（例如 3）時，滑桿停在最接近的較小段，數字以輸入框為準。</span></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>位置</td><td>Advanced 最後一塊，在「記錄」之後</td><td><span class="tag code">preferences_dialog.dart:1131</span> 記錄是現在最後一塊</td></tr>
+        <tr><td>標題</td><td>GIT 指令逾時倍率，_SectionHeading（11 px、semibold、textTertiary、字距 0.5）</td><td>樣式 <span class="tag code">preferences_dialog.dart:189</span> · 文字 <span class="tag new">新增</span></td></tr>
+        <tr><td>區塊間距</td><td>標題前 16 px（space4）；滑桿刻度標籤佔 14 px，之後 8 px 才是說明</td><td><span class="tag code">preferences_dialog.dart:1130,1149</span></td></tr>
+        <tr><td>滑桿</td><td>寬 240 px，四個吸附點，軌道 4 px（borderDefault），刻度 2×8 px（borderStrong），把手 16 px accent 加 2 px 外圈，聚焦時 4 px accentSubtle 光暈；與輸入框間距 16 px</td><td><span class="tag rule">裁定</span> 拖拉四段 · 尺寸 <span class="tag new">新增</span>（app 目前沒有任何 Slider）</td></tr>
+        <tr><td>刻度標籤</td><td>1× 2× 4× 8×，11 px，目前段 textPrimary semibold</td><td>四段 <span class="tag rule">裁定</span> · 值與樣式 <span class="tag new">新增</span></td></tr>
+        <tr><td>非四段的輸入</td><td>例如 3：滑桿停在最接近的較小段，數字以輸入框為準</td><td><span class="tag new">新增</span></td></tr>
+        <tr><td>輸入框</td><td>寬 88 px、高 30 px，後綴「×」，只接受 ≥ 1 的整數（core 拒絕 &lt; 1）</td><td>高度 <span class="tag code">GbmSpacing.inputHeight</span> · 規則 <span class="tag code">GitCommand.cpp setTimeoutMultiplier</span> · 寬度 <span class="tag new">新增</span></td></tr>
+        <tr><td>說明文字</td><td>11 px、textTertiary、行高 1.5；不寫秒數</td><td>樣式 <span class="tag code">preferences_dialog.dart:1150</span> · 不寫秒數 <span class="tag rule">裁定</span> · 文案 <span class="tag new">新增</span></td></tr>
+        <tr><td>預設</td><td>1×</td><td><span class="tag code">app_preferences_repository.dart:42</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== C3 Working copy ===================== -->
+  <section class="screen" id="wc">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · Working Copy</div>
+      <h2>行數拿不到時，清單照常出現並說明原因</h2>
+      <div class="rulings"><span class="ruling">「Working Copy 內一行提示」</span></div>
+    </div>
+    <div class="stage">
+      <div class="pair">
+        <figure>
+          <div class="mock wc">
+            <div class="wc-notice"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg><span>無法取得行數（numstat 失敗），清單仍是最新的。詳情見 Log。</span></div>
+            <div class="wc-head">Unstaged · 3<span class="tgl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span></div>
+            <div class="wc-row"><span class="p">src/Web/Controllers/OrderController.cs</span></div>
+            <div class="wc-row"><span class="p">src/Application/Orders/PlaceOrder.cs</span></div>
+            <div class="wc-row"><span class="p">src/Domain/Orders/OrderLine.cs</span></div>
+            <div class="hint">拖曳檔案到下欄 = stage</div>
+            <div class="wc-split"></div>
+            <div class="wc-head">Staged · 1</div>
+            <div class="wc-row"><span class="p">src/Infrastructure/Data/AppDbContext.cs</span></div>
+          </div>
+          <figcaption>numstat 逾時：一行提示，衝突檔照常列出，沒有 badge</figcaption>
+        </figure>
+        <figure>
+          <div class="mock wc">
+            <div class="wc-head">Unstaged · 3<span class="tgl"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg></span></div>
+            <div class="wc-row"><span class="p">src/Web/Controllers/OrderController.cs</span></div>
+            <div class="wc-row"><span class="p">src/Application/Orders/PlaceOrder.cs</span><span class="badge add">+34</span><span class="badge del">-12</span></div>
+            <div class="wc-row"><span class="p">src/Domain/Orders/OrderLine.cs</span><span class="badge add">+58</span></div>
+            <div class="hint">拖曳檔案到下欄 = stage</div>
+            <div class="wc-split"></div>
+            <div class="wc-head">Staged · 1</div>
+            <div class="wc-row"><span class="p">src/Infrastructure/Data/AppDbContext.cs</span><span class="badge add">+7</span><span class="badge del">-3</span></div>
+          </div>
+          <figcaption>正常情況（對照，不改）</figcaption>
+        </figure>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>出現條件</td><td><code>WorkingCopyStatus.lineCountsUnavailable</code> 為 true；status 成功、numstat 非取消地失敗</td><td><span class="tag code">working_copy_status.dart:167–171</span> · <span class="tag code">WorkingCopyStatus.cpp:534–545</span></td></tr>
+        <tr><td>位置</td><td>兩欄上方，整個看板寬；上下欄維持直式（看板要多一個參數並包一層）</td><td>在 Working Copy 內 <span class="tag rule">裁定</span> · 頂端位置 <span class="tag new">新增</span> · 直式 <span class="tag code">working_copy_board.dart:233</span></td></tr>
+        <tr><td>圖示</td><td>alert-triangle 14 px，warning 色</td><td>圖示與尺寸 <span class="tag code">gbm_banner.dart:29</span> · 顏色 <span class="tag new">新增</span>（banner 用 diffDelText；這裡不是錯誤，選 warning）</td></tr>
+        <tr><td>高度與底色</td><td>26 px，surfacePanelRaised（同欄位標題）；下框線 borderSubtle 把它和 Unstaged 標題分開</td><td>高度、底色 <span class="tag code">working_copy_board.dart:268–269</span> · 下框線 <span class="tag new">新增</span></td></tr>
+        <tr><td>文字</td><td>11 px、textSecondary，單行，太窄時省略號</td><td>大小顏色 <span class="tag code">working_copy_board.dart:280–281</span> · 單行 <span class="tag rule">裁定</span>「一行提示」 · 文案 <span class="tag new">新增</span></td></tr>
+        <tr><td>內距與間距</td><td>左右 8 px（同欄位標題）、圖示與文字間 8 px</td><td>內距 <span class="tag code">working_copy_board.dart:270</span> · 間距 <span class="tag new">新增</span></td></tr>
+        <tr><td>互動</td><td>不可點，Log 從 status bar 打開</td><td><span class="tag new">新增</span></td></tr>
+        <tr><td>badge 規則</td><td>0 = 未量測，不畫（不改）</td><td><span class="tag code">working_copy_board.dart:498</span></td></tr>
+      </tbody>
+    </table></div>
+    <p class="callout">偏離 spec：P10 第 5 項寫「背景作業失敗僅留在 status bar 與 log」，而 numstat 是背景讀取。你已裁定要在 Working Copy 顯示提示，我會在 ledger 記錄這個偏離。</p>
+  </section>
+
+  <!-- ===================== D3 Log drawer ===================== -->
+  <section class="screen" id="log">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 3 · 底部 Log 抽屜</div>
+      <h2>RUNNING 列與每筆的實際逾時</h2>
+      <div class="rulings">
+        <span class="ruling">「新增 RUNNING 字樣」</span>
+        <span class="ruling">「最後面就不用執行中敘述了」</span>
+        <span class="ruling">「debug時要知道每個動作超時是多少」</span>
+        <span class="ruling">「log限時欄位與作業時間隔開成為獨立一欄」</span>
+        <span class="ruling">「在feature flag那邊加上，顯示限時欄位開關」</span>
+        <span class="ruling">「顯示欄位名稱應該是另一個開關」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="mock drawer no-cols" id="drawer">
+        <div class="dr-head">
+          <span class="lbl">Filter:</span>
+          <span class="flts"><span class="flt on">All</span><span class="flt">Info</span><span class="flt">Warning</span><span class="flt">Error</span></span>
+          <span class="sp"></span>
+          <span class="btns"><span class="tbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 1H4a2 2 0 0 0-2 2v14h2V3h12V1Zm3 4H8a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2Zm0 16H8V7h11v14Z"/></svg>Copy All</span><span class="tbtn"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V7l-4-4Zm-5 16a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm3-10H5V5h10v4Z"/></svg>Save As</span></span>
+        </div>
+        <div class="lrow cols" aria-hidden="true"><div class="line"><span class="ic"></span><span class="lv">層級</span><span class="tm">時間</span><span class="cmd">指令</span><span class="dur">耗時</span><span class="ex">exit</span><span class="lim">時限</span></div></div>
+        <div id="rows"></div>
+      </div>
+      <div class="mock sbar"><span class="br">main</span><span>1284c</span><span class="sp"></span><span class="dot" id="dot" hidden>!</span></div>
+    </div>
+    <div class="ctl">
+      <button class="sim" id="sim-end" type="button">模擬：numstat 逾時結束</button>
+      <button class="sim" id="sim-open" type="button">模擬：打開 Log（已讀）</button>
+      <button class="sim" id="sim-reset" type="button">重設</button>
+      <label class="dev-toggle" for="lim-toggle"><input type="checkbox" id="lim-toggle" checked>Developer：時限欄</label>
+      <label class="dev-toggle" for="cols-toggle"><input type="checkbox" id="cols-toggle">Developer：欄名列</label>
+      <span class="state" id="sim-state">numstat 正在執行。抽屜關著時，同一列從 RUNNING 原地換成 TIMEOUT，status bar 的 ! 會亮。</span>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>列結構</td><td>一列 Row、垂直置中：圖示 14 px · 層級欄 68 px · 時間 HH:mm:ss · 指令原文 12.5 px mono · 右側 meta 11 px；stderr 在下一行、不縮排；最新在最下面</td><td><span class="tag code">log_drawer.dart:201–207, 271–351</span></td></tr>
+        <tr><td>RUNNING 字樣</td><td>層級欄寫 RUNNING；篩選時算 Info</td><td>字樣 <span class="tag rule">裁定</span>（LOGRULES 只定義三級，會記入 ledger）· 篩選歸類 <span class="tag new">新增</span></td></tr>
+        <tr><td>RUNNING 圖示與顏色</td><td>loader-circle，accent 色，14 px（跟其他列同大小）</td><td>圖示、顏色 spec P10 <code>icLoader</code>（spec 畫 12 px）· 14 px <span class="tag code">log_drawer.dart:280</span> · 要新增 <code>assets/icons/loader-circle.svg</code></td></tr>
+        <tr><td>RUNNING 字樣顏色、旋轉動畫</td><td>字樣 accent 色；圖示 1.2 秒轉一圈，減少動態時不轉</td><td><span class="tag new">新增</span>（spec 的進行中列沒有層級字、沒有動畫）</td></tr>
+        <tr><td>RUNNING 右側</td><td>空白，只寫時限</td><td><span class="tag rule">裁定</span> 不寫「執行中」</td></tr>
+        <tr><td>時限欄</td><td>獨立一欄，在耗時、exit 之後，左側 1 px borderSubtle 分隔；寬 84 px；本地「限 120s」、網路「無傳輸 60s」，已乘倍率</td><td>獨立一欄 <span class="tag rule">裁定</span> · 寬度、分隔線、寫法 <span class="tag new">新增</span></td></tr>
+        <tr><td>耗時、exit 欄</td><td>耗時固定寬 72 px 靠右對齊、exit 44 px，讓時限欄對齊成一欄</td><td><span class="tag new">新增</span>（今天兩者跟在指令後面、沒有固定寬，<code>log_drawer.dart:318–336</code>）</td></tr>
+        <tr><td>欄名列</td><td>層級／時間／指令／耗時／exit／時限，11 px textTertiary，下框線 borderSubtle；跟資料列共用同一組欄寬（時間欄固定 56 px，HH:mm:ss mono 本來就等寬），所以欄名永遠對齊內容；時限欄關掉時「時限」欄名一起隱藏</td><td>獨立開關 <span class="tag rule">裁定</span> · 樣式、56 px <span class="tag new">新增</span></td></tr>
+        <tr><td>兩個開關</td><td>Preferences → Developer →「LOG」組新增兩個開關，都預設關：時限欄、欄名列；各自獨立</td><td>放 Developer <span class="tag rule">裁定</span> · 預設關、文案 <span class="tag new">新增</span>（比照 <code>showRefreshTimings = false</code>，<code>app_preferences_repository.dart:39</code>）</td></tr>
+        <tr><td>耗時與 exit 內容</td><td><code>412ms</code>、失敗才畫 <code>exit N</code>（內容不改）；Windows 上逾時被砍的行程 exit 1</td><td><span class="tag code">log_drawer.dart:321,327</span> · <span class="tag code">ProcessRunner.cpp:825</span> TerminateProcess(…, 1)</td></tr>
+        <tr><td>結束時</td><td>同 id 的列原地取代；若 RUNNING 列已被筆數上限修剪，最終結果照常 append</td><td>計畫 D3（已核准）· 今天 running 紀錄直接丟掉 <span class="tag code">repo_session_repository.dart:1281</span></td></tr>
+        <tr><td>未讀</td><td>append 或取代都會讓 status bar 的 ! 亮（今天只比長度）</td><td>計畫 D3（已核准）· 現況 <span class="tag code">workspace_screen.dart:474–476</span> · badge <span class="tag code">status_bar.dart:339–344</span></td></tr>
+      </tbody>
+    </table></div>
+    <h3>匯出（Copy All / Save As）</h3>
+    <pre class="export" id="export"></pre>
+    <p class="lede">現有格式是「ISO 時間 層級 指令 (exit N, Nms)」（<code>log_drawer.dart:61–70</code>），這次只在括號裡加上時限（<span class="tag new">新增</span>）。RUNNING 列匯出時沒有 exit 和耗時。指令原文就是 Log 列顯示的完整 argv。</p>
+  </section>
+
+  <!-- ===================== Developer toggle ===================== -->
+  <section class="screen" id="dev">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 4 · Preferences → Developer</div>
+      <h2>時限欄與欄名列的開關，分組改成依畫面區域</h2>
+      <div class="rulings"><span class="ruling">「在feature flag那邊加上，顯示限時欄位開關」</span><span class="ruling">「顯示欄位名稱應該是另一個開關」</span><span class="ruling">「不要除錯…依照畫面範圍去製作標題，像是狀態列、log之類」</span><span class="ruling">「刷新分層後面的branch name也不應該有」</span></div>
+    </div>
+    <div class="stage">
+      <div class="mock dlg">
+        <div class="dlg-title">Preferences</div>
+        <div class="dlg-body">
+          <div class="nav"><div>General</div><div>Repository sources</div><div>Git</div><div>Appearance</div><div>Shortcuts</div><div>Advanced</div><div class="on">Developer</div></div>
+          <div class="vdiv"></div>
+          <div class="pane">
+            <div class="sh">刷新分層</div>
+            <div class="chk"><div class="box"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.5 8.5 2.5" fill="none" stroke="#fff" stroke-width="1.6"/></svg></div><div><div class="t-sm">刷新期間保留舊的 diff</div><div class="t-xs">依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。</div></div></div>
+            <div class="gap2"></div>
+            <div class="chk"><div class="box"><svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 5.2 4 7.5 8.5 2.5" fill="none" stroke="#fff" stroke-width="1.6"/></svg></div><div><div class="t-sm">分層刷新</div><div class="t-xs">切回視窗先刷目前分支與 working copy，其餘八支等 working copy 狀態到齊後才發；關掉還原成十二支一次發出。</div></div></div>
+            <div class="gap4"></div>
+            <div class="sh">狀態列</div>
+            <div class="chk"><div class="box" style="background:transparent;border:2px solid var(--text-secondary)"></div><div><div class="t-sm">在狀態列顯示刷新耗時</div><div class="t-xs">切回視窗到目前分支、working copy 狀態、diff 各自到齊的毫秒數。</div></div></div>
+            <div class="gap4"></div>
+            <div class="new-block"><div class="sh">LOG</div><div class="chk"><div class="box" style="background:transparent;border:2px solid var(--text-secondary)"></div><div><div class="t-sm">在 Log 顯示每個指令的時限</div><div class="t-xs">Log 多一欄，寫出這個指令實際套用的時限（已乘逾時倍率）：本地指令是總時限，網路指令是無傳輸上限。</div></div></div>
+            <div class="gap2"></div>
+            <div class="chk"><div class="box" style="background:transparent;border:2px solid var(--text-secondary)"></div><div><div class="t-sm">在 Log 顯示欄名列</div><div class="t-xs">Log 最上面多一列欄名：層級、時間、指令、耗時、exit，以及開啟時的時限。</div></div></div></div>
+          </div>
+        </div>
+        <div class="dlg-foot"><span class="btn-primary">Close</span></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>分組標題</td><td>「刷新分層」（拿掉分支名）、「狀態列」（取代「除錯」，底下是原本的刷新耗時開關）、「LOG」（新的兩個開關）；分組之間 16 px</td><td>依畫面區域、拿掉分支名 <span class="tag rule">裁定</span> · 英文標題大寫比照 <span class="tag code">preferences_dialog.dart:339</span>「自動 FETCH」· 間距 <span class="tag code">preferences_dialog.dart:1201</span></td></tr>
+        <tr><td>改到現有程式</td><td>「刷新分層（fix/refresh-ui-first-tiering）」改名、「除錯」改成「狀態列」；測試裡沒有釘這兩個字串（已 grep <code>app_flutter/test</code>）</td><td>現況 <span class="tag code">preferences_dialog.dart:1181, 1202</span></td></tr>
+        <tr><td>元件與間距</td><td>_SettingSwitch，同組開關之間 8 px</td><td><span class="tag code">preferences_dialog.dart:213, 1190</span></td></tr>
+        <tr><td>預設</td><td>兩個都關</td><td><span class="tag new">新增</span>（比照 showRefreshTimings 預設關）</td></tr>
+        <tr><td>文案</td><td>標題與說明</td><td><span class="tag new">新增</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  // ---------- multiplier ----------
+  var stops = [1, 2, 4, 8];
+  var xs = [8, 82.67, 157.33, 232];
+  var range = document.getElementById('mult-range');
+  var input = document.getElementById('mult-input');
+  var thumb = document.getElementById('thumb');
+  var fill = document.getElementById('fill');
+  var lbls = document.querySelectorAll('#slider .lbls span');
+  function paint(idx) {
+    thumb.style.left = xs[idx] + 'px';
+    fill.style.width = (xs[idx] - 8) + 'px';
+    lbls.forEach(function (s, i) { s.classList.toggle('on', i === idx); });
+  }
+  function idxFor(v) { var k = 0; for (var i = 0; i < stops.length; i++) if (v >= stops[i]) k = i; return k; }
+  range.addEventListener('input', function () { var i = +range.value; input.value = stops[i]; paint(i); });
+  input.addEventListener('input', function () {
+    var v = parseInt(input.value, 10);
+    if (!isFinite(v) || v < 1) return;
+    var i = idxFor(v); range.value = i; paint(i);
+  });
+  paint(0);
+
+  // ---------- log drawer ----------
+  var ICON = {
+    run: '<svg class="spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>',
+    ok: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm-1.4 14.2-4.2-4.2 1.4-1.4 2.8 2.8 5.6-5.6 1.4 1.4-7 7Z"/></svg>',
+    to: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 10.6 3.6 2.1-.8 1.3L11 13.2V7h2v5.6Z"/></svg>',
+    err: '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm1 15h-2v-2h2v2Zm0-4h-2V7h2v6Z"/></svg>'
+  };
+  var G = '\"C:\\Program Files\\Git\\cmd\\git.exe\" -c core.quotepath=false -c color.ui=false -c advice.detachedHead=false --no-pager --no-optional-locks -C D:/專案/訂單系統 ';
+  var base = [
+    { id: 41, kind: 'run', time: '20:41:07', cmd: G + 'diff --numstat -z -M', lim: '限 120s' },
+    { id: 40, kind: 'ok', time: '20:40:55', cmd: G + 'worktree list --porcelain', ms: 412, lim: '限 30s' },
+    { id: 39, kind: 'ok', time: '20:40:51', cmd: G + 'status --porcelain=v2 -z --untracked-files=all --ignore-submodules=none', ms: 3870, lim: '限 120s' },
+    { id: 38, kind: 'to', time: '20:38:02', cmd: G + 'fetch --progress --prune origin', ms: 61020, exit: 1, lim: '無傳輸 60s' },
+    { id: 37, kind: 'err', time: '20:36:44', cmd: G + 'worktree add -b feature/分層 D:/專案/工作樹-一', ms: 1210, exit: 128, lim: '限 300s', stderr: "fatal: 'D:/專案/工作樹-一' already exists" }
+  ];
+  var rows, unread;
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function rowHtml(r) {
+    var lv = { run: ['RUNNING', 'run'], ok: ['INFO', 'info'], to: ['TIMEOUT', 'err'], err: ['ERROR', 'err'] }[r.kind];
+    var meta = '<span class="dur">' + (r.kind === 'run' ? '' : r.ms + 'ms') + '</span>' +
+      '<span class="ex lv-err">' + (r.exit ? 'exit ' + r.exit : '') + '</span>' +
+      '<span class="lim">' + r.lim + '</span>';
+    return '<div class="lrow" data-id="' + r.id + '"><div class="line"><span class="ic ic-' + lv[1] + '">' + ICON[r.kind] + '</span>' +
+      '<span class="lv lv-' + lv[1] + '">' + lv[0] + '</span><span class="tm">' + r.time + '</span>' +
+      '<span class="cmd">' + esc(r.cmd) + '</span>' + meta + '</div>' +
+      (r.stderr ? '<span class="err">' + esc(r.stderr) + '</span>' : '') + '</div>';
+  }
+  function exportLine(r) {
+    var lv = { run: 'RUNNING', ok: 'INFO', to: 'TIMEOUT', err: 'ERROR' }[r.kind];
+    var lim = r.lim.indexOf('無傳輸') === 0 ? 'idle limit ' + parseInt(r.lim.replace(/\D/g, ''), 10) * 1000 + 'ms'
+                                            : 'limit ' + parseInt(r.lim.replace(/\D/g, ''), 10) * 1000 + 'ms';
+    var tail = r.kind === 'run' ? '(' + lim + ')' : '(exit ' + (r.exit || 0) + ', ' + r.ms + 'ms, ' + lim + ')';
+    return '2026-10-07T' + r.time + '.' + String(r.id * 7 % 1000).padStart(3, '0') + '  ' + lv + '  ' + r.cmd + '  ' + tail;
+  }
+  function render(flashId) {
+    var asc = rows.slice().reverse();
+    document.getElementById('rows').innerHTML = asc.map(rowHtml).join('');
+    document.getElementById('export').textContent = asc.map(exportLine).join('\n');
+    document.getElementById('dot').hidden = !unread;
+    if (flashId != null) {
+      var el = document.querySelector('.lrow[data-id="' + flashId + '"]');
+      if (el) { el.classList.add('flash'); setTimeout(function () { el.classList.remove('flash'); }, 900); }
+    }
+  }
+  function reset() {
+    rows = base.map(function (r) { return Object.assign({}, r); });
+    unread = false;
+    document.getElementById('sim-state').textContent = 'numstat 正在執行。抽屜關著時，同一列從 RUNNING 原地換成 TIMEOUT，status bar 的 ! 會亮。';
+    render();
+  }
+  document.getElementById('sim-end').addEventListener('click', function () {
+    var r = rows[0];
+    if (r.kind !== 'run') return;
+    r.kind = 'to'; r.ms = 120090; r.exit = 1;
+    unread = true;
+    document.getElementById('sim-state').textContent = '列數沒變，同一列換成 TIMEOUT（120090ms · exit 1 · 限 120s）；revision 增加，所以 ! 亮了。';
+    render(r.id);
+  });
+  document.getElementById('sim-open').addEventListener('click', function () {
+    unread = false;
+    document.getElementById('sim-state').textContent = '打開 Log 時記下目前的 revision，! 熄滅。';
+    render();
+  });
+  document.getElementById('sim-reset').addEventListener('click', reset);
+  document.getElementById('cols-toggle').addEventListener('change', function (e) {
+    document.getElementById('drawer').classList.toggle('no-cols', !e.target.checked);
+  });
+  document.getElementById('lim-toggle').addEventListener('change', function (e) {
+    document.getElementById('drawer').classList.toggle('no-lim', !e.target.checked);
+  });
+  reset();
+})();
+</script>

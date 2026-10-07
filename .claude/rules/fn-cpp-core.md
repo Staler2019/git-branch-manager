@@ -32,3 +32,17 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 - **Rule**: `ThreadPool` is a FIFO deque; `refreshWorkingCopy()`/`dispatchRefresh()` stay on `post()` on purpose, or "interactive" stops meaning anything.
 - **Do**: `postFront()` cannot preempt running work, so `refreshRepoStatus()`'s tier 2 is also deferred (`Timer(Duration.zero)`, `repo_session_repository.dart`); neither technique substitutes for the other. Never assert the relative order of two `postFront()`'d replies; each merges under its own key.
 - **Evidence**: [ledger: fix/refresh-ui-first-tiering](../../docs/ledger/2026-09-17-fix-refresh-ui-first-tiering.md)
+
+## [CPP-every-command-has-a-deadline] No git invocation runs without a finite deadline
+
+- **Rule**: `effectiveDeadlines()` (`GitCommand.cpp`) is the one place that decides. A local command gets `min(declared timeout or kLocalCeiling, kLocalCeiling) × multiplier` (ceiling 300 s); a network command (`isNetworkCommand`: fetch, pull, push, clone, submodule update/add, lfs fetch/pull/push — **not** `ls-remote`) gets no total limit and `kNetworkIdle` (60 s) × multiplier without data. `timeout = 0` no longer means "none".
+- **Consequence**: the classification is central, so a *new* network-shaped command that is missing from `isNetworkCommand` silently becomes a 300 s local command — wrong for a large transfer. `ls-remote` stays out because it rejects `--progress`, which `withTransferProgress()` adds to every network command.
+- **Do**: add a new network command to `isNetworkCommand` and its test in `EffectiveDeadlines`; never add an "unlimited" escape hatch. `CatFileBatch` is bounded the same way (`kRequestDeadline`, 30 s × multiplier — a proposed figure, not a measured one).
+- **Evidence**: [ledger: slow-machine-log-and-timeouts](../../docs/ledger/2026-10-07-fix-slow-machine-log-and-timeouts.md)
+
+## [CPP-progress-is-the-network-liveness-signal] A pipe carries git's progress only if asked
+
+- **Rule**: git prints no transfer progress to a pipe by default (`clone --quiet` wrote 0 bytes for its whole run), so a no-data deadline cannot tell a live transfer from a hung one without `--progress`. stderr `\r` redraws are collapsed to each line's last state (`collapseCarriageReturns`) before they reach a record or an error; `\r\n` is a line end, not a redraw.
+- **Consequence**: the Windows pump reads stderr on its own thread and updates the progress clock per chunk; nothing but Windows CI tests that (`ProgressOnStderrAloneKeepsAChildAlive`, `AFetchReportsProgressThroughThePipe`). `GIT_LFS_FORCE_PROGRESS=1` for lfs is unmeasured — git-lfs was not installed when it was written.
+- **Do**: do not claim Windows progress capture works from a macOS run; read the Windows job.
+- **Evidence**: [ledger: slow-machine-log-and-timeouts](../../docs/ledger/2026-10-07-fix-slow-machine-log-and-timeouts.md)

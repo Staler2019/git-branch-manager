@@ -472,6 +472,40 @@ void main() {
       expect(find.text('Amend\u2026'), findsOneWidget);
     });
 
+    // The board is told by the status the view already reads, not by a
+    // second provider -- the flag rides on the same WorkingCopyStatus.
+    testWidgets('a status without line counts shows the board notice', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(
+                WorkingCopyStatus(
+                  entries: [stagedEntry, unstagedEntry],
+                  lineCountsUnavailable: true,
+                ),
+              ),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      expect(find.text('無法取得行數（numstat 失敗），清單仍是最新的。詳情見 Log。'), findsOneWidget);
+    });
+
     testWidgets('shows empty state when no changes', (tester) async {
       await pumpGbmWidget(
         tester,

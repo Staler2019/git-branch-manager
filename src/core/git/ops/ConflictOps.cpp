@@ -1,5 +1,7 @@
 #include "core/git/ops/ConflictOps.h"
 
+#include "core/base/FsUtil.h"
+
 #include <fstream>
 #include <utility>
 
@@ -105,7 +107,7 @@ private:
             return outcome;
         }
 
-        const std::filesystem::path target = paths.workDir() / request_.path;
+        const std::filesystem::path target = paths.workDir() / fsutil::pathFromUtf8(request_.path);
         std::ofstream out(target, std::ios::binary | std::ios::trunc);
         if (!out) {
             outcome.error = GitError(GitError::Code::Io, "Could not write " + request_.path);

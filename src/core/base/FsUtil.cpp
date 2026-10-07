@@ -129,7 +129,11 @@ bool pathsEquivalent(std::string_view a, std::string_view b) {
 }
 
 std::string canonicalKey(const std::filesystem::path& path) {
-    std::string text = path.lexically_normal().generic_string();
+    // UTF-8 with '/' separators: generic_string() would encode with the active
+    // code page on Windows, so a Chinese path threw or lost characters, and
+    // every key built from it compared wrong.
+    const std::u8string generic = path.lexically_normal().generic_u8string();
+    std::string text(generic.begin(), generic.end());
     while (text.size() > 1 && text.back() == '/') {
         text.pop_back();
     }
@@ -271,6 +275,11 @@ std::optional<std::int64_t> modifiedTimeNs(const std::filesystem::path& path) {
 std::filesystem::path pathFromUtf8(std::string_view utf8) {
     return std::filesystem::path(
         std::u8string(reinterpret_cast<const char8_t*>(utf8.data()), utf8.size()));
+}
+
+std::string utf8FromPath(const std::filesystem::path& path) {
+    const std::u8string utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
 }
 
 std::optional<std::string> readSmallFile(const std::filesystem::path& path, std::size_t maxBytes) {

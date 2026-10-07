@@ -1155,6 +1155,161 @@ class _AdvancedSection extends ConsumerWidget {
             height: GbmTypography.leadingNormal,
           ),
         ),
+        const SizedBox(height: GbmSpacing.space4),
+        const _SectionHeading('GIT 指令逾時倍率'),
+        _TimeoutMultiplierControl(
+          value: prefs.gitTimeoutMultiplier,
+          onChanged: (int v) => notifier.update(
+            (AppPreferences p) => p.copyWith(gitTimeoutMultiplier: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '電腦慢（防毒、資安掃描）、Log 常出現 TIMEOUT 時調高。改了從下一個指令開始生效。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: context.gbmColors.textTertiary,
+            height: GbmTypography.leadingNormal,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 「拖拉四段＋右側自由輸入倍率」 -- design spec
+/// `docs/claude-design-demo/slow-machine-timeouts-spec.html`, screen 1. The
+/// slider snaps to [_stops]; the field takes any whole multiplier >= 1 (core
+/// refuses less), and an off-stop value rests the slider on the nearest
+/// lower stop while the field keeps the exact number. No seconds are shown,
+/// by ruling: the Log's own limit column is where a deadline is read.
+class _TimeoutMultiplierControl extends StatefulWidget {
+  const _TimeoutMultiplierControl({
+    required this.value,
+    required this.onChanged,
+  });
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  State<_TimeoutMultiplierControl> createState() =>
+      _TimeoutMultiplierControlState();
+}
+
+class _TimeoutMultiplierControlState extends State<_TimeoutMultiplierControl> {
+  static const List<int> _stops = <int>[1, 2, 4, 8];
+
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.value.toString(),
+  );
+
+  @override
+  void didUpdateWidget(covariant _TimeoutMultiplierControl oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A slider drag changes the value from outside the field; an edit in the
+    // field must not be rewritten under the caret while it is being typed.
+    if (widget.value.toString() != _controller.text &&
+        int.tryParse(_controller.text.trim()) != widget.value) {
+      _controller.text = widget.value.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  static int _stopIndexFor(int value) {
+    int index = 0;
+    for (int i = 0; i < _stops.length; i++) {
+      if (value >= _stops[i]) index = i;
+    }
+    return index;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final int stopIndex = _stopIndexFor(widget.value);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        SizedBox(
+          width: 240,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SizedBox(
+                height: GbmSpacing.inputHeight,
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 4,
+                    activeTrackColor: colors.accent,
+                    inactiveTrackColor: colors.borderDefault,
+                    thumbColor: colors.accent,
+                    activeTickMarkColor: colors.borderStrong,
+                    inactiveTickMarkColor: colors.borderStrong,
+                    overlayColor: colors.accentSubtle,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 8,
+                    ),
+                    showValueIndicator: ShowValueIndicator.never,
+                  ),
+                  child: Slider(
+                    key: const Key('gitTimeoutSlider'),
+                    min: 0,
+                    max: (_stops.length - 1).toDouble(),
+                    divisions: _stops.length - 1,
+                    value: stopIndex.toDouble(),
+                    onChanged: (double v) {
+                      final int next = _stops[v.round()];
+                      _controller.text = next.toString();
+                      widget.onChanged(next);
+                    },
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: <Widget>[
+                  for (int i = 0; i < _stops.length; i++)
+                    Text(
+                      '${_stops[i]}\u00d7',
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        fontWeight: i == stopIndex
+                            ? GbmTypography.weightSemibold
+                            : GbmTypography.weightRegular,
+                        color: i == stopIndex
+                            ? colors.textPrimary
+                            : colors.textTertiary,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: GbmSpacing.space4),
+        SizedBox(
+          width: 88,
+          height: GbmSpacing.inputHeight,
+          child: TextField(
+            key: const Key('gitTimeoutField'),
+            controller: _controller,
+            keyboardType: TextInputType.number,
+            decoration: gbmInputDecoration(
+              colors: colors,
+              suffixText: '\u00d7',
+            ),
+            onChanged: (String text) {
+              final int? parsed = int.tryParse(text.trim());
+              if (parsed != null && parsed >= 1) widget.onChanged(parsed);
+            },
+          ),
+        ),
       ],
     );
   }
@@ -1178,7 +1333,7 @@ class _DeveloperSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('刷新分層（fix/refresh-ui-first-tiering）'),
+        const _SectionHeading('刷新分層'),
         _SettingSwitch(
           title: '刷新期間保留舊的 diff',
           subtitle: '依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。',
@@ -1199,13 +1354,34 @@ class _DeveloperSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('除錯'),
+        // Headings name the screen area a switch changes -- 「依照畫面範圍去
+        // 製作標題，像是狀態列、log之類」 -- not the branch it came from.
+        const _SectionHeading('狀態列'),
         _SettingSwitch(
           title: '在狀態列顯示刷新耗時',
           subtitle: '切回視窗到目前分支、working copy 狀態、diff 各自到齊的毫秒數。',
           value: prefs.showRefreshTimings,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(showRefreshTimings: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space4),
+        const _SectionHeading('LOG'),
+        _SettingSwitch(
+          title: '在 Log 顯示每個指令的時限',
+          subtitle: 'Log 多一欄，寫出這個指令實際套用的時限（已乘逾時倍率）：本地指令是總時限，網路指令是無傳輸上限。',
+          value: prefs.showLogTimeouts,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(showLogTimeouts: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        _SettingSwitch(
+          title: '在 Log 顯示欄名列',
+          subtitle: 'Log 最上面多一列欄名：層級、時間、指令、耗時、exit，以及開啟時的時限。',
+          value: prefs.showLogColumnHeaders,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(showLogColumnHeaders: v),
           ),
         ),
       ],

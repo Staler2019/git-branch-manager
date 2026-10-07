@@ -2201,8 +2201,10 @@ TEST_F(RealRepoTest, WorkingCopyStatusReportsWhichSideOfAConflictEachFileIsOn) {
 class CommandSpy {
 public:
     explicit CommandSpy(std::string flag) : flag_(std::move(flag)) {
+        // Counts invocations, and a running record is the first half of one.
         Log::instance().setOperationSink([this](const OperationRecord& record) {
-            if (std::find(record.argv.begin(), record.argv.end(), flag_) != record.argv.end()) {
+            if (!record.running &&
+                std::find(record.argv.begin(), record.argv.end(), flag_) != record.argv.end()) {
                 ++count_;
             }
         });
@@ -5132,16 +5134,28 @@ public:
     RecordSpy(const RecordSpy&) = delete;
     RecordSpy& operator=(const RecordSpy&) = delete;
 
-    /// The last record whose argv ends with `tail`, or nullopt. Matching on the
+    /// The last finished record whose argv ends with `tail`, or nullopt. Matching on the
     /// tail rather than the whole argv keeps the fixture out of the assertion:
     /// globalFlags() and `-C <tempdir>` sit in front of every invocation.
     std::optional<OperationRecord> lastEndingWith(const std::vector<std::string>& tail) const {
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto it = records_.rbegin(); it != records_.rend(); ++it) {
-            if (it->argv.size() < tail.size()) continue;
+            if (it->running || it->argv.size() < tail.size()) continue;
             if (std::equal(tail.rbegin(), tail.rend(), it->argv.rbegin())) return *it;
         }
         return std::nullopt;
+    }
+
+    /// Every record whose argv ends with `tail`, running ones included, in the
+    /// order they were recorded.
+    std::vector<OperationRecord> allEndingWith(const std::vector<std::string>& tail) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<OperationRecord> out;
+        for (const auto& record : records_) {
+            if (record.argv.size() < tail.size()) continue;
+            if (std::equal(tail.rbegin(), tail.rend(), record.argv.rbegin())) out.push_back(record);
+        }
+        return out;
     }
 
 private:
@@ -5342,6 +5356,52 @@ TEST_F(RealRepoTest, ASinkThatReadsEverythingIsNotRecordedAsBenign) {
     EXPECT_FALSE(record->benignExit);
 }
 
+// A read that has not ended used to leave nothing in the operation log, so a
+// slow machine showed an empty log for minutes and a hang looked like nothing
+// at all. The running record must exist while the process is still producing
+// output -- recording it just before the outcome would pass an order-only check.
+TEST_F(RealRepoTest, ACommandIsRecordedAsRunningBeforeItsFirstOutputLine) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    GitCommand command(repo_, {"rev-parse", "HEAD"});
+    bool runningSeenFirst = false;
+    auto result = runner_->stream(
+        command,
+        [&](std::string_view) {
+            const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+            runningSeenFirst = records.size() == 1 && records.front().running;
+            return true;
+        },
+        nullptr,
+        CancellationToken{});
+    ASSERT_TRUE(result);
+    EXPECT_TRUE(runningSeenFirst);
+}
+
+TEST_F(RealRepoTest, TheRunningAndTheFinalRecordShareOneId) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_TRUE(records[0].running);
+    EXPECT_FALSE(records[1].running);
+    EXPECT_NE(records[0].id, 0u);
+    EXPECT_EQ(records[0].id, records[1].id);
+}
+
+TEST_F(RealRepoTest, TwoInvocationsAreRecordedUnderTwoIds) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 4u);
+    EXPECT_NE(records[1].id, records[3].id);
+}
+
 // `GitCommand::timeout` had no test at all before this one, on either platform:
 // every `.timeout` in the suite is a 30-120 second value chosen to *not* fire.
 // That is why the Windows half of it could be broken for as long as it has been.
@@ -5441,6 +5501,279 @@ TEST(ProcessRunnerTimeout, AChildStillDrippingOutputOutlivesTheIdleDeadline) {
     EXPECT_EQ(lines, kDripLines) << "the idle deadline cut off a child that was still talking";
     EXPECT_GE(elapsed, kDripInterval * kDripLines)
         << "returned too early to have waited out the whole dripping phase";
+}
+
+// End to end through the real runner and a real git: a fetch asks for
+// progress, the progress reaches the pipe, and the log keeps only each line's
+// final state.
+TEST_F(RemoteRepoTest, AFetchReportsProgressThroughThePipe) {
+    // The remote must hold objects this repository lacks, or the fetch has
+    // nothing to transfer and git, rightly, prints no progress.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "elsewhere"}));
+    commitFile("b.txt", "2\n", "c2");
+    ASSERT_TRUE(run({"push", "origin", "elsewhere"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    ASSERT_TRUE(run({"branch", "-D", "elsewhere"}));
+    ASSERT_TRUE(run({"update-ref", "-d", "refs/remotes/origin/elsewhere"}));
+    ASSERT_TRUE(run({"reflog", "expire", "--expire=now", "--all"}));
+    ASSERT_TRUE(run({"gc", "--quiet", "--prune=now"}));
+
+    RecordSpy spy;
+    std::string progress;
+    GitCommand fetch(repo_, {"fetch", "origin"});
+    auto result = runner_->stream(
+        fetch, [](std::string_view) { return true; },
+        [&progress](std::string_view chunk) { progress.append(chunk); }, CancellationToken{});
+    ASSERT_TRUE(result) << (result ? "" : result.error().detail);
+
+    const auto record = spy.lastEndingWith({"fetch", "--progress", "origin"});
+    ASSERT_TRUE(record.has_value()) << "fetch ran without --progress";
+    EXPECT_FALSE(progress.empty()) << "git wrote no progress to the pipe";
+    EXPECT_EQ(record->stderrText.find('\r'), std::string::npos) << record->stderrText;
+}
+
+// The network rule rests on this: a fetch with `--progress` writes only to
+// stderr, so stderr reads have to count as progress or a healthy transfer is
+// killed at the idle limit. Windows reads stderr on a thread of its own
+// (ProcessRunner.cpp's stderrThread), which is why this runs on Windows CI too.
+TEST(ProcessRunnerTimeout, ProgressOnStderrAloneKeepsAChildAlive) {
+    constexpr int kDripLines = 6;
+    constexpr auto kDripInterval = std::chrono::milliseconds(200);
+
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    GitCommand command({}, {"--gbm-hang-forever", "--drip-stderr", std::to_string(kDripLines)});
+    command.idleTimeout = std::chrono::milliseconds(500);
+
+    std::string progress;
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->stream(
+        command, [](std::string_view) { return true; },
+        [&progress](std::string_view chunk) { progress.append(chunk); }, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, kDripInterval * kDripLines)
+        << "killed while stderr was still reporting progress";
+    EXPECT_NE(progress.find("100%"), std::string::npos) << progress;
+}
+
+/// Puts the process-wide multiplier back to 1 whatever the test did, so no
+/// later test in this binary inherits a stretched deadline.
+struct TimeoutMultiplierReset {
+    TimeoutMultiplierReset() = default;
+    TimeoutMultiplierReset(const TimeoutMultiplierReset&) = delete;
+    TimeoutMultiplierReset& operator=(const TimeoutMultiplierReset&) = delete;
+
+    ~TimeoutMultiplierReset() { resetTimeoutMultiplier(); }
+};
+
+// The user-set multiplier (Preferences, gbm_set_timeout_multiplier) stretches
+// every finite total deadline. Read at each execution and process-wide, so a
+// runner that already exists picks up a change -- the session's runners are
+// built long before the user opens Preferences.
+//
+// The subject is the elapsed *floor*: with 250ms and a multiplier of 4, a
+// runner that ignores the multiplier times out at ~250ms, well under 1000.
+TEST(ProcessRunnerTimeout, TheMultiplierStretchesAFiniteDeadline) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(4);
+
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(250);
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->run(command, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, std::chrono::milliseconds(1000));
+}
+
+// A multiplier below 1 would *shorten* deadlines the code chose on purpose,
+// and 0 would turn every finite deadline into "no deadline". Neither is
+// something the preference can mean, so both are refused.
+TEST(ProcessRunnerTimeout, AMultiplierBelowOneIsRefused) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    setTimeoutMultiplier(0);
+    EXPECT_EQ(timeoutMultiplier(), 3);
+    setTimeoutMultiplier(-2);
+    EXPECT_EQ(timeoutMultiplier(), 3);
+}
+
+// 「以後沒有沒時限的東西」: a local command that declares no deadline gets the
+// five-minute ceiling, and one that declares more is cut to it.
+TEST(EffectiveDeadlines, ALocalCommandWithNoDeadlineGetsTheCeiling) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    GitCommand command({}, {"rebase", "main"});
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(10));
+}
+
+TEST(EffectiveDeadlines, ALocalDeadlineAboveTheCeilingIsCut) {
+    GitCommand command({}, {"stash", "push"});
+    command.timeout = std::chrono::seconds(600);
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(5));
+}
+
+// A transfer is judged by whether data still moves, not by how long it takes:
+// a large clone on a slow link is slow, not stuck.
+TEST(EffectiveDeadlines, ANetworkCommandHasNoTotalButAnIdleLimit) {
+    for (const std::vector<std::string>& args :
+         std::vector<std::vector<std::string>>{{"fetch", "origin"},
+                                               {"pull", "--rebase"},
+                                               {"push", "origin", "main"},
+                                               {"clone", "https://example.invalid/r.git", "d"},
+                                               {"submodule", "update", "--init"},
+                                               {"submodule", "add", "u", "p"},
+                                               {"lfs", "fetch"},
+                                               {"lfs", "pull"}}) {
+        GitCommand command({}, args);
+        const EffectiveDeadlines deadlines = effectiveDeadlines(command);
+        EXPECT_EQ(deadlines.total, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
+        EXPECT_GT(deadlines.idle, std::chrono::milliseconds(0)) << args[0] << " " << args[1];
+    }
+}
+
+TEST(EffectiveDeadlines, ANetworkCommandStopsAfterAMinuteWithoutData) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    GitCommand command({}, {"fetch", "origin"});
+    EXPECT_EQ(effectiveDeadlines(command).idle, std::chrono::minutes(2));
+}
+
+// git prints transfer progress only to a terminal unless asked; ours is a
+// pipe, so without the flag a fetch is silent until it ends and the idle limit
+// would kill every transfer longer than a minute.
+TEST(TransferProgress, ANetworkCommandAsksForProgress) {
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"fetch", "origin"})).args,
+              (std::vector<std::string>{"fetch", "--progress", "origin"}));
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"submodule", "update", "--init"})).args,
+              (std::vector<std::string>{"submodule", "update", "--progress", "--init"}));
+}
+
+TEST(TransferProgress, LfsIsAskedThroughItsEnvironment) {
+    const GitCommand command = withTransferProgress(GitCommand({}, {"lfs", "fetch"}));
+    EXPECT_EQ(command.args, (std::vector<std::string>{"lfs", "fetch"}));
+    const auto& env = command.envOverrides;
+    EXPECT_NE(std::find(env.begin(), env.end(),
+                        std::pair<std::string, std::string>{"GIT_LFS_FORCE_PROGRESS", "1"}),
+              env.end());
+}
+
+TEST(TransferProgress, ALocalCommandIsLeftAlone) {
+    EXPECT_EQ(withTransferProgress(GitCommand({}, {"status", "-z"})).args,
+              (std::vector<std::string>{"status", "-z"}));
+}
+
+TEST(EffectiveDeadlines, ALocalSubcommandOfANetworkFamilyIsLocal) {
+    GitCommand command({}, {"submodule", "status"});
+    EXPECT_EQ(effectiveDeadlines(command).total, std::chrono::minutes(5));
+}
+
+TEST(EffectiveDeadlines, TheTotalIsScaledAndTheIdleIsCarried) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    GitCommand command({}, {"status"});
+    command.timeout = std::chrono::milliseconds(1000);
+    command.idleTimeout = std::chrono::milliseconds(700);
+
+    const EffectiveDeadlines deadlines = effectiveDeadlines(command);
+    EXPECT_EQ(deadlines.total, std::chrono::milliseconds(3000));
+    EXPECT_EQ(deadlines.idle, std::chrono::milliseconds(700));
+}
+
+// The ceiling is what the runner arms, not only what the function says.
+TEST_F(RealRepoTest, ALocalCommandWithNoDeclaredDeadlineRunsUnderTheCeiling) {
+    commitFile("a.txt", "a\n", "a");
+    RecordSpy spy;
+    ASSERT_TRUE(runner_->run(GitCommand(repo_, {"rev-parse", "HEAD"}), CancellationToken{}));
+    const auto record = spy.lastEndingWith({"rev-parse", "HEAD"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_EQ(record->timeoutMs, 300000);
+}
+
+// Both halves of an invocation carry the limits it ran under, so the log can
+// show a still-running command's deadline as well as a finished one's.
+TEST_F(RealRepoTest, TheRecordCarriesTheDeadlinesTheCommandRanUnder) {
+    commitFile("a.txt", "a\n", "a");
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(2);
+    RecordSpy spy;
+    GitCommand command(repo_, {"rev-parse", "HEAD"});
+    command.timeout = std::chrono::seconds(30);
+    ASSERT_TRUE(runner_->run(command, CancellationToken{}));
+
+    const auto records = spy.allEndingWith({"rev-parse", "HEAD"});
+    ASSERT_EQ(records.size(), 2u);
+    for (const auto& record : records) {
+        EXPECT_EQ(record.timeoutMs, 60000) << (record.running ? "running" : "final");
+    }
+}
+
+// CatFileBatch's requests had no deadline at all: a `cat-file --batch` child
+// that stops answering left the reading thread blocked in a pipe read for as
+// long as the child lived (「以後沒有沒時限的東西」). The subject is the same
+// silent child as the runner's timeout tests, standing in for git: it takes
+// the request on stdin and never says a word back.
+//
+// Returning at all is most of the claim -- the child cannot exit on its own,
+// so the only way out of read() is the deadline killing it.
+TEST(CatFileBatchDeadline, AChildThatNeverAnswersIsStoppedAndLogged) {
+    RecordSpy spy;
+    CatFileBatch batch(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                       RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                       std::chrono::milliseconds(300));
+
+    auto first = batch.read("HEAD");
+
+    ASSERT_FALSE(first);
+    EXPECT_EQ(first.error().code, GitError::Code::Timeout);
+    EXPECT_FALSE(batch.isRunning()) << "a child that missed its deadline is not reused";
+
+    const auto record = spy.lastEndingWith({"cat-file", "--batch"});
+    ASSERT_TRUE(record.has_value()) << "a TIMEOUT that leaves no Log row is the bug this round fixes";
+    EXPECT_TRUE(record->timedOut);
+    EXPECT_FALSE(record->cancelled);
+    EXPECT_EQ(record->timeoutMs, 300);
+    EXPECT_NE(record->id, 0u);
+
+    // The next request starts a fresh child rather than failing on the dead
+    // one -- and that child is held to the same deadline, under its own id.
+    auto second = batch.read("HEAD");
+    ASSERT_FALSE(second);
+    EXPECT_EQ(second.error().code, GitError::Code::Timeout);
+    const auto records = spy.allEndingWith({"cat-file", "--batch"});
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_NE(records[0].id, records[1].id);
+}
+
+// The per-request deadline is a declared value like any other, so the user's
+// multiplier stretches it. The elapsed floor is the half an unscaled deadline
+// cannot satisfy: 200ms × 3 cannot return before ~600ms.
+TEST(CatFileBatchDeadline, TheMultiplierStretchesTheRequestDeadline) {
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    RecordSpy spy;
+    CatFileBatch batch(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                       RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                       std::chrono::milliseconds(200));
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = batch.read("HEAD");
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_GE(elapsed, std::chrono::milliseconds(550));
+    const auto record = spy.lastEndingWith({"cat-file", "--batch"});
+    ASSERT_TRUE(record.has_value());
+    EXPECT_EQ(record->timeoutMs, 600);
 }
 
 }  // namespace

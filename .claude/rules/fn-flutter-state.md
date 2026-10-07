@@ -30,3 +30,10 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md). Rules a test
 - **Do**: `AppExitSessionCleanup` (`app.dart`'s builder chain) calls `openRepoSessionsProvider.closeAll()` from `AppLifecycleListener(onExitRequested:)`; test with `tester.binding.handleRequestAppExit()`.
 - **Note**: accepted residual — no UI closes *one* repository while the app runs; [CPP-read-pool-tasks-need-live-token]'s Note has the multi-session caveat.
 - **Evidence**: [ledger: 關閉 app 時的 SIGSEGV](../../docs/ledger/2026-09-20-fix-quit-crash-session-shutdown.md)
+
+## [FLU-log-row-is-replaced-by-id] A running log row is replaced by its outcome, and "unread" is a revision
+
+- **Rule**: core records an invocation twice under one non-zero `OperationRecord.id`; `withOperationRecord` replaces the running row in place, appends the outcome when the cap already trimmed that row, and bumps `operationLogRevision` either way. id 0 never matches.
+- **Consequence**: the status-bar badge compares the revision, not the list's length — a replacement leaves the length alone, and so does an append once the log is at its cap.
+- **Do**: anything that must notice a log change reads `operationLogRevision`; a new log producer goes through `withOperationRecord`, never `copyWith(operationLog: …)`.
+- **Evidence**: [ledger: slow-machine-log-and-timeouts](../../docs/ledger/2026-10-07-fix-slow-machine-log-and-timeouts.md)

@@ -239,4 +239,39 @@ void main() {
       );
     });
   });
+
+  // 「新增 RUNNING 字樣」: core records an invocation at spawn, and that
+  // record's exit code, duration and stderr are placeholders. Read as an
+  // outcome, it is a success -- which is how a stuck command would have
+  // looked like a finished one.
+  group('a running record', () {
+    OperationRecord running({int exitCode = 0}) => OperationRecord(
+      whenEpochMs: 0,
+      repoDir: '/repo',
+      argv: const <String>['git', 'diff', '--numstat'],
+      commandLine: 'git diff --numstat',
+      exitCode: exitCode,
+      durationMs: 0,
+      stderrText: '',
+      cancelled: false,
+      timedOut: false,
+      id: 7,
+      running: true,
+    );
+
+    test('reads RUNNING, not INFO', () {
+      expect(running().levelLabel, 'RUNNING');
+    });
+
+    // LOGRULES has three levels; the ruling files RUNNING under Info for
+    // the drawer's filter rather than adding a fourth button.
+    test('is filed under info', () {
+      expect(running().level, OperationLogLevel.info);
+    });
+
+    test('is not a failure whatever its placeholder exit code says', () {
+      expect(running(exitCode: 1).failed, isFalse);
+      expect(running(exitCode: 1).levelLabel, 'RUNNING');
+    });
+  });
 }

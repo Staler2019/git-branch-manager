@@ -107,4 +107,30 @@ TextTraits detectTextTraits(std::string_view rawBytes) {
     return traits;
 }
 
+std::string collapseCarriageReturns(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    std::size_t lineStart = 0;  // index in `out` where the current line began
+    // git writes a state and *then* '\r', so the redraw happens when the next
+    // state starts, not at the '\r' -- a stream cut off right after one (a
+    // transfer killed by its deadline) keeps the state it last reached.
+    bool redrawPending = false;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const char c = text[i];
+        if (c == '\r' && (i + 1 >= text.size() || text[i + 1] != '\n')) {
+            redrawPending = true;
+            continue;
+        }
+        if (redrawPending) {
+            redrawPending = false;
+            out.resize(lineStart);  // the next state replaces this line
+        }
+        out.push_back(c);
+        if (c == '\n') {
+            lineStart = out.size();
+        }
+    }
+    return out;
+}
+
 }  // namespace gbm

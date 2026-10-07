@@ -1,6 +1,7 @@
 #include "capi/JsonCodec.h"
 
 #include "capi/JsonWriter.h"
+#include "core/base/FsUtil.h"
 
 #include <chrono>
 
@@ -364,7 +365,9 @@ std::string toJson(const WorkingCopyStatus& status) {
         if (i != 0) out += ',';
         out += workingCopyEntryJson(status.entries[i]);
     }
-    out += "]}";
+    out += "],\"lineCountsUnavailable\":";
+    jsonAppendBool(out, status.lineCountsUnavailable);
+    out += '}';
     return out;
 }
 
@@ -552,7 +555,7 @@ const char* pendingCountStateName(WorktreePendingCountState state) {
 std::string toJson(const WorktreeInfo& worktree) {
     std::string out = "{";
     out += "\"path\":";
-    jsonAppendEscaped(out, worktree.path.string());
+    jsonAppendEscaped(out, fsutil::utf8FromPath(worktree.path));
     out += ",\"headOid\":";
     jsonAppendEscaped(out, worktree.headOid);
     out += ",\"branch\":";
@@ -659,7 +662,11 @@ std::string toJson(const std::vector<CompareCommitEntry>& entries) {
 
 std::string toJson(const OperationRecord& record) {
     std::string out = "{";
-    out += "\"whenEpochMs\":";
+    out += "\"id\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(record.id));
+    out += ",\"running\":";
+    jsonAppendBool(out, record.running);
+    out += ",\"whenEpochMs\":";
     jsonAppendInt(
         out,
         std::chrono::duration_cast<std::chrono::milliseconds>(record.when.time_since_epoch())
@@ -685,6 +692,10 @@ std::string toJson(const OperationRecord& record) {
     jsonAppendBool(out, record.timedOut);
     out += ",\"benignExit\":";
     jsonAppendBool(out, record.benignExit);
+    out += ",\"timeoutMs\":";
+    jsonAppendInt(out, record.timeoutMs);
+    out += ",\"idleTimeoutMs\":";
+    jsonAppendInt(out, record.idleTimeoutMs);
     out += '}';
     return out;
 }

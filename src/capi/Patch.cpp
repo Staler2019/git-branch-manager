@@ -1,5 +1,6 @@
 #include "capi/Handle.h"
 #include "capi/gbm_capi.h"
+#include "core/base/FsUtil.h"
 #include "core/base/ObjectId.h"
 #include "core/git/ops/PatchOps.h"
 
@@ -27,7 +28,7 @@ std::vector<std::filesystem::path> toPaths(const char* const* files, int32_t fil
     out.reserve(static_cast<std::size_t>(fileCount > 0 ? fileCount : 0));
     for (int32_t i = 0; i < fileCount; ++i) {
         if (files[i] != nullptr) {
-            out.emplace_back(files[i]);
+            out.push_back(fsutil::pathFromUtf8(files[i]));
         }
     }
     return out;
@@ -41,7 +42,7 @@ GBM_API void gbm_patch_export(GbmSessionHandle session,
                               const char* outputDir) {
     ExportPatchesRequest request;
     request.commits = toObjectIds(commitHexes, commitCount);
-    request.outputDir = outputDir != nullptr ? outputDir : "";
+    request.outputDir = fsutil::pathFromUtf8(outputDir != nullptr ? outputDir : "");
     toSession(session)->exportPatches(std::move(request));
 }
 

@@ -42,6 +42,7 @@ import '../models/working_copy_status.dart';
 import '../models/worktree_info.dart';
 import 'app_preferences_repository.dart';
 import 'gbm_bindings_provider.dart';
+import 'git_timeout_multiplier_sync.dart';
 import 'pending_operation_tracker.dart';
 import 'recents_repository.dart';
 import 'open_repo_sessions.dart';
@@ -448,6 +449,7 @@ class RepoSessionState {
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
     this.operationLog = const <GbmLogEntry>[],
+    this.operationLogRevision = 0,
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
     this.commitFileCountCache = const <String, int>{},
@@ -515,6 +517,12 @@ class RepoSessionState {
   /// Newest-last, capped at [RepoSessionController.maxOperationLogEntries]
   /// (sourced from [AppPreferences.logMemoryLimit]).
   final List<GbmLogEntry> operationLog;
+
+  /// Moves on every change to [operationLog] -- an append *and* a running
+  /// row replaced in place by its outcome. The status bar's unread badge
+  /// compares this, not the log's length: a replacement leaves the length
+  /// alone, and so does an append once the log is at its cap.
+  final int operationLogRevision;
   final BlameResult? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
@@ -703,6 +711,7 @@ class RepoSessionState {
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
     List<GbmLogEntry>? operationLog,
+    int? operationLogRevision,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     Map<String, int>? commitFileCountCache,
@@ -756,6 +765,7 @@ class RepoSessionState {
           ? null
           : (credentialPrompt ?? this.credentialPrompt),
       operationLog: operationLog ?? this.operationLog,
+      operationLogRevision: operationLogRevision ?? this.operationLogRevision,
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
       commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
@@ -927,15 +937,41 @@ class RepoSessionState {
   /// real cap is [RepoSessionController.maxOperationLogEntries] (sourced
   /// from [AppPreferences.logMemoryLimit]), which this pure state class has
   /// no way to read for itself.
+  ///
+  /// A git invocation's outcome replaces its own running row where it stands
+  /// (same non-zero [OperationRecord.id]), so a slow command is one row that
+  /// changes rather than two. When the cap has already trimmed that running
+  /// row, the outcome is appended like any other record -- never dropped.
+  /// Either way [operationLogRevision] moves.
   RepoSessionState withOperationRecord(
     GbmLogEntry record, {
     required int maxEntries,
   }) {
+    final int runningAt = _runningRowOf(record);
+    if (runningAt >= 0) {
+      return copyWith(
+        operationLog: <GbmLogEntry>[
+          for (int i = 0; i < operationLog.length; i++)
+            i == runningAt ? record : operationLog[i],
+        ],
+        operationLogRevision: operationLogRevision + 1,
+      );
+    }
     final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
     return copyWith(
       operationLog: updated.length > maxEntries
           ? updated.sublist(updated.length - maxEntries)
           : updated,
+      operationLogRevision: operationLogRevision + 1,
+    );
+  }
+
+  /// Index of the running row [record] finishes, or -1. id 0 is not from
+  /// core's sequence and matches nothing.
+  int _runningRowOf(GbmLogEntry record) {
+    if (record is! OperationRecord || record.id == 0) return -1;
+    return operationLog.indexWhere(
+      (GbmLogEntry e) => e is OperationRecord && e.running && e.id == record.id,
     );
   }
 }
@@ -1120,7 +1156,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     unawaited(_recents.recordOpen(_identity.workDir));
   }
 
+  /// Both UTF-8 decoders this reducer reaches are strict --
+  /// `decodeEventPayload` for an event's own payload, `readLastResultJson`
+  /// for the staging buffer a handler reads after a no-payload event. A
+  /// FormatException from either used to escape into the stream's zone,
+  /// which dropped that one event and left no trace anywhere: the git row,
+  /// the worktree list, the working copy simply never arrived. It now leaves
+  /// an error row instead. Anything else still propagates.
   void _onEvent(GbmEvent event) {
+    try {
+      _handleEvent(event);
+    } on FormatException {
+      state = state.withOperationRecord(
+        AppLogEvents.eventUndecodable(
+          eventType: event.type,
+          atEpochMs: _nowEpochMs(),
+        ),
+        maxEntries: maxOperationLogEntries,
+      );
+    }
+  }
+
+  void _handleEvent(GbmEvent event) {
     switch (event.type) {
       case GbmEventType.refsUpdated:
         _readRefs();
@@ -1145,6 +1202,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(isRefreshing: false);
         } else {
           state = state.copyWith(isRefreshing: false, lastError: error);
+          if (error != null) {
+            state = state.withOperationRecord(
+              AppLogEvents.errorOccurred(
+                codeName: error.codeName,
+                message: error.message,
+                atEpochMs: _nowEpochMs(),
+              ),
+              maxEntries: maxOperationLogEntries,
+            );
+          }
         }
       case GbmEventType.operationFinished:
         _readRepoState();
@@ -1244,6 +1311,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.operationLogRecord:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
+          // The running half is a RUNNING row until its outcome replaces it.
           state = state.withOperationRecord(
             OperationRecord.fromJson(payload),
             maxEntries: maxOperationLogEntries,
@@ -4327,6 +4395,14 @@ repoSessionProvider =
       final int maxOperationLogEntries = ref
           .read(appPreferencesProvider)
           .logMemoryLimit;
+      // Before the controller exists, because its constructor opens the
+      // session and the open starts the first reads: a multiplier pushed
+      // after that leaves the very reads a slow machine times out on at 1x.
+      // ~~Process-wide in core, so the last session to open (or the listener
+      // below) simply re-asserts the same value.~~ The push is the app's
+      // (gitTimeoutMultiplierSyncProvider, which GbmApp watches); reading it
+      // here only guarantees it has happened before this session opens.
+      ref.read(gitTimeoutMultiplierSyncProvider);
       final RepoSessionController controller = RepoSessionController(
         bindings,
         identity,

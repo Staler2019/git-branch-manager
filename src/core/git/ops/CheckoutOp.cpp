@@ -54,7 +54,7 @@ public:
                               "--include-untracked",
                               "-m",
                               "git-branch-manager: before switching to " + request_.target});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -84,9 +84,8 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         // A checkout of a very large tree can legitimately take minutes; the user
-        // gets a progress indication and a working Cancel instead of a timeout.
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
+        // gets a progress indication and a working Cancel ~~instead of a
+        // timeout~~, inside the local ceiling (effectiveDeadlines(), 2026-10-07).
 
         auto result = runner.run(command, token);
         if (result) {

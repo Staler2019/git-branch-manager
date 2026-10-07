@@ -88,6 +88,14 @@ std::optional<std::int64_t> modifiedTimeNs(const std::filesystem::path& path);
 /// widening is correct on Windows and a no-op everywhere else.
 std::filesystem::path pathFromUtf8(std::string_view utf8);
 
+/// The inverse of pathFromUtf8: a path's UTF-8 bytes, for anything that
+/// leaves C++ -- a git argv element, JSON for the Dart side, an operation-log
+/// record, a display string. `path::string()` is the trap here, the mirror of
+/// the narrow constructor's: on Windows it encodes with the active code page,
+/// which throws for a Chinese path under a Western code page and loses
+/// characters under CP950. Through `u8string()` it is UTF-8 on every platform.
+std::string utf8FromPath(const std::filesystem::path& path);
+
 /// Reads a small file (refs, HEAD, .git pointer files) fully into a string.
 /// Refuses anything over `maxBytes` so a hostile or corrupt repo cannot make us
 /// allocate unboundedly.

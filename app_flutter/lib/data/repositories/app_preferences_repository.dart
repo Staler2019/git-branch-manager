@@ -39,6 +39,9 @@ class AppPreferences {
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
     this.tieredRefresh = true,
+    this.gitTimeoutMultiplier = 1,
+    this.showLogTimeouts = false,
+    this.showLogColumnHeaders = false,
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -161,6 +164,21 @@ class AppPreferences {
   /// does. Read live off `RepoSessionController.refreshFlags`.
   final bool tieredRefresh;
 
+  /// Advanced. Not from the spec. Multiplies every finite git timeout
+  /// (core's setTimeoutMultiplier) for a machine that is slow for reasons
+  /// outside this app -- security scanners hooking every file open being the
+  /// case that asked for it. 1 keeps the deadlines as measured.
+  final int gitTimeoutMultiplier;
+
+  /// Developer → LOG. The Log drawer's limit column: the limit each command
+  /// actually ran under, multiplier applied. Off by default like
+  /// [showRefreshTimings] -- a debugging aid, 「debug時要知道每個動作超時是多少」.
+  final bool showLogTimeouts;
+
+  /// Developer → LOG. A row of column names above the Log's list; a switch of
+  /// its own, by ruling (「顯示欄位名稱應該是另一個開關」).
+  final bool showLogColumnHeaders;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -180,6 +198,9 @@ class AppPreferences {
     bool? showRefreshTimings,
     bool? keepDiffDuringRefresh,
     bool? tieredRefresh,
+    int? gitTimeoutMultiplier,
+    bool? showLogTimeouts,
+    bool? showLogColumnHeaders,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -205,6 +226,9 @@ class AppPreferences {
       keepDiffDuringRefresh:
           keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
       tieredRefresh: tieredRefresh ?? this.tieredRefresh,
+      gitTimeoutMultiplier: gitTimeoutMultiplier ?? this.gitTimeoutMultiplier,
+      showLogTimeouts: showLogTimeouts ?? this.showLogTimeouts,
+      showLogColumnHeaders: showLogColumnHeaders ?? this.showLogColumnHeaders,
     );
   }
 }
@@ -271,6 +295,15 @@ class AppPreferencesRepository {
           defaults.keepDiffDuringRefresh,
       tieredRefresh:
           _prefs.getBool('${_kPrefix}tieredRefresh') ?? defaults.tieredRefresh,
+      gitTimeoutMultiplier:
+          _prefs.getInt('${_kPrefix}gitTimeoutMultiplier') ??
+          defaults.gitTimeoutMultiplier,
+      showLogTimeouts:
+          _prefs.getBool('${_kPrefix}showLogTimeouts') ??
+          defaults.showLogTimeouts,
+      showLogColumnHeaders:
+          _prefs.getBool('${_kPrefix}showLogColumnHeaders') ??
+          defaults.showLogColumnHeaders,
     );
   }
 
@@ -311,6 +344,15 @@ class AppPreferencesRepository {
       p.keepDiffDuringRefresh,
     );
     await _prefs.setBool('${_kPrefix}tieredRefresh', p.tieredRefresh);
+    await _prefs.setBool('${_kPrefix}showLogTimeouts', p.showLogTimeouts);
+    await _prefs.setBool(
+      '${_kPrefix}showLogColumnHeaders',
+      p.showLogColumnHeaders,
+    );
+    await _prefs.setInt(
+      '${_kPrefix}gitTimeoutMultiplier',
+      p.gitTimeoutMultiplier,
+    );
   }
 }
 

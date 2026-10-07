@@ -20,6 +20,7 @@ add_executable(gbm_core_tests
     unit/GraphBuilderTest.cpp
     unit/InitCloneOpsTest.cpp
     unit/MaintenanceOpsTest.cpp
+    unit/OperationLogScopeTest.cpp
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
@@ -28,6 +29,7 @@ add_executable(gbm_core_tests
     unit/RepoStateTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/SpawnCostVerdictTest.cpp
+    unit/WorkingCopyStatusReadTest.cpp
     unit/WorktreeCreatedAtTest.cpp
     unit/WorktreePendingCountTest.cpp
     unit/WorktreePrimaryTest.cpp
@@ -209,6 +211,7 @@ if(GBM_BUILD_CAPI)
         capi/StashApiTest.cpp
         capi/SubmoduleApiTest.cpp
         capi/TagApiTest.cpp
+        capi/Utf8PathApiTest.cpp
         capi/UndoApiTest.cpp
         capi/WorkingCopyApiTest.cpp
         capi/WorktreeApiTest.cpp

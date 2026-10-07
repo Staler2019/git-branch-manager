@@ -314,6 +314,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       unstagedEntries: unstagedAndUntracked,
       stagedEntries: status.staged,
       mode: viewMode,
+      lineCountsUnavailable: status.lineCountsUnavailable,
       // `fromStaged` says which column was clicked, which no longer selects
       // anything: the pane below draws both sides of the file at once, so
       // there is no "side I am looking at" left to record. The board still

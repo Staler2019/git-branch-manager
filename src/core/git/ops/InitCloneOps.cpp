@@ -1,5 +1,6 @@
 #include "core/git/ops/InitCloneOps.h"
 
+#include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
 
 #include <utility>
@@ -14,7 +15,7 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
     }
 
     GitCommand command;
-    command.args = {"init", "--quiet", request.path.string()};
+    command.args = {"init", "--quiet", fsutil::utf8FromPath(request.path)};
     command.timeout = std::chrono::seconds(30);
 
     auto result = runner.run(command, token);
@@ -35,9 +36,7 @@ GitResult<void> runCloneRepo(IProcessRunner& runner,
     }
 
     GitCommand command;
-    command.args = {"clone", "--quiet", request.url, request.destPath.string()};
-    command.timeout = std::chrono::milliseconds(0);
-    command.idleTimeout = GitCommand::kHangCeiling;
+    command.args = {"clone", "--quiet", request.url, fsutil::utf8FromPath(request.destPath)};
     askpass::wire(command, request.askpassDir);
 
     auto result = runner.run(command, token);

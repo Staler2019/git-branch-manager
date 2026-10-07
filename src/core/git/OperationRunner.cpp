@@ -1,5 +1,6 @@
 #include "core/git/OperationRunner.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/RefStore.h"
 
@@ -68,7 +69,7 @@ std::optional<OperationOutcome> OperationRunner::preflight(const Operation& oper
         outcome.summary = "Another Git process appears to be running in this repository";
         GitError error(GitError::Code::LockHeld,
                        outcome.summary,
-                       "Lock file: " + paths_.indexLockFile().string());
+                       "Lock file: " + fsutil::utf8FromPath(paths_.indexLockFile()));
         outcome.error = error;
         outcome.choices.push_back({OperationChoice::Kind::Retry, false});
         // Removal is only ever offered for a demonstrably stale lock, and never

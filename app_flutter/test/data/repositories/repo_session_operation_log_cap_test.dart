@@ -84,4 +84,66 @@ void main() {
       expect(state.operationLog.last.whenEpochMs, 2000);
     });
   });
+
+  // Plan D3: a running row can be trimmed by the cap before its outcome
+  // arrives. The outcome is then appended, never silently dropped -- a
+  // TIMEOUT that leaves no row is the defect this round exists to fix.
+  group('an outcome whose running row was trimmed', () {
+    OperationRecord withId(int id, {required bool running}) => OperationRecord(
+      whenEpochMs: id,
+      repoDir: '/repo',
+      argv: const <String>['git', 'status'],
+      commandLine: 'git status',
+      exitCode: 0,
+      durationMs: 1,
+      stderrText: '',
+      cancelled: false,
+      timedOut: !running,
+      id: id,
+      running: running,
+    );
+
+    test('is appended and moves the revision', () {
+      const int maxEntries = 3;
+      RepoSessionState state = const RepoSessionState(isOpen: true);
+      state = state.withOperationRecord(
+        withId(1, running: true),
+        maxEntries: maxEntries,
+      );
+      for (int id = 2; id <= 4; id++) {
+        state = state.withOperationRecord(
+          withId(id, running: false),
+          maxEntries: maxEntries,
+        );
+      }
+      final int before = state.operationLogRevision;
+
+      state = state.withOperationRecord(
+        withId(1, running: false),
+        maxEntries: maxEntries,
+      );
+
+      final GbmLogEntry last = state.operationLog.last;
+      expect(last, isA<OperationRecord>());
+      expect((last as OperationRecord).id, 1);
+      expect(last.running, isFalse);
+      expect(state.operationLog, hasLength(maxEntries));
+      expect(state.operationLogRevision, greaterThan(before));
+    });
+
+    // id 0 is "not from core's sequence" (fixtures, and nothing else): two
+    // of them are two rows, not one replacing the other.
+    test('records without an id never replace each other', () {
+      RepoSessionState state = const RepoSessionState(isOpen: true);
+      state = state.withOperationRecord(
+        withId(0, running: true),
+        maxEntries: 5,
+      );
+      state = state.withOperationRecord(
+        withId(0, running: false),
+        maxEntries: 5,
+      );
+      expect(state.operationLog, hasLength(2));
+    });
+  });
 }

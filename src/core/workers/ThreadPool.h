@@ -52,10 +52,12 @@ public:
     /// CatFileBatch stops *issuing further requests* within roughly one
     /// cat-file round trip (checked before each object, not mid-request), but
     /// a single request already in flight when cancellation fires is a plain
-    /// blocking pipe read with no deadline and runs to completion against
+    /// blocking pipe read ~~with no deadline and runs to completion against
     /// whatever the child process does. That is only unbounded if the child
     /// itself hangs, which is not expected of a process this app spawns and
-    /// owns, but it is not a hard guarantee this method makes. This is what
+    /// owns, but it is not a hard guarantee this method makes.~~ that runs
+    /// until the child answers or `CatFileBatch::kRequestDeadline` (scaled)
+    /// kills it (corrected 2026-10-07). This is what
     /// makes it safe to destroy a RepositorySession right after calling this
     /// (no queued lambda capturing `this` can run, and nothing is still
     /// running when it returns) -- not a promise of a bounded wait time. See

@@ -4,6 +4,7 @@
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/OperationLogScope.h"
 #include "core/git/OriginalOperationMessage.h"
 #include "core/git/TextTraits.h"
 #include "core/git/ops/CheckoutOp.h"
@@ -102,9 +103,8 @@ GitResult<GitInstallation> sharedGitInstallation() {
         // macOS sandboxing) pin the exact executable rather than depend on
         // GitExecutable::detect()'s PATH/fallback search order.
         const char* overridePath = std::getenv("GBM_GIT_PATH");
-        cachedGitInstallation() =
-            GitExecutable::detect(overridePath != nullptr ? std::filesystem::path(overridePath)
-                                                          : std::filesystem::path{});
+        cachedGitInstallation() = GitExecutable::detect(
+            overridePath != nullptr ? fsutil::pathFromUtf8(overridePath) : std::filesystem::path{});
         // Only a *successful* detection is cached. Detection failing once (git
         // not yet installed, a permission problem not yet fixed) must not lock
         // that failure in for the rest of the process's lifetime -- the app has
@@ -138,7 +138,9 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         return nullptr;
     }
 
-    RepoPaths paths(std::move(workDir), std::move(gitDir), std::move(commonDir));
+    RepoPaths paths(fsutil::pathFromUtf8(workDir),
+                    fsutil::pathFromUtf8(gitDir),
+                    fsutil::pathFromUtf8(commonDir));
     if (!paths.isValid()) {
         if (outError != nullptr) {
             *outError = GitError(GitError::Code::InvalidArgument, "gitDir must not be empty");
@@ -189,9 +191,9 @@ Session::~Session() {
     // Cancel before draining, not merely alongside it: cancelOperations(0)
     // trips every in-flight/queued operation's token, so operations_->drain()
     // below waits on work this session's own cancellation already told to
-    // stop instead of waiting for it to finish naturally -- unbounded for
-    // the ~28 commands GitCommand runs with no deadline
-    // (GitCommand::kHangCeiling is their only floor). A cancelled
+    // stop instead of waiting for it to finish naturally -- ~~unbounded for
+    // the ~28 commands GitCommand runs with no deadline~~ up to a whole
+    // deadline (effectiveDeadlines(); every command has one since 2026-10-07). A cancelled
     // operation takes the failure branch, so it never reaches the onSuccess
     // path that chains a new sharedReadPool() post -- the ordering
     // invariant the comment below describes is unaffected by cancelling
@@ -820,7 +822,7 @@ void Session::requestWorkingTreeContent(std::string path) {
         // editor -- mirrors RepositorySession::requestWorkingTreeContent's
         // own cap exactly.
         constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
-        const std::filesystem::path target = paths_.workDir() / path;
+        const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
         const std::optional<std::string> raw =
             fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
 
@@ -858,7 +860,7 @@ void Session::exportFileAtRevision(std::string revision, std::string path, std::
         FileAtRevisionRequest request;
         request.revision = revision;
         request.path = path;
-        request.destination = std::filesystem::path(destPath);
+        request.destination = fsutil::pathFromUtf8(destPath);
         const GitResult<std::uint64_t> result =
             blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
 
@@ -1167,7 +1169,18 @@ void Session::publishOperationLogRecord(const OperationRecord& record) {
 void Session::dispatchOperationLogRecord(const OperationRecord& record) {
     std::lock_guard<std::mutex> lock(liveSessionsMutex());
     for (Session* session : liveSessions()) {
-        if (session->paths_.workDir().string() == record.repoDir) {
+        // Its own directory, plus every linked worktree it last listed:
+        // attachPendingCounts runs `git status` in each of those, and an
+        // exact string match against the work tree alone used to drop them.
+        // auxMutex_ is never held across a git invocation, so taking it under
+        // liveSessionsMutex() cannot invert a lock order.
+        std::vector<std::filesystem::path> dirs{session->paths_.commandDir()};
+        if (const WorktreeListPtr worktrees = session->currentWorktrees()) {
+            for (const WorktreeInfo& worktree : *worktrees) {
+                dirs.push_back(worktree.path);
+            }
+        }
+        if (recordBelongsToSession(record.repoDir, dirs)) {
             session->publishOperationLogRecord(record);
         }
     }

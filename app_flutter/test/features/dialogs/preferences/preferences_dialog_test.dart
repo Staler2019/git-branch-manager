@@ -205,6 +205,128 @@ void main() {
     });
   });
 
+  // 「拖拉四段＋右側自由輸入倍率」: four stops on a slider, any whole
+  // multiplier in the field. No seconds are shown anywhere.
+  group('PreferencesDialogContent - Advanced, git timeout multiplier', () {
+    Slider slider(WidgetTester tester) =>
+        tester.widget<Slider>(find.byKey(const Key('gitTimeoutSlider')));
+    TextField field(WidgetTester tester) =>
+        tester.widget<TextField>(find.byKey(const Key('gitTimeoutField')));
+
+    testWidgets('starts at 1x', (tester) async {
+      await _pump(tester, section: 'Advanced');
+
+      expect(slider(tester).value, 0);
+      expect(field(tester).controller!.text, '1');
+    });
+
+    testWidgets('dragging to the third stop stores 4', (tester) async {
+      final result = await _pump(tester, section: 'Advanced');
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutSlider')));
+      slider(tester).onChanged!(2);
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        4,
+      );
+      expect(field(tester).controller!.text, '4');
+    });
+
+    testWidgets('typing 3 stores 3 and rests the slider on 2x', (tester) async {
+      final result = await _pump(tester, section: 'Advanced');
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutField')));
+      await tester.enterText(find.byKey(const Key('gitTimeoutField')), '3');
+      await tester.pumpAndSettle();
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        3,
+      );
+      expect(slider(tester).value, 1);
+    });
+
+    testWidgets('typing 0 or text stores nothing', (tester) async {
+      final result = await _pump(
+        tester,
+        section: 'Advanced',
+        initialPrefs: <String, Object>{'appPrefs.gitTimeoutMultiplier': 2},
+      );
+
+      await tester.ensureVisible(find.byKey(const Key('gitTimeoutField')));
+      for (final String text in <String>['0', 'abc']) {
+        await tester.enterText(find.byKey(const Key('gitTimeoutField')), text);
+        await tester.pumpAndSettle();
+      }
+
+      expect(
+        result.container.read(appPreferencesProvider).gitTimeoutMultiplier,
+        2,
+      );
+    });
+
+    testWidgets('a stored 8 shows on both controls', (tester) async {
+      await _pump(
+        tester,
+        section: 'Advanced',
+        initialPrefs: <String, Object>{'appPrefs.gitTimeoutMultiplier': 8},
+      );
+
+      expect(slider(tester).value, 3);
+      expect(field(tester).controller!.text, '8');
+    });
+  });
+
+  // 「不要除錯移除，依照畫面範圍去製作標題，像是狀態列、log之類，上面刷新分層
+  // 後面的branch name也不應該有」: headings name the screen area, and the
+  // branch name is gone from the first one.
+  group('PreferencesDialogContent - Developer headings', () {
+    testWidgets('groups are named by screen area', (tester) async {
+      await _pump(tester, section: 'Developer');
+
+      expect(find.text('刷新分層'), findsOneWidget);
+      expect(find.text('狀態列'), findsOneWidget);
+      expect(find.text('LOG'), findsOneWidget);
+      expect(find.textContaining('fix/refresh-ui-first-tiering'), findsNothing);
+      expect(find.text('除錯'), findsNothing);
+    });
+
+    testWidgets('both LOG switches start off', (tester) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      final AppPreferences prefs = result.container.read(
+        appPreferencesProvider,
+      );
+      expect(prefs.showLogTimeouts, isFalse);
+      expect(prefs.showLogColumnHeaders, isFalse);
+    });
+
+    // Two switches, two preferences: 「顯示欄位名稱應該是另一個開關」.
+    testWidgets('each LOG switch flips only its own preference', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Developer');
+
+      await tester.ensureVisible(find.text('在 Log 顯示每個指令的時限'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('在 Log 顯示每個指令的時限'));
+      await tester.pumpAndSettle();
+      AppPreferences prefs = result.container.read(appPreferencesProvider);
+      expect(prefs.showLogTimeouts, isTrue);
+      expect(prefs.showLogColumnHeaders, isFalse);
+
+      await tester.ensureVisible(find.text('在 Log 顯示欄名列'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('在 Log 顯示欄名列'));
+      await tester.pumpAndSettle();
+      prefs = result.container.read(appPreferencesProvider);
+      expect(prefs.showLogTimeouts, isTrue);
+      expect(prefs.showLogColumnHeaders, isTrue);
+    });
+  });
+
   group('PreferencesDialogContent - Developer', () {
     testWidgets('the two behaviour flags default on, timings default off', (
       tester,

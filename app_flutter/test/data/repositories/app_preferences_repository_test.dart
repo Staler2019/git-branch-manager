@@ -45,6 +45,9 @@ void main() {
       expect(p.showRefreshTimings, isFalse);
       expect(p.keepDiffDuringRefresh, isTrue);
       expect(p.tieredRefresh, isTrue);
+      // LOG group: both off, like the timing readout beside them.
+      expect(p.showLogTimeouts, isFalse);
+      expect(p.showLogColumnHeaders, isFalse);
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -71,6 +74,8 @@ void main() {
         showRefreshTimings: true,
         keepDiffDuringRefresh: false,
         tieredRefresh: false,
+        showLogTimeouts: true,
+        showLogColumnHeaders: true,
       );
       await repo.write(written);
 
@@ -93,6 +98,34 @@ void main() {
       expect(read.showRefreshTimings, isTrue);
       expect(read.keepDiffDuringRefresh, isFalse);
       expect(read.tieredRefresh, isFalse);
+      expect(read.showLogTimeouts, isTrue);
+      expect(read.showLogColumnHeaders, isTrue);
+    });
+
+    // Written with the two LOG flags set differently, each way round: with
+    // both true a key read from the wrong place still reads true.
+    test('the two LOG flags are stored under their own keys', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(
+        const AppPreferences(
+          showLogTimeouts: true,
+          showLogColumnHeaders: false,
+        ),
+      );
+      expect(repo.read().showLogTimeouts, isTrue);
+      expect(repo.read().showLogColumnHeaders, isFalse);
+
+      await repo.write(
+        const AppPreferences(
+          showLogTimeouts: false,
+          showLogColumnHeaders: true,
+        ),
+      );
+      expect(repo.read().showLogTimeouts, isFalse);
+      expect(repo.read().showLogColumnHeaders, isTrue);
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

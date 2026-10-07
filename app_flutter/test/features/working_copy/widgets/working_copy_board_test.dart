@@ -851,5 +851,86 @@ void main() {
         reason: 'the file name must not be squeezed out by the two badges',
       );
     });
+
+    // C3, 使用者裁定「Working Copy 內一行提示」: when numstat failed the
+    // lists are still current but every +N/-N badge is gone, and without a
+    // word here that reads as "no lines changed".
+    const String lineCountsNotice = '無法取得行數（numstat 失敗），清單仍是最新的。詳情見 Log。';
+
+    testWidgets('a notice spans the board above both columns when line counts '
+        'are unavailable', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+            lineCountsUnavailable: true,
+          ),
+        ),
+      );
+
+      expect(find.text(lineCountsNotice), findsOneWidget);
+      final Rect notice = tester.getRect(
+        find.byKey(const ValueKey<String>('wc-line-counts-unavailable')),
+      );
+      final Rect board = tester.getRect(find.byType(WorkingCopyBoard));
+      expect(notice.height, GbmSpacing.rowHeightCompact);
+      expect(
+        notice.width,
+        board.width,
+        reason: 'the whole board, not a column',
+      );
+      expect(
+        notice.bottom,
+        lessThanOrEqualTo(tester.getRect(find.text('Unstaged · 2')).top),
+      );
+    });
+
+    testWidgets('no notice while line counts are available', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+          ),
+        ),
+      );
+
+      expect(find.text(lineCountsNotice), findsNothing);
+    });
+
+    // 「一行提示」: one line however narrow the board, cut with an ellipsis
+    // rather than wrapping into a second row or overflowing.
+    testWidgets('the notice stays one line on a narrow board', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 220,
+          height: 600,
+          child: WorkingCopyBoard(
+            unstagedEntries: unstagedEntries,
+            stagedEntries: stagedEntries,
+            onStageRequested: _ignorePaths,
+            onUnstageRequested: _ignorePaths,
+            lineCountsUnavailable: true,
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull);
+      final Text text = tester.widget<Text>(find.text(lineCountsNotice));
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+    });
   });
 }

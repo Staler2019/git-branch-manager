@@ -113,6 +113,11 @@ struct WorkingCopyEntry {
 struct WorkingCopyStatus {
     std::vector<WorkingCopyEntry> entries;
 
+    /// A `git diff --numstat` pass failed (anything but a cancel), so every
+    /// entry's line counts are 0 -- "not measured", by WorkingCopyEntry's own
+    /// rule -- while the entries and their conflicts are still published.
+    bool lineCountsUnavailable = false;
+
     bool isClean() const noexcept { return entries.empty(); }
 
     std::vector<const WorkingCopyEntry*> staged() const;

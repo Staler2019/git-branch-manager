@@ -136,5 +136,31 @@ TEST(TextTraits, EmptyContentIsDetectedAsUtf8) {
     EXPECT_EQ(traits.encoding, EncodingKind::Utf8);
 }
 
+// git's `--progress` rewrites one line with '\r'; the log keeps what the line
+// finally said.
+TEST(CollapseCarriageReturns, KeepsTheLastStateOfEachLine) {
+    EXPECT_EQ(collapseCarriageReturns("Receiving:  50%\rReceiving: 100%, done.\nfatal: x\n"),
+              "Receiving: 100%, done.\nfatal: x\n");
+}
+
+TEST(CollapseCarriageReturns, AWindowsLineEndingIsALineEndNotARewrite) {
+    EXPECT_EQ(collapseCarriageReturns("error: a\r\nerror: b\r\n"), "error: a\r\nerror: b\r\n");
+}
+
+TEST(CollapseCarriageReturns, AnUnterminatedLastLineKeepsItsLastState) {
+    EXPECT_EQ(collapseCarriageReturns("a\rb\rc"), "c");
+}
+
+// git writes each progress state *then* '\r', so a command killed mid-transfer
+// leaves stderr ending in '\r'. That last state is the most useful line a
+// TIMEOUT row can carry ("how far did it get"); the first version dropped it,
+// because the test above feeds the '\r's in the opposite order.
+TEST(CollapseCarriageReturns, AProgressLineCutOffAfterItsRedrawKeepsItsState) {
+    EXPECT_EQ(collapseCarriageReturns("Receiving objects:  45% (450/1000)\r"),
+              "Receiving objects:  45% (450/1000)");
+    EXPECT_EQ(collapseCarriageReturns("X:  1%\rX:  2%\r"), "X:  2%");
+    EXPECT_EQ(collapseCarriageReturns("remote: a\rremote: b\nX: 3%\r"), "remote: b\nX: 3%");
+}
+
 }  // namespace
 }  // namespace gbm

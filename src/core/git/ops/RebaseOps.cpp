@@ -1,5 +1,7 @@
 #include "core/git/ops/RebaseOps.h"
 
+#include "core/base/FsUtil.h"
+
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -67,7 +69,7 @@ std::filesystem::path writeTempFile(const std::string& content) {
 /// than passed bare.
 std::string shellQuote(const std::filesystem::path& path) {
     std::string quoted = "'";
-    for (char c : path.string()) {
+    for (char c : fsutil::utf8FromPath(path)) {
         if (c == '\'') {
             quoted += "'\\''";
         } else {
@@ -129,7 +131,7 @@ public:
                               "--include-untracked",
                               "-m",
                               "git-branch-manager: before rebase"});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -162,8 +164,6 @@ public:
 
         GitCommand command(paths.commandDir(), std::move(args));
         applyRebaseEnv(command, todoFile);
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {
@@ -225,7 +225,7 @@ public:
                               "--include-untracked",
                               "-m",
                               "git-branch-manager: before rebase"});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -256,8 +256,6 @@ public:
         args.push_back(request_.upstream);
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {
@@ -316,7 +314,7 @@ public:
             command.envOverrides.emplace_back("GIT_EDITOR", "true");
         }
         command.timeout =
-            verb_ == Verb::Abort ? std::chrono::seconds(120) : std::chrono::milliseconds(0);
+            verb_ == Verb::Abort ? std::chrono::seconds(120) : GitCommand::kLocalCeiling;
 
         auto result = runner.run(command, token);
         if (!result) {

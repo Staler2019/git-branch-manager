@@ -107,6 +107,17 @@ TEST(JsonCodecTest, WorkingCopyEntryEncodesAllFourLineCountsIndependently) {
     EXPECT_NE(json.find("\"stagedRemoved\":3"), std::string::npos) << json;
 }
 
+// The flag that says why every count is 0 crosses the FFI as its own key, in
+// both states -- a missing key would be a cast failure on the Dart side.
+TEST(JsonCodecTest, WorkingCopyStatusCarriesWhetherLineCountsAreUnavailable) {
+    WorkingCopyStatus status;
+    EXPECT_NE(toJson(status).find("\"lineCountsUnavailable\":false"), std::string::npos)
+        << toJson(status);
+    status.lineCountsUnavailable = true;
+    EXPECT_NE(toJson(status).find("\"lineCountsUnavailable\":true"), std::string::npos)
+        << toJson(status);
+}
+
 // Zero is "not measured", never "measured zero" -- binary files, mode-only
 // changes and oversized untracked files all arrive here as 0 and the UI draws
 // no badge for them. The keys still have to be present: a missing key becomes
@@ -240,6 +251,29 @@ TEST(JsonCodecTest, WorktreeEncodesEverySkipAndFailureState) {
 // git records no creation time for a worktree; this is the unix timestamp of
 // the first entry in its own `logs/HEAD`, and 0 means "git did not record
 // one" rather than the epoch.
+// The two halves of one invocation reach Dart as two events; `id` is what lets
+// it replace the running row with the outcome instead of appending a second.
+TEST(JsonCodecTest, OperationRecordCarriesItsIdAndWhetherItIsRunning) {
+    OperationRecord record;
+    record.id = 42;
+    record.running = true;
+    const std::string json = toJson(record);
+    EXPECT_NE(json.find("\"id\":42,"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"running\":true"), std::string::npos) << json;
+
+    record.running = false;
+    EXPECT_NE(toJson(record).find("\"running\":false"), std::string::npos);
+}
+
+TEST(JsonCodecTest, OperationRecordCarriesTheDeadlinesItRanUnder) {
+    OperationRecord record;
+    record.timeoutMs = 120000;
+    record.idleTimeoutMs = 60000;
+    const std::string json = toJson(record);
+    EXPECT_NE(json.find("\"timeoutMs\":120000,"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"idleTimeoutMs\":60000"), std::string::npos) << json;
+}
+
 TEST(JsonCodecTest, WorktreeCreatedAtIsAbsentAsZero) {
     WorktreeInfo worktree;
     EXPECT_NE(toJson(worktree).find("\"createdAtUnix\":0"), std::string::npos);

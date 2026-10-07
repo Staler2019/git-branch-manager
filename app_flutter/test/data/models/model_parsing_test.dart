@@ -180,7 +180,7 @@ void main() {
       '"unstagedAdded":0,"unstagedRemoved":0,"stagedAdded":0,"stagedRemoved":0,'
       '"conflict":0,"ancestorBlob":"",'
       '"oursBlob":"","theirsBlob":"","similarity":0,"isSubmodule":false,"isConflicted":false}'
-      ']}',
+      '],"lineCountsUnavailable":false}',
     );
     final WorkingCopyStatus status = WorkingCopyStatus.fromJson(json);
 
@@ -400,14 +400,18 @@ void main() {
 
   test('OperationRecord.fromJson decodes argv and exposes failed', () {
     final Map<String, dynamic> json = jsonDecode(
-      '{"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
+      '{"id":3,"running":false,"whenEpochMs":1000,"repoDir":"/repo","argv":["git","status"],"commandLine":"git status",'
       '"exitCode":1,"durationMs":5,"stderrText":"error","cancelled":false,"timedOut":false,'
-      '"benignExit":false}',
+      '"benignExit":false,"timeoutMs":120000,"idleTimeoutMs":0}',
     );
     final OperationRecord record = OperationRecord.fromJson(json);
 
     expect(record.argv, <String>['git', 'status']);
     expect(record.failed, isTrue);
+    expect(record.id, 3);
+    expect(record.running, isFalse);
+    expect(record.timeoutMs, 120000);
+    expect(record.idleTimeoutMs, 0);
   });
 
   // A raw-JSON fixture is invisible to a grep for the constructor, so this one
@@ -418,11 +422,11 @@ void main() {
   // -- this is an in-process event stream, nothing is persisted or replayed.
   test('OperationRecord.fromJson decodes a declared benign exit', () {
     final Map<String, dynamic> json = jsonDecode(
-      '{"whenEpochMs":1000,"repoDir":"/repo",'
+      '{"id":3,"running":false,"whenEpochMs":1000,"repoDir":"/repo",'
       '"argv":["git","config","--local","--get","user.name"],'
       '"commandLine":"git config --local --get user.name",'
       '"exitCode":1,"durationMs":5,"stderrText":"","cancelled":false,"timedOut":false,'
-      '"benignExit":true}',
+      '"benignExit":true,"timeoutMs":30000,"idleTimeoutMs":0}',
     );
     final OperationRecord record = OperationRecord.fromJson(json);
 

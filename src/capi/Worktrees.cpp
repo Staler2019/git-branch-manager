@@ -3,6 +3,7 @@
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/Error.h"
+#include "core/base/FsUtil.h"
 #include "core/git/ops/WorktreeOps.h"
 
 using namespace gbm;
@@ -35,7 +36,7 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               int32_t detach,
                               int32_t force) {
     AddWorktreeRequest request;
-    request.path = path != nullptr ? path : "";
+    request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.branch = branch != nullptr ? branch : "";
     request.createBranch = createBranch != 0;
     request.newBranchName = newBranchName != nullptr ? newBranchName : "";
@@ -46,7 +47,7 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
 
 GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force) {
     RemoveWorktreeRequest request;
-    request.path = path != nullptr ? path : "";
+    request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.force = force != 0;
     toSession(session)->removeWorktree(request);
 }
@@ -57,13 +58,13 @@ GBM_API void gbm_worktree_prune(GbmSessionHandle session) {
 
 GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason) {
     LockWorktreeRequest request;
-    request.path = path != nullptr ? path : "";
+    request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.reason = reason != nullptr ? reason : "";
     toSession(session)->lockWorktree(std::move(request));
 }
 
 GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path) {
     UnlockWorktreeRequest request;
-    request.path = path != nullptr ? path : "";
+    request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     toSession(session)->unlockWorktree(request);
 }

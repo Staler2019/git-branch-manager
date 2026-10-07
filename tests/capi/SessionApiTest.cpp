@@ -116,6 +116,15 @@ protected:
     EventLog log_;
 };
 
+// Process-wide, so no session handle -- and it returns the multiplier now in
+// effect, which is how the caller learns a refused value changed nothing.
+TEST(CapiTimeoutMultiplier, ReturnsTheMultiplierNowInEffectAndRefusesBelowOne) {
+    EXPECT_EQ(gbm_set_timeout_multiplier(4), 4);
+    EXPECT_EQ(gbm_set_timeout_multiplier(0), 4);
+    EXPECT_EQ(gbm_set_timeout_multiplier(-1), 4);
+    EXPECT_EQ(gbm_set_timeout_multiplier(1), 1);
+}
+
 TEST_F(CapiSessionTest, RepoStateJsonReportsCleanRepository) {
     ASSERT_EQ(gbm_repo_state_json(session_), 0);
     std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');

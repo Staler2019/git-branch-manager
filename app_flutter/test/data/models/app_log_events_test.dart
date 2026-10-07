@@ -150,4 +150,18 @@ void main() {
       expect(fromSidebar, fromDialog);
     });
   });
+
+  group('AppLogEvents.errorOccurred', () {
+    test('says what failed, at error level, without the argv', () {
+      final AppLogEntry entry = AppLogEvents.errorOccurred(
+        codeName: 'Timeout',
+        message: 'Git did not finish in time',
+        atEpochMs: 9,
+      );
+
+      expect(entry.message, 'Timeout: Git did not finish in time');
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 9);
+    });
+  });
 }

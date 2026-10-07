@@ -1,6 +1,9 @@
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/IProcessRunner.h"
+#include "core/git/OperationId.h"
+#include "core/git/TextTraits.h"
 
 #include <algorithm>
 #include <atomic>
@@ -92,13 +95,13 @@ private:
 std::vector<std::string> buildArgv(const std::filesystem::path& exe, const GitCommand& command) {
     std::vector<std::string> argv;
     argv.reserve(command.args.size() + 8);
-    argv.push_back(exe.string());
+    argv.push_back(fsutil::utf8FromPath(exe));
     for (auto& flag : GitCommand::globalFlags()) {
         argv.push_back(std::move(flag));
     }
     if (!command.repoDir.empty()) {
         argv.emplace_back("-C");
-        argv.push_back(command.repoDir.string());
+        argv.push_back(fsutil::utf8FromPath(command.repoDir));
     }
     argv.insert(argv.end(), command.args.begin(), command.args.end());
     return argv;
@@ -664,9 +667,10 @@ public:
         // cancel its own blocked I/O, so the cancel has to arrive from a second
         // thread rather than from after the loop.
         //
-        // Armed only when a deadline exists, `timeout` or `idleTimeout`. Every
-        // timeout-0 network and sequencer command sets `idleTimeout` to
-        // GitCommand::kHangCeiling, so only a command with neither starts none.
+        // Armed only when a deadline exists, `timeout` or `idleTimeout`.
+        // effectiveDeadlines() gives every command one of the two, so a
+        // watchdog always starts (2026-10-07; before that, a few commands had
+        // neither).
         // If either handle cannot be made, no watchdog is started and the
         // behaviour degrades to what it was -- same fallback discipline as a
         // spawn that could not get a job object.
@@ -982,7 +986,7 @@ public:
 private:
     /// `capturedStdout`, when provided, lets the failure path look at stdout as
     /// well as stderr — see the classification note below.
-    GitResult<ProcessResult> execute(const GitCommand& command,
+    GitResult<ProcessResult> execute(const GitCommand& requested,
                                      char separator,
                                      const LineSink& onLine,
                                      const ProgressSink& onProgress,
@@ -992,8 +996,13 @@ private:
         // never happen on the UI thread.
         GBM_ASSERT_NOT_UI_THREAD();
 
+        // A network command runs with `--progress`, so its pipe shows whether
+        // data still moves -- the only thing its deadline judges.
+        const GitCommand command = withTransferProgress(requested);
         const auto argv = buildArgv(git_, command);
         const auto started = Clock::now();
+        const std::uint64_t operationId = nextOperationId();
+        const EffectiveDeadlines deadlines = effectiveDeadlines(command);
 
         if (token.isCancelled()) {
             return cancelled();
@@ -1003,7 +1012,8 @@ private:
         if (auto spawned = child->spawn(argv, command, command.stdinData.has_value()); !spawned) {
             GitError error = std::move(spawned).error();
             error.argv = argv;
-            recordOperation(command, argv, error.detail, -1, started, false, false);
+            recordOperation(
+                operationId, deadlines, command, argv, error.detail, -1, started, false, false);
             return fail(std::move(error));
         }
 
@@ -1020,6 +1030,8 @@ private:
         // unregisters the callback on every return path below, and the
         // shared_ptr is belt-and-braces against any callback that is already
         // mid-fire when that happens.
+        recordRunning(operationId, deadlines, command, argv);
+
         auto cancelObserved = std::make_shared<std::atomic_bool>(false);
         CancellationToken::Registration cancelReg = token.onCancel([child, cancelObserved] {
             cancelObserved->store(true);
@@ -1033,8 +1045,8 @@ private:
                     &result.err,
                     onProgress,
                     command.stdinData ? &*command.stdinData : nullptr,
-                    command.timeout,
-                    command.idleTimeout,
+                    deadlines.total,
+                    deadlines.idle,
                     &result.timedOut,
                     &sinkStopped);
 
@@ -1042,6 +1054,9 @@ private:
         result.duration =
             std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - started);
         result.cancelled = cancelObserved->load() || token.isCancelled();
+        // Progress redraws are for a live terminal; the log and any error
+        // shown to the user keep what each line finally said.
+        result.err = collapseCarriageReturns(result.err);
 
         // The child has been waited on (reaped) by this point, and every
         // path below only reports the result -- nothing past here needs the
@@ -1050,7 +1065,9 @@ private:
         // eventually replaced or destroyed.
         cancelReg.reset();
 
-        recordOperation(command,
+        recordOperation(operationId,
+                        deadlines,
+                        command,
                         argv,
                         result.err,
                         result.exitCode,
@@ -1094,7 +1111,26 @@ private:
         return result;
     }
 
-    static void recordOperation(const GitCommand& command,
+    /// The record taken right after spawn: argv and repoDir are known, the
+    /// outcome is not. The final record reuses `id`.
+    static void recordRunning(std::uint64_t id,
+                              const EffectiveDeadlines& deadlines,
+                              const GitCommand& command,
+                              const std::vector<std::string>& argv) {
+        OperationRecord record;
+        record.timeoutMs = deadlines.total.count();
+        record.idleTimeoutMs = deadlines.idle.count();
+        record.when = std::chrono::system_clock::now();
+        record.repoDir = fsutil::utf8FromPath(command.repoDir);
+        record.argv = argv;
+        record.id = id;
+        record.running = true;
+        Log::instance().recordOperation(record);
+    }
+
+    static void recordOperation(std::uint64_t id,
+                                const EffectiveDeadlines& deadlines,
+                                const GitCommand& command,
                                 const std::vector<std::string>& argv,
                                 const std::string& stderrText,
                                 int exitCode,
@@ -1103,8 +1139,11 @@ private:
                                 bool wasTimeout,
                                 bool sinkStopped = false) {
         OperationRecord record;
+        record.id = id;
+        record.timeoutMs = deadlines.total.count();
+        record.idleTimeoutMs = deadlines.idle.count();
         record.when = std::chrono::system_clock::now();
-        record.repoDir = command.repoDir.string();
+        record.repoDir = fsutil::utf8FromPath(command.repoDir);
         record.argv = argv;
         record.exitCode = exitCode;
         record.durationMs =

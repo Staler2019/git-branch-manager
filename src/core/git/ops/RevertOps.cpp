@@ -35,7 +35,7 @@ public:
                               "--include-untracked",
                               "-m",
                               "git-branch-manager: before revert"});
-            stash.timeout = std::chrono::seconds(600);
+            stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
                 outcome.error = std::move(stashed).error();
@@ -53,8 +53,6 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        command.timeout = std::chrono::milliseconds(0);
-        command.idleTimeout = GitCommand::kHangCeiling;
 
         auto result = runner.run(command, token);
         if (result) {

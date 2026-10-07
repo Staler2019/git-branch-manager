@@ -3,6 +3,7 @@
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/git/ops/InitCloneOps.h"
 
 using namespace gbm;
@@ -28,7 +29,7 @@ GBM_API int32_t gbm_repo_init(const char* path) {
     std::unique_ptr<IProcessRunner> runner = makeProcessRunner(installation.value().executable);
 
     InitRepoRequest request;
-    request.path = path != nullptr ? path : "";
+    request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
 
     const CancellationSource cancel;  // Synchronous, like gbm_discovery_scan_all.
     const GitResult<void> result = runInitRepo(*runner, request, cancel.token());
@@ -49,7 +50,7 @@ GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath) {
 
     CloneRepoRequest request;
     request.url = url != nullptr ? url : "";
-    request.destPath = destPath != nullptr ? destPath : "";
+    request.destPath = fsutil::pathFromUtf8(destPath != nullptr ? destPath : "");
 
     const CancellationSource cancel;  // Synchronous, like gbm_discovery_scan_all.
     const GitResult<void> result = runCloneRepo(*runner, request, cancel.token());

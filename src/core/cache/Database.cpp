@@ -1,5 +1,6 @@
 #include "core/cache/Database.h"
 
+#include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
 
@@ -149,10 +150,7 @@ GitResult<void> Database::open(const std::filesystem::path& path, bool readOnly)
         SQLITE_OPEN_FULLMUTEX;
     // The path is converted through u8string so non-ASCII directories work on
     // Windows, where the narrow API would otherwise mangle them.
-    const std::string utf8Path =
-        path.u8string().empty()
-            ? path.string()
-            : std::string(reinterpret_cast<const char*>(path.u8string().c_str()));
+    const std::string utf8Path = fsutil::utf8FromPath(path);
 
     if (sqlite3_open_v2(utf8Path.c_str(), &db_, flags, nullptr) != SQLITE_OK) {
         GitError error = sqliteError(db_, "Could not open the repository cache");

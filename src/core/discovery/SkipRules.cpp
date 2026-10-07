@@ -86,7 +86,7 @@ bool SkipRules::shouldSkipName(std::string_view name) const {
 }
 
 bool SkipRules::shouldSkip(const std::filesystem::path& directory) const {
-    return shouldSkipName(directory.filename().string());
+    return shouldSkipName(fsutil::utf8FromPath(directory.filename()));
 }
 
 void SkipRules::addPattern(std::string pattern) {

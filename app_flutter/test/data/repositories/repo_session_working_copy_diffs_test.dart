@@ -68,7 +68,10 @@ Map<String, dynamic> _entry({
 }
 
 WorkingCopyStatus _status(List<Map<String, dynamic>> entries) =>
-    WorkingCopyStatus.fromJson(<String, dynamic>{'entries': entries});
+    WorkingCopyStatus.fromJson(<String, dynamic>{
+      'entries': entries,
+      'lineCountsUnavailable': false,
+    });
 
 GbmEvent _diffReadyEvent(String path, {required bool staged}) => GbmEvent(
   GbmEventType.workingCopyDiffReady,

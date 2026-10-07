@@ -178,10 +178,9 @@ GitResult<GraphSnapshotPtr> HistoryProvider::walk(const HistoryQuery& query,
     GBM_ASSERT_NOT_UI_THREAD();
 
     GitCommand command(paths_.commandDir(), query.toRevListArgs());
-    // No timeout: on a cold 500k-commit repository this legitimately takes
-    // seconds. Cancellation is the control the user actually needs.
-    command.timeout = std::chrono::milliseconds(0);
-    command.idleTimeout = GitCommand::kHangCeiling;
+    // ~~No timeout~~: on a cold 500k-commit repository this legitimately takes
+    // seconds. Cancellation is the control the user actually needs; since
+    // 2026-10-07 it also runs under the local ceiling (effectiveDeadlines()).
 
     GraphBuilder builder(GraphOptions{.trunkTip = query.trunkTip});
     std::size_t malformedLines = 0;

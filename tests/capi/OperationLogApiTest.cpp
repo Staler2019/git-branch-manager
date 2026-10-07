@@ -158,6 +158,43 @@ TEST_F(OperationLogApiTest, HistoryRefreshEmitsOperationLogRecordsForItsGitInvoc
     EXPECT_TRUE(sawGitInvocation);
 }
 
+// attachPendingCounts runs `git status` inside every linked worktree, so those
+// records carry the worktree's own path, not this session's work tree. They
+// used to be dropped by an exact string match against the work tree alone --
+// a failing status in a linked worktree left nothing in the log.
+TEST_F(OperationLogApiTest, AStatusRunInALinkedWorktreeReachesTheSession) {
+    const std::filesystem::path linked = repo_.parent_path() / (repo_.filename().string() + "-linked");
+    std::error_code ec;
+    std::filesystem::remove_all(linked, ec);
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "linked", linked.string()}), 0);
+
+    gbm_worktree_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKTREES_UPDATED) return true;
+        }
+        return false;
+    }));
+    gbm_worktree_request_pending_counts(session_);
+    ASSERT_TRUE(log_.waitFor([&](const auto& events) {
+        int updates = 0;
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKTREES_UPDATED) ++updates;
+        }
+        return updates >= 2;
+    }));
+
+    const std::vector<std::string> records = log_.payloadsOfType(GBM_EVENT_OPERATION_LOG_RECORD);
+    // The tail only: git reports a worktree by its resolved path, so on macOS
+    // the record says /private/var/... where this fixture built /var/...
+    const std::string needle = jsonNeedle(linked.filename()) + "\",";
+    const bool sawLinked = std::any_of(records.begin(), records.end(), [&](const std::string& record) {
+        return record.find(needle) != std::string::npos && record.find("\"status\"") != std::string::npos;
+    });
+    EXPECT_TRUE(sawLinked) << "no status record for " << linked.string();
+    std::filesystem::remove_all(linked, ec);
+}
+
 // The reported defect, end to end across the FFI: reading a repository's local
 // git identity when none is configured wrote two red ERROR rows into the
 // operation log on every single refresh.
@@ -185,8 +222,10 @@ TEST_F(OperationLogApiTest, ReadingAnUnsetLocalIdentityIsRecordedAsBenign) {
     }));
 
     const std::vector<std::string> records = log_.payloadsOfType(GBM_EVENT_OPERATION_LOG_RECORD);
+    // The finished record: the running one taken at spawn carries no exit code.
     const auto isTheIdentityRead = [](const std::string& record) {
-        return record.find("\"--get\",\"user.name\"") != std::string::npos;
+        return record.find("\"--get\",\"user.name\"") != std::string::npos &&
+               record.find("\"running\":false") != std::string::npos;
     };
     const auto identityRead = std::find_if(records.begin(), records.end(), isTheIdentityRead);
     ASSERT_NE(identityRead, records.end()) << "no `config --local --get user.name` was recorded";

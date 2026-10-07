@@ -35,7 +35,10 @@ H3 非 git 錯誤（今天不進 Log）、H4 Log 被清空。本輪沒有在使�
    指令的實際時限。
 5. C3：Working Copy 內一行提示。D3：新增 RUNNING 字樣、最後面不寫「執行中」；時限欄與欄名列各是
    Developer 裡的獨立開關；Developer 分組依畫面區域命名，不帶 branch 名。
-6. CI 可用，但不得併回 main：draft PR #177 `[DO NOT MERGE]`，不 merge、不 mark ready。
+6. ~~CI 可用，但不得併回 main：draft PR #177 `[DO NOT MERGE]`，不 merge、不 mark ready。~~
+   **更正（使用者 2026-10-07 後續裁定）**：「i want to merge without a draft」——PR #177 改為一般 PR
+   （拿掉 `[DO NOT MERGE]`、mark ready），由使用者在 CI 全綠後自行 merge；`main` 的 ruleset 要求
+   全部 status check 通過，merge 方式限 merge／rebase。
 
 ## Action
 

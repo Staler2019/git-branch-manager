@@ -273,6 +273,11 @@ std::filesystem::path pathFromUtf8(std::string_view utf8) {
         std::u8string(reinterpret_cast<const char8_t*>(utf8.data()), utf8.size()));
 }
 
+std::string utf8FromPath(const std::filesystem::path& path) {
+    const std::u8string utf8 = path.u8string();
+    return std::string(utf8.begin(), utf8.end());
+}
+
 std::optional<std::string> readSmallFile(const std::filesystem::path& path, std::size_t maxBytes) {
     std::error_code ec;
     const auto size = std::filesystem::file_size(longPathSafe(path), ec);

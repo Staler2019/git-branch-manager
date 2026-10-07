@@ -1,5 +1,6 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
+#include "core/base/FsUtil.h"
 #include "core/base/ObjectId.h"
 #include "core/base/WalkTiming.h"
 #include "core/git/AskpassHelper.h"
@@ -26,6 +27,21 @@ namespace gbm {
 namespace {
 
 // --- ObjectId --------------------------------------------------------------
+
+// The inverse of pathFromUtf8: a path built from wide characters comes back
+// as the UTF-8 bytes the Dart side and git both speak, never the active code
+// page's. On Windows `.string()` would throw for these characters under a
+// Western code page and garble them under CP950; elsewhere both are UTF-8,
+// so the Windows half of this is only refutable on Windows CI.
+TEST(FsUtilUtf8, AChinesePathComesBackAsTheSameUtf8Bytes) {
+    const std::string utf8 = "\xE6\xB8\xAC\xE8\xA9\xA6/\xE5\xB7\xA5\xE4\xBD\x9C\xE6\xA8\xB9";  // 測試/工作樹
+    EXPECT_EQ(fsutil::utf8FromPath(fsutil::pathFromUtf8(utf8)), utf8);
+    EXPECT_EQ(fsutil::utf8FromPath(std::filesystem::path(u8"\u6E2C\u8A66")), "\xE6\xB8\xAC\xE8\xA9\xA6");
+}
+
+TEST(FsUtilUtf8, AnEmptyPathIsAnEmptyString) {
+    EXPECT_EQ(fsutil::utf8FromPath({}), "");
+}
 
 TEST(ObjectId, ParsesSha1AndSha256) {
     const std::string sha1 = "0123456789abcdef0123456789abcdef01234567";

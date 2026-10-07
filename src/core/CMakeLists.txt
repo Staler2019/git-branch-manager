@@ -20,6 +20,7 @@ add_library(gbm_core STATIC
     git/GitCommand.cpp
     git/GitExecutable.cpp
     git/HistoryProvider.cpp
+    git/OperationLogScope.cpp
     git/OperationRunner.cpp
     git/OriginalOperationMessage.cpp
     git/PreparedCommitMessage.cpp

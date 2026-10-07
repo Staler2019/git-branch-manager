@@ -4,6 +4,7 @@
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
+#include "core/git/OperationLogScope.h"
 #include "core/git/OriginalOperationMessage.h"
 #include "core/git/TextTraits.h"
 #include "core/git/ops/CheckoutOp.h"
@@ -1168,7 +1169,18 @@ void Session::publishOperationLogRecord(const OperationRecord& record) {
 void Session::dispatchOperationLogRecord(const OperationRecord& record) {
     std::lock_guard<std::mutex> lock(liveSessionsMutex());
     for (Session* session : liveSessions()) {
-        if (fsutil::utf8FromPath(session->paths_.workDir()) == record.repoDir) {
+        // Its own directory, plus every linked worktree it last listed:
+        // attachPendingCounts runs `git status` in each of those, and an
+        // exact string match against the work tree alone used to drop them.
+        // auxMutex_ is never held across a git invocation, so taking it under
+        // liveSessionsMutex() cannot invert a lock order.
+        std::vector<std::filesystem::path> dirs{session->paths_.commandDir()};
+        if (const WorktreeListPtr worktrees = session->currentWorktrees()) {
+            for (const WorktreeInfo& worktree : *worktrees) {
+                dirs.push_back(worktree.path);
+            }
+        }
+        if (recordBelongsToSession(record.repoDir, dirs)) {
             session->publishOperationLogRecord(record);
         }
     }

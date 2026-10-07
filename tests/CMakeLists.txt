@@ -20,6 +20,7 @@ add_executable(gbm_core_tests
     unit/GraphBuilderTest.cpp
     unit/InitCloneOpsTest.cpp
     unit/MaintenanceOpsTest.cpp
+    unit/OperationLogScopeTest.cpp
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp

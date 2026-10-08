@@ -51,6 +51,7 @@ add_library(gbm_core STATIC
     git/ops/RemoteOps.cpp
     git/ops/ResetOps.cpp
     git/ops/RevertOps.cpp
+    git/ops/SquashMessageOps.cpp
     git/ops/StageOps.cpp
     git/ops/StashOps.cpp
     git/ops/SubmoduleOps.cpp

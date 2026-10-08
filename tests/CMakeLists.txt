@@ -30,6 +30,7 @@ add_executable(gbm_core_tests
     unit/RevertOpsTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/SpawnCostVerdictTest.cpp
+    unit/SquashMessageOpsTest.cpp
     unit/WorkingCopyStatusReadTest.cpp
     unit/WorktreeCreatedAtTest.cpp
     unit/WorktreePendingCountTest.cpp

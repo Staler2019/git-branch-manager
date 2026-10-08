@@ -34,6 +34,7 @@
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/SubmoduleOps.h"
@@ -5791,6 +5792,49 @@ TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
     ASSERT_TRUE(result) << result.error().message;
     EXPECT_FALSE(result->timedOut);
     EXPECT_EQ(result->out, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+}
+
+// Ruling ⑨: the Merge dialog's squash message is git's own SQUASH_MSG, shown
+// before the squash runs. `git log` reads config the squash walk ignores, so
+// this repo turns on log.abbrevCommit and a .mailmap remapping the author --
+// dropping either guard flag turns this red -- and puts a merge commit in the
+// range. The note is there too, but measured harmless: an explicit --pretty
+// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule: exact, apart from at most one
+// trailing newline ([CPP-run-not-byte-exact]).
+TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));
+    writeFile("a.txt", "a\n");
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "Add a", "-m", "Body line one.\n\nBody line two."}));
+    ASSERT_TRUE(run({"notes", "add", "-m", "a note git log would print", "HEAD"}));
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
+    commitFile("b.txt", "b\n", "Add b on a side branch");
+    ASSERT_TRUE(run({"checkout", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "--no-edit", "side"}));
+    ASSERT_TRUE(run({"checkout", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "Main moves on");
+
+    ASSERT_TRUE(run({"config", "log.abbrevCommit", "true"}));
+    // Untracked on purpose: git log reads the work tree's .mailmap either way,
+    // and a tracked one would itself be part of the squash.
+    writeFile(".mailmap", "Mapped Name <mapped@example.invalid> <test@example.invalid>\n");
+
+    SquashMessageStore store(*runner_, paths_);
+    auto preview = store.preview("feature", CancellationToken{});
+    ASSERT_TRUE(preview) << preview.error().message;
+
+    ASSERT_TRUE(run({"merge", "--squash", "feature"}));
+    std::ifstream in(repo_ / ".git" / "SQUASH_MSG", std::ios::binary);
+    ASSERT_TRUE(in.good());
+    std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    std::string got = preview->message;
+    if (got.size() + 1 == onDisk.size() && onDisk.back() == '\n') got.push_back('\n');
+    if (onDisk.size() + 1 == got.size() && got.back() == '\n') got.pop_back();
+    EXPECT_EQ(got, onDisk);
+    EXPECT_NE(preview->message.find("Merge: "), std::string::npos)
+        << "the merge commit in the range is part of the fixture";
 }
 
 }  // namespace

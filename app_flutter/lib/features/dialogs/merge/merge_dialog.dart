@@ -9,11 +9,10 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
-import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 import '../../../widgets/gbm_ref_picker.dart';
-import '../../../widgets/lucide_icon.dart';
+import '../../../widgets/gbm_ref_read_only_field.dart';
 
 /// git's own default title for merging [source] into [currentBranch] --
 /// git is the authority; this only copies its rule so the dialog can show
@@ -158,10 +157,12 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             // already chose is drawn `ro` instead -- re-asking for what the
             // user just clicked is the defect this replaced.
             if (source != null)
-              _BranchReadOnlyField(
+              GbmRefReadOnlyField(
                 label: '來源分支',
                 name: source,
-                isRemote: _isRemote(session, source),
+                kind: _isRemote(session, source)
+                    ? GbmRefKind.remoteBranch
+                    : GbmRefKind.localBranch,
               )
             else ...<Widget>[
               Text(
@@ -186,10 +187,10 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
               ),
             ],
             const SizedBox(height: GbmSpacing.space2),
-            _BranchReadOnlyField(
+            GbmRefReadOnlyField(
               label: '合入',
               name: currentBranch,
-              isRemote: false,
+              kind: GbmRefKind.localBranch,
             ),
             const SizedBox(height: GbmSpacing.space3),
             RadioGroup<MergeMode>(
@@ -261,45 +262,6 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// A branch drawn as DLGS's `ro` field: [GbmDialogReadOnlyField] with the
-/// name in mono (`mono: true` on both rows) and the same kind icon the
-/// picker's rows use, so a locked field reads as the row it replaced.
-class _BranchReadOnlyField extends StatelessWidget {
-  const _BranchReadOnlyField({
-    required this.label,
-    required this.name,
-    required this.isRemote,
-  });
-
-  final String label;
-  final String name;
-  final bool isRemote;
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    final GbmRefKind kind = isRemote
-        ? GbmRefKind.remoteBranch
-        : GbmRefKind.localBranch;
-    return GbmDialogReadOnlyField(
-      label: label,
-      child: Row(
-        children: <Widget>[
-          LucideIcon(kind.iconName, size: 12, color: colors.textTertiary),
-          const SizedBox(width: GbmSpacing.space2),
-          Expanded(
-            child: Text(
-              name,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontFamily: GbmTypography.fontMono),
-            ),
-          ),
-        ],
       ),
     );
   }

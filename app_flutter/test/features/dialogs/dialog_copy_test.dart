@@ -641,10 +641,12 @@ void main() {
       _expectAll(<String>['Rebase', 'Cancel', 'Start rebase']);
     });
 
-    testWidgets('the lead-in, the dropdown hint and the explanation are '
-        'Chinese', (tester) async {
+    testWidgets('the two field labels and the explanation are Chinese', (
+      tester,
+    ) async {
       await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
-      expect(find.text('重新安置 main 到：'), findsOneWidget);
+      // DLGS: `ro 重新安置` then `focus 基於` (merge-rebase-dialogs-spec 03).
+      expect(find.text('重新安置'), findsOneWidget);
       expect(find.text('基於'), findsOneWidget);
       expect(find.textContaining('Rebase 會重寫 main 的 commit'), findsOneWidget);
       expect(find.textContaining('Replay the commits'), findsNothing);
@@ -752,18 +754,16 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the target dropdown is 30px tall with a r6 border (G4)', (
-      tester,
-    ) async {
+    testWidgets('the target picker search box is 30px tall (G4), and no '
+        'Material dropdown is left', (tester) async {
       await _pump(tester, const RebaseOntoDialogContent(identity: _identity));
 
-      final Finder finder = find.byType(DropdownButtonFormField<String>);
-      expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
-      final DropdownButtonFormField<String> dropdown = tester
-          .widget<DropdownButtonFormField<String>>(finder);
-      final OutlineInputBorder border =
-          dropdown.decoration.border! as OutlineInputBorder;
-      expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+      final Finder search = find.descendant(
+        of: find.byType(GbmRefPicker),
+        matching: find.byType(TextField),
+      );
+      expect(tester.getSize(search).height, GbmSpacing.inputHeight);
     });
   });
 

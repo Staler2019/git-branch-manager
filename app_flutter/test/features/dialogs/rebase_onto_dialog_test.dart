@@ -102,9 +102,7 @@ void main() {
     'on, autosquash off',
     (tester) async {
       final FakeRepoSessionController fake = await _pump(tester);
-      await tester.tap(find.byType(DropdownButtonFormField<String>));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('release/0.5').last);
+      await tester.tap(find.text('release/0.5'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Start rebase'));
@@ -120,9 +118,7 @@ void main() {
     tester,
   ) async {
     final FakeRepoSessionController fake = await _pump(tester);
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('release/0.5').last);
+    await tester.tap(find.text('release/0.5'));
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('自動 squash 標記過的 fixup commit'));

@@ -16,6 +16,8 @@ import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.da
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
+import 'package:gbm_flutter/widgets/gbm_ref_picker.dart';
 
 import '../../support/fake_repo_session.dart';
 
@@ -127,7 +129,46 @@ void main() {
   });
 
   group('RebaseOntoDialogContent', () {
-    testWidgets('pre-selects a branch target that is already an option', (
+    // merge-rebase-dialogs-spec.html 03-B / 03-C (rulings ①): a target the
+    // caller already chose is drawn read-only -- the user is never asked
+    // again for what they just right-clicked.
+    testWidgets('locks a branch target read-only, with no picker', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        RebaseOntoDialogContent(identity: _identity, target: 'feature'),
+      );
+      expect(find.byType(GbmRefPicker), findsNothing);
+      expect(find.byType(DropdownButtonFormField<String>), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(GbmDialogReadOnlyField),
+          matching: find.text('feature'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('locks a commit oid target read-only, abbreviated', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        RebaseOntoDialogContent(identity: _identity, target: _oid),
+      );
+      expect(tester.takeException(), isNull);
+      expect(find.byType(GbmRefPicker), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byType(GbmDialogReadOnlyField),
+          matching: find.text('commit ${_oid.substring(0, 8)}'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('draws the current branch as the read-only 重新安置 row', (
       tester,
     ) async {
       await _pump(
@@ -135,40 +176,23 @@ void main() {
         RebaseOntoDialogContent(identity: _identity, target: 'feature'),
       );
       expect(
-        tester
-            .widget<DropdownButtonFormField<String>>(
-              find.byType(DropdownButtonFormField<String>),
-            )
-            .initialValue,
-        'feature',
+        find.descendant(
+          of: find.byType(GbmDialogReadOnlyField),
+          matching: find.text('main'),
+        ),
+        findsOneWidget,
       );
     });
 
-    testWidgets('adds a commit oid as its own option rather than dropping '
-        'a target the user explicitly picked', (tester) async {
-      // The dropdown lists branches only; without the synthetic entry
-      // DropdownButtonFormField asserts on an initialValue that is not
-      // among its items.
-      await _pump(
-        tester,
-        RebaseOntoDialogContent(identity: _identity, target: _oid),
-      );
-      expect(tester.takeException(), isNull);
-      expect(find.text('commit ${_oid.substring(0, 8)}'), findsOneWidget);
-    });
-
-    testWidgets('leaves Start rebase disabled with no target at all', (
+    testWidgets('offers GbmRefPicker, with nothing picked, with no target', (
       tester,
     ) async {
       await _pump(tester, RebaseOntoDialogContent(identity: _identity));
-      expect(
-        tester
-            .widget<DropdownButtonFormField<String>>(
-              find.byType(DropdownButtonFormField<String>),
-            )
-            .initialValue,
-        isNull,
-      );
+      final GbmRefPicker picker = tester.widget(find.byType(GbmRefPicker));
+      expect(picker.selected, isNull);
+      expect(picker.entries.map((GbmRefPickerEntry e) => e.name), <String>[
+        'feature',
+      ], reason: 'the current branch cannot be its own upstream');
     });
   });
 }

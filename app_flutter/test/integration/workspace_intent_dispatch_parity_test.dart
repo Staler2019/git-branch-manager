@@ -54,11 +54,11 @@ const List<String> _tier1Commands = <String>[
   'refreshWorkingCopy',
 ];
 
-/// The eight tier-2 members. Split from [_tier1Commands] rather than one
+/// The tier-2 members. Split from [_tier1Commands] rather than one
 /// flat list for the same reason `workspace_focus_refresh_test.dart` splits
-/// its own sweep assertion: asserting all twelve right after a keypress,
+/// its own sweep assertion: asserting the whole sweep right after a keypress,
 /// with nothing having driven tier 2, would either be a false claim about
-/// the eight or a fixture-dependent pass -- see that file's "before pump"
+/// tier 2 or a fixture-dependent pass -- see that file's "before pump"
 /// test for the same shape.
 const List<String> _tier2Commands = <String>[
   'refreshStashes',
@@ -67,8 +67,6 @@ const List<String> _tier2Commands = <String>[
   'refreshSubmodules',
   'refreshBisectStatus',
   'refreshLfs',
-  'refreshLocalIdentity',
-  'refreshEffectiveIdentity',
 ];
 
 /// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept
@@ -209,8 +207,8 @@ void main() {
     // GBM_EVENT_WORKING_COPY_STATUS_UPDATED, which the fake's
     // refreshWorkingCopy() override never actually sends, so on this
     // fake-backed path tier 2 only ever arrives via kDeferredRefreshFallback
-    // -- asserting all twelve right after `pumpAndSettle()` would either be
-    // a false claim about the eight, or (worse) pass by accident if
+    // -- asserting the whole sweep right after `pumpAndSettle()` would either be
+    // a false claim about tier 2, or (worse) pass by accident if
     // `pumpAndSettle()` happened to burn through the fallback's real time.
     testWidgets('F5 (Refresh) immediately re-reads the four tier-1 facts', (
       WidgetTester tester,

@@ -1151,6 +1151,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _readRepoState();
     refreshHistory();
     refreshWorkingCopy();
+    // Read here, once, rather than in [refreshRepoStatus]'s sweep: identity
+    // moves only when someone edits git config, and its one always-on-screen
+    // reader is the commit graph's "my commits" email. Repository Settings
+    // re-reads both when it opens, and set/clear re-read them on completion.
+    refreshLocalIdentity();
+    refreshEffectiveIdentity();
 
     // Record this repo as recently opened (fire-and-forget)
     unawaited(_recents.recordOpen(_identity.workDir));
@@ -2287,9 +2293,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// neither maintains its own list of what that means.
   ///
   /// Membership is a rule, not a hand-picked list: **every zero-argument
-  /// `refresh*` on this controller**. That makes "does the new one belong
-  /// here" a question with an answer rather than something rediscovered by
-  /// the next audit. The `request*` methods are all excluded because they
+  /// `refresh*` on this controller**, ~~full stop~~ except those whose state
+  /// has a reader that already reads it at its own moment and nothing else
+  /// on screen -- [refreshLocalIdentity] and [refreshEffectiveIdentity] are
+  /// read once in [_open] (the commit graph's "my commits" email) and again
+  /// when Repository Settings opens; identity moves only when someone edits
+  /// git config, which a focus regain does not imply. That makes "does the
+  /// new one belong here" a question with an answer rather than something
+  /// rediscovered by the next audit. The `request*` methods are all excluded because they
   /// are keyed to a user selection (a path, an oid, a ref, a stash index)
   /// that need not exist when the window comes back; the three with no
   /// required argument are excluded for their own reasons --
@@ -2326,7 +2337,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshHistory();
     refreshWorkingCopy();
     if (!refreshFlags.tieredRefresh) {
-      // Off reproduces exactly what shipped before tiering: all twelve,
+      // Off reproduces exactly what shipped before tiering: ~~all twelve~~
+      // the whole sweep,
       // inline, in the same order they always ran in. No timer, no
       // [RefreshTimings.backgroundDoneAt] stamp -- that field stays null,
       // which is the pre-tiering behaviour this flag exists to restore.
@@ -2356,11 +2368,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _tier2Timer = Timer(kDeferredRefreshFallback, _dispatchTier2Members);
   }
 
-  /// The eight tier-2 refreshes, in the same relative order they always ran
+  /// The ~~eight~~ tier-2 refreshes, in the same relative order they always ran
   /// in before tiering. Bare list with no stamping or dispatch bookkeeping
   /// of its own -- both the untiered fallback in [refreshRepoStatus] and the
   /// real tiered path in [_dispatchTier2Members] call this, so there is one
-  /// place that names the eight rather than two lists that can drift apart.
+  /// place that names ~~the eight~~ them rather than two lists that can drift apart.
   void _callTier2Members() {
     refreshStashes();
     refreshWorktrees();
@@ -2368,8 +2380,6 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshSubmodules();
     refreshBisectStatus();
     refreshLfs();
-    refreshLocalIdentity();
-    refreshEffectiveIdentity();
   }
 
   /// Actually dispatches tier 2 for the sweep in flight, from whichever
@@ -2389,9 +2399,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// already fired finds that check `true` and arms nothing at all.
   ///
   /// Stamps [RefreshTimings.backgroundDoneAt] at *dispatch*, not at
-  /// completion of the eight replies it triggers -- a true per-member
+  /// completion of the ~~eight~~ replies it triggers -- a true per-member
   /// completion signal would need a generation-scoped counter distinguishing
-  /// this sweep's own eight replies from an unrelated manual refresh (e.g.
+  /// this sweep's own ~~eight~~ replies from an unrelated manual refresh (e.g.
   /// `Tools -> Worktrees` while a sweep is also in flight) landing on the
   /// same session, which is out of this round's scope. So the stamp answers
   /// "tier 2 has been asked for", not "tier 2's data has all arrived".
@@ -3267,7 +3277,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// **`request*`, not `refresh*`, and the name is the point.**
   /// [refreshRepoStatus]'s doc makes membership of the focus-regain / F5
   /// sweep a *rule* rather than a list: every zero-argument `refresh*` on
-  /// this controller is in it. This call is keyed to the worktrees panel
+  /// this controller is in it, bar the exceptions that doc names. This call is keyed to the worktrees panel
   /// being open -- a selection that need not still exist when the window
   /// comes back -- so it belongs to the excluded `request*` family, and
   /// naming it that way makes the exclusion structural instead of a comment

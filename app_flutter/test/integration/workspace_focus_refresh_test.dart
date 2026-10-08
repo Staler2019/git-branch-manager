@@ -45,6 +45,14 @@ const List<String> _tier2Commands = <String>[
   'refreshSubmodules',
   'refreshBisectStatus',
   'refreshLfs',
+];
+
+/// Zero-argument `refresh*`s that are deliberately *not* in the sweep: each
+/// has its own read moment and nothing else on screen needs it fresher.
+/// Identity is read when the repository opens (the commit graph's "my
+/// commits" email) and when Repository Settings opens; it changes only when
+/// the user edits git config, which is not something a focus regain implies.
+const List<String> _notInSweepCommands = <String>[
   'refreshLocalIdentity',
   'refreshEffectiveIdentity',
 ];
@@ -220,20 +228,21 @@ void main() {
   });
 
   // The sweep's membership rule is "every zero-argument refresh* on the
-  // controller", and this is what holds it to that: a new refresh* added
+  // controller" ~~, and this is what holds it to that~~ -- except the ones in
+  // [_notInSweepCommands], which this also holds at zero: a new refresh* added
   // later without being wired in shows up here as a missing name rather
   // than as a surface someone notices is stale months on.
   //
   // Counted rather than `any`, for the same reason the tests above are:
-  // `any` cannot see a double dispatch, and twelve refreshes fired twice
+  // `any` cannot see a double dispatch, and the whole sweep fired twice
   // per alt-tab is exactly the regression this file exists to catch.
   //
   // Split into tier 1 / tier 2 (fix/refresh-ui-first-tiering, C4): tier 2 is
   // deferred until GBM_EVENT_WORKING_COPY_STATUS_UPDATED lands (consumed in
-  // `publishWorkingCopyStatus`), so asserting all twelve immediately after
-  // `_leaveAndReturn` would be a false claim about the eight -- this half is
+  // `publishWorkingCopyStatus`), so asserting the whole sweep immediately after
+  // `_leaveAndReturn` would be a false claim about tier 2 -- this half is
   // also the negative case advisor flagged: a sweep genuinely in flight,
-  // with tier 2 not yet triggered, must show the eight at 0, not just an
+  // with tier 2 not yet triggered, must show tier 2 at 0, not just an
   // unrelated status update with no sweep running at all (that second case
   // is covered directly at the controller level in
   // repo_session_working_copy_diffs_test.dart).
@@ -293,6 +302,13 @@ void main() {
           _count(pumped.controller.commandLog, name),
           1,
           reason: '$name must fire exactly once per focus regain',
+        );
+      }
+      for (final String name in _notInSweepCommands) {
+        expect(
+          _count(pumped.controller.commandLog, name),
+          0,
+          reason: '$name has its own read moment and is not in the sweep',
         );
       }
     },

@@ -546,12 +546,10 @@ void main() {
       'refreshSubmodules',
       'refreshBisectStatus',
       'refreshLfs',
-      'refreshLocalIdentity',
-      'refreshEffectiveIdentity',
     ];
 
     test('an ordinary status update with no sweep pending fires none of the '
-        'eight tier-2 members', () async {
+        'tier-2 members', () async {
       final FakeRepoSessionController c = _controller();
       // An unrelated stage/unstage/discard/commit publishes a status too,
       // with no refreshRepoStatus() sweep in flight -- this is the
@@ -571,7 +569,7 @@ void main() {
     });
 
     test('once a sweep is in flight, the same status update dispatches all '
-        'eight tier-2 members and stamps backgroundDoneAt', () async {
+        'tier-2 members and stamps backgroundDoneAt', () async {
       final FakeRepoSessionController c = _controller();
 
       c.refreshRepoStatus();
@@ -609,7 +607,7 @@ void main() {
       }
     });
 
-    test('appPrefs.tieredRefresh off dispatches all twelve inline, with no '
+    test('appPrefs.tieredRefresh off dispatches the sweep inline, with no '
         'backgroundDoneAt stamp', () {
       final FakeRepoSessionController c = _controller();
       c.refreshFlags = const RefreshFlags(tieredRefresh: false);

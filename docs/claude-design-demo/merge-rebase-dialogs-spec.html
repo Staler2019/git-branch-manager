@@ -1,0 +1,805 @@
+<title>Merge Rebase Dialogs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Deliberately namespaced away from the mockup tokens (--gbm-*)
+   so the document's cascade can never bleed into the specimens.
+   Light is the bare :root; dark is redefined in two guarded
+   places so the un-stamped "system" state resolves too.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+td.was { font-family: "JetBrains Mono", "PingFang TC", ui-monospace, monospace; color: var(--pg-ink-2); }
+td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg-ink); }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.no  { color: var(--pg-good); }
+.verdict.yes { color: var(--pg-bad); }
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1060px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.75rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   docs/design/tokens-reference.md. Three themes, switchable,
+   because the dialog must hold in all three.
+   ============================================================ */
+.stage {   /* tokens live ONLY here: a .mock redeclaring them would override
+             what it inherits from the themed stage and pin every specimen
+             to light -- same specificity, and .mock sits deeper. */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#eaf1fe;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#c97a17;
+ 
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-selected:#0d2a4d;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#d29922;
+ 
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#e4edfd;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-warning:#9a6700;
+ 
+}
+
+/* ============================================================
+   THE SPECIMEN.  Every declaration is quoted from one of three
+   spec sources, named in the comment beside it:
+     [KIT]  the .gbm-* component CSS  ("safe to reuse directly
+            in UI kit screens" -- its own comment)
+     [P6]   P6's shared-shell prose
+     [P17]  spec_logic.js dlgFields()/dlgGroup(), the field
+            vocabulary the eleven P17 dialogs are drawn from
+   Anything with no source is listed in section 04 as inferred.
+   ============================================================ */
+
+/* --- shell: .gbm-panel-raised [KIT] + P6's 480 --- */
+.gbm-dialog-shell {
+  width: 480px; max-width: 100%; flex: 0 0 auto;          /* [P6] 對話框最寬 480px */
+  background: var(--gbm-surface-panel-raised);             /* [P6] .gbm-panel-raised */
+  border: 1px solid var(--gbm-border-default);             /* [P6] mock's inline border */
+  border-radius: 10px;                                     /* [KIT] --radius-lg */
+  box-shadow: 0 4px 12px rgba(0,0,0,.28);                  /* [KIT] --shadow-md, per .gbm-panel-raised */
+  font-family: "Inter", sans-serif;
+  color: var(--gbm-text-primary);
+  overflow: hidden;
+}
+
+/* --- title bar: .mkbar [P17] -- raised ground + bottom rule --- */
+.mkbar {                                                   /* [P6] padding:12px 15px; border-bottom */
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 15px;
+  border-bottom: 1px solid var(--gbm-border-subtle);
+}
+.mkbar__title {
+  flex: 1 1 auto; min-width: 0;                            /* [P17] flex:1 */
+  font-size: 13px; font-weight: 600; line-height: 1.25;    /* [P6] font-size:13px; font-weight:600 */
+  color: var(--gbm-text-primary);
+}
+.kbd {                                                      /* [KIT] .kbd */
+  font-family: "JetBrains Mono", monospace; font-size: 10.5px;
+  color: var(--gbm-text-primary); background: var(--gbm-surface-sunken);
+  border: 1px solid var(--gbm-border-default); border-radius: 4px;
+  padding: 1px 5px; white-space: nowrap; flex: 0 0 auto;
+}
+
+/* --- content: [P6] 16px padding, 欄位垂直排列（單欄） --- */
+.dlg-body { padding: 14px 15px; display: flex; flex-direction: column; gap: 11px; }  /* [P6] */
+
+/* --- one field group: [P17] column, gap 4, label / control / hint --- */
+.fld { display: flex; flex-direction: column; gap: 4px; }  /* [P17] gap:4px */
+.fld__label { font-size: 11px; color: var(--gbm-text-secondary); line-height: 1.5; }  /* [P6] */
+.fld__ctl { display: flex; align-items: flex-start; gap: 8px; }                       /* [P17] gap:8px */
+.fld__hint { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.6; }    /* [P17] hint */
+
+/* --- box kinds, all [P17] dlgFields() --- */
+.box {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 12px;                            /* [KIT] .gbm-input h30 pad 0/12 */
+  font-size: 12.5px;                                        /* [KIT] --text-sm */
+  border: 1px solid var(--gbm-border-default);              /* [P17] border-default */
+  border-radius: 6px;                                       /* [P17] --radius-md */
+  background: var(--gbm-surface-panel);
+  color: var(--gbm-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.box--focus { border-color: var(--gbm-accent); }                                        /* [P17] k:'focus' */
+.box--ro    { background: var(--gbm-surface-sunken); color: var(--gbm-text-secondary); }/* [P17] k:'ro' */
+.box--list  { background: var(--gbm-surface-sunken); height: auto; padding: 7px 9px;    /* [P17] k:'list' */
+              display: block; white-space: normal; }
+.box--mono  { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }            /* [P17] mono:true */
+.box.is-disabled { opacity: .45; }
+.box .ph { color: var(--gbm-text-tertiary); }
+.box .ic { color: var(--gbm-text-tertiary); flex: 0 0 auto; display: flex; }
+.box .val { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- radio / checkbox marks: [P17] dlgFields() mark, at KIT's 15px --- */
+.opt { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.5; }
+.opt__mark { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; background: var(--gbm-surface-panel); }
+.opt--radio .opt__mark { border-radius: 999px; border: 1.5px solid var(--gbm-border-strong); }
+.opt--radio[data-on="1"] .opt__mark { border: 4px solid var(--gbm-accent); }   /* [P17] on = thick accent ring, not a dot */
+.opt--chk .opt__mark { border-radius: 3px; border: 1.5px solid var(--gbm-border-strong); }
+.opt--chk[data-on="1"] .opt__mark {
+  background: var(--gbm-accent); border-color: var(--gbm-accent);
+  display: grid; place-items: center;
+}
+.opt--chk[data-on="1"] .opt__mark::after {
+  content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff;
+  transform: rotate(-45deg) translate(1px, -1px);
+}
+
+/* --- warn field: [P17] surface-sunken + 2px --warning left rail. NOT .gbm-banner-warning --- */
+.warn {
+  flex: 1 1 auto;
+  font-size: 12.5px; line-height: 1.65;
+  color: var(--gbm-text-secondary);
+  background: var(--gbm-surface-sunken);
+  border: 1px solid var(--gbm-border-subtle);
+  border-left: 2px solid var(--gbm-warning);
+  border-radius: 6px;
+  padding: 8px 9px;
+}
+/* --- note: [P17] k:'note', no box --- */
+.note { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.7; }
+
+/* --- ref picker: search box + inline list. Row = .gbm-row [KIT] --- */
+.picker { display: flex; flex-direction: column; gap: 8px; }
+.picker__list {
+  max-height: 118px; overflow: hidden;
+  border: 1px solid var(--gbm-border-subtle); border-radius: 6px;
+  background: var(--gbm-surface-sunken); padding: 3px;      /* [P17] k:'list' background */
+}
+.gbm-row {
+  display: flex; align-items: center; gap: 8px;
+  height: 26px; padding: 0 9px; border-radius: 4px;         /* [KIT] --row-h-compact, --radius-sm */
+  font-size: 12.5px; color: var(--gbm-text-primary);
+}
+.gbm-row.selected { background: var(--gbm-surface-selected); }
+.gbm-row .ic { color: var(--gbm-text-tertiary); flex: 0 0 auto; display: flex; }
+.gbm-row .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbm-row .an { font-size: 11px; color: var(--gbm-text-tertiary); flex: 0 0 auto; }
+
+.row { display: flex; align-items: center; gap: 8px; }
+.row > .grow { flex: 1 1 auto; min-width: 0; }
+
+/* --- buttons: .gbm-btn + .gbm-btn-sm [KIT]; dlgGroup() uses -sm for BOTH --- */
+.gbm-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 24px; padding: 0 8px; border-radius: 6px;         /* [KIT] .gbm-btn-sm h24 pad 0/8, --radius-md */
+  font-family: inherit; font-size: 11px; font-weight: 500;  /* [KIT] --text-xs */
+  white-space: nowrap; border: 1px solid transparent; cursor: pointer;
+  background: transparent; color: var(--gbm-text-secondary);
+}
+.gbm-btn--secondary {                                        /* [KIT] .gbm-btn-secondary */
+  background: var(--gbm-surface-panel-raised);
+  border-color: var(--gbm-border-default);
+  color: var(--gbm-text-primary);
+}
+.gbm-btn--primary {                                          /* [KIT] .gbm-btn-primary */
+  background: var(--gbm-accent); border-color: var(--gbm-accent);
+  color: var(--gbm-text-on-accent);
+}
+/* --- action row: [P17] border-top, padding-top 11, gap 7, right-aligned --- */
+.dlg-actions {                                             /* [P6] padding:11px 15px; border-top; gap:7px */
+  display: flex; justify-content: flex-end; gap: 7px;
+  padding: 11px 15px;
+  border-top: 1px solid var(--gbm-border-subtle);
+}
+
+.is-cjk { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* callouts */
+.callout {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--pg-surface);
+  padding: 1rem 1.15rem; border-radius: 0 4px 4px 0;
+  margin: 1.5rem 0; max-width: var(--measure);
+}
+.callout.is-warn { border-left-color: var(--pg-warn); }
+.callout__title {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); margin-bottom: .4rem;
+}
+.callout p { margin-bottom: .5rem; }
+
+pre.count {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: var(--step--1); line-height: 1.6;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line);
+  border-radius: 4px; padding: 1rem 1.15rem; overflow-x: auto; margin: 1.25rem 0;
+  color: var(--pg-ink-2);
+}
+pre.count b { color: var(--pg-ink); font-weight: 600; }
+
+ul.plain { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+ul.plain li { margin-bottom: .4rem; }
+
+footer.colophon {
+  margin-top: 5rem; padding-top: 1.5rem;
+  border-top: var(--rail) solid var(--pg-line);
+  font-size: var(--step--1); color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+    .strike { text-decoration: line-through; opacity: .55; font-weight: 600; }
+/* ---- additions for this page ---- */
+.grp {                                                     /* [APP] gbm_ref_picker.dart _EntryRow heading */
+  font-size: 11px; font-weight: 600; letter-spacing: .5px;  /* textXs, weightSemibold, letterSpacing 0.5 */
+  color: var(--gbm-text-tertiary);
+  padding: 8px 0 4px;                                      /* EdgeInsets.only(top: space2, bottom: space1) */
+}
+/* Overrides of the inherited WT specimen, to what the shipped widget draws.
+   This round changes only the target field, so everything else must look
+   like the app does today, not like the WT diagram. */
+.picker__list { border: 0; padding: 8px; max-height: none; }   /* [APP] GbmRefPicker: sunken, r6, no border, pad space2 */
+.gbm-row { padding: 0 8px; }                                  /* [APP] _EntryRow GbmRow horizontal: space2 */
+.box--ro { border-color: transparent; }                       /* [APP] GbmDialogReadOnlyField: no border -- vs DLGS, ruling ⑤ */
+.box--mono { font-size: 12.5px; }                             /* [APP] GbmDialogReadOnlyField textSm; fontMono */
+.box--multi { height: auto; min-height: 52px; align-items: flex-start; padding: 8px 12px; }  /* [APP] maxLines: 2 -- height inferred */
+.warn { font-size: 11px; }                                    /* [APP] GbmDialogWarnField textXs */
+.opt__sub { display: block; font-size: 11px; color: var(--gbm-text-tertiary); }  /* [APP] _ModeOption subtitle textXs tertiary */
+.box--squash .val { white-space: pre-wrap; overflow: visible; }  /* multi-line value; height Inferred (grows to content) */
+/* page chrome (not a specimen): */
+.gbm-btn--primary.is-disabled { color: rgba(255,255,255,.45); }  /* [APP] gbm_button.dart: disabled fg alpha .45 */
+.spec-grid { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1060px) { .spec-grid { grid-template-columns: 1fr 1fr; } }
+.specimen-tag.entry { color: var(--pg-accent); border: var(--rail) solid var(--pg-accent); }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></g></symbol>
+  <symbol id="i-branch" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></g></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></g></symbol>
+  <symbol id="i-commit" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><line x1="3" y1="12" x2="9" y2="12"/><line x1="15" y1="12" x2="21" y2="12"/></g></symbol>
+</svg>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>docs/claude-design-demo</span>
+      <span>2026-10-08</span>
+      <span>feature/mergePanel</span>
+    </div>
+    <h1>Merge &amp; Rebase Dialogs</h1>
+    <p class="standfirst zh">
+      從分支列「⋮」點 <b>Merge into current</b> / <b>Rebase current onto here</b> 時，被點的分支已經是答案，
+      對話框不該再讓人選；從 Branch 選單或快捷鍵進來時才需要選，而選的那個控制項要換成 app 既有的
+      <code>GbmRefPicker</code>，不是 Material 下拉。
+    </p>
+    <div class="status-row">
+      <span class="pill is-ratified">使用者回報 · 分支列進入不該再選</span>
+      <span class="pill is-ratified">使用者回報 · 下拉樣式不對</span>
+      <span class="pill is-ratified">使用者裁定 · Merge 訊息預填</span>
+      <span class="pill is-ratified">使用者裁定 · Merge 來源含 origin</span>
+      <span class="pill is-ratified">使用者裁定 · ①③④⑤⑥⑦ 照建議、⑧ 一起做</span>
+      <span class="pill is-open">⑨ squash 格式待裁定</span>
+      <span class="pill is-open">設計稿通過才開工</span>
+    </div>
+  </header>
+
+  <!-- ============================ 1 ============================ -->
+  <section id="finding">
+    <div class="sec-head"><span class="sec-num">01</span><h2>現況</h2></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:24%">入口</th><th style="width:30%">現在的路由</th><th>對話框裡的分支欄位</th></tr></thead>
+        <tbody>
+          <tr><td>05-B Merge into current</td><td class="now">/dialogs/merge</td><td class="zh"><span class="verdict yes">✗</span> <code>openMergeDialog</code> 不帶分支（<code>branch_row_actions.dart:54</code>），下拉是空的，要自己再選</td></tr>
+          <tr><td>05-B Rebase current onto here</td><td class="now">/dialogs/rebase-onto?target=X</td><td class="zh"><span class="verdict yes">✗</span> 有預填，但仍是可改的下拉</td></tr>
+          <tr><td>05-E Rebase onto here（commit）</td><td class="now">/dialogs/rebase-onto?target=&lt;oid&gt;</td><td class="zh"><span class="verdict yes">✗</span> 同上，oid 被塞成下拉的一個額外選項</td></tr>
+          <tr><td>Branch 選單 / ⇧⌘M · ⇧⌘R</td><td class="now">同上，不帶參數</td><td class="zh"><span class="verdict yes">✗</span> Material <code>DropdownButtonFormField</code>；Checkout / New branch / Add worktree 都已換成 <code>GbmRefPicker</code>，只剩這兩個（加 Delete branch、Prune 兩個不在本輪）</td></tr>
+          <tr><td>Rebase 的「重新安置」</td><td class="now">—</td><td class="zh"><span class="verdict yes">✗</span> 畫成一行說明文字；DLGS 是 <code>ro</code> 欄位</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <pre class="count">規則（本稿提案）
+
+  帶著目標進來（05-B 分支列、05-E commit 列）  → 目標畫成 ro 欄位，<b>不可改</b>
+  沒帶目標（Branch 選單、快捷鍵）              → 目標是 GbmRefPicker（focus 欄位）
+  目前分支                                     → 一律 ro 欄位（DLGS 的「合入」「重新安置」）</pre>
+  </section>
+
+  <!-- ============================ 2 ============================ -->
+  <section id="merge">
+    <div class="sec-head"><span class="sec-num">02</span><h2>Merge Branch</h2></div>
+    <p class="lede zh">DLGS：<code>focus 來源分支</code> → <code>ro 合入</code> → 三個 radio → <code>text Commit 訊息</code>。radio 文案與順序、說明副標、stash 勾選沿用 app 現在畫的（見 04）。本輪動「來源分支」與「Commit 訊息」兩欄：訊息依 DLGS 帶入預設 <code>Merge branch '&lt;來源&gt;'</code>（使用者裁定 2026-10-08：「merge 的 commit 訊息不是可留空，你要先帶入預設樣式」）。</p>
+
+    <div class="stage-controls">
+      <span class="label">App theme</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+      <span class="specimen-note">三套都要成立。</span>
+    </div>
+
+    <div class="spec-grid">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">A · Branch 選單 / ⇧⌘M</span><span class="specimen-note zh">來源要選 → picker · 假設：已選 release/0.5、工作區乾淨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Merge Branch</span><span class="kbd">⇧⌘M</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">來源分支</div>
+                <div class="picker">
+                  <div class="box box--focus"><span class="ic"><svg width="16" height="16"><use href="#i-search"/></svg></span><span class="val ph is-cjk">搜尋分支</span></div>
+                  <div class="picker__list">
+                    <div class="grp">LOCAL BRANCHES</div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="nm">feature/lane-allocator</span></div>
+                    <div class="gbm-row selected"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="nm">release/0.5</span></div>
+                    <div class="grp">REMOTE BRANCHES</div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12"><use href="#i-cloud"/></svg></span><span class="nm">origin/main</span></div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12"><use href="#i-cloud"/></svg></span><span class="nm">origin/feature/lane-allocator</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">合入</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">main</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>只允許 fast-forward<span class="opt__sub">無法 fast-forward 時直接失敗，不建 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="1"><span class="opt__mark"></span><span>Merge commit（保留分支形狀）<span class="opt__sub">即使可以 fast-forward，也一定建立 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>Squash 成一筆<span class="opt__sub">把變更併進來，但不記錄 merge commit。</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">Commit 訊息</div>
+                <div class="fld__ctl"><span class="box box--multi box--mono"><span class="val">Merge branch 'release/0.5'</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>先 stash 未提交的變更</span></div>
+              </div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Merge</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">B · 05-B 分支列 ⋮</span><span class="specimen-note zh">來源已知 → ro，不可改 · 假設：工作區乾淨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Merge Branch</span><span class="kbd">⇧⌘M</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">來源分支</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">feature/lane-allocator</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">合入</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">main</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>只允許 fast-forward<span class="opt__sub">無法 fast-forward 時直接失敗，不建 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="1"><span class="opt__mark"></span><span>Merge commit（保留分支形狀）<span class="opt__sub">即使可以 fast-forward，也一定建立 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>Squash 成一筆<span class="opt__sub">把變更併進來，但不記錄 merge commit。</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">Commit 訊息</div>
+                <div class="fld__ctl"><span class="box box--multi box--mono"><span class="val">Merge branch 'feature/lane-allocator'</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>先 stash 未提交的變更</span></div>
+              </div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Merge</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">C · 選 Squash 時（裁定 ⑧）</span><span class="specimen-note zh">訊息改多行並帶入來源 commit 摘要 · 格式待裁定 ⑨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Merge Branch</span><span class="kbd">⇧⌘M</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">來源分支</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">feature/lane-allocator</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">合入</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">main</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>只允許 fast-forward<span class="opt__sub">無法 fast-forward 時直接失敗，不建 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="0"><span class="opt__mark"></span><span>Merge commit（保留分支形狀）<span class="opt__sub">即使可以 fast-forward，也一定建立 merge commit。</span></span></div>
+                <div class="opt opt--radio is-cjk" data-on="1"><span class="opt__mark"></span><span>Squash 成一筆<span class="opt__sub">把來源的變更合成一筆一般 commit，不記錄 merge commit。</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">Commit 訊息</div>
+                <div class="fld__ctl"><span class="box box--multi box--squash box--mono"><span class="val">Squash merge branch 'feature/lane-allocator'
+
+* Add lane reuse for merged branches
+* Fix lane allocator overflow
+* Draw lane 0 for HEAD only</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>先 stash 未提交的變更</span></div>
+              </div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Merge</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 3 ============================ -->
+  <section id="rebase">
+    <div class="sec-head"><span class="sec-num">03</span><h2>Rebase</h2></div>
+    <p class="lede zh">DLGS：<code>ro 重新安置</code> → <code>focus 基於</code> → 兩個 checkbox → note → warn。現在的說明文字畫成 note（全文照 app）。工作區有變更時 app 另加「先 stash 未提交的變更」勾選，本稿圖都假設乾淨。</p>
+
+    <div class="spec-grid">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">A · Branch 選單 / ⇧⌘R</span><span class="specimen-note zh">基於要選 → picker（local + remote）· 假設：未 push、乾淨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Rebase</span><span class="kbd">⇧⌘R</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">重新安置</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">feature/lane-allocator</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">基於</div>
+                <div class="picker">
+                  <div class="box box--focus"><span class="ic"><svg width="16" height="16"><use href="#i-search"/></svg></span><span class="val ph is-cjk">搜尋分支</span></div>
+                  <div class="picker__list">
+                    <div class="grp">LOCAL BRANCHES</div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="nm">main</span></div>
+                    <div class="grp">REMOTE BRANCHES</div>
+                    <div class="gbm-row"><span class="ic"><svg width="12" height="12"><use href="#i-cloud"/></svg></span><span class="nm">origin/main</span></div>
+                  </div>
+                </div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="1"><span class="opt__mark"></span><span>保留 merge commit（--rebase-merges）</span></div>
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>自動 squash 標記過的 fixup commit</span></div>
+              </div>
+              <div class="note is-cjk">Rebase 會重寫 feature/lane-allocator 的 commit。若某筆 commit 衝突，rebase 會停在該步驟，衝突橫幅會顯示目前停在第幾步、共幾步。</div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary is-disabled" type="button">Start rebase</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">B · 05-B 分支列 ⋮</span><span class="specimen-note zh">基於已知 → ro，不可改 · 假設：已 push（畫 warn）、乾淨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Rebase</span><span class="kbd">⇧⌘R</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">重新安置</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">feature/lane-allocator</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">基於</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">main</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="1"><span class="opt__mark"></span><span>保留 merge commit（--rebase-merges）</span></div>
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>自動 squash 標記過的 fixup commit</span></div>
+              </div>
+              <div class="note is-cjk">Rebase 會重寫 feature/lane-allocator 的 commit。若某筆 commit 衝突，rebase 會停在該步驟，衝突橫幅會顯示目前停在第幾步、共幾步。</div>
+              <div class="fld"><div class="fld__ctl"><span class="warn is-cjk">此分支已 push。rebase 後需 force push，共作者需重新對齊。</span></div></div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Start rebase</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag entry">C · 05-E commit 列 → Rebase onto here</span><span class="specimen-note zh">待裁定 ①：同樣鎖定 · 假設：未 push、乾淨</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="gbm-dialog-shell">
+            <div class="mkbar"><span class="mkbar__title">Rebase</span><span class="kbd">⇧⌘R</span></div>
+            <div class="dlg-body">
+              <div class="fld">
+                <div class="fld__label is-cjk">重新安置</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-branch"/></svg></span><span class="val">feature/lane-allocator</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="fld__label is-cjk">基於</div>
+                <div class="fld__ctl"><span class="box box--ro box--mono"><span class="ic"><svg width="12" height="12"><use href="#i-commit"/></svg></span><span class="val">commit a1b2c3d4</span></span></div>
+              </div>
+              <div class="fld">
+                <div class="opt opt--chk is-cjk" data-on="1"><span class="opt__mark"></span><span>保留 merge commit（--rebase-merges）</span></div>
+                <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>自動 squash 標記過的 fixup commit</span></div>
+              </div>
+              <div class="note is-cjk">Rebase 會重寫 feature/lane-allocator 的 commit。若某筆 commit 衝突，rebase 會停在該步驟，衝突橫幅會顯示目前停在第幾步、共幾步。</div>
+            </div>
+            <div class="dlg-actions">
+              <button class="gbm-btn gbm-btn--secondary" type="button">Cancel</button>
+              <button class="gbm-btn gbm-btn--primary" type="button">Start rebase</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 4 ============================ -->
+  <section id="sources">
+    <div class="sec-head"><span class="sec-num">04</span><h2>來源與 Inferred</h2></div>
+    <p class="lede zh">外殼、欄位、按鈕、radio/checkbox、warn、picker 的 CSS 原封沿用 <code>worktree-dialogs-spec.html</code>（已過六項 audit 並實作）。本稿在其後加了 <code>.grp</code>、停用主按鈕兩條新規則，以及一組「改回 app 現況」的覆寫（picker 清單、row 內距、ro 無框、ro 字級、兩行訊息欄、warn 字級、radio 副標）；<code>.spec-grid</code>、<code>.specimen-tag.entry</code> 是頁面版面，不是元件。</p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:28%">元素</th><th style="width:14%">來源</th><th>依據</th></tr></thead>
+        <tbody>
+          <tr><td>欄位順序與 kind</td><td>[DLGS]</td><td class="zh">Merge：<code>focus 來源分支</code>、<code>ro 合入</code>；Rebase：<code>ro 重新安置</code>、<code>focus 基於</code>、<code>chk-on</code>/<code>chk</code>、<code>note</code>、<code>warn</code></td></tr>
+          <tr><td>ro 欄位外觀</td><td>[DLGS] [APP]</td><td class="zh"><code>dlgFields</code> 的 <code>ro</code>：<code>--surface-sunken</code> + <code>--text-secondary</code>，<b>且有 1px <code>--border-default</code> 框</b>；app 的 <code>GbmDialogReadOnlyField</code> 文件寫「no border」。本稿照 app 畫無框 → 待裁定 ⑤</td></tr>
+          <tr><td>ro 值用 mono</td><td>[DLGS]</td><td><code>mono: true</code> on both rows</td></tr>
+          <tr><td>picker 分組標題 <code>.grp</code></td><td>[APP]</td><td><code>gbm_ref_picker.dart</code> <code>_EntryRow</code>：11 / w600 / tertiary / ls 0.5 / pad 8·4</td></tr>
+          <tr><td>停用主按鈕</td><td>[APP]</td><td><code>gbm_button.dart</code>：disabled 前景 alpha .45</td></tr>
+          <tr><td>標題列 kbd chip</td><td>[APP]</td><td><code>GbmDialogShell</code> 依 <code>actionId</code> 畫 <code>GbmKbdChip</code>；<code>displayLabel</code> 在 macOS 是 ⇧⌘M</td></tr>
+          <tr><td>commit 顯示「commit a1b2c3d4」</td><td>[APP]</td><td class="zh"><code>rebase_onto_dialog.dart</code> 現行縮寫規則（前 8 碼）</td></tr>
+          <tr><td>Merge radio 文案「只允許 fast-forward」</td><td>[APP] 既有偏離</td><td class="zh">spec 寫「Fast-forward 可行時不建 commit」= <code>--ff</code>，app 沒有這個 mode；<code>merge_dialog.dart:127</code> 已記錄理由，本稿不動</td></tr>
+          <tr><td class="zh">Commit 訊息：標籤 + 預填</td><td>[DLGS] 使用者裁定</td><td class="zh">DLGS：<code>{ k: 'text', label: 'Commit 訊息', v: "Merge branch 'feature/lane-allocator'", mono: true }</code>。使用者裁定 2026-10-08：「merge 的 commit 訊息不是可留空，你要先帶入預設樣式」。<s>app 現在是 hint「Commit 訊息（可留空）」，不在本輪</s></td></tr>
+          <tr><td class="zh">squash 訊息格式與摘要列（02-C）</td><td><b>Inferred</b></td><td class="zh">DLGS hint 只寫「squash 時改為多行欄位並帶入來源 commit 摘要」；格式見待裁定 ⑨。範例 subject 為佔位</td></tr>
+          <tr><td class="zh">squash 副標改寫</td><td><b>Inferred</b></td><td class="zh">squash 後直接 commit，原副標「不記錄 merge commit」不再完整，改為「把來源的變更合成一筆一般 commit，不記錄 merge commit。」</td></tr>
+          <tr><td class="zh">換來源時訊息跟著換</td><td><b>Inferred</b></td><td class="zh">使用者沒改過訊息就跟著換；改過就保留。spec 沒寫</td></tr>
+          <tr><td class="zh">ro 欄位裡的分支 icon</td><td><b>Inferred</b></td><td class="zh">DLGS ro 欄只有文字；加 icon 是為了跟 picker 的 row 一致（Checkout hint「以圖示區分」）。可拿掉</td></tr>
+          <tr><td class="zh">「落後 4 個 commit」「6 commits」計數</td><td><b>未畫</b></td><td class="zh">DLGS 有。<code>rebase_onto_dialog.dart</code> 的 doc comment 說計數取自目前分支的 <code>behind</code>「where tracking info exists, and is simply omitted when it does not」——但那只是相對 upstream，不是相對任選的目標；現行程式碼也沒畫任何計數。見待裁定 ③</td></tr>
+          <tr><td class="zh">標題 <code>Merge Branch</code> / <code>Rebase</code>、主按鈕 <code>Start rebase</code></td><td>[APP] 沿用</td><td class="zh">DLGS 名稱是 <code>Merge into current</code> / <code>Rebase onto</code>、主按鈕 <code>Rebase</code>；P06 清單寫 <code>Merge</code> / <code>Rebase</code>。兩份 spec 自己就不一致，本輪不動 → 待裁定 ⑥</td></tr>
+          <tr><td class="zh">Merge radio 順序 ff-only → merge commit → squash，含說明副標</td><td>[APP] 沿用</td><td class="zh">DLGS 順序是 Merge commit → Fast-forward → Squash，且沒有副標。本輪不動</td></tr>
+          <tr><td class="zh">Merge 的「先 stash 未提交的變更」</td><td>[APP] 沿用</td><td class="zh"><code>merge_dialog.dart:166</code>，預設不勾；DLGS 沒有這欄</td></tr>
+          <tr><td class="zh">Commit 訊息欄兩行、mono</td><td>[APP] [DLGS]；高度 Inferred</td><td class="zh">app <code>maxLines: 2</code>；DLGS <code>mono: true</code>；52px 是估的</td></tr>
+          <tr><td class="zh">DLGS Merge 的 note「預告：可能衝突的 3 個檔案」</td><td><b>未畫</b></td><td class="zh">app 沒有這個預告功能；不在本輪</td></tr>
+          <tr><td class="zh">外殼幾何（標題 13px、padding 12/15…）</td><td>[P6] 使用者裁定</td><td class="zh">worktree-dialogs-spec.html：「使用者裁定：照 spec 用 13」。DLGS 小圖（32px bar、11.5px）與 P17 prose（18px）不同，已裁過</td></tr>
+          <tr><td class="zh">radio mark 15px / on 4px 環</td><td>WT 沿用</td><td class="zh">DLGS 小圖是 12px / 3.5px；app 用 Material <code>RadioListTile</code>，本輪不動</td></tr>
+          <tr><td class="zh">picker 搜尋 placeholder「搜尋分支」</td><td><b>Inferred</b></td><td class="zh">Checkout 的 app hint 是 <code>可搜尋 branch / tag / commit</code>（DLGS hint 原文「可搜尋的混合清單：branch / tag / commit，以圖示區分」）；這兩個只收分支，所以改寫</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============================ 5 ============================ -->
+  <section id="rulings">
+    <div class="sec-head"><span class="sec-num">05</span><h2>待裁定</h2></div>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th style="width:5%">#</th><th style="width:35%">問題</th><th>本稿提案</th></tr></thead>
+        <tbody>
+          <tr><td class="num">①</td><td class="zh">05-E commit 列的 Rebase onto here 也鎖定？</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。是（03-C）。同一條規則：帶著目標進來就不再讓人選</td></tr>
+          <tr><td class="num">②</td><td class="zh">Merge 來源清單要不要加 remote branch？</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「裁定2加入origin選項」</span>。02-A 已加 REMOTE BRANCHES 組（與 Rebase 一樣列 <code>session.refs.remoteBranches</code>）。<s>要（例如 merge <code>origin/main</code> 是常見操作）。現在只列 local；02-A 畫的是只有 local，你點頭我再加 REMOTE 組</s></td></tr>
+          <tr><td class="num">③</td><td class="zh">ro 欄的 commit 計數</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。本輪不畫（需要新的 core 查詢）；要的話另開一輪</td></tr>
+          <tr><td class="num">④</td><td class="zh">發現：05-E commit 列的 <b>Merge into current</b> 直接 merge，不開對話框</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。<b>更正</b>：本稿原本對 ④ 沒有給建議，只問了你。<s>不在這次回報範圍，只是報告；要一起改成開 02-B 的鎖定版嗎？</s> 補上的建議：<b>不改</b>——05-E 的標籤 <code>Merge into current</code> 沒有 <code>…</code>，依 [UX-ellipsis-promises-a-dialog] 不承諾對話框；它直接以 <code>--no-ff</code> + git 預設訊息合入</td></tr>
+          <tr><td class="num">⑤</td><td class="zh">ro 欄位要不要框線？DLGS 有 1px <code>--border-default</code>，app 無</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。照 app（無框），因為 Checkout 的「目前」列等既有 ro 欄都已出貨無框；要改就全部一起改</td></tr>
+          <tr><td class="num">⑥</td><td class="zh">標題與主按鈕文字（DLGS vs P06 vs app）</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。本輪不動，維持 app 的 <code>Merge Branch</code> / <code>Rebase</code> / <code>Start rebase</code></td></tr>
+                  <tr><td class="num">⑦</td><td class="zh">預設訊息格式：DLGS 合入 main 畫的是 <code>Merge branch 'feature/lane-allocator'</code>。<s>但 git 2.56 的預設（<code>man git-fmt-merge-msg</code>：未設 <code>merge.suppressDest</code> 時只省略 <code>master</code>）合入 main 會寫 <code>Merge branch 'X' into main</code></s> <b>更正（實測 git 2.56，2026-10-08）</b>：合入 <code>main</code>、<code>master</code> 都省略目的地，合入其他分支才加 <code>into &lt;目前&gt;</code>；來源是 remote 時是 <code>Merge remote-tracking branch 'origin/x'</code>。DLGS 的例子與 git 一致</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。建議：完全照 git 的預設格式（含 <code>into</code> 與 <code>remote-tracking branch</code> 兩種變化），使用者看到的就是 git 自己會寫的訊息</td></tr>
+          <tr><td class="num">⑧</td><td class="zh">DLGS hint「squash 時改為多行欄位並帶入來源 commit 摘要」——app 現在 squash 時把訊息欄停用</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「8一起做」</span>。見 02-C。摘要取自 <code>gbm_request_compare_refs(HEAD, 來源, threeDot=0)</code> 的「來源有、HEAD 沒有」commit 清單</td></tr>
+          <tr><td class="num">⑨</td><td class="zh">squash 訊息的格式，以及 squash 後要不要直接建 commit</td><td class="zh">提案（Inferred，spec 只寫「帶入來源 commit 摘要」）：首行 <code>Squash merge branch '&lt;來源&gt;'</code>，空一行，每筆 <code>* &lt;subject&gt;</code>（舊到新）。既然有訊息，squash 後就用它直接 commit（現況只 stage、不 commit；app 副標「不記錄 merge commit」改為「合成一筆一般 commit」）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="colophon">
+    <span>Sources: Flutter Desktop Spec (standalone).html — DLGS, dlgFields(); worktree-dialogs-spec.html (shared specimen CSS)</span>
+    <span>[APP] = shipped Flutter widget, read 2026-10-08</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>

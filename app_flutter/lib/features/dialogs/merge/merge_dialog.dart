@@ -9,8 +9,32 @@ import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_ref_picker.dart';
+import '../../../widgets/lucide_icon.dart';
+
+/// git's own default title for merging [source] into [currentBranch] --
+/// git is the authority; this only copies its rule so the dialog can show
+/// the message before git runs. Measured on git 2.56 (2026-10-08, see
+/// docs/claude-design-demo/merge-rebase-dialogs-spec.html ⑦): the
+/// `into <branch>` suffix is omitted for `main` and `master`, and a
+/// remote-tracking source is named as one.
+String _defaultMergeTitle({
+  required String source,
+  required bool sourceIsRemote,
+  required String currentBranch,
+}) {
+  final String kind = sourceIsRemote ? 'remote-tracking branch' : 'branch';
+  final bool omitsDestination =
+      currentBranch.isEmpty ||
+      currentBranch == 'main' ||
+      currentBranch == 'master';
+  return omitsDestination
+      ? "Merge $kind '$source'"
+      : "Merge $kind '$source' into $currentBranch";
+}
 
 /// The Dart analog of `MergeDialog` (src/app/dialogs/MergeDialog.cpp).
 /// Routed as `/repo/:repoId/dialogs/merge`.
@@ -30,6 +54,11 @@ class MergeDialogContent extends ConsumerStatefulWidget {
 class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   late final TextEditingController _messageController;
   String? _target;
+
+  /// What the message box was last filled with automatically. A new source
+  /// replaces the message only while the box still holds exactly this --
+  /// the moment the user types their own, it is theirs.
+  String _lastAutofill = '';
   MergeMode _mode = MergeMode.noFastForward;
   bool _stashFirst = false;
 
@@ -38,6 +67,39 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
     super.initState();
     _messageController = TextEditingController();
     _target = widget.source;
+    final String? source = widget.source;
+    if (source != null) {
+      final RepoSessionState session = ref.read(
+        repoSessionProvider(widget.identity),
+      );
+      _autofillMessage(session, source);
+    }
+  }
+
+  bool _isRemote(RepoSessionState session, String name) =>
+      session.refs.remoteBranches.any((RefInfo b) => b.shortName == name);
+
+  void _autofillMessage(RepoSessionState session, String source) {
+    if (_messageController.text != _lastAutofill) return;
+    _lastAutofill = _defaultMergeTitle(
+      source: source,
+      sourceIsRemote: _isRemote(session, source),
+      currentBranch: session.refs.head.branchName,
+    );
+    _messageController.text = _lastAutofill;
+  }
+
+  /// Ruling ②: local branches other than the current one, plus every
+  /// remote-tracking branch -- merging `origin/main` is an ordinary request.
+  List<GbmRefPickerEntry> _entries(RepoSessionState session) {
+    final String head = session.refs.head.branchName;
+    return <GbmRefPickerEntry>[
+      for (final RefInfo b in session.refs.localBranches)
+        if (b.shortName != head)
+          GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.localBranch),
+      for (final RefInfo b in session.refs.remoteBranches)
+        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+    ];
   }
 
   @override
@@ -53,9 +115,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
       repoSessionProvider(widget.identity),
     );
     final String currentBranch = session.refs.head.branchName;
-    final List<RefInfo> candidates = session.refs.localBranches
-        .where((b) => b.shortName != currentBranch)
-        .toList(growable: false);
+    final String? source = widget.source;
 
     return GbmDialogShell(
       title: 'Merge Branch',
@@ -94,32 +154,42 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              '合入 $currentBranch',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: GbmSpacing.space1),
-            SizedBox(
-              height: GbmSpacing.inputHeight,
-              child: DropdownButtonFormField<String>(
-                initialValue: _target,
-                isExpanded: true,
-                decoration: gbmInputDecoration(
-                  colors: colors,
-                  hintText: '來源分支',
+            // DLGS: `focus 來源分支` then `ro 合入`. A source the caller
+            // already chose is drawn `ro` instead -- re-asking for what the
+            // user just clicked is the defect this replaced.
+            if (source != null)
+              _BranchReadOnlyField(
+                label: '來源分支',
+                name: source,
+                isRemote: _isRemote(session, source),
+              )
+            else ...<Widget>[
+              Text(
+                '來源分支',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
                 ),
-                items: <DropdownMenuItem<String>>[
-                  for (final branch in candidates)
-                    DropdownMenuItem(
-                      value: branch.shortName,
-                      child: Text(branch.shortName),
-                    ),
-                ],
-                onChanged: (value) => setState(() => _target = value),
               ),
+              const SizedBox(height: GbmSpacing.space1),
+              GbmRefPicker(
+                entries: _entries(session),
+                selected: _target,
+                autofocus: true,
+                hintText: '搜尋分支',
+                emptyMessage: '沒有可以合入的分支。',
+                maxListHeight: 160,
+                onSelected: (GbmRefPickerEntry entry) => setState(() {
+                  _target = entry.name;
+                  _autofillMessage(session, entry.name);
+                }),
+              ),
+            ],
+            const SizedBox(height: GbmSpacing.space2),
+            _BranchReadOnlyField(
+              label: '合入',
+              name: currentBranch,
+              isRemote: false,
             ),
             const SizedBox(height: GbmSpacing.space3),
             RadioGroup<MergeMode>(
@@ -152,13 +222,25 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
+            Text(
+              'Commit 訊息',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             TextField(
               controller: _messageController,
+              style: const TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textSm,
+              ),
               enabled: _mode != MergeMode.squash,
               maxLines: 2,
               decoration: gbmMultilineInputDecoration(
                 colors: colors,
-                hintText: 'Commit 訊息（可留空）',
+                hintText: "Merge branch '…'",
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
@@ -179,6 +261,45 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// A branch drawn as DLGS's `ro` field: [GbmDialogReadOnlyField] with the
+/// name in mono (`mono: true` on both rows) and the same kind icon the
+/// picker's rows use, so a locked field reads as the row it replaced.
+class _BranchReadOnlyField extends StatelessWidget {
+  const _BranchReadOnlyField({
+    required this.label,
+    required this.name,
+    required this.isRemote,
+  });
+
+  final String label;
+  final String name;
+  final bool isRemote;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final GbmRefKind kind = isRemote
+        ? GbmRefKind.remoteBranch
+        : GbmRefKind.localBranch;
+    return GbmDialogReadOnlyField(
+      label: label,
+      child: Row(
+        children: <Widget>[
+          LucideIcon(kind.iconName, size: 12, color: colors.textTertiary),
+          const SizedBox(width: GbmSpacing.space2),
+          Expanded(
+            child: Text(
+              name,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontFamily: GbmTypography.fontMono),
+            ),
+          ),
+        ],
       ),
     );
   }

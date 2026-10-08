@@ -308,6 +308,23 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void mergeBranch(
+    String target,
+    MergeMode mode, {
+    String message = '',
+    bool stashFirst = false,
+  }) {
+    commandLog.add(
+      FakeCommand('mergeBranch', <String, Object?>{
+        'target': target,
+        'mode': mode,
+        'message': message,
+        'stashFirst': stashFirst,
+      }),
+    );
+  }
+
+  @override
   void abortRebase() {
     abortRebaseCalled = true;
     commandLog.add(const FakeCommand('abortRebase'));

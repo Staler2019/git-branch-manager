@@ -42,9 +42,6 @@ const List<String> _tier2Commands = <String>[
   'refreshStashes',
   'refreshWorktrees',
   'refreshRemotes',
-  'refreshSubmodules',
-  'refreshBisectStatus',
-  'refreshLfs',
 ];
 
 /// Zero-argument `refresh*`s that are deliberately *not* in the sweep: each
@@ -52,9 +49,15 @@ const List<String> _tier2Commands = <String>[
 /// Identity is read when the repository opens (the commit graph's "my
 /// commits" email) and when Repository Settings opens; it changes only when
 /// the user edits git config, which is not something a focus regain implies.
+/// LFS, submodules and bisect status each have one reader, their own panel,
+/// which re-reads on every new sweep while it is open
+/// (`listenToRefreshSweep`).
 const List<String> _notInSweepCommands = <String>[
   'refreshLocalIdentity',
   'refreshEffectiveIdentity',
+  'refreshSubmodules',
+  'refreshBisectStatus',
+  'refreshLfs',
 ];
 
 WorkingCopyStatus _emptyStatus() => WorkingCopyStatus.fromJson(

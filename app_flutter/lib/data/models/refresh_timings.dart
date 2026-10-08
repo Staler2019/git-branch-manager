@@ -31,7 +31,7 @@ class RefreshTimings {
 
   /// Tier 2 of the sweep was *dispatched* -- see
   /// `RepoSessionController.refreshRepoStatus`'s tiering. Deliberately not
-  /// "tier 2's eight replies have all arrived": that would need a
+  /// "tier 2's ~~eight~~ replies have all arrived": that would need a
   /// generation-scoped counter distinguishing this sweep's own replies from
   /// an unrelated manual refresh landing on the same session, which is out
   /// of scope for now (`RepoSessionController._dispatchTier2Members`'s own

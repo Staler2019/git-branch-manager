@@ -2298,7 +2298,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// on screen -- [refreshLocalIdentity] and [refreshEffectiveIdentity] are
   /// read once in [_open] (the commit graph's "my commits" email) and again
   /// when Repository Settings opens; identity moves only when someone edits
-  /// git config, which a focus regain does not imply. That makes "does the
+  /// git config, which a focus regain does not imply. [refreshLfs],
+  /// [refreshSubmodules] and [refreshBisectStatus] each feed exactly one
+  /// panel, which reads on mount and re-reads on every new sweep while it is
+  /// open (`listenToRefreshSweep`), so an alt-tab with none of them on
+  /// screen runs no `git lfs`, `git submodule` or `git bisect`. That makes "does the
   /// new one belong here" a question with an answer rather than something
   /// rediscovered by the next audit. The `request*` methods are all excluded because they
   /// are keyed to a user selection (a path, an oid, a ref, a stash index)
@@ -2317,9 +2321,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// would have answered, and a guess in Dart is the same mistake as a guess
   /// in core. `git submodule status` costs ~79ms even with zero submodules
   /// (git-submodule is a POSIX shell script, so it is fork + shell startup,
-  /// not repository size) -- but it runs on the shared read pool with
+  /// not repository size) -- ~~but it runs on the shared read pool with
   /// nothing on screen waiting for it, so it runs unconditionally like the
-  /// rest. Measurements are in docs/ledger.md.
+  /// rest~~. It is out of the sweep now, but because its panel is its only
+  /// reader, not because of that cost and not by guessing whether the
+  /// repository has submodules. Measurements are in docs/ledger.md.
   void refreshRepoStatus() {
     // A fresh sweep starts a fresh timing record -- see [RefreshTimings]'s
     // own doc comment for why the later stamps are "first one wins": without
@@ -2377,9 +2383,6 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     refreshStashes();
     refreshWorktrees();
     refreshRemotes();
-    refreshSubmodules();
-    refreshBisectStatus();
-    refreshLfs();
   }
 
   /// Actually dispatches tier 2 for the sweep in flight, from whichever

@@ -157,8 +157,9 @@ class AppPreferences {
   /// Developer. Gates whether `RepoSessionController.refreshRepoStatus()`
   /// splits into an immediate tier (repo state, commit graph, history,
   /// working copy) and a tier deferred until the working-copy status event
-  /// arrives (stashes, worktrees, remotes, submodules, bisect, LFS, both
-  /// identities), or fires all twelve members inline the way it always has.
+  /// arrives (stashes, worktrees, remotes~~, submodules, bisect, LFS, both
+  /// identities~~), or fires ~~all twelve~~ every member inline the way it
+  /// always has.
   /// Default `true`; off reproduces the pre-fix/refresh-ui-first-tiering
   /// behaviour for an on-machine A/B, the same way [keepDiffDuringRefresh]
   /// does. Read live off `RepoSessionController.refreshFlags`.

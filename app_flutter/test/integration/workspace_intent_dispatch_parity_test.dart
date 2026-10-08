@@ -64,9 +64,6 @@ const List<String> _tier2Commands = <String>[
   'refreshStashes',
   'refreshWorktrees',
   'refreshRemotes',
-  'refreshSubmodules',
-  'refreshBisectStatus',
-  'refreshLfs',
 ];
 
 /// Every command [RepoSessionController.refreshRepoStatus] dispatches. Kept

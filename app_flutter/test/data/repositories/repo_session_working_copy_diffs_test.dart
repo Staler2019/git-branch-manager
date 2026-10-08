@@ -543,9 +543,6 @@ void main() {
       'refreshStashes',
       'refreshWorktrees',
       'refreshRemotes',
-      'refreshSubmodules',
-      'refreshBisectStatus',
-      'refreshLfs',
     ];
 
     test('an ordinary status update with no sweep pending fires none of the '

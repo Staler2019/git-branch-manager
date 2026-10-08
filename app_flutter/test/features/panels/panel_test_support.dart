@@ -9,6 +9,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/refresh_timings.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
@@ -288,3 +289,23 @@ void expectDangerPinnedRight(WidgetTester tester, String label) {
     closeTo(tester.getRect(row).right - GbmSpacing.space3, 0.5),
   );
 }
+
+/// Starts a focus/F5 sweep the way `refreshRepoStatus()` does -- a fresh
+/// [RefreshTimings.focusAt] -- after clearing [fake]'s log of the panel's own
+/// mount-time read, so a count taken afterwards is the sweep's alone.
+Future<void> startRefreshSweep(
+  WidgetTester tester,
+  FakeRepoSessionController fake,
+) async {
+  await tester.pump();
+  fake.commandLog.clear();
+  fake.emit(
+    fake.state.copyWith(
+      refreshTimings: RefreshTimings(focusAt: DateTime(2026, 10, 8, 9)),
+    ),
+  );
+  await tester.pump();
+}
+
+int countCommand(FakeRepoSessionController fake, String name) =>
+    fake.commandLog.where((FakeCommand c) => c.name == name).length;

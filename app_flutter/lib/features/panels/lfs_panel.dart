@@ -15,6 +15,7 @@ import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
+import 'refresh_sweep_listener.dart';
 
 /// `manage-lfs` as a tab (spec page 14 `IAMAP`), on page 19's template.
 ///
@@ -111,6 +112,7 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
 
   @override
   Widget build(BuildContext context) {
+    listenToRefreshSweep(ref, widget.identity, _session.refreshLfs);
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );

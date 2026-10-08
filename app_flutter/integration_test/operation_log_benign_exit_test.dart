@@ -42,33 +42,48 @@ void main() {
   ) async {
     await pumpRealAppOn(tester, repoPath);
 
-    // Session open does *not* read the local identity -- verified here, by
+    // ~~Session open does *not* read the local identity -- verified here, by
     // this test failing on an empty record list before the refresh was added.
-    // `refreshRepoStatus()` is what sweeps it in, and F5 / View → Refresh is
-    // the one entry point (`refreshRepoStatus()`'s doc comment), which is also exactly
-    // where the defect was reported from: 「log 在 refresh 時一直出現」.
+    // `refreshRepoStatus()` is what sweeps it in~~ Session open reads the
+    // identity once (feature/refresh-actions); `refreshRepoStatus()` no longer
+    // does -- the reporter's next complaint was that every Refresh asked git
+    // for user.name/user.email at all. So the reads below come from the open,
+    // and F5 / View → Refresh is asserted to add none.
     //
-    // Dispatched from below WorkspaceActionShortcuts, since Actions.invoke
-    // searches upwards.
-    Actions.invoke(
-      tester.element(find.byType(StatusBar)),
-      const GbmActionIntent(GbmActionId.viewRefresh),
-    );
-
-    // Not pumpAndSettle: a refresh puts an indeterminate spinner on screen,
-    // which schedules frames forever ([TEST-no-pumpandsettle-with-spinner]).
-    for (int i = 0; i < 30; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
+    // Not pumpAndSettle: an open or a refresh puts an indeterminate spinner on
+    // screen, which schedules frames forever
+    // ([TEST-no-pumpandsettle-with-spinner]).
+    Future<void> settle() async {
+      for (int i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
     }
 
-    final LogDrawer drawer = tester.widget<LogDrawer>(find.byType(LogDrawer));
-    final List<OperationRecord> identityReads = drawer.records
+    List<OperationRecord> identityReadsSoFar() => tester
+        .widget<LogDrawer>(find.byType(LogDrawer))
+        .records
         .whereType<OperationRecord>()
         .where(
           (OperationRecord r) =>
               r.argv.contains('--get') && r.argv.contains('user.name'),
         )
         .toList(growable: false);
+
+    await settle();
+    final List<OperationRecord> identityReads = identityReadsSoFar();
+
+    // Dispatched from below WorkspaceActionShortcuts, since Actions.invoke
+    // searches upwards.
+    Actions.invoke(
+      tester.element(find.byType(StatusBar)),
+      const GbmActionIntent(GbmActionId.viewRefresh),
+    );
+    await settle();
+    expect(
+      identityReadsSoFar().length,
+      identityReads.length,
+      reason: 'Refresh must not read git config user.* again',
+    );
 
     expect(
       identityReads,

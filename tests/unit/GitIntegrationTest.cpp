@@ -54,6 +54,12 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+
+#include <cstdint>
+#endif
+
 namespace gbm {
 namespace {
 
@@ -5438,6 +5444,33 @@ TEST(ProcessRunnerPipes, AGrandchildDoesNotKeepTheRunOpen) {
     ASSERT_TRUE(result) << "the child exited 0; only a leaked pipe can fail this run";
     EXPECT_LT(elapsed, std::chrono::milliseconds(1500))
         << "the run waited on a grandchild that holds a leaked pipe end";
+}
+#endif
+
+#ifdef _WIN32
+// The Windows form of the same leak: `bInheritHandles = TRUE` alone gives the
+// child every inheritable handle in the process, including another spawn's
+// pipe write end. The race itself cannot be timed from a test, so this asserts
+// the mechanism: an inheritable handle nobody listed must not reach the child.
+TEST(ProcessRunnerPipes, AChildInheritsOnlyItsOwnHandles) {
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    const HANDLE bystander = ::CreateEventW(&sa, TRUE, FALSE, nullptr);
+    ASSERT_NE(bystander, nullptr);
+
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    GitCommand command(
+        {}, {"--probe-handle", std::to_string(reinterpret_cast<std::uintptr_t>(bystander))});
+    command.timeout = std::chrono::milliseconds(10000);
+    auto result = runner->run(command, CancellationToken{});
+    ::CloseHandle(bystander);
+
+    ASSERT_TRUE(result);
+    // find(), not ==: the CRT's text-mode stdout may write "\r\n".
+    EXPECT_NE(result.value().out.find("absent"), std::string::npos) << result.value().out;
+    EXPECT_EQ(result.value().out.find("inherited"), std::string::npos)
+        << "the child was handed an inheritable handle it was never given";
 }
 #endif
 

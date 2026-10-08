@@ -6,6 +6,7 @@ add_library(gbm_core STATIC
     base/FsUtil.cpp
     base/Logging.cpp
     base/PosixPipe.cpp
+    base/WinHandleList.cpp
     base/ThreadCheck.cpp
     base/WalkTiming.cpp
 

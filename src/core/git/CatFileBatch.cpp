@@ -4,6 +4,7 @@
 #include "core/base/Logging.h"
 #include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
+#include "core/base/WinHandleList.h"
 #include "core/git/GitCommand.h"
 #include "core/git/OperationId.h"
 
@@ -317,26 +318,32 @@ private:
             }
         }
 
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = outWrite;
-        si.hStdError = outWrite;
-        si.hStdInput = inRead;
+        // Only this child's own two pipe ends: it lives as long as the
+        // session, so any other spawn's write end it took would never close
+        // (WinHandleList.h).
+        std::optional<win::InheritList> inherit = win::InheritList::create({outWrite, inRead});
+
+        STARTUPINFOEXW six{};
+        six.StartupInfo.cb = sizeof(six);
+        six.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        six.StartupInfo.hStdOutput = outWrite;
+        six.StartupInfo.hStdError = outWrite;
+        six.StartupInfo.hStdInput = inRead;
+        six.lpAttributeList = inherit ? inherit->attributeList() : nullptr;
 
         PROCESS_INFORMATION pi{};
         std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
         mutableCommandLine.push_back(L'\0');
-        const BOOL ok = ::CreateProcessW(nullptr,
-                                         mutableCommandLine.data(),
-                                         nullptr,
-                                         nullptr,
-                                         TRUE,
-                                         CREATE_NO_WINDOW,
-                                         nullptr,
-                                         nullptr,
-                                         &si,
-                                         &pi);
+        const BOOL ok = inherit && ::CreateProcessW(nullptr,
+                                                    mutableCommandLine.data(),
+                                                    nullptr,
+                                                    nullptr,
+                                                    TRUE,
+                                                    CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                                    nullptr,
+                                                    nullptr,
+                                                    &six.StartupInfo,
+                                                    &pi);
         ::CloseHandle(outWrite);
         ::CloseHandle(inRead);
         if (!ok) {

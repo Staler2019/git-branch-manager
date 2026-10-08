@@ -1,5 +1,6 @@
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/OperationId.h"
@@ -128,12 +129,12 @@ public:
         int outPipe[2] = {-1, -1};
         int errPipe[2] = {-1, -1};
         int inPipe[2] = {-1, -1};
-        if (::pipe(outPipe) != 0 || ::pipe(errPipe) != 0) {
+        if (posix::makeCloexecPipe(outPipe) != 0 || posix::makeCloexecPipe(errPipe) != 0) {
             return fail(GitError::Code::SpawnFailed,
                         "Could not create a pipe for git",
                         std::strerror(errno));
         }
-        if (wantStdin && ::pipe(inPipe) != 0) {
+        if (wantStdin && posix::makeCloexecPipe(inPipe) != 0) {
             ::close(outPipe[0]);
             ::close(outPipe[1]);
             ::close(errPipe[0]);
@@ -177,9 +178,12 @@ public:
         // posix_spawn rather than fork+exec: fork() from a process that already
         // has a worker pool running is a well-known source of deadlocks in the
         // child between fork and exec.
+        posix_spawnattr_t attr;
+        posix::initSpawnAttr(&attr);
         pid_t pid = -1;
         const int rc =
-            ::posix_spawnp(&pid, rawArgv[0], &actions, nullptr, rawArgv.data(), rawEnv.data());
+            ::posix_spawnp(&pid, rawArgv[0], &actions, &attr, rawArgv.data(), rawEnv.data());
+        posix_spawnattr_destroy(&attr);
         posix_spawn_file_actions_destroy(&actions);
 
         ::close(outPipe[1]);

@@ -2,6 +2,7 @@
 
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
 #include "core/git/GitCommand.h"
 #include "core/git/OperationId.h"
@@ -357,12 +358,12 @@ private:
     GitResult<void> spawnPosix(const std::vector<std::string>& argv) {
         int outPipe[2] = {-1, -1};
         int inPipe[2] = {-1, -1};
-        if (::pipe(outPipe) != 0) {
+        if (posix::makeCloexecPipe(outPipe) != 0) {
             return fail(GitError::Code::SpawnFailed,
                         "Could not create a pipe for git cat-file",
                         std::strerror(errno));
         }
-        if (::pipe(inPipe) != 0) {
+        if (posix::makeCloexecPipe(inPipe) != 0) {
             ::close(outPipe[0]);
             ::close(outPipe[1]);
             return fail(GitError::Code::SpawnFailed,
@@ -385,8 +386,11 @@ private:
         }
         rawArgv.push_back(nullptr);
 
+        posix_spawnattr_t attr;
+        posix::initSpawnAttr(&attr);
         pid_t pid = -1;
-        const int rc = ::posix_spawnp(&pid, rawArgv[0], &actions, nullptr, rawArgv.data(), environ);
+        const int rc = ::posix_spawnp(&pid, rawArgv[0], &actions, &attr, rawArgv.data(), environ);
+        posix_spawnattr_destroy(&attr);
         posix_spawn_file_actions_destroy(&actions);
         ::close(inPipe[0]);
         ::close(outPipe[1]);

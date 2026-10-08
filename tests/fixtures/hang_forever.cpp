@@ -33,6 +33,15 @@
 //               it run and only fires once it goes quiet. Without this mode,
 //               implementing "idle" as "total" passes every test.
 //
+//   --detach-grandchild   (POSIX only)
+//               Fork a grandchild that points its own 0/1/2 at /dev/null and
+//               sleeps kGrandchildSeconds, then exit 0 at once. It is
+//               `git fsmonitor--daemon` in miniature: a long-lived process
+//               spawned by the child that never writes to the pipe, yet holds
+//               every *other* fd it inherited. If the runner leaked its pipe's
+//               write end into the child under its original fd number, the
+//               grandchild keeps that pipe open and the run never sees EOF.
+//
 // **Every line is flushed.** stdout to a pipe is block-buffered, so an
 // unflushed drip would sit in this process's buffer and reach the parent as
 // one burst at exit -- indistinguishable from silence, and the drip test would
@@ -49,11 +58,34 @@
 #include <cstring>
 #include <thread>
 
+#ifndef _WIN32
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace {
 constexpr int kDripIntervalMs = 200;
-}
+constexpr int kGrandchildSeconds = 5;
+}  // namespace
 
 int main(int argc, char** argv) {
+#ifndef _WIN32
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--detach-grandchild") != 0) {
+            continue;
+        }
+        if (::fork() == 0) {
+            const int devNull = ::open("/dev/null", O_RDWR);
+            ::dup2(devNull, STDIN_FILENO);
+            ::dup2(devNull, STDOUT_FILENO);
+            ::dup2(devNull, STDERR_FILENO);
+            ::sleep(kGrandchildSeconds);
+            ::_exit(0);
+        }
+        return 0;
+    }
+#endif
+
     int dripLines = 0;
     bool toStderr = false;
     for (int i = 1; i < argc; ++i) {

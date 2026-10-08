@@ -5419,6 +5419,28 @@ TEST_F(RealRepoTest, TwoInvocationsAreRecordedUnderTwoIds) {
 // hang rather than a failed assertion, which is what the ctest deadline from
 // [CI-no-ctest-timeout] turns into a named `***Timeout` instead of a job that
 // runs until somebody notices.
+#ifndef _WIN32
+// The worktree-add hang: `git worktree add` starts `git fsmonitor--daemon`,
+// which redirects its own 0/1/2 but keeps every other fd it inherited. A pipe
+// created without close-on-exec reaches the child under its original number
+// as well as on 1/2, so the daemon held the write end, poll() never saw EOF,
+// and the operation stayed "running" with its refresh never fired.
+TEST(ProcessRunnerPipes, AGrandchildDoesNotKeepTheRunOpen) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    GitCommand command({}, {"--detach-grandchild"});
+    command.timeout = std::chrono::milliseconds(3000);
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->run(command, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    ASSERT_TRUE(result) << "the child exited 0; only a leaked pipe can fail this run";
+    EXPECT_LT(elapsed, std::chrono::milliseconds(1500))
+        << "the run waited on a grandchild that holds a leaked pipe end";
+}
+#endif
+
 TEST(ProcessRunnerTimeout, AChildThatNeverWritesIsStillTimedOut) {
     auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
 

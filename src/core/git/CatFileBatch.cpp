@@ -2,7 +2,9 @@
 
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
+#include "core/base/WinHandleList.h"
 #include "core/git/GitCommand.h"
 #include "core/git/OperationId.h"
 
@@ -316,26 +318,32 @@ private:
             }
         }
 
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = outWrite;
-        si.hStdError = outWrite;
-        si.hStdInput = inRead;
+        // Only this child's own two pipe ends: it lives as long as the
+        // session, so any other spawn's write end it took would never close
+        // (WinHandleList.h).
+        std::optional<win::InheritList> inherit = win::InheritList::create({outWrite, inRead});
+
+        STARTUPINFOEXW six{};
+        six.StartupInfo.cb = sizeof(six);
+        six.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        six.StartupInfo.hStdOutput = outWrite;
+        six.StartupInfo.hStdError = outWrite;
+        six.StartupInfo.hStdInput = inRead;
+        six.lpAttributeList = inherit ? inherit->attributeList() : nullptr;
 
         PROCESS_INFORMATION pi{};
         std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
         mutableCommandLine.push_back(L'\0');
-        const BOOL ok = ::CreateProcessW(nullptr,
-                                         mutableCommandLine.data(),
-                                         nullptr,
-                                         nullptr,
-                                         TRUE,
-                                         CREATE_NO_WINDOW,
-                                         nullptr,
-                                         nullptr,
-                                         &si,
-                                         &pi);
+        const BOOL ok = inherit && ::CreateProcessW(nullptr,
+                                                    mutableCommandLine.data(),
+                                                    nullptr,
+                                                    nullptr,
+                                                    TRUE,
+                                                    CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                                                    nullptr,
+                                                    nullptr,
+                                                    &six.StartupInfo,
+                                                    &pi);
         ::CloseHandle(outWrite);
         ::CloseHandle(inRead);
         if (!ok) {
@@ -357,12 +365,12 @@ private:
     GitResult<void> spawnPosix(const std::vector<std::string>& argv) {
         int outPipe[2] = {-1, -1};
         int inPipe[2] = {-1, -1};
-        if (::pipe(outPipe) != 0) {
+        if (posix::makeCloexecPipe(outPipe) != 0) {
             return fail(GitError::Code::SpawnFailed,
                         "Could not create a pipe for git cat-file",
                         std::strerror(errno));
         }
-        if (::pipe(inPipe) != 0) {
+        if (posix::makeCloexecPipe(inPipe) != 0) {
             ::close(outPipe[0]);
             ::close(outPipe[1]);
             return fail(GitError::Code::SpawnFailed,
@@ -385,8 +393,11 @@ private:
         }
         rawArgv.push_back(nullptr);
 
+        posix_spawnattr_t attr;
+        posix::initSpawnAttr(&attr);
         pid_t pid = -1;
-        const int rc = ::posix_spawnp(&pid, rawArgv[0], &actions, nullptr, rawArgv.data(), environ);
+        const int rc = ::posix_spawnp(&pid, rawArgv[0], &actions, &attr, rawArgv.data(), environ);
+        posix_spawnattr_destroy(&attr);
         posix_spawn_file_actions_destroy(&actions);
         ::close(inPipe[0]);
         ::close(outPipe[1]);

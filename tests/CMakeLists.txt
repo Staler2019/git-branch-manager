@@ -27,6 +27,7 @@ add_executable(gbm_core_tests
     unit/RefStoreHeadTest.cpp
     unit/RemoteOpsTest.cpp
     unit/RepoStateTest.cpp
+    unit/RevertOpsTest.cpp
     unit/SideBySideDiffTest.cpp
     unit/SpawnCostVerdictTest.cpp
     unit/WorkingCopyStatusReadTest.cpp

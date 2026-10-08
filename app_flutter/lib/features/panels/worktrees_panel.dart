@@ -278,21 +278,6 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
             onPressed: _session.pruneWorktrees,
           ),
         ],
-        external: <Widget>[
-          // 'Open in terminal', per the mockup, and it reaches the terminal
-          // chain that already exists for Repository → Open in terminal --
-          // this used to call openInFileManager(), which is a different
-          // application.
-          GbmButton(
-            label: 'Open in terminal',
-            kind: GbmButtonKind.ghost,
-            onPressed: selected == null
-                ? null
-                : () => ref
-                      .read(desktopLauncherProvider)
-                      .openTerminal(selected.path),
-          ),
-        ],
         filter: PanelFilterField(
           query: _query,
           onChanged: (String value) => setState(() => _query = value),
@@ -351,6 +336,25 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                   onPressed: () => context.go(
                     RoutePaths.workspaceFor(repoIdFor(selected.path)),
                   ),
+                ),
+                // Here rather than on the toolbar's external segment, where
+                // P19's mockup draws it: it acts on the selected worktree,
+                // as Switch to does. 使用者裁定: 「open in terminal is
+                // relative to a worktree function, so might be put on same
+                // line with "switch to" button」 and 「can you add a terminal
+                // icon」. Glyph from the spec's `icTerminal`; size and colour
+                // copy action_toolbar.dart's icon buttons.
+                GbmButton(
+                  label: 'Open in terminal',
+                  kind: GbmButtonKind.ghost,
+                  icon: LucideIcon(
+                    'terminal',
+                    size: 12,
+                    color: context.gbmColors.textSecondary,
+                  ),
+                  onPressed: () => ref
+                      .read(desktopLauncherProvider)
+                      .openTerminal(selected.path),
                 ),
                 // Gated on isPrimary, not isMain -- the same isMain/isPrimary
                 // confusion the Remove button below this one carried (see

@@ -46,3 +46,10 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 - **Consequence**: the Windows pump reads stderr on its own thread and updates the progress clock per chunk; nothing but Windows CI tests that (`ProgressOnStderrAloneKeepsAChildAlive`, `AFetchReportsProgressThroughThePipe`). `GIT_LFS_FORCE_PROGRESS=1` for lfs is unmeasured — git-lfs was not installed when it was written.
 - **Do**: do not claim Windows progress capture works from a macOS run; read the Windows job.
 - **Evidence**: [ledger: slow-machine-log-and-timeouts](../../docs/ledger/2026-10-07-fix-slow-machine-log-and-timeouts.md)
+
+## [CPP-child-gets-only-its-own-pipes] A spawned git must inherit only its own pipe ends
+
+- **Rule**: POSIX pipes come from `posix::makeCloexecPipe` and every `posix_spawnp` takes `posix::initSpawnAttr` (`base/PosixPipe.h`); every `CreateProcessW` takes a `win::InheritList` (`base/WinHandleList.h`) and refuses to spawn without one.
+- **Consequence**: a write end that leaks into a long-lived process — `fsmonitor--daemon` started by `git worktree add`, or a sibling `cat-file --batch` — keeps the pipe open after git exits; the read loop never sees EOF, the operation shows RUNNING until its deadline, and its onSuccess refresh never runs.
+- **Do**: a new spawn site uses both helpers; test with `hang_forever --detach-grandchild` (POSIX) or `--probe-handle` (Windows, CI only).
+- **Evidence**: [ledger: feature-worktree-checkout](../../docs/ledger/2026-10-08-feature-worktree-checkout.md)

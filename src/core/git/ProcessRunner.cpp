@@ -1,6 +1,8 @@
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
+#include "core/base/WinHandleList.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/OperationId.h"
 #include "core/git/TextTraits.h"
@@ -128,12 +130,12 @@ public:
         int outPipe[2] = {-1, -1};
         int errPipe[2] = {-1, -1};
         int inPipe[2] = {-1, -1};
-        if (::pipe(outPipe) != 0 || ::pipe(errPipe) != 0) {
+        if (posix::makeCloexecPipe(outPipe) != 0 || posix::makeCloexecPipe(errPipe) != 0) {
             return fail(GitError::Code::SpawnFailed,
                         "Could not create a pipe for git",
                         std::strerror(errno));
         }
-        if (wantStdin && ::pipe(inPipe) != 0) {
+        if (wantStdin && posix::makeCloexecPipe(inPipe) != 0) {
             ::close(outPipe[0]);
             ::close(outPipe[1]);
             ::close(errPipe[0]);
@@ -177,9 +179,12 @@ public:
         // posix_spawn rather than fork+exec: fork() from a process that already
         // has a worker pool running is a well-known source of deadlocks in the
         // child between fork and exec.
+        posix_spawnattr_t attr;
+        posix::initSpawnAttr(&attr);
         pid_t pid = -1;
         const int rc =
-            ::posix_spawnp(&pid, rawArgv[0], &actions, nullptr, rawArgv.data(), rawEnv.data());
+            ::posix_spawnp(&pid, rawArgv[0], &actions, &attr, rawArgv.data(), rawEnv.data());
+        posix_spawnattr_destroy(&attr);
         posix_spawn_file_actions_destroy(&actions);
 
         ::close(outPipe[1]);
@@ -512,17 +517,27 @@ public:
             commandLine += quoteArgument(widen(argv[i]));
         }
 
-        STARTUPINFOW si{};
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdOutput = outWrite;
-        si.hStdError = command.mergeStderrIntoStdout ? outWrite : errWrite;
-        si.hStdInput = wantStdin ? inRead : ::GetStdHandle(STD_INPUT_HANDLE);
+        // No stdin pipe -> NUL, as POSIX opens /dev/null: GetStdHandle() of a
+        // GUI process may be null, which the inherit list below refuses.
+        const HANDLE nulInput = wantStdin ? nullptr : win::openInheritableNul();
+        const HANDLE childStdin = wantStdin ? inRead : nulInput;
+        const HANDLE childStderr = command.mergeStderrIntoStdout ? outWrite : errWrite;
+        std::optional<win::InheritList> inherit =
+            childStdin == nullptr ? std::nullopt
+                                  : win::InheritList::create({outWrite, childStderr, childStdin});
+
+        STARTUPINFOEXW six{};
+        six.StartupInfo.cb = sizeof(six);
+        six.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        six.StartupInfo.hStdOutput = outWrite;
+        six.StartupInfo.hStdError = childStderr;
+        six.StartupInfo.hStdInput = childStdin;
+        six.lpAttributeList = inherit ? inherit->attributeList() : nullptr;
 
         // Suspended so the child is inside a job object before it runs: a
         // helper it has already spawned cannot be pulled into the job
         // afterwards, and the whole point of the job is to reach that helper.
-        DWORD flags = CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED;
+        DWORD flags = CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT;
         if (command.noWindow) {
             // Without this a console window flashes on every git invocation.
             flags |= CREATE_NO_WINDOW;
@@ -533,21 +548,26 @@ public:
         std::vector<wchar_t> mutableCommandLine(commandLine.begin(), commandLine.end());
         mutableCommandLine.push_back(L'\0');
 
-        const BOOL ok = ::CreateProcessW(nullptr,
-                                         mutableCommandLine.data(),
-                                         nullptr,
-                                         nullptr,
-                                         TRUE,
-                                         flags,
-                                         environment.data(),
-                                         nullptr,
-                                         &si,
-                                         &pi);
+        // Refused outright without an inherit list rather than spawned with
+        // bInheritHandles alone: that is the leak this list exists to close.
+        const BOOL ok = inherit && ::CreateProcessW(nullptr,
+                                                    mutableCommandLine.data(),
+                                                    nullptr,
+                                                    nullptr,
+                                                    TRUE,
+                                                    flags,
+                                                    environment.data(),
+                                                    nullptr,
+                                                    &six.StartupInfo,
+                                                    &pi);
 
         ::CloseHandle(outWrite);
         ::CloseHandle(errWrite);
         if (wantStdin) {
             ::CloseHandle(inRead);
+        }
+        if (nulInput != nullptr) {
+            ::CloseHandle(nulInput);
         }
 
         if (!ok) {

@@ -84,6 +84,7 @@ void main() {
         RoutePaths.rebaseOntoDialogFor('r'),
         '/repo/r/dialogs/rebase-onto',
       );
+      expect(RoutePaths.mergeDialogFor('r'), '/repo/r/dialogs/merge');
     });
 
     test('carry the target when given one', () {
@@ -94,6 +95,10 @@ void main() {
       expect(
         RoutePaths.rebaseOntoDialogFor('r', target: 'feature'),
         '/repo/r/dialogs/rebase-onto?target=feature',
+      );
+      expect(
+        RoutePaths.mergeDialogFor('r', source: 'origin/feat/x'),
+        '/repo/r/dialogs/merge?source=origin%2Ffeat%2Fx',
       );
     });
   });

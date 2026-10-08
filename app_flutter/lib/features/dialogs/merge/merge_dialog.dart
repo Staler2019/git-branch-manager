@@ -15,9 +15,13 @@ import '../../../widgets/gbm_input_decoration.dart';
 /// The Dart analog of `MergeDialog` (src/app/dialogs/MergeDialog.cpp).
 /// Routed as `/repo/:repoId/dialogs/merge`.
 class MergeDialogContent extends ConsumerStatefulWidget {
-  const MergeDialogContent({super.key, required this.identity});
+  const MergeDialogContent({super.key, required this.identity, this.source});
 
   final RepoIdentity identity;
+
+  /// The branch to merge, when the caller already knows it (05-B's "Merge
+  /// into current"). See RoutePaths.mergeDialogFor.
+  final String? source;
 
   @override
   ConsumerState<MergeDialogContent> createState() => _MergeDialogContentState();
@@ -33,6 +37,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   void initState() {
     super.initState();
     _messageController = TextEditingController();
+    _target = widget.source;
   }
 
   @override

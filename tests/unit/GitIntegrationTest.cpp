@@ -5776,5 +5776,22 @@ TEST(CatFileBatchDeadline, TheMultiplierStretchesTheRequestDeadline) {
     EXPECT_EQ(record->timeoutMs, 600);
 }
 
+// A command given no stdinData must read an empty, already-closed stdin --
+// /dev/null on POSIX, NUL on Windows -- never the app's own. Windows used to
+// hand git the parent's stdin, which git took for a terminal: `git revert`
+// opened VS Code (使用者回報 2026-10-08). hash-object --stdin reads stdin to
+// EOF, so an inherited, still-open stdin shows up here as a timeout instead
+// of the empty blob's id.
+TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
+    GitCommand command(repo_, {"hash-object", "--stdin"});
+    command.timeout = std::chrono::seconds(10);
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_FALSE(result->timedOut);
+    EXPECT_EQ(result->out, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+}
+
 }  // namespace
 }  // namespace gbm

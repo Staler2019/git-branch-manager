@@ -498,6 +498,30 @@ public:
         if (wantStdin && !::CreatePipe(&inRead, &inWrite, &sa, 0)) {
             return fail(GitError::Code::SpawnFailed, "Could not create a pipe for git");
         }
+        // With no stdin to feed, git gets NUL -- the POSIX branch's
+        // /dev/null. It used to inherit the app's own stdin, which git took
+        // for a terminal: `git revert` then opened the editor Git for
+        // Windows' installer configured (VS Code, 使用者回報 2026-10-08), and
+        // any other command that prompts would have done the same.
+        HANDLE nulIn = INVALID_HANDLE_VALUE;
+        if (!wantStdin) {
+            nulIn = ::CreateFileW(L"NUL",
+                                  GENERIC_READ,
+                                  FILE_SHARE_READ | FILE_SHARE_WRITE,
+                                  &sa,
+                                  OPEN_EXISTING,
+                                  FILE_ATTRIBUTE_NORMAL,
+                                  nullptr);
+            if (nulIn == INVALID_HANDLE_VALUE) {
+                ::CloseHandle(outRead);
+                ::CloseHandle(outWrite);
+                ::CloseHandle(errRead);
+                ::CloseHandle(errWrite);
+                return fail(GitError::Code::SpawnFailed,
+                            "Could not open NUL for git's stdin",
+                            "CreateFileW failed with " + std::to_string(::GetLastError()));
+            }
+        }
         ::SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0);
         ::SetHandleInformation(errRead, HANDLE_FLAG_INHERIT, 0);
         if (wantStdin) {
@@ -517,7 +541,7 @@ public:
         si.dwFlags = STARTF_USESTDHANDLES;
         si.hStdOutput = outWrite;
         si.hStdError = command.mergeStderrIntoStdout ? outWrite : errWrite;
-        si.hStdInput = wantStdin ? inRead : ::GetStdHandle(STD_INPUT_HANDLE);
+        si.hStdInput = wantStdin ? inRead : nulIn;
 
         // Suspended so the child is inside a job object before it runs: a
         // helper it has already spawned cannot be pulled into the job
@@ -548,6 +572,8 @@ public:
         ::CloseHandle(errWrite);
         if (wantStdin) {
             ::CloseHandle(inRead);
+        } else {
+            ::CloseHandle(nulIn);
         }
 
         if (!ok) {

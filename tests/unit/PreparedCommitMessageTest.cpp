@@ -52,11 +52,15 @@ TEST_F(PreparedCommitMessage, FallsBackToSquashMsgWhenNoMergeMsgExists) {
     EXPECT_EQ(readPreparedCommitMessage(paths()), "Squashed commit of the following:\n");
 }
 
-TEST_F(PreparedCommitMessage, PrefersMergeMsgOverSquashMsgWhenBothSomehowExist) {
-    writeFile(root_ / "MERGE_MSG", "merge message");
-    writeFile(root_ / "SQUASH_MSG", "squash message");
+TEST_F(PreparedCommitMessage, ComposesSquashMsgThenMergeMsgLikeGitWhenBothExist) {
+    // A conflicted `git merge --squash` writes both: SQUASH_MSG with the log,
+    // MERGE_MSG with only the "# Conflicts:" listing (measured, git 2.56.0).
+    // `git commit` reads SQUASH_MSG and then appends MERGE_MSG.
+    writeFile(root_ / "SQUASH_MSG", "Squashed commit of the following:\n");
+    writeFile(root_ / "MERGE_MSG", "\n# Conflicts:\n#\tf\n");
 
-    EXPECT_EQ(readPreparedCommitMessage(paths()), "merge message");
+    EXPECT_EQ(readPreparedCommitMessage(paths()),
+              "Squashed commit of the following:\n\n# Conflicts:\n#\tf\n");
 }
 
 TEST_F(PreparedCommitMessage, ReturnsEmptyStringWhenNeitherFileExists) {

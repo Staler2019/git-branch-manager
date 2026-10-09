@@ -13,6 +13,11 @@ PreparedMessageAction _decide({
   bool boxEmpty = false,
   bool boxMatchesAutofill = false,
   bool commitInFlight = false,
+  bool headKnown = true,
+  bool repoStateKnown = true,
+  bool needsRevalidation = false,
+  bool revalidationRequested = false,
+  bool sameMerge = false,
 }) => decidePreparedMessageAction(
   PreparedMessageContext(
     pending: pending,
@@ -24,6 +29,11 @@ PreparedMessageAction _decide({
     boxEmpty: boxEmpty,
     boxMatchesAutofill: boxMatchesAutofill,
     commitInFlight: commitInFlight,
+    headKnown: headKnown,
+    repoStateKnown: repoStateKnown,
+    needsRevalidation: needsRevalidation,
+    revalidationRequested: revalidationRequested,
+    sameMerge: sameMerge,
   ),
 );
 
@@ -119,6 +129,124 @@ void main() {
       expect(
         _decide(pending: false, episodeActive: false),
         PreparedMessageAction.nothing,
+      );
+    });
+  });
+
+  // The same-merge key is HEAD; an episode decided before refs arrive would
+  // be stored with an empty one and misjudged on the next reopen.
+  group('HEAD not loaded yet', () {
+    test('a reply waits instead of replacing', () {
+      expect(
+        _decide(reply: PreparedReplyStatus.message, headKnown: false),
+        PreparedMessageAction.nothing,
+      );
+    });
+
+    test('a failed reply waits instead of keeping', () {
+      expect(
+        _decide(reply: PreparedReplyStatus.failed, headKnown: false),
+        PreparedMessageAction.nothing,
+      );
+    });
+  });
+
+  // 使用者 2026-10-10: on reopening the repository, the same merge or squash
+  // keeps the box; a different one fetches again; none any more clears it.
+  group('an episode read back from disk', () {
+    PreparedMessageAction reopened({
+      bool pending = true,
+      bool requested = true,
+      PreparedReplyStatus reply = PreparedReplyStatus.none,
+      bool sameMerge = false,
+      bool overwrite = true,
+      bool boxEmpty = false,
+      bool headKnown = true,
+      bool repoStateKnown = true,
+    }) => _decide(
+      pending: pending,
+      filled: true,
+      needsRevalidation: true,
+      revalidationRequested: requested,
+      reply: reply,
+      sameMerge: sameMerge,
+      overwrite: overwrite,
+      boxEmpty: boxEmpty,
+      headKnown: headKnown,
+      repoStateKnown: repoStateKnown,
+    );
+
+    test('waits while RepoState is unknown, even with no pending flag', () {
+      expect(
+        reopened(pending: false, repoStateKnown: false),
+        PreparedMessageAction.nothing,
+      );
+    });
+
+    test('waits while HEAD is unknown', () {
+      // Not "nothing pending" either: without HEAD there is no telling.
+      expect(
+        reopened(pending: false, headKnown: false),
+        PreparedMessageAction.nothing,
+      );
+      expect(
+        reopened(requested: false, headKnown: false),
+        PreparedMessageAction.nothing,
+      );
+    });
+
+    test('nothing pending any more clears the box', () {
+      expect(reopened(pending: false), PreparedMessageAction.clearAndEnd);
+    });
+
+    test('still pending asks git once', () {
+      expect(reopened(requested: false), PreparedMessageAction.revalidate);
+      expect(reopened(), PreparedMessageAction.nothing);
+    });
+
+    test('the same merge keeps the box', () {
+      expect(
+        reopened(reply: PreparedReplyStatus.message, sameMerge: true),
+        PreparedMessageAction.keepValidated,
+      );
+    });
+
+    test('a different merge fetches again and overwrites', () {
+      expect(
+        reopened(reply: PreparedReplyStatus.message),
+        PreparedMessageAction.replaceAsNew,
+      );
+    });
+
+    test('a different merge with the switch off keeps a non-empty box', () {
+      expect(
+        reopened(reply: PreparedReplyStatus.message, overwrite: false),
+        PreparedMessageAction.keep,
+      );
+    });
+
+    test('a different merge with the switch off fills an empty box', () {
+      expect(
+        reopened(
+          reply: PreparedReplyStatus.message,
+          overwrite: false,
+          boxEmpty: true,
+        ),
+        PreparedMessageAction.replaceAsNew,
+      );
+    });
+
+    test('a failed read on the same merge keeps the box', () {
+      expect(
+        reopened(reply: PreparedReplyStatus.failed, sameMerge: true),
+        PreparedMessageAction.keepValidated,
+      );
+    });
+
+    test('a failed read on a different merge keeps the box too', () {
+      expect(
+        reopened(reply: PreparedReplyStatus.failed),
+        PreparedMessageAction.keep,
       );
     });
   });

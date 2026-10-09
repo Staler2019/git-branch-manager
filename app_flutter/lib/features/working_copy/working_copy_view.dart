@@ -666,12 +666,19 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   }
 
   /// Re-runs the prepared-message episode whenever anything it reads
-  /// changes: RepoState's pending flag, the reply, or the overwrite switch.
+  /// changes: RepoState and its pending flag, the reply, HEAD, or the
+  /// overwrite switch.
   void _watchPreparedMessage() {
-    ref.listen<(bool, PreparedMessageReply?)>(
+    ref.listen<(bool, PreparedMessageReply?, String, bool)>(
       repoSessionProvider(widget.identity).select(
-        (s) =>
-            (s.repoState?.preparedMessagePending ?? false, s.preparedMessage),
+        (s) => (
+          s.repoState?.preparedMessagePending ?? false,
+          s.preparedMessage,
+          // HEAD and RepoState arriving at all are inputs too: nothing
+          // that records an episode is decided before either.
+          s.refs.head.target,
+          s.repoState == null,
+        ),
       ),
       (_, _) => _schedulePreparedPass(),
     );
@@ -716,6 +723,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           reply: status,
           summary: split.summary,
           description: split.description,
+          raw: status == PreparedReplyStatus.message ? message : '',
+          head: session.refs.head.target,
+          repoStateKnown: session.repoState != null,
           overwrite: ref
               .read(appPreferencesProvider)
               .overwriteWithPreparedMessage,
@@ -725,6 +735,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     switch (action) {
       case PreparedMessageAction.startAndRequest:
       case PreparedMessageAction.cancelAmendAndStart:
+      case PreparedMessageAction.revalidate:
         ref
             .read(repoSessionProvider(widget.identity).notifier)
             .requestPreparedMessage();
@@ -733,6 +744,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       case PreparedMessageAction.nothing:
       case PreparedMessageAction.keep:
       case PreparedMessageAction.end:
+      case PreparedMessageAction.keepValidated:
+      case PreparedMessageAction.replaceAsNew:
+      case PreparedMessageAction.clearAndEnd:
         break;
     }
   }

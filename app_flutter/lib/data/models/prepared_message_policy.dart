@@ -44,6 +44,23 @@ enum PreparedMessageAction {
 
   /// The episode ended after the user edited the autofill: keep their text.
   end,
+
+  /// An episode read back from disk, still pending: ask git again, to tell
+  /// the same merge from a new one. The box is left alone meanwhile.
+  revalidate,
+
+  /// The episode read back from disk is the same merge or squash as before:
+  /// keep the box as it is (使用者 2026-10-10 「同筆，就沿用」).
+  keepValidated,
+
+  /// A different merge or squash than the one on disk: replace the box, with
+  /// nothing to put back on Abort -- the earlier one ended while the app was
+  /// closed.
+  replaceAsNew,
+
+  /// The episode on disk has ended (committed or aborted outside the app):
+  /// clear the box (使用者 2026-10-10 「上次是優先狀態，這次沒有了，就清掉」).
+  clearAndEnd,
 }
 
 class PreparedMessageContext {
@@ -57,6 +74,11 @@ class PreparedMessageContext {
     required this.boxEmpty,
     required this.boxMatchesAutofill,
     this.commitInFlight = false,
+    this.headKnown = true,
+    this.repoStateKnown = true,
+    this.needsRevalidation = false,
+    this.revalidationRequested = false,
+    this.sameMerge = false,
   });
 
   /// `RepoState.preparedMessagePending`.
@@ -81,9 +103,29 @@ class PreparedMessageContext {
   /// committed, not aborted, so nothing is restored -- RepoState is re-read
   /// before refs, so the pending flag drops before HEAD visibly moves.
   final bool commitInFlight;
+
+  /// `refs.head.target` has arrived. An episode records HEAD as half of its
+  /// same-merge key, so nothing that would write one is decided before it --
+  /// RepoState is read at open, refs only on a later event.
+  final bool headKnown;
+
+  /// RepoState has been read at all. Unknown is not "nothing pending".
+  final bool repoStateKnown;
+
+  /// The episode was read back from disk and not yet checked against git.
+  final bool needsRevalidation;
+
+  /// That check's request has been sent.
+  final bool revalidationRequested;
+
+  /// The reply belongs to the same merge or squash as the episode on disk:
+  /// same HEAD, and the same message unless the one on disk is empty (its
+  /// read had failed -- then HEAD alone decides).
+  final bool sameMerge;
 }
 
 PreparedMessageAction decidePreparedMessageAction(PreparedMessageContext c) {
+  if (c.episodeActive && c.needsRevalidation) return _revalidating(c);
   if (!c.pending) {
     if (!c.episodeActive) return PreparedMessageAction.nothing;
     if (c.commitInFlight) return PreparedMessageAction.end;
@@ -97,6 +139,9 @@ PreparedMessageAction decidePreparedMessageAction(PreparedMessageContext c) {
         : PreparedMessageAction.startAndRequest;
   }
   if (c.filled) return PreparedMessageAction.nothing;
+  if (c.reply != PreparedReplyStatus.none && !c.headKnown) {
+    return PreparedMessageAction.nothing;
+  }
   switch (c.reply) {
     case PreparedReplyStatus.none:
       return PreparedMessageAction.nothing;
@@ -105,6 +150,26 @@ PreparedMessageAction decidePreparedMessageAction(PreparedMessageContext c) {
     case PreparedReplyStatus.message:
       return c.overwrite || c.boxEmpty
           ? PreparedMessageAction.replace
+          : PreparedMessageAction.keep;
+  }
+}
+
+/// The reopen rules (使用者 2026-10-10), for an episode read back from disk.
+PreparedMessageAction _revalidating(PreparedMessageContext c) {
+  if (!c.repoStateKnown || !c.headKnown) return PreparedMessageAction.nothing;
+  if (!c.pending) return PreparedMessageAction.clearAndEnd;
+  if (!c.revalidationRequested) return PreparedMessageAction.revalidate;
+  switch (c.reply) {
+    case PreparedReplyStatus.none:
+      return PreparedMessageAction.nothing;
+    case PreparedReplyStatus.failed:
+      return c.sameMerge
+          ? PreparedMessageAction.keepValidated
+          : PreparedMessageAction.keep;
+    case PreparedReplyStatus.message:
+      if (c.sameMerge) return PreparedMessageAction.keepValidated;
+      return c.overwrite || c.boxEmpty
+          ? PreparedMessageAction.replaceAsNew
           : PreparedMessageAction.keep;
   }
 }

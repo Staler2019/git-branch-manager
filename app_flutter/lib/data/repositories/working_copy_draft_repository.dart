@@ -24,21 +24,71 @@ class WorkingCopyDraftRepository {
   static String _key(RepoIdentity identity) =>
       'workingCopyDraft:${identity.workDir}';
 
+  /// The prepared-message episode, under its own key rather than inside the
+  /// draft's list: an older build reading a longer list would drop the whole
+  /// draft as malformed, while an unknown key it simply never reads.
+  static String _episodeKey(RepoIdentity identity) =>
+      'workingCopyPreparedEpisode:${identity.workDir}';
+
+  /// `[prePreparedSummary, prePreparedDescription, hasAutofill ('1'/'0'),
+  /// autofilledSummary, autofilledDescription, episodeHead, autofilledRaw]`.
+  static const int _episodeLength = 7;
+
   /// One list of exactly two entries rather than two keys: a message is one
   /// thing, and two `setString` calls can half-land, leaving a body with
   /// somebody else's subject.
+  ///
+  /// An episode stored beside it comes back marked
+  /// [WorkingCopyDraft.needsRevalidation]: whether it is still the same merge
+  /// is for git to say, not the disk. A malformed one reads as none.
   WorkingCopyDraft read(RepoIdentity identity) {
     final List<String>? stored = _prefs.getStringList(_key(identity));
-    if (stored == null || stored.length != 2) return const WorkingCopyDraft();
-    return WorkingCopyDraft(summary: stored[0], description: stored[1]);
+    final WorkingCopyDraft draft = stored == null || stored.length != 2
+        ? const WorkingCopyDraft()
+        : WorkingCopyDraft(summary: stored[0], description: stored[1]);
+    final List<String>? e = _prefs.getStringList(_episodeKey(identity));
+    if (e == null || e.length != _episodeLength) return draft;
+    if (e[2] != '1' && e[2] != '0') return draft;
+    return draft.copyWith(
+      preparedEpisodeActive: true,
+      preparedFilled: true,
+      needsRevalidation: true,
+      prePreparedSummary: e[0],
+      prePreparedDescription: e[1],
+      hasAutofill: e[2] == '1',
+      autofilledSummary: e[3],
+      autofilledDescription: e[4],
+      episodeHead: e[5],
+      autofilledRaw: e[6],
+    );
   }
 
+  /// An empty message removes the key: that is what a committed draft must
+  /// leave behind ([WorkingCopyDraftController.reset]).
   Future<void> write(RepoIdentity identity, WorkingCopyDraft draft) {
+    if (draft.summary.isEmpty && draft.description.isEmpty) {
+      return clear(identity);
+    }
     return _prefs.setStringList(_key(identity), <String>[
       draft.summary,
       draft.description,
     ]);
   }
+
+  Future<void> writeEpisode(RepoIdentity identity, WorkingCopyDraft draft) {
+    return _prefs.setStringList(_episodeKey(identity), <String>[
+      draft.prePreparedSummary,
+      draft.prePreparedDescription,
+      draft.hasAutofill ? '1' : '0',
+      draft.autofilledSummary,
+      draft.autofilledDescription,
+      draft.episodeHead,
+      draft.autofilledRaw,
+    ]);
+  }
+
+  Future<void> clearEpisode(RepoIdentity identity) =>
+      _prefs.remove(_episodeKey(identity));
 
   Future<void> clear(RepoIdentity identity) => _prefs.remove(_key(identity));
 }
@@ -66,6 +116,10 @@ class WorkingCopyDraft {
     this.autofilledSummary = '',
     this.autofilledDescription = '',
     this.pendingCommitFrom,
+    this.episodeHead = '',
+    this.autofilledRaw = '',
+    this.needsRevalidation = false,
+    this.revalidationRequested = false,
   });
 
   /// First line of the commit message (typically treated separately by Git).
@@ -119,6 +173,16 @@ class WorkingCopyDraft {
   /// shortcut and the menu alike, and `WorkspaceScreen` watches HEAD for it.
   final String? pendingCommitFrom;
 
+  /// The episode's same-merge key: HEAD when it was filled, and git's message
+  /// then ('' when that read failed). Persisted with the episode, so a
+  /// reopen can tell the same merge from a new one (使用者 2026-10-10).
+  final String episodeHead;
+  final String autofilledRaw;
+
+  /// Read back from disk and not yet checked against git; memory only.
+  final bool needsRevalidation;
+  final bool revalidationRequested;
+
   /// Creates a copy with any fields optionally replaced.
   WorkingCopyDraft copyWith({
     String? summary,
@@ -136,6 +200,10 @@ class WorkingCopyDraft {
     String? autofilledDescription,
     String? pendingCommitFrom,
     bool clearPendingCommit = false,
+    String? episodeHead,
+    String? autofilledRaw,
+    bool? needsRevalidation,
+    bool? revalidationRequested,
   }) {
     return WorkingCopyDraft(
       summary: summary ?? this.summary,
@@ -157,6 +225,11 @@ class WorkingCopyDraft {
       pendingCommitFrom: clearPendingCommit
           ? null
           : (pendingCommitFrom ?? this.pendingCommitFrom),
+      episodeHead: episodeHead ?? this.episodeHead,
+      autofilledRaw: autofilledRaw ?? this.autofilledRaw,
+      needsRevalidation: needsRevalidation ?? this.needsRevalidation,
+      revalidationRequested:
+          revalidationRequested ?? this.revalidationRequested,
     );
   }
 }
@@ -165,13 +238,18 @@ class WorkingCopyDraft {
 /// Updates are applied via copyWith() -- never in-place mutation.
 class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   WorkingCopyDraftController(this._repo, this._identity)
-    : super(_repo.read(_identity));
+    : super(_repo.read(_identity)) {
+    _episodeOnDisk = state.preparedEpisodeActive;
+  }
 
   final WorkingCopyDraftRepository _repo;
   final RepoIdentity _identity;
 
   Future<void>? _inFlight;
   bool _dirty = false;
+
+  /// The episode key holds something, so ending an episode must delete it.
+  bool _episodeOnDisk = false;
 
   /// Updates the commit message summary (first line).
   void updateSummary(String value) {
@@ -235,13 +313,18 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   /// decided, so the caller can ask core for the message
   /// ([PreparedMessageAction.startAndRequest]) or sync its text controllers
   /// ([PreparedMessageAction.replace], [PreparedMessageAction.restoreAndEnd]).
-  /// [summary]/[description] are the reply's text, read only on `replace`.
+  /// [summary]/[description] are the reply's text and [raw] the whole of it,
+  /// read only when it fills the box. [head] is `refs.head.target`, '' while
+  /// refs have not arrived; [repoStateKnown] is false before RepoState has.
   PreparedMessageAction reconcilePreparedMessage({
     required bool pending,
     required PreparedReplyStatus reply,
     required String summary,
     required String description,
+    required String raw,
+    required String head,
     required bool overwrite,
+    bool repoStateKnown = true,
   }) {
     final WorkingCopyDraft d = state;
     final PreparedMessageAction action = decidePreparedMessageAction(
@@ -258,8 +341,45 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
             d.hasAutofill &&
             d.summary == d.autofilledSummary &&
             d.description == d.autofilledDescription,
+        headKnown: head.isNotEmpty,
+        repoStateKnown: repoStateKnown,
+        needsRevalidation: d.needsRevalidation,
+        revalidationRequested: d.revalidationRequested,
+        sameMerge: _isSameMerge(d, reply: reply, raw: raw, head: head),
       ),
     );
+    _apply(
+      action,
+      summary: summary,
+      description: description,
+      raw: raw,
+      head: head,
+    );
+    return action;
+  }
+
+  /// Same HEAD, and the same message unless the stored one is empty (its
+  /// read had failed) or this reply has none (使用者 2026-10-10: 「HEAD 沒變
+  /// 就當同一筆」).
+  static bool _isSameMerge(
+    WorkingCopyDraft d, {
+    required PreparedReplyStatus reply,
+    required String raw,
+    required String head,
+  }) {
+    if (head != d.episodeHead) return false;
+    if (reply != PreparedReplyStatus.message) return true;
+    return d.autofilledRaw.isEmpty || raw == d.autofilledRaw;
+  }
+
+  void _apply(
+    PreparedMessageAction action, {
+    required String summary,
+    required String description,
+    required String raw,
+    required String head,
+  }) {
+    final WorkingCopyDraft d = state;
     switch (action) {
       case PreparedMessageAction.nothing:
         break;
@@ -271,11 +391,19 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
           preparedEpisodeActive: true,
           preparedFilled: false,
         );
-      case PreparedMessageAction.replace:
+      case PreparedMessageAction.revalidate:
+        state = d.copyWith(revalidationRequested: true);
+      case PreparedMessageAction.keepValidated:
         state = d.copyWith(
-          preparedFilled: true,
-          prePreparedSummary: d.summary,
-          prePreparedDescription: d.description,
+          needsRevalidation: false,
+          revalidationRequested: false,
+        );
+      case PreparedMessageAction.replace:
+      case PreparedMessageAction.replaceAsNew:
+        final bool fresh = action == PreparedMessageAction.replaceAsNew;
+        state = _filled(d, head: head, raw: raw).copyWith(
+          prePreparedSummary: fresh ? '' : d.summary,
+          prePreparedDescription: fresh ? '' : d.description,
           hasAutofill: true,
           autofilledSummary: summary,
           autofilledDescription: description,
@@ -284,7 +412,14 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         );
         _persist();
       case PreparedMessageAction.keep:
-        state = d.copyWith(preparedFilled: true);
+        state = _filled(d, head: head, raw: raw).copyWith(
+          prePreparedSummary: '',
+          prePreparedDescription: '',
+          hasAutofill: false,
+          autofilledSummary: '',
+          autofilledDescription: '',
+        );
+        _persist();
       case PreparedMessageAction.restoreAndEnd:
         state = _endedEpisode(
           d.copyWith(
@@ -293,11 +428,26 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
           ),
         );
         _persist();
+      case PreparedMessageAction.clearAndEnd:
+        state = _endedEpisode(d.copyWith(summary: '', description: ''));
+        _persist();
       case PreparedMessageAction.end:
         state = _endedEpisode(d);
+        _persist();
     }
-    return action;
   }
+
+  static WorkingCopyDraft _filled(
+    WorkingCopyDraft d, {
+    required String head,
+    required String raw,
+  }) => d.copyWith(
+    preparedFilled: true,
+    episodeHead: head,
+    autofilledRaw: raw,
+    needsRevalidation: false,
+    revalidationRequested: false,
+  );
 
   static WorkingCopyDraft _endedEpisode(WorkingCopyDraft d) => d.copyWith(
     preparedEpisodeActive: false,
@@ -307,6 +457,10 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     hasAutofill: false,
     autofilledSummary: '',
     autofilledDescription: '',
+    episodeHead: '',
+    autofilledRaw: '',
+    needsRevalidation: false,
+    revalidationRequested: false,
   );
 
   /// A commit was sent from HEAD [head]; wait for HEAD to move off it.
@@ -330,10 +484,13 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   /// Resets all fields to their defaults, on disk as well as in memory.
   /// Called after a successful commit: the message has become a commit, and
   /// offering it again on the next launch would invite committing it twice.
+  ///
+  /// Through the same queue as every other write: written around it, a
+  /// write already under way could land after the clear and bring the
+  /// committed message back.
   void reset() {
-    _dirty = false;
     state = const WorkingCopyDraft();
-    unawaited(_repo.clear(_identity));
+    _persist();
   }
 
   /// Coalesces writes instead of doing one per keystroke: while a write is
@@ -351,10 +508,27 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     _inFlight ??= _drain();
   }
 
+  /// Two writes per round, the episode's first, and each reads [state] as it
+  /// is *then* -- a reset between the two turns the second into a delete.
+  /// The order makes every half-written state keep the user's text: an
+  /// episode written without its draft leaves the old text, which no longer
+  /// matches the autofill and so counts as theirs; an episode deleted without
+  /// its draft leaves the autofill text in the box, never an empty one.
   Future<void> _drain() async {
     while (_dirty) {
       _dirty = false;
+      if (state.preparedEpisodeActive && state.preparedFilled) {
+        _episodeOnDisk = true;
+        await _repo.writeEpisode(_identity, state);
+      } else if (_episodeOnDisk) {
+        _episodeOnDisk = false;
+        await _repo.clearEpisode(_identity);
+      }
+      // Disposed during the first write (the repository's provider went
+      // away): [state] can no longer be read.
+      if (!mounted) break;
       await _repo.write(_identity, state);
+      if (!mounted) break;
     }
     _inFlight = null;
   }

@@ -457,6 +457,8 @@ void main() {
       reply: reply,
       summary: "Merge branch 'topic'",
       description: 'merged body',
+      raw: "Merge branch 'topic'\n\nmerged body",
+      head: 'deadbeef',
       overwrite: overwrite,
     );
 

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,7 @@ import '../../actions/gbm_action_id.dart';
 import '../../data/models/commit_meta.dart';
 import '../../data/models/git_error.dart';
 import '../../data/models/parsed_diff.dart';
+import '../../data/models/prepared_message_policy.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -16,6 +18,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
     show
         ConflictResolution,
+        PreparedMessageReply,
         RepoSessionController,
         RepoSessionState,
         WorkingCopyDiffReply,
@@ -32,6 +35,8 @@ import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/temporary_scope_provider.dart';
+import '../conflict_resolution/original_operation_message_dialog.dart'
+    show splitOriginalOperationMessage;
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
@@ -86,9 +91,16 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
 
+  /// A [_reconcilePreparedMessage] pass is already scheduled for the end of
+  /// this frame.
+  bool _preparedPassScheduled = false;
+
   @override
   void initState() {
     super.initState();
+    // A merge can already be pending when the view mounts (app startup,
+    // ruling ⑪), and a listener never fires for the value already there.
+    _schedulePreparedPass();
     final draft = ref.read(workingCopyDraftProvider(widget.identity));
     _summaryController = TextEditingController(text: draft.summary)
       ..addListener(_onSummaryChanged);
@@ -163,6 +175,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
     _watchCommitOutcome();
     _watchAmendPrefill(session);
+    _watchPreparedMessage();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -669,6 +682,80 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           .read(workingCopyDraftProvider(widget.identity).notifier)
           .applyAmendedMessage(summary: meta.subject, description: meta.body);
     });
+  }
+
+  /// Re-runs the prepared-message episode whenever anything it reads
+  /// changes: RepoState's pending flag, the reply, or the overwrite switch.
+  void _watchPreparedMessage() {
+    ref.listen<(bool, PreparedMessageReply?)>(
+      repoSessionProvider(widget.identity).select(
+        (s) =>
+            (s.repoState?.preparedMessagePending ?? false, s.preparedMessage),
+      ),
+      (_, _) => _schedulePreparedPass(),
+    );
+    ref.listen<bool>(
+      appPreferencesProvider.select((p) => p.overwriteWithPreparedMessage),
+      (_, _) => _schedulePreparedPass(),
+    );
+  }
+
+  /// Post-frame, because a pass writes the draft provider and may request
+  /// from the session -- neither may happen while a listener of either is
+  /// being notified. [FLU-postframe-no-frame]: the callback only runs if a
+  /// frame is coming, so ask for one.
+  void _schedulePreparedPass() {
+    if (_preparedPassScheduled) return;
+    _preparedPassScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _preparedPassScheduled = false;
+      if (mounted) _reconcilePreparedMessage();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  void _reconcilePreparedMessage() {
+    final RepoSessionState session = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    final PreparedMessageReply? reply = session.preparedMessage;
+    final String message = reply?.message.trimRight() ?? '';
+    final PreparedReplyStatus status = reply == null
+        ? PreparedReplyStatus.none
+        : (reply.failed || message.isEmpty)
+        ? PreparedReplyStatus.failed
+        : PreparedReplyStatus.message;
+    final ({String summary, String description}) split =
+        splitOriginalOperationMessage(message);
+
+    final PreparedMessageAction action = ref
+        .read(workingCopyDraftProvider(widget.identity).notifier)
+        .reconcilePreparedMessage(
+          pending: session.repoState?.preparedMessagePending ?? false,
+          reply: status,
+          summary: split.summary,
+          description: split.description,
+          overwrite: ref
+              .read(appPreferencesProvider)
+              .overwriteWithPreparedMessage,
+        );
+    switch (action) {
+      case PreparedMessageAction.startAndRequest:
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .requestPreparedMessage();
+      case PreparedMessageAction.replace:
+      case PreparedMessageAction.restoreAndEnd:
+        final WorkingCopyDraft draft = ref.read(
+          workingCopyDraftProvider(widget.identity),
+        );
+        _summaryController.text = draft.summary;
+        _descriptionController.text = draft.description;
+      case PreparedMessageAction.nothing:
+      case PreparedMessageAction.keep:
+      case PreparedMessageAction.end:
+        break;
+    }
   }
 
   void _onCancelAmend() {

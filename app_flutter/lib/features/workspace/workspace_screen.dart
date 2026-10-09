@@ -1624,7 +1624,6 @@ class ConflictBanner extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     final String statusText = _getStatusText();
     final SequencerOperationKind? kind = _kind;
-    final bool isRevert = kind == SequencerOperationKind.revert;
 
     return Container(
       width: double.infinity,
@@ -1675,82 +1674,52 @@ class ConflictBanner extends StatelessWidget {
             runSpacing: GbmSpacing.space1,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              // Abort button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canAbort
-                      ? ''
-                      : 'Revert has no abort (use Resolve…)',
-                  child: TextButton(
-                    onPressed: kind.canAbort ? onAbort : null,
-                    child: Text(
-                      'Abort',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
-              // Skip button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canSkip
-                      ? ''
-                      : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
-                  child: TextButton(
-                    onPressed: kind.canSkip ? onSkip : null,
-                    child: Text(
-                      'Skip',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
-              // Continue button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canContinue
-                      ? ''
-                      : 'Continue not available for '
-                            '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
-                            'Resolve…',
-                  child: TextButton(
-                    onPressed: kind.canContinue ? onContinue : null,
-                    child: Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
+              // Ruling ⑥⑩ (prepared-commit-message-spec.html): a control
+              // the operation cannot use is not drawn at all -- merge shows
+              // Abort, revert none of the three. Resolve… below is the way
+              // forward either way.
+              if (kind != null && kind.canAbort)
+                _BannerButton(label: 'Abort', onPressed: onAbort),
+              if (kind != null && kind.canSkip)
+                _BannerButton(label: 'Skip', onPressed: onSkip),
+              if (kind != null && kind.canContinue)
+                _BannerButton(label: 'Continue', onPressed: onContinue),
               // Resolve… button -- the actual route into ConflictResolveWindow's
               // three-pane editor. Independent of [kind] so it's reachable
               // during a real rebase/cherry-pick/merge/revert conflict, not
               // just the git-apply --3way edge case that has no sequencer
               // state; only Abort/Skip/Continue are sequencer-gated.
               if (session.workingCopyStatus.conflicted.isNotEmpty)
-                TextButton(
+                _BannerButton(
+                  label: 'Resolve…',
                   onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
-                  child: Text(
-                    'Resolve…',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.diffDelText,
-                      fontWeight: GbmTypography.weightSemibold,
-                    ),
-                  ),
                 ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One of [ConflictBanner]'s text controls, in the banner's own colours.
+class _BannerButton extends StatelessWidget {
+  const _BannerButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: context.gbmColors.diffDelText,
+          fontWeight: GbmTypography.weightSemibold,
+        ),
       ),
     );
   }

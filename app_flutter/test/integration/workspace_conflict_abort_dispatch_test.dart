@@ -102,7 +102,7 @@ int _countOf(FakeRepoSessionController controller, String name) =>
 void main() {
   group('ConflictBanner dispatch by sequencer kind', () {
     testWidgets('merge: Abort reaches mergeAbort; Skip and Continue are '
-        'disabled', (tester) async {
+        'not drawn', (tester) async {
       final pumped = await pumpWorkspace(
         tester,
         identity: _identity,
@@ -110,15 +110,15 @@ void main() {
       );
 
       expect(
-        tester.widget<TextButton>(_bannerButton('Skip')).onPressed,
-        isNull,
+        _bannerButton('Skip'),
+        findsNothing,
         reason:
             'SequencerOperationKind.merge.canSkip is false -- git has no '
             'notion of skipping one file\'s conflict during a merge.',
       );
       expect(
-        tester.widget<TextButton>(_bannerButton('Continue')).onPressed,
-        isNull,
+        _bannerButton('Continue'),
+        findsNothing,
         reason:
             'There is no gbm_merge_continue(); a plain commit finishes a '
             'merge.',
@@ -245,7 +245,7 @@ void main() {
     );
 
     testWidgets(
-      'merge -> cherry-pick: Skip and Continue go from disabled to live and '
+      'merge -> cherry-pick: Skip and Continue go from absent to live and '
       'dispatch the new kind',
       (tester) async {
         final pumped = await pumpWorkspace(
@@ -254,10 +254,7 @@ void main() {
           initialState: _conflicted(RepoStateFlags.merge),
         );
 
-        expect(
-          tester.widget<TextButton>(_bannerButton('Skip')).onPressed,
-          isNull,
-        );
+        expect(_bannerButton('Skip'), findsNothing);
 
         pumped.controller.emit(_conflicted(RepoStateFlags.cherryPick));
         await tester.pumpAndSettle();

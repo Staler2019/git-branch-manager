@@ -13,6 +13,7 @@ import 'package:gbm_flutter/features/dialogs/merge/merge_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:gbm_flutter/widgets/gbm_ref_picker.dart';
 import 'package:go_router/go_router.dart';
@@ -252,6 +253,171 @@ void main() {
       expect(
         _message(tester),
         "Merge remote-tracking branch 'origin/feat' into dev",
+      );
+    });
+  });
+
+  // 02-C / rulings ⑧⑨: choosing Squash asks core for git's own SQUASH_MSG and
+  // shows it, multi-line, as the message. A reply is used only while it is
+  // current (SquashMessagePreview.isCurrentFor); otherwise it is asked again.
+  group('squash (02-C)', () {
+    const String headTarget = 'aaaa';
+    final String sourceTarget = 'a' * 40;
+    const String squashMsg =
+        'Squashed commit of the following:\n\ncommit 1234\n\n    Add g\n';
+
+    SquashMessagePreview preview({
+      String source = 'feature',
+      String head = headTarget,
+      String? tip,
+      String message = squashMsg,
+    }) => SquashMessagePreview(
+      source: source,
+      headOid: head,
+      sourceOid: tip ?? sourceTarget,
+      message: message,
+      failed: false,
+    );
+
+    Future<void> pickSquash(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Squash 成一筆'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Squash 成一筆'));
+      await tester.pumpAndSettle();
+    }
+
+    int requests(FakeRepoSessionController fake) => fake.commandLog
+        .where((FakeCommand c) => c.name == 'requestSquashMessage')
+        .length;
+
+    bool mergeEnabled(WidgetTester tester) =>
+        tester
+            .widget<GbmButton>(find.widgetWithText(GbmButton, 'Merge'))
+            .onPressed !=
+        null;
+
+    testWidgets('choosing Squash asks for the preview of the source', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      final FakeCommand call = fake.commandLog.lastWhere(
+        (FakeCommand c) => c.name == 'requestSquashMessage',
+      );
+      expect(call.args['source'], 'feature');
+    });
+
+    testWidgets('a current preview fills a multi-line message and is what '
+        'Merge dispatches', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      fake.publishSquashMessagePreview(preview());
+      await tester.pumpAndSettle();
+
+      expect(_message(tester), squashMsg);
+      final TextField field = tester.widget(find.byType(TextField).last);
+      expect(field.enabled, isNot(false));
+      expect(field.maxLines, greaterThan(2));
+
+      await tester.ensureVisible(find.text('Merge'));
+      await tester.tap(find.text('Merge'));
+      await tester.pump();
+      final FakeCommand call = _merged(fake);
+      expect(call.args['mode'], MergeMode.squash);
+      expect(call.args['message'], squashMsg);
+    });
+
+    testWidgets('until a current preview arrives, Merge is disabled', (
+      tester,
+    ) async {
+      await _pump(tester, source: 'feature');
+      await pickSquash(tester);
+      expect(mergeEnabled(tester), isFalse);
+    });
+
+    testWidgets('a preview built for another HEAD is not used, and is asked '
+        'for again', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      final int before = requests(fake);
+      fake.publishSquashMessagePreview(preview(head: 'bbbb'));
+      await tester.pumpAndSettle();
+
+      expect(_message(tester), isNot(squashMsg));
+      expect(mergeEnabled(tester), isFalse);
+      expect(requests(fake), greaterThan(before));
+    });
+
+    testWidgets('a preview built for an older source tip is not used, HEAD '
+        'unchanged', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      final int before = requests(fake);
+      fake.publishSquashMessagePreview(preview(tip: 'c' * 40));
+      await tester.pumpAndSettle();
+
+      expect(_message(tester), isNot(squashMsg));
+      expect(requests(fake), greaterThan(before));
+    });
+
+    testWidgets('nothing to squash disables Merge', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      fake.publishSquashMessagePreview(preview(message: ''));
+      await tester.pumpAndSettle();
+      expect(mergeEnabled(tester), isFalse);
+    });
+
+    testWidgets('a message the user typed is kept when the preview arrives', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      await tester.enterText(find.byType(TextField).last, 'my squash');
+      fake.publishSquashMessagePreview(preview());
+      await tester.pumpAndSettle();
+      expect(_message(tester), 'my squash');
+    });
+
+    testWidgets('leaving Squash brings back the merge title', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      fake.publishSquashMessagePreview(preview());
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Merge commit（保留分支形狀）'));
+      await tester.tap(find.text('Merge commit（保留分支形狀）'));
+      await tester.pumpAndSettle();
+      expect(_message(tester), "Merge branch 'feature'");
+    });
+
+    testWidgets('the squash subtitle says it becomes one ordinary commit', (
+      tester,
+    ) async {
+      await _pump(tester, source: 'feature');
+      expect(
+        find.text('把來源的變更合成一筆一般 commit，不記錄 merge commit。'),
+        findsOneWidget,
       );
     });
   });

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -61,31 +62,98 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   MergeMode _mode = MergeMode.noFastForward;
   bool _stashFirst = false;
 
+  /// `source|HEAD oid|source oid` of the last squash preview asked for, and
+  /// of the one already re-asked after a stale reply -- the second is what
+  /// stops a reply that never matches from looping requests forever.
+  String? _requestedKey;
+  String? _retriedKey;
+
   @override
   void initState() {
     super.initState();
     _messageController = TextEditingController();
     _target = widget.source;
-    final String? source = widget.source;
-    if (source != null) {
-      final RepoSessionState session = ref.read(
-        repoSessionProvider(widget.identity),
-      );
-      _autofillMessage(session, source);
-    }
+    _syncMessage(ref.read(repoSessionProvider(widget.identity)));
   }
 
   bool _isRemote(RepoSessionState session, String name) =>
       session.refs.remoteBranches.any((RefInfo b) => b.shortName == name);
 
-  void _autofillMessage(RepoSessionState session, String source) {
-    if (_messageController.text != _lastAutofill) return;
-    _lastAutofill = _defaultMergeTitle(
-      source: source,
-      sourceIsRemote: _isRemote(session, source),
+  String _sourceTip(RepoSessionState session, String name) {
+    for (final RefInfo b in <RefInfo>[
+      ...session.refs.localBranches,
+      ...session.refs.remoteBranches,
+    ]) {
+      if (b.shortName == name) return b.target;
+    }
+    return '';
+  }
+
+  /// The squash preview, but only if it answers the current pick against
+  /// the refs as they are now ([SquashMessagePreview.isCurrentFor]).
+  SquashMessagePreview? _currentPreview(RepoSessionState session) {
+    final String? target = _target;
+    final SquashMessagePreview? preview = session.squashMessagePreview;
+    if (target == null || preview == null) return null;
+    return preview.isCurrentFor(target, session.refs) ? preview : null;
+  }
+
+  /// A reply that could not be built still answers the pick: Merge is
+  /// allowed, with whatever the user typed (empty leaves it only staged).
+  bool _previewFailedFor(RepoSessionState session) {
+    final SquashMessagePreview? preview = session.squashMessagePreview;
+    return preview != null && preview.failed && preview.source == _target;
+  }
+
+  /// What the box should hold right now if the user has not written their
+  /// own: git's squash message in Squash mode (empty until it arrives), the
+  /// merge title otherwise.
+  String _autofillFor(RepoSessionState session) {
+    final String? target = _target;
+    if (target == null) return '';
+    if (_mode == MergeMode.squash) {
+      return _currentPreview(session)?.message ?? '';
+    }
+    return _defaultMergeTitle(
+      source: target,
+      sourceIsRemote: _isRemote(session, target),
       currentBranch: session.refs.head.branchName,
     );
+  }
+
+  /// Replaces the message only while the box still holds exactly the last
+  /// autofill -- the moment the user types their own, it is theirs.
+  void _syncMessage(RepoSessionState session) {
+    if (_messageController.text != _lastAutofill) return;
+    _lastAutofill = _autofillFor(session);
     _messageController.text = _lastAutofill;
+  }
+
+  /// Asks core for the squash message whenever the pick, HEAD or the source
+  /// tip differs from what was last asked. Deferred to after the frame: this
+  /// runs from a provider listener, and a provider write must not happen
+  /// inside the notification that triggered it ([FLU-postframe-no-frame]:
+  /// paired with ensureVisualUpdate so the callback actually runs).
+  void _ensureSquashRequested(RepoSessionState session, {bool stale = false}) {
+    final String? target = _target;
+    if (_mode != MergeMode.squash || target == null) return;
+    if (_currentPreview(session) != null) return;
+    final String key =
+        '$target|${session.refs.head.target}|${_sourceTip(session, target)}';
+    if (stale) {
+      if (_retriedKey == key) return;
+      _retriedKey = key;
+    } else if (_requestedKey == key) {
+      return;
+    }
+    _requestedKey = key;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .requestSquashMessage(target);
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   /// Ruling ②: local branches other than the current one, plus every
@@ -116,6 +184,29 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
     final String currentBranch = session.refs.head.branchName;
     final String? source = widget.source;
 
+    // A squash preview arriving, or HEAD / the source tip moving, re-syncs the
+    // box and, when the reply no longer matches, asks again.
+    ref.listen<RepoSessionState>(repoSessionProvider(widget.identity), (
+      RepoSessionState? previous,
+      RepoSessionState next,
+    ) {
+      if (_mode != MergeMode.squash) return;
+      final bool replyArrived =
+          next.squashMessagePreview != null &&
+          next.squashMessagePreview != previous?.squashMessagePreview;
+      if (next.refs != previous?.refs || replyArrived) {
+        setState(() => _syncMessage(next));
+        _ensureSquashRequested(
+          next,
+          stale: replyArrived && _currentPreview(next) == null,
+        );
+      }
+    });
+    final bool squashReady =
+        _mode != MergeMode.squash ||
+        _previewFailedFor(session) ||
+        (_currentPreview(session)?.message.isNotEmpty ?? false);
+
     return GbmDialogShell(
       title: 'Merge Branch',
       actionId: GbmActionId.branchMergeIntoCurrent,
@@ -124,7 +215,10 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
         GbmButton(
           label: 'Merge',
           kind: GbmButtonKind.primary,
-          onPressed: _target == null
+          // In Squash mode, only once git's message for *these* refs is in
+          // the box -- or nothing could be built and the user is on their
+          // own. An empty current preview is "nothing to squash".
+          onPressed: _target == null || !squashReady
               ? null
               : () {
                   ref
@@ -132,7 +226,11 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                       .mergeBranch(
                         _target!,
                         _mode,
-                        message: _messageController.text.trim(),
+                        // A squash message is git's own text, indented body
+                        // and all; git's commit cleanup handles its edges.
+                        message: _mode == MergeMode.squash
+                            ? _messageController.text
+                            : _messageController.text.trim(),
                         stashFirst: _stashFirst,
                       );
                   context.pop();
@@ -180,10 +278,13 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                 hintText: '搜尋分支',
                 emptyMessage: '沒有可以合入的分支。',
                 maxListHeight: 160,
-                onSelected: (GbmRefPickerEntry entry) => setState(() {
-                  _target = entry.name;
-                  _autofillMessage(session, entry.name);
-                }),
+                onSelected: (GbmRefPickerEntry entry) {
+                  setState(() {
+                    _target = entry.name;
+                    _syncMessage(session);
+                  });
+                  _ensureSquashRequested(session);
+                },
               ),
             ],
             const SizedBox(height: GbmSpacing.space2),
@@ -195,7 +296,13 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
             const SizedBox(height: GbmSpacing.space3),
             RadioGroup<MergeMode>(
               groupValue: _mode,
-              onChanged: (mode) => setState(() => _mode = mode ?? _mode),
+              onChanged: (mode) {
+                setState(() {
+                  _mode = mode ?? _mode;
+                  _syncMessage(session);
+                });
+                _ensureSquashRequested(session);
+              },
               child: const Column(
                 children: <Widget>[
                   _ModeOption(
@@ -217,7 +324,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                   _ModeOption(
                     mode: MergeMode.squash,
                     label: 'Squash 成一筆',
-                    description: '把變更併進來，但不記錄 merge commit。',
+                    description: '把來源的變更合成一筆一般 commit，不記錄 merge commit。',
                   ),
                 ],
               ),
@@ -237,8 +344,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                 fontFamily: GbmTypography.fontMono,
                 fontSize: GbmTypography.textSm,
               ),
-              enabled: _mode != MergeMode.squash,
-              maxLines: 2,
+              // 02-C: DLGS's hint 「squash 時改為多行欄位並帶入來源 commit 摘要」.
+              minLines: _mode == MergeMode.squash ? 4 : null,
+              maxLines: _mode == MergeMode.squash ? 8 : 2,
               decoration: gbmMultilineInputDecoration(
                 colors: colors,
                 hintText: "Merge branch '…'",

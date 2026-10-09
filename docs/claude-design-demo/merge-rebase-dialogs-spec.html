@@ -464,7 +464,7 @@ footer.colophon {
       <span class="pill is-ratified">使用者裁定 · Merge 訊息預填</span>
       <span class="pill is-ratified">使用者裁定 · Merge 來源含 origin</span>
       <span class="pill is-ratified">使用者裁定 · ①③④⑤⑥⑦ 照建議、⑧ 一起做</span>
-      <span class="pill is-open">⑨ squash 格式待裁定</span>
+      <span class="pill is-ratified">使用者裁定 · ⑨ SQUASH_MSG、無衝突才 commit</span>
       <span class="pill is-open">設計稿通過才開工</span>
     </div>
   </header>
@@ -587,7 +587,7 @@ footer.colophon {
         </div>
       </div>
       <div class="specimen">
-        <div class="specimen-head"><span class="specimen-tag entry">C · 選 Squash 時（裁定 ⑧）</span><span class="specimen-note zh">訊息改多行並帶入來源 commit 摘要 · 格式待裁定 ⑨</span></div>
+        <div class="specimen-head"><span class="specimen-tag entry">C · 選 Squash 時（裁定 ⑧）</span><span class="specimen-note zh">訊息改多行並帶入 git 的 SQUASH_MSG（裁定 ⑨）· 無衝突才 commit</span></div>
         <div class="stage" data-stage data-app-theme="dark-technical">
           <div class="gbm-dialog-shell">
             <div class="mkbar"><span class="mkbar__title">Merge Branch</span><span class="kbd">⇧⌘M</span></div>
@@ -607,11 +607,19 @@ footer.colophon {
               </div>
               <div class="fld">
                 <div class="fld__label is-cjk">Commit 訊息</div>
-                <div class="fld__ctl"><span class="box box--multi box--squash box--mono"><span class="val">Squash merge branch 'feature/lane-allocator'
+                <div class="fld__ctl"><span class="box box--multi box--squash box--mono"><span class="val">Squashed commit of the following:
 
-* Add lane reuse for merged branches
-* Fix lane allocator overflow
-* Draw lane 0 for HEAD only</span></span></div>
+commit 9f3c2a1e7b0d4c6a8e5f1b2d3c4a5e6f7a8b9c0d
+Author: Staler2019 &lt;dev@example.invalid&gt;
+Date:   Thu Oct 8 20:54:58 2026 +0800
+
+    Fix lane allocator overflow
+
+commit 2b7e9d0c1a3f5e7b9d1c3e5a7f9b1d3e5c7a9f0b
+Author: Staler2019 &lt;dev@example.invalid&gt;
+Date:   Thu Oct 8 19:12:40 2026 +0800
+
+    Add lane reuse for merged branches</span></span></div>
               </div>
               <div class="fld">
                 <div class="opt opt--chk is-cjk" data-on="0"><span class="opt__mark"></span><span>先 stash 未提交的變更</span></div>
@@ -745,7 +753,8 @@ footer.colophon {
           <tr><td>commit 顯示「commit a1b2c3d4」</td><td>[APP]</td><td class="zh"><code>rebase_onto_dialog.dart</code> 現行縮寫規則（前 8 碼）</td></tr>
           <tr><td>Merge radio 文案「只允許 fast-forward」</td><td>[APP] 既有偏離</td><td class="zh">spec 寫「Fast-forward 可行時不建 commit」= <code>--ff</code>，app 沒有這個 mode；<code>merge_dialog.dart:127</code> 已記錄理由，本稿不動</td></tr>
           <tr><td class="zh">Commit 訊息：標籤 + 預填</td><td>[DLGS] 使用者裁定</td><td class="zh">DLGS：<code>{ k: 'text', label: 'Commit 訊息', v: "Merge branch 'feature/lane-allocator'", mono: true }</code>。使用者裁定 2026-10-08：「merge 的 commit 訊息不是可留空，你要先帶入預設樣式」。<s>app 現在是 hint「Commit 訊息（可留空）」，不在本輪</s></td></tr>
-          <tr><td class="zh">squash 訊息格式與摘要列（02-C）</td><td><b>Inferred</b></td><td class="zh">DLGS hint 只寫「squash 時改為多行欄位並帶入來源 commit 摘要」；格式見待裁定 ⑨。範例 subject 為佔位</td></tr>
+          <tr><td class="zh">squash 訊息格式（02-C）</td><td>使用者裁定 ⑨</td><td class="zh"><s>DLGS hint 只寫「squash 時改為多行欄位並帶入來源 commit 摘要」；格式見待裁定 ⑨。</s> git 的 SQUASH_MSG；範例 hash、作者、日期、subject 為佔位</td></tr>
+          <tr><td class="zh">squash 預覽到達前 Merge 停用；空範圍停用</td><td><b>Inferred</b></td><td class="zh">避免把非 squash 的預設標題當 squash 訊息送出；預覽失敗時仍可 Merge（只 stage）</td></tr>
           <tr><td class="zh">squash 副標改寫</td><td><b>Inferred</b></td><td class="zh">squash 後直接 commit，原副標「不記錄 merge commit」不再完整，改為「把來源的變更合成一筆一般 commit，不記錄 merge commit。」</td></tr>
           <tr><td class="zh">換來源時訊息跟著換</td><td><b>Inferred</b></td><td class="zh">使用者沒改過訊息就跟著換；改過就保留。spec 沒寫</td></tr>
           <tr><td class="zh">ro 欄位裡的分支 icon</td><td><b>Inferred</b></td><td class="zh">DLGS ro 欄只有文字；加 icon 是為了跟 picker 的 row 一致（Checkout hint「以圖示區分」）。可拿掉</td></tr>
@@ -778,7 +787,7 @@ footer.colophon {
           <tr><td class="num">⑥</td><td class="zh">標題與主按鈕文字（DLGS vs P06 vs app）</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。本輪不動，維持 app 的 <code>Merge Branch</code> / <code>Rebase</code> / <code>Start rebase</code></td></tr>
                   <tr><td class="num">⑦</td><td class="zh">預設訊息格式：DLGS 合入 main 畫的是 <code>Merge branch 'feature/lane-allocator'</code>。<s>但 git 2.56 的預設（<code>man git-fmt-merge-msg</code>：未設 <code>merge.suppressDest</code> 時只省略 <code>master</code>）合入 main 會寫 <code>Merge branch 'X' into main</code></s> <b>更正（實測 git 2.56，2026-10-08）</b>：合入 <code>main</code>、<code>master</code> 都省略目的地，合入其他分支才加 <code>into &lt;目前&gt;</code>；來源是 remote 時是 <code>Merge remote-tracking branch 'origin/x'</code>。DLGS 的例子與 git 一致</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「1,3,4,5,6,7照你建議，8一起做」</span>。建議：完全照 git 的預設格式（含 <code>into</code> 與 <code>remote-tracking branch</code> 兩種變化），使用者看到的就是 git 自己會寫的訊息</td></tr>
           <tr><td class="num">⑧</td><td class="zh">DLGS hint「squash 時改為多行欄位並帶入來源 commit 摘要」——app 現在 squash 時把訊息欄停用</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「8一起做」</span>。見 02-C。摘要取自 <code>gbm_request_compare_refs(HEAD, 來源, threeDot=0)</code> 的「來源有、HEAD 沒有」commit 清單</td></tr>
-          <tr><td class="num">⑨</td><td class="zh">squash 訊息的格式，以及 squash 後要不要直接建 commit</td><td class="zh">提案（Inferred，spec 只寫「帶入來源 commit 摘要」）：首行 <code>Squash merge branch '&lt;來源&gt;'</code>，空一行，每筆 <code>* &lt;subject&gt;</code>（舊到新）。既然有訊息，squash 後就用它直接 commit（現況只 stage、不 commit；app 副標「不記錄 merge commit」改為「合成一筆一般 commit」）</td></tr>
+          <tr><td class="num">⑨</td><td class="zh">squash 訊息的格式，以及 squash 後要不要直接建 commit</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-08：「用 git 的 SQUASH_MSG」；squash 後是否 commit：「merge沒conflict才可以直接commit」</span>。02-C 已改畫 SQUASH_MSG（<code>"Squashed commit of the following:" + git log --pretty=medium HEAD..&lt;來源&gt;</code>，實測與 git 寫的逐位元相同）。<s>提案（Inferred，spec 只寫「帶入來源 commit 摘要」）：首行 <code>Squash merge branch '&lt;來源&gt;'</code>，空一行，每筆 <code>* &lt;subject&gt;</code>（舊到新）。既然有訊息，squash 後就用它直接 commit（現況只 stage、不 commit；app 副標「不記錄 merge commit」改為「合成一筆一般 commit」）</s></td></tr>
         </tbody>
       </table>
     </div>

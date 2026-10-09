@@ -215,6 +215,22 @@ Future<SharedPreferences> _pumpRealApp(
 
 /// Deletes [workDir] recursively; safe to call even if a test already
 /// deleted it or the directory never fully materialized.
+/// Pumps frames until [done] holds or [maxAttempts] steps of [step] have
+/// passed. A real FFI event or git operation finishes outside anything
+/// `pumpAndSettle` waits for -- it settles animations, not native
+/// callbacks. Returns quietly on timeout: the caller's own assertion names
+/// what never happened.
+Future<void> pumpUntil(
+  WidgetTester tester,
+  bool Function() done, {
+  int maxAttempts = 60,
+  Duration step = const Duration(milliseconds: 100),
+}) async {
+  for (int i = 0; i < maxAttempts && !done(); i++) {
+    await tester.pump(step);
+  }
+}
+
 void deleteTempGitRepo(String workDir) {
   final Directory dir = Directory(workDir);
   if (dir.existsSync()) {

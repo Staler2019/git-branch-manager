@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/prepared_message_policy.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
@@ -436,6 +437,137 @@ void main() {
       );
       expect(draft.summary, 'HEAD subject');
       expect(draft.amending, isFalse);
+    });
+  });
+
+  // Rulings ①③⑨⑪: the controller holds the episode, so leaving the Working
+  // Copy tab and coming back neither fills the box twice nor forgets what it
+  // held before the merge.
+  group('a prepared message episode', () {
+    late ProviderContainer c;
+    late WorkingCopyDraftController notifier;
+    WorkingCopyDraft draft() => c.read(workingCopyDraftProvider(_repo1));
+
+    PreparedMessageAction reconcile({
+      bool pending = true,
+      PreparedReplyStatus reply = PreparedReplyStatus.none,
+      bool overwrite = true,
+    }) => notifier.reconcilePreparedMessage(
+      pending: pending,
+      reply: reply,
+      summary: "Merge branch 'topic'",
+      description: 'merged body',
+      overwrite: overwrite,
+    );
+
+    setUp(() {
+      c = container();
+      notifier = c.read(workingCopyDraftProvider(_repo1).notifier);
+      notifier.updateSummary('mine');
+      notifier.updateDescription('my body');
+    });
+
+    test('starting asks for the message and leaves the box alone', () {
+      expect(reconcile(), PreparedMessageAction.startAndRequest);
+      expect(draft().preparedEpisodeActive, isTrue);
+      expect(draft().summary, 'mine');
+    });
+
+    test('the reply replaces the box', () {
+      reconcile();
+
+      expect(
+        reconcile(reply: PreparedReplyStatus.message),
+        PreparedMessageAction.replace,
+      );
+      expect(draft().summary, "Merge branch 'topic'");
+      expect(draft().description, 'merged body');
+    });
+
+    test('a second pass after filling changes nothing', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+      notifier.updateSummary('edited during the merge');
+
+      expect(
+        reconcile(reply: PreparedReplyStatus.message),
+        PreparedMessageAction.nothing,
+      );
+      expect(draft().summary, 'edited during the merge');
+    });
+
+    test('an abort with the autofill untouched puts back the old text', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+
+      expect(reconcile(pending: false), PreparedMessageAction.restoreAndEnd);
+      expect(draft().summary, 'mine');
+      expect(draft().description, 'my body');
+      expect(draft().preparedEpisodeActive, isFalse);
+    });
+
+    test('an abort after the user edited keeps their edit', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+      notifier.updateDescription('my own words');
+
+      expect(reconcile(pending: false), PreparedMessageAction.end);
+      expect(draft().summary, "Merge branch 'topic'");
+      expect(draft().description, 'my own words');
+      expect(draft().preparedEpisodeActive, isFalse);
+    });
+
+    test('a kept box is never restored, since nothing was autofilled', () {
+      reconcile();
+      expect(
+        reconcile(reply: PreparedReplyStatus.message, overwrite: false),
+        PreparedMessageAction.keep,
+      );
+
+      expect(reconcile(pending: false), PreparedMessageAction.end);
+      expect(draft().summary, 'mine');
+    });
+
+    test('editing only the summary counts as the user\'s edit', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+      notifier.updateSummary('my subject');
+
+      expect(reconcile(pending: false), PreparedMessageAction.end);
+      expect(draft().summary, 'my subject');
+    });
+
+    // The decision is made once per episode: a box the user empties after
+    // a kept reply is not filled behind their back.
+    test('a kept box stays kept after the user empties it', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message, overwrite: false);
+      notifier.updateSummary('');
+      notifier.updateDescription('');
+
+      expect(
+        reconcile(reply: PreparedReplyStatus.message, overwrite: false),
+        PreparedMessageAction.nothing,
+      );
+      expect(draft().summary, isEmpty);
+    });
+
+    test('an empty box that was never filled is not "restored"', () {
+      notifier.updateSummary('');
+      notifier.updateDescription('');
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.failed);
+
+      expect(reconcile(pending: false), PreparedMessageAction.end);
+    });
+
+    test('a new episode after the last one ended starts again', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+      reconcile(pending: false);
+
+      expect(reconcile(), PreparedMessageAction.startAndRequest);
+      expect(draft().preparedFilled, isFalse);
     });
   });
 }

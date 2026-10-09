@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../theme/theme_mode_provider.dart';
+import '../models/prepared_message_policy.dart';
 import 'repo_identity.dart';
 
 /// Persists the commit message draft of one repository, so closing the app
@@ -57,6 +58,13 @@ class WorkingCopyDraft {
     this.amending = false,
     this.preAmendSummary = '',
     this.preAmendDescription = '',
+    this.preparedEpisodeActive = false,
+    this.preparedFilled = false,
+    this.prePreparedSummary = '',
+    this.prePreparedDescription = '',
+    this.hasAutofill = false,
+    this.autofilledSummary = '',
+    this.autofilledDescription = '',
   });
 
   /// First line of the commit message (typically treated separately by Git).
@@ -83,6 +91,25 @@ class WorkingCopyDraft {
   final String preAmendSummary;
   final String preAmendDescription;
 
+  /// A merge or squash has left git a prepared message, and this box has
+  /// taken part in it (`prepared_message_policy.dart`). Memory only, like
+  /// [amending]: after a restart the episode starts over, which is ruling
+  /// ⑪'s 「啟動時也覆蓋」.
+  final bool preparedEpisodeActive;
+
+  /// The box was replaced or deliberately kept in this episode.
+  final bool preparedFilled;
+
+  /// What the box held before the prepared message replaced it.
+  final String prePreparedSummary;
+  final String prePreparedDescription;
+
+  /// The box was replaced this episode, and with what -- so ending the
+  /// episode can tell an untouched autofill from the user's own edit.
+  final bool hasAutofill;
+  final String autofilledSummary;
+  final String autofilledDescription;
+
   /// Creates a copy with any fields optionally replaced.
   WorkingCopyDraft copyWith({
     String? summary,
@@ -91,6 +118,13 @@ class WorkingCopyDraft {
     bool? amending,
     String? preAmendSummary,
     String? preAmendDescription,
+    bool? preparedEpisodeActive,
+    bool? preparedFilled,
+    String? prePreparedSummary,
+    String? prePreparedDescription,
+    bool? hasAutofill,
+    String? autofilledSummary,
+    String? autofilledDescription,
   }) {
     return WorkingCopyDraft(
       summary: summary ?? this.summary,
@@ -99,6 +133,16 @@ class WorkingCopyDraft {
       amending: amending ?? this.amending,
       preAmendSummary: preAmendSummary ?? this.preAmendSummary,
       preAmendDescription: preAmendDescription ?? this.preAmendDescription,
+      preparedEpisodeActive:
+          preparedEpisodeActive ?? this.preparedEpisodeActive,
+      preparedFilled: preparedFilled ?? this.preparedFilled,
+      prePreparedSummary: prePreparedSummary ?? this.prePreparedSummary,
+      prePreparedDescription:
+          prePreparedDescription ?? this.prePreparedDescription,
+      hasAutofill: hasAutofill ?? this.hasAutofill,
+      autofilledSummary: autofilledSummary ?? this.autofilledSummary,
+      autofilledDescription:
+          autofilledDescription ?? this.autofilledDescription,
     );
   }
 }
@@ -172,6 +216,77 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     );
     _persist();
   }
+
+  /// Advances the prepared-message episode one step and returns what was
+  /// decided, so the caller can ask core for the message
+  /// ([PreparedMessageAction.startAndRequest]) or sync its text controllers
+  /// ([PreparedMessageAction.replace], [PreparedMessageAction.restoreAndEnd]).
+  /// [summary]/[description] are the reply's text, read only on `replace`.
+  PreparedMessageAction reconcilePreparedMessage({
+    required bool pending,
+    required PreparedReplyStatus reply,
+    required String summary,
+    required String description,
+    required bool overwrite,
+  }) {
+    final WorkingCopyDraft d = state;
+    final PreparedMessageAction action = decidePreparedMessageAction(
+      PreparedMessageContext(
+        pending: pending,
+        episodeActive: d.preparedEpisodeActive,
+        filled: d.preparedFilled,
+        amending: d.amending,
+        reply: reply,
+        overwrite: overwrite,
+        boxEmpty: d.summary.trim().isEmpty && d.description.trim().isEmpty,
+        boxMatchesAutofill:
+            d.hasAutofill &&
+            d.summary == d.autofilledSummary &&
+            d.description == d.autofilledDescription,
+      ),
+    );
+    switch (action) {
+      case PreparedMessageAction.nothing:
+        break;
+      case PreparedMessageAction.startAndRequest:
+        state = d.copyWith(preparedEpisodeActive: true, preparedFilled: false);
+      case PreparedMessageAction.replace:
+        state = d.copyWith(
+          preparedFilled: true,
+          prePreparedSummary: d.summary,
+          prePreparedDescription: d.description,
+          hasAutofill: true,
+          autofilledSummary: summary,
+          autofilledDescription: description,
+          summary: summary,
+          description: description,
+        );
+        _persist();
+      case PreparedMessageAction.keep:
+        state = d.copyWith(preparedFilled: true);
+      case PreparedMessageAction.restoreAndEnd:
+        state = _endedEpisode(
+          d.copyWith(
+            summary: d.prePreparedSummary,
+            description: d.prePreparedDescription,
+          ),
+        );
+        _persist();
+      case PreparedMessageAction.end:
+        state = _endedEpisode(d);
+    }
+    return action;
+  }
+
+  static WorkingCopyDraft _endedEpisode(WorkingCopyDraft d) => d.copyWith(
+    preparedEpisodeActive: false,
+    preparedFilled: false,
+    prePreparedSummary: '',
+    prePreparedDescription: '',
+    hasAutofill: false,
+    autofilledSummary: '',
+    autofilledDescription: '',
+  );
 
   /// Resets all fields to their defaults, on disk as well as in memory.
   /// Called after a successful commit: the message has become a commit, and

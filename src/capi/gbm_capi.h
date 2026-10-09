@@ -534,8 +534,10 @@ GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t 
 
 /// `mode`: 0 = fast-forward-only, 1 = no-fast-forward, 2 = squash
 /// (MergeMode's ordinal order: FastForwardOnly, NoFastForward, Squash).
-/// `message` overrides the default merge commit message (ignored for
-/// squash); pass "" to use git's default. Async: fires
+/// `message` overrides the default merge commit message; pass "" to use
+/// git's default. For squash, a non-empty `message` commits the squash with
+/// it when it lands without conflict (nothing staged -> no commit, reported
+/// as succeeded); "" leaves it staged and uncommitted. Async: fires
 /// GBM_EVENT_OPERATION_FINISHED. A conflicting merge is reported with
 /// `succeeded: false` and `error.code` == GBM_ERR_CONFLICT, exactly like any
 /// other outcome -- it is not a crash or an exceptional case, see

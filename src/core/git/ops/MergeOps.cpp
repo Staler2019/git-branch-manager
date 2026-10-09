@@ -1,5 +1,6 @@
 #include "core/git/ops/MergeOps.h"
 
+#include <chrono>
 #include <utility>
 
 namespace gbm {
@@ -74,8 +75,8 @@ public:
                 }
                 break;
             case MergeMode::Squash:
-                // --squash never commits on its own -- there is nothing to supply
-                // an editor for -- so request_.message plays no part here.
+                // --squash never commits on its own; with a message, the commit
+                // is a separate step after it -- see commitSquash() below.
                 args.emplace_back("--squash");
                 break;
         }
@@ -88,6 +89,9 @@ public:
 
         auto result = runner.run(command, token);
         if (result) {
+            if (request_.mode == MergeMode::Squash && !request_.message.empty()) {
+                return commitSquash(runner, paths, token);
+            }
             outcome.succeeded = true;
             outcome.summary = modeLabel(request_.mode) + "d " + request_.target;
             return outcome;
@@ -120,6 +124,50 @@ public:
     }
 
 private:
+    /// The squash landed without conflict (使用者裁定 2026-10-08：「merge沒
+    /// conflict才可以直接commit」), so commit it with the caller's message.
+    /// Nothing staged -- the source was already in HEAD -- is not a commit
+    /// to attempt: git would only refuse with "nothing to commit". A commit
+    /// that fails (a hook, signing) leaves the squash staged and says so.
+    OperationOutcome commitSquash(IProcessRunner& runner,
+                                  const RepoPaths& paths,
+                                  CancellationToken token) {
+        OperationOutcome outcome;
+
+        // Exit 1 is the answer "the index differs from HEAD", not a failure.
+        GitCommand staged(paths.commandDir(), {"diff", "--cached", "--quiet"});
+        staged.timeout = std::chrono::seconds(60);
+        staged.benignExitCodes = {1};
+        auto probe = runner.run(staged, token);
+        if (probe) {
+            outcome.succeeded = true;
+            outcome.summary = request_.target + " is already up to date -- nothing to squash";
+            return outcome;
+        }
+        if (probe.error().exitCode != 1) {
+            outcome.error = std::move(probe).error();
+            outcome.summary = "Squashed " + request_.target +
+                              ", but could not check what was staged -- nothing was committed";
+            return outcome;
+        }
+
+        // Via stdin rather than -m, like CommitOps: a SQUASH_MSG carries every
+        // squashed commit's full body and can outgrow an argv entry.
+        GitCommand commit(paths.commandDir(), {"commit", "--file", "-"});
+        commit.stdinData = request_.message;
+        commit.timeout = std::chrono::seconds(120);
+        auto committed = runner.run(commit, token);
+        if (!committed) {
+            outcome.error = std::move(committed).error();
+            outcome.summary =
+                "Squashed " + request_.target + ", but the commit failed -- the changes are staged";
+            return outcome;
+        }
+        outcome.succeeded = true;
+        outcome.summary = "Squash merged " + request_.target;
+        return outcome;
+    }
+
     MergeRequest request_;
 };
 

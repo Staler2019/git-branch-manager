@@ -3191,6 +3191,44 @@ TEST_F(RealRepoTest, SquashMergeStagesChangesWithoutCommittingOrRecordingAParent
     EXPECT_FALSE(status->get()->staged().empty()) << "the squashed diff must be staged";
 }
 
+// The Merge dialog's squash path end to end: SquashMessageStore's preview is
+// the message, and a conflict-free squash is committed with it as one
+// ordinary single-parent commit (使用者裁定 2026-10-08).
+TEST_F(RealRepoTest, SquashMergeWithAMessageCommitsItAsOneOrdinaryCommit) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    commitFile("b.txt", "b\n", "c3 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    SquashMessageStore store(*runner_, paths_);
+    auto preview = store.preview("feature", CancellationToken{});
+    ASSERT_TRUE(preview);
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = preview->message;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "one commit on top of c1";
+    auto parents = run({"rev-list", "--parents", "-1", "HEAD"});
+    ASSERT_TRUE(parents);
+    EXPECT_EQ(std::count(parents->out.begin(), parents->out.end(), ' '), 1)
+        << "a squash records no second parent";
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "Squashed commit of the following:");
+    auto body = run({"log", "-1", "--format=%b"});
+    ASSERT_TRUE(body);
+    EXPECT_NE(body->out.find("c2 on feature"), std::string::npos) << body->out;
+    EXPECT_NE(body->out.find("c3 on feature"), std::string::npos) << body->out;
+}
+
 TEST_F(RealRepoTest, AConflictingMergeStopsAndCanBeAborted) {
     commitFile("shared.txt", "base\n", "base");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
@@ -5799,14 +5837,15 @@ TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
 // this repo turns on log.abbrevCommit and a .mailmap remapping the author --
 // dropping either guard flag turns this red -- and puts a merge commit in the
 // range. The note is there too, but measured harmless: an explicit --pretty
-// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule: exact, apart from at most one
-// trailing newline ([CPP-run-not-byte-exact]).
+// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule: exact,
+// apart from at most one trailing newline ([CPP-run-not-byte-exact]).
 TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     commitFile("base.txt", "base\n", "base");
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));
     writeFile("a.txt", "a\n");
     ASSERT_TRUE(run({"add", "a.txt"}));
-    ASSERT_TRUE(run({"commit", "--quiet", "-m", "Add a", "-m", "Body line one.\n\nBody line two."}));
+    ASSERT_TRUE(
+        run({"commit", "--quiet", "-m", "Add a", "-m", "Body line one.\n\nBody line two."}));
     ASSERT_TRUE(run({"notes", "add", "-m", "a note git log would print", "HEAD"}));
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
     commitFile("b.txt", "b\n", "Add b on a side branch");

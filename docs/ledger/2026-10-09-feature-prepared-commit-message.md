@@ -77,10 +77,10 @@ Slice A 各 commit 的 mutation 數：C0a 1／1、C0b 1／1、C1 3（1 個等價
 
 已知但未處理（報告給使用者，未裁定）：
 
-- 用 Cmd+Enter 或選單 commit 一個沒改過的 merge 訊息後，框會放回 merge 前的字：policy 只看 pending 由 true 變 false，分不出 commit 與 Abort；按鈕 commit 因為隨後 `reset()` 清框，結果是空的。③⑨ 只講 Abort。
-- merge 中改過訊息後重開 app 再 Abort：merge 前的字只在記憶體，拿不回來。
-- verifier A1（P3，defer）：先進 amend 模式再開始 merge，模式內送出用的 `Amend` 仍畫且可按，按下得到 M6 的 `cannot amend`（lastError，可恢復）。④ 只規定進入模式的那顆按鈕。
-- verifier A2（P4，defer）：pending 變 true 時正在 amend 模式則 episode 不開始，Cancel amend 後也不補填——與設計稿 01 圖「不在 amend 模式 → 請求」一致。
+- ~~用 Cmd+Enter 或選單 commit 一個沒改過的 merge 訊息後，框會放回 merge 前的字：policy 只看 pending 由 true 變 false，分不出 commit 與 Abort；按鈕 commit 因為隨後 `reset()` 清框，結果是空的。③⑨ 只講 Abort。~~ 已修（Slice C `d8769a9`）。
+- ~~merge 中改過訊息後重開 app 再 Abort：merge 前的字只在記憶體，拿不回來。~~ 已修（Slice C `0e00e5e`，episode 存進 SharedPreferences）。
+- ~~verifier A1（P3，defer）：先進 amend 模式再開始 merge，模式內送出用的 `Amend` 仍畫且可按，按下得到 M6 的 `cannot amend`（lastError，可恢復）。④ 只規定進入模式的那顆按鈕。~~ 已修（Slice C `56b76b0`：merge／squash 發生時取消 amend）。
+- ~~verifier A2（P4，defer）：pending 變 true 時正在 amend 模式則 episode 不開始，Cancel amend 後也不補填——與設計稿 01 圖「不在 amend 模式 → 請求」一致。~~ 由使用者裁定改寫（Slice C：取消 amend 後開始 episode），設計稿 01 圖的「不在 amend 模式」分支因此不再成立。
 
 最後 verifier（整輪 Slice B，HEAD `0417bfd`）：**CONFIRMED**。重跑 `flutter test` +3353、analyze 0、裝置層 3／3、core＋capi ctest 782／782。
 
@@ -98,3 +98,46 @@ Slice A 各 commit 的 mutation 數：C0a 1／1、C0b 1／1、C1 3（1 個等價
 | `commit_flow_test.dart` | +1 All tests passed |
 
 `real_repo_harness.dart` 的 `flatKeysToClear` 加了 `appPrefs.overwriteWithPreparedMessage`（[TEST-pumprealappon-clears-prefs]）。
+
+## Slice C — follow-ups（branch `feature/prepared-message-followups`，2026-10-10）
+
+### Task
+
+使用者 2026-10-10 裁定：
+
+- 先進 amend 再開始 merge：「以merge為優先，也就是以git狀態為主」；squash 同。cancel 時恢復訊息。
+- 改過的訊息要帶到下次開這個 repo。**⑪ 修訂**（重開時）：同一筆 merge／squash → 沿用框（改過與否皆同）；
+  新的或不同筆 → 重抓 git 的訊息，Preferences 開關關著且框非空則不覆蓋（「如果開關關著的，不要覆蓋」）；
+  上次在 merge／squash 中、這次已沒有 → 清空；其他 → 沿用上次 draft。上次讀取失敗（raw 為空）：「HEAD 沒變就當同一筆，沿用框」。
+- Cmd+Enter／選單 commit 後也清空框（「commit後清空message box聽起來也合理」）。
+
+### Action
+
+| commit | 內容 | mutations-run | tests-reddened |
+|---|---|---|---|
+| `56b76b0` D1 | merge／squash 發生時取消 amend（`cancelAmendAndStart`） | 4 | 5／4／5／1 |
+| `d8769a9` D2 | 三條 commit 路徑共用 `pendingCommitFrom`，由 `WorkspaceScreen` 看 HEAD／lastError 收尾 | 6 | 6／3／2／1／1／5 |
+| `0e00e5e` D3 | episode 持久化（`workingCopyPreparedEpisode:<workDir>`，7 欄）與重開規則 | 17 | 見下 |
+| `6b51041` D4 | 裝置層：Cmd+Enter commit 沒改過的 merge 訊息 → 框空 | 1 | 1（只紅新案例） |
+
+D3 逐項：PM1 2、PM2 1*、PM3 2、PM4 3、PM5 7、PM6 1、PM7 3、CM1 2、CM2 1、CM3 2、CM4 9、CM5 1*、CM6 4、CM7 1*、CM8 1、RM1 1、RM2 1。
+`*` = 第一次存活，補強測試後才紅：PM2（重開時 HEAD 未知的守衛）、CM5（未填的 episode 被存下）、
+CM7（每輪只取一次 state 快照）——CM7 只在兩次寫入之間看得到舊 draft，原測試只看最終磁碟狀態；補強為檢查 reset 後每一次寫入。
+CM4（先寫 draft 再寫 episode）紅 9 個，範圍偏廣，未再收窄。
+
+D2 的行為改變：按鈕以外的 commit 路徑原本在 merge 結束時被當成 Abort、放回 merge 前的字；現在一律在 HEAD 移動後清框，
+HEAD 未動且有 lastError 時保留框。
+
+自己的錯：D3 的 `_drain` 在 dispose 後讀 state（「Tried to use WorkingCopyDraftController after dispose」），補 `mounted` 守衛；
+數個 mutation 腳本錨點失效（D2 M1/M3 formatter 改了錨點、D3 CM7 第一次），無效的一次不計。
+Plan readiness：epoch 1、2、4、5 皆 plan-verifier REVISE，blocker 就地修正；4、5 暫停交使用者，使用者以「a is ok」核准 epoch 5 修正版。
+
+### Result
+
+- `flutter test` +3396（~1 skip，既有）、analyze 0、format 0 changed。
+- 裝置層逐檔：`prepared_message_flow_test` +4、`commit_flow_test` +1、`conflict_flow_test` +1、`merge_current_flow_test` +1、`merge_squash_flow_test` +2。
+
+殘留（報告，未裁定）：
+
+- `reset()` 與磁碟寫入之間仍有毫秒級的 crash 視窗：此時當掉，下次開啟可能看到剛 commit 的訊息。
+- app 開著時從外部 commit（終端機）：`pendingCommitFrom` 只由 app 內的 `submitCommit` 設定，外部 commit 結束 merge 時照 Abort 規則處理（框若仍是 autofill 會放回 merge 前的字）。

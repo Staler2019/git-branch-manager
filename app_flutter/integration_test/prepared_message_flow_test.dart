@@ -10,6 +10,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
@@ -99,6 +100,30 @@ Future<void> _mergeFromRow(WidgetTester tester, {bool squash = false}) async {
   );
 }
 
+/// Merges [_source] with a conflict, resolves README.md in the resolve
+/// window and comes back to the Working Copy.
+Future<void> _conflictedMergeResolved(
+  WidgetTester tester,
+  String repoPath,
+) async {
+  await _mergeFromRow(tester);
+  await pumpUntil(
+    tester,
+    () => _merging(repoPath) && _summary(tester) == "Merge branch 'topic'",
+  );
+  await tester.pumpAndSettle();
+
+  await tester.tap(find.text('Resolve…'));
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+  await tester.tap(find.text('README.md'));
+  await tester.pumpAndSettle();
+  File('$repoPath/README.md').writeAsStringSync('# fixture\n\nresolved.\n');
+  await tester.tap(find.text('Mark resolved'));
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+  await tester.tap(find.byType(BackButton));
+  await tester.pumpAndSettle(const Duration(seconds: 1));
+}
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
@@ -155,23 +180,7 @@ void main() {
       _conflictingBranches(repoPath);
       await pumpRealAppOn(tester, repoPath);
       await _openWorkingCopy(tester);
-
-      await _mergeFromRow(tester);
-      await pumpUntil(
-        tester,
-        () => _merging(repoPath) && _summary(tester) == "Merge branch 'topic'",
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Resolve…'));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(find.text('README.md'));
-      await tester.pumpAndSettle();
-      File('$repoPath/README.md').writeAsStringSync('# fixture\n\nresolved.\n');
-      await tester.tap(find.text('Mark resolved'));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
-      await tester.tap(find.byType(BackButton));
-      await tester.pumpAndSettle(const Duration(seconds: 1));
+      await _conflictedMergeResolved(tester, repoPath);
 
       expect(
         _summary(tester),
@@ -203,6 +212,50 @@ void main() {
       ]);
       expect(message, "Merge branch 'topic'");
       expect(message, isNot(contains('#')));
+    },
+  );
+
+  // 使用者 2026-10-10: the shortcut and the menu clear the box after a
+  // commit, as the button does; before, the merge ending looked like an
+  // Abort and put the pre-merge text back.
+  testWidgets(
+    'committing the untouched merge message with Cmd+Enter empties the box',
+    (tester) async {
+      _conflictingBranches(repoPath);
+      await pumpRealAppOn(tester, repoPath);
+      await _openWorkingCopy(tester);
+      await tester.enterText(_fields.at(0), 'mine');
+      await tester.pump();
+      await _conflictedMergeResolved(tester, repoPath);
+      expect(_summary(tester), "Merge branch 'topic'");
+
+      final String before = _git(repoPath, <String>['rev-parse', 'HEAD']);
+      await pumpUntil(
+        tester,
+        () =>
+            tester
+                .widget<GbmButton>(find.widgetWithText(GbmButton, 'Commit'))
+                .onPressed !=
+            null,
+      );
+      await tester.tap(_fields.at(0));
+      await tester.pump();
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await pumpUntil(
+        tester,
+        () => _git(repoPath, <String>['rev-parse', 'HEAD']) != before,
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+
+      expect(_merging(repoPath), isFalse);
+      expect(
+        _git(repoPath, <String>['log', '-1', '--format=%B']),
+        "Merge branch 'topic'",
+      );
+      expect(_summary(tester), isEmpty, reason: "not the pre-merge 'mine'");
+      expect(_description(tester), isEmpty);
     },
   );
 

@@ -308,6 +308,14 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void requestSquashMessage(String source) {
+    state = state.copyWith(clearSquashMessagePreview: true);
+    commandLog.add(
+      FakeCommand('requestSquashMessage', <String, Object?>{'source': source}),
+    );
+  }
+
+  @override
   void mergeBranch(
     String target,
     MergeMode mode, {

@@ -53,6 +53,7 @@ abstract final class GbmEventType {
   static const int originalOperationMessageReady = 33;
   static const int fileAtRevisionExported = 34;
   static const int commitFileCountsReady = 35;
+  static const int squashMessageReady = 36;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -313,6 +314,15 @@ typedef _RequestOriginalOperationMessageNative = Void Function(
 );
 typedef RequestOriginalOperationMessageDart = void Function(
   Pointer<Void> session,
+);
+
+typedef _RequestSquashMessageNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> source,
+);
+typedef RequestSquashMessageDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> source,
 );
 
 typedef _CherryPickSkipNative = Void Function(Pointer<Void> session);
@@ -1428,6 +1438,11 @@ class GbmBindings {
             _RequestOriginalOperationMessageNative,
             RequestOriginalOperationMessageDart
           >('gbm_request_original_operation_message'),
+      requestSquashMessage = library
+          .lookupFunction<
+            _RequestSquashMessageNative,
+            RequestSquashMessageDart
+          >('gbm_request_squash_message'),
       cherryPickSkip = library
           .lookupFunction<_CherryPickSkipNative, CherryPickSkipDart>(
             'gbm_cherry_pick_skip',
@@ -1909,6 +1924,7 @@ class GbmBindings {
   final CherryPickContinueDart cherryPickContinue;
   final CherryPickContinueWithMessageDart cherryPickContinueWithMessage;
   final RequestOriginalOperationMessageDart requestOriginalOperationMessage;
+  final RequestSquashMessageDart requestSquashMessage;
   final CherryPickSkipDart cherryPickSkip;
   final CherryPickAbortDart cherryPickAbort;
   final RevertDart revert;

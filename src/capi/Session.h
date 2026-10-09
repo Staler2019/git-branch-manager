@@ -37,6 +37,7 @@
 #include "core/git/ops/CherryPickOps.h"
 #include "core/git/ops/CommitOps.h"
 #include "core/git/ops/CompareOps.h"
+#include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/ConfigOps.h"
 #include "core/git/ops/ConflictOps.h"
 #include "core/git/ops/LfsOps.h"
@@ -227,6 +228,10 @@ public:
 
     /// Async: see gbm_request_original_operation_message()'s doc comment.
     void requestOriginalOperationMessage();
+
+    /// Async: see gbm_request_squash_message()'s doc comment. `source` is
+    /// echoed back so a reply can be matched to the pick it answers.
+    void requestSquashMessage(std::string source);
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
@@ -621,6 +626,7 @@ private:
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
     std::unique_ptr<CompareStore> compareStore_;
+    std::unique_ptr<SquashMessageStore> squashMessageStore_;
     std::unique_ptr<BlobStore> blobStore_;
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<CommitMetaStore> commitMetaStore_;

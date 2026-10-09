@@ -242,6 +242,58 @@ class StashDiffReply {
   final ParsedDiff diff;
 }
 
+/// Reply to [RepoSessionController.requestSquashMessage]: mirrors
+/// GBM_EVENT_SQUASH_MESSAGE_READY -- the text `git merge --squash <source>`
+/// would write to SQUASH_MSG (merge-rebase-dialogs-spec.html 02-C, ruling ⑨).
+///
+/// **Not a cache.** The session keeps only the latest reply, and the Merge
+/// dialog asks again on every open and every pick. What makes a reply usable
+/// is [isCurrentFor]: the text lists the commits in `headOid..sourceOid`, so
+/// it is right only while HEAD and the source still point there. Missing
+/// that check writes the wrong commit list into a permanent commit message.
+class SquashMessagePreview {
+  const SquashMessagePreview({
+    required this.source,
+    required this.headOid,
+    required this.sourceOid,
+    required this.message,
+    required this.failed,
+  });
+
+  factory SquashMessagePreview.fromJson(Map<String, dynamic> json) =>
+      SquashMessagePreview(
+        source: json['source'] as String? ?? '',
+        headOid: json['headOid'] as String? ?? '',
+        sourceOid: json['sourceOid'] as String? ?? '',
+        message: json['message'] as String? ?? '',
+        failed: json['error'] != null,
+      );
+
+  final String source;
+  final String headOid;
+  final String sourceOid;
+
+  /// Empty when the source adds nothing to HEAD, or when [failed].
+  final String message;
+
+  /// The preview could not be built (an unknown source, a git failure).
+  final bool failed;
+
+  /// Whether this reply answers a pick of [pickedSource] against [refs] as
+  /// they are now: same source, and neither HEAD nor the source tip moved.
+  bool isCurrentFor(String pickedSource, RefSnapshot refs) {
+    if (failed || source != pickedSource) return false;
+    if (headOid != refs.head.target) return false;
+    for (final RefInfo ref in <RefInfo>[
+      ...refs.localBranches,
+      ...refs.remoteBranches,
+    ]) {
+      if (ref.shortName == pickedSource) return ref.target == sourceOid;
+    }
+    return false;
+  }
+}
+
 /// Reply to [RepoSessionController.requestCompareRefs]: mirrors
 /// GBM_EVENT_COMPARE_READY's payload shape. left/right/threeDot are echoed
 /// back from the request, since several Compare tabs can be open at once
@@ -480,6 +532,7 @@ class RepoSessionState {
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
+    this.squashMessagePreview,
     this.refreshTimings = const RefreshTimings(),
   });
 
@@ -670,6 +723,12 @@ class RepoSessionState {
   /// request is in flight can't be mistaken for a stale previous reply.
   final String? originalOperationMessage;
 
+  /// The latest [RepoSessionController.requestSquashMessage] reply -- see
+  /// [SquashMessagePreview]'s doc comment for why it is never trusted
+  /// without [SquashMessagePreview.isCurrentFor]. Nulled when a new request
+  /// goes out.
+  final SquashMessagePreview? squashMessagePreview;
+
   /// The current focus-regain sweep's stamps -- see [RefreshTimings]'s own
   /// doc comment. Reset to a fresh instance at the start of every
   /// [RepoSessionController.refreshRepoStatus] call.
@@ -742,6 +801,8 @@ class RepoSessionState {
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
+    SquashMessagePreview? squashMessagePreview,
+    bool clearSquashMessagePreview = false,
     RefreshTimings? refreshTimings,
   }) {
     return RepoSessionState(
@@ -803,6 +864,9 @@ class RepoSessionState {
       originalOperationMessage: clearOriginalOperationMessage
           ? null
           : (originalOperationMessage ?? this.originalOperationMessage),
+      squashMessagePreview: clearSquashMessagePreview
+          ? null
+          : (squashMessagePreview ?? this.squashMessagePreview),
       refreshTimings: refreshTimings ?? this.refreshTimings,
     );
   }
@@ -1441,6 +1505,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(
             originalOperationMessage: payload['message'] as String? ?? '',
           );
+        }
+      case GbmEventType.squashMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          publishSquashMessagePreview(SquashMessagePreview.fromJson(payload));
         }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -2846,6 +2915,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_session == nullptr) return;
     state = state.copyWith(clearOriginalOperationMessage: true);
     _bindings.requestOriginalOperationMessage(_session);
+  }
+
+  /// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY into
+  /// [RepoSessionState.squashMessagePreview], nulled first so an in-flight
+  /// request is never answered by the previous reply.
+  void requestSquashMessage(String source) {
+    if (_session == nullptr) return;
+    state = state.copyWith(clearSquashMessagePreview: true);
+    final Pointer<Utf8> sourcePtr = source.toNativeUtf8();
+    try {
+      _bindings.requestSquashMessage(_session, sourcePtr);
+    } finally {
+      malloc.free(sourcePtr);
+    }
+  }
+
+  /// The FFI-free half of the squash reply, split out so tests can drive it.
+  @visibleForTesting
+  void publishSquashMessagePreview(SquashMessagePreview preview) {
+    state = state.copyWith(squashMessagePreview: preview);
   }
 
   void cherryPickSkip() {

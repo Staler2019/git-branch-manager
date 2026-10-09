@@ -230,6 +230,16 @@ enum GbmEventType {
     /// tell "changed nothing" from "not answered" and cache only the former.
     /// The array is **not** in the order requested.
     GBM_EVENT_COMMIT_FILE_COUNTS_READY = 35,
+    /// payload: {"source": string, "headOid": string, "sourceOid": string,
+    /// "message": string, "error": GitError JSON (only on failure)}. Reply
+    /// to gbm_request_squash_message(): the text `git merge --squash
+    /// <source>` would write to SQUASH_MSG. "message" is empty when the
+    /// source adds nothing to HEAD, and on failure (with "error" set) --
+    /// a preview that cannot be built is not an ERROR_OCCURRED banner.
+    /// The two oids are the commits the text describes: it is right only
+    /// while HEAD and the source still point there, so a caller adopts a
+    /// reply only while both match its own current refs.
+    GBM_EVENT_SQUASH_MESSAGE_READY = 36,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -609,6 +619,11 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
 /// gbm_cherry_pick_continue_with_message()/gbm_rebase_continue_with_message().
 /// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY.
 GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
+
+/// Requests the squash message preview for merging `source` into HEAD.
+/// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY (see its payload doc),
+/// including on failure.
+GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot

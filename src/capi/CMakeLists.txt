@@ -33,6 +33,7 @@ add_library(gbm_capi SHARED
     ResetRestore.cpp
     Revert.cpp
     Session.cpp
+    SquashMessage.cpp
     Stash.cpp
     Submodules.cpp
     Tags.cpp

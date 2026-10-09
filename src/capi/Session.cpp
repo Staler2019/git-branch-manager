@@ -168,6 +168,7 @@ Session::Session(GitInstallation installation,
       worktreeStore_(std::make_unique<WorktreeStore>(*runner_, paths_)),
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       compareStore_(std::make_unique<CompareStore>(*runner_, paths_)),
+      squashMessageStore_(std::make_unique<SquashMessageStore>(*runner_, paths_)),
       blobStore_(std::make_unique<BlobStore>(installation_.executable, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
@@ -808,6 +809,29 @@ void Session::requestOriginalOperationMessage() {
         jsonAppendEscaped(payload, message);
         payload += '}';
         callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, payload);
+    });
+}
+
+void Session::requestSquashMessage(std::string source) {
+    // postFront: the Merge dialog is open and waiting on this
+    // ([CPP-interactive-reads-go-to-the-front]).
+    sharedReadPool().postFront([this, source = std::move(source)]() {
+        const GitResult<SquashMessagePreview> result =
+            squashMessageStore_->preview(source, readCancel_.token());
+        std::string payload = "{\"source\":";
+        jsonAppendEscaped(payload, source);
+        payload += ",\"headOid\":";
+        jsonAppendEscaped(payload, result ? result->headOid.hex() : std::string());
+        payload += ",\"sourceOid\":";
+        jsonAppendEscaped(payload, result ? result->sourceOid.hex() : std::string());
+        payload += ",\"message\":";
+        jsonAppendEscaped(payload, result ? result->message : std::string());
+        if (!result) {
+            payload += ",\"error\":";
+            payload += toJson(result.error());
+        }
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);
     });
 }
 

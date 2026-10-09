@@ -169,3 +169,6 @@ verifier 另回報 4 項建議，~~**等待使用者裁定**（不自行延後�
 A 的處置：`2cb7673` 新增 `refDisplayName`（`RefStore.h`，以既有 `shortNameFor` 為單一來源，前綴長度改為具名常數），`MergeOps`／`RebaseOps` 自己組的 describe／summary／stash 訊息改用它，git argv 仍是完整 ref。
 該 commit 訊息寫「先紅後綠未實際觀察、mutation 未跑」；~~mutation 未跑~~ 更正：之後補跑 2 個——`refDisplayName` 原樣回傳紅 5 個；merge 的 argv 改用顯示名稱紅 2 個（含 `RealRepoTest.AFullBranchRefMergesTheBranchNotASameNamedTag`）。先紅後綠那一步確實沒有觀察到，照實保留。core 585 全綠。
 
+
+PR #182 的 CI 第一輪：只有 `Format and layering` 紅——`src/capi/Session.h` 的 include 順序（`28ff794` 引入）。本機 clang-format 是 v23、且只對改動行跑，抓不到 include 排序；改用 CI 同版本（`ghcr.io/jidicula/clang-format:18`，Apple Silicon 需 `--platform linux/amd64`）檢查 `src/` 全部 188 檔後修正。
+過程中兩次「通過」是假的，如實記下：第一次 docker 因平台不符根本沒執行（exit 125，錯誤被 grep 濾掉）；第二次 zsh 不拆 `$CF` 字串（exit 127）。之後以舊版 `Session.h` 當對照組確認工具真的會報錯，才採信結果。

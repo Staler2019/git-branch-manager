@@ -309,7 +309,7 @@ class FakeRepoSessionController extends RepoSessionController {
 
   @override
   void requestSquashMessage(String source) {
-    state = state.copyWith(clearSquashMessagePreview: true);
+    noteSquashMessageRequested(source);
     commandLog.add(
       FakeCommand('requestSquashMessage', <String, Object?>{'source': source}),
     );

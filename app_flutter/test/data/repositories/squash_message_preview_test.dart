@@ -124,7 +124,24 @@ void main() {
       const RepoIdentity(workDir: '/tmp/r', gitDir: '/tmp/r/.git'),
       RepoSessionState(isOpen: true, refs: _refs()),
     );
+    fake.requestSquashMessage('feature');
     fake.publishSquashMessagePreview(_preview());
+    expect(fake.state.squashMessagePreview?.source, 'feature');
+  });
+
+  // Replies are posted to the front of a multi-worker pool, so two quick
+  // picks can answer out of order; the earlier pick's late reply must not
+  // replace the current one (verifier P4 #3).
+  test('a late reply for an earlier pick is dropped', () {
+    final FakeRepoSessionController fake = FakeRepoSessionController(
+      const RepoIdentity(workDir: '/tmp/r', gitDir: '/tmp/r/.git'),
+      RepoSessionState(isOpen: true, refs: _refs()),
+    );
+    fake.requestSquashMessage('older');
+    fake.requestSquashMessage('feature');
+    fake.publishSquashMessagePreview(_preview());
+    fake.publishSquashMessagePreview(_preview(source: 'older'));
+
     expect(fake.state.squashMessagePreview?.source, 'feature');
   });
 }

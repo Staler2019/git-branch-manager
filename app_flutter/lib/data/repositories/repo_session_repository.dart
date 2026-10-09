@@ -2917,12 +2917,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _bindings.requestOriginalOperationMessage(_session);
   }
 
+  /// The source of the latest [requestSquashMessage]. Replies are posted to
+  /// the front of a multi-worker pool, so two quick picks can answer out of
+  /// order; a reply for any other source is an earlier pick answering late.
+  String? _awaitedSquashSource;
+
+  /// Records which source the next squash reply must be for, and clears the
+  /// previous reply. Shared with the test fake, whose request never reaches
+  /// FFI but whose replies go through the same [publishSquashMessagePreview].
+  @protected
+  void noteSquashMessageRequested(String source) {
+    _awaitedSquashSource = source;
+    state = state.copyWith(clearSquashMessagePreview: true);
+  }
+
   /// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY into
   /// [RepoSessionState.squashMessagePreview], nulled first so an in-flight
   /// request is never answered by the previous reply.
   void requestSquashMessage(String source) {
     if (_session == nullptr) return;
-    state = state.copyWith(clearSquashMessagePreview: true);
+    noteSquashMessageRequested(source);
     final Pointer<Utf8> sourcePtr = source.toNativeUtf8();
     try {
       _bindings.requestSquashMessage(_session, sourcePtr);
@@ -2934,6 +2948,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// The FFI-free half of the squash reply, split out so tests can drive it.
   @visibleForTesting
   void publishSquashMessagePreview(SquashMessagePreview preview) {
+    if (preview.source != _awaitedSquashSource) return;
     state = state.copyWith(squashMessagePreview: preview);
   }
 

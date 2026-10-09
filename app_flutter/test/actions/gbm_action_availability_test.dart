@@ -175,6 +175,59 @@ void main() {
     );
   });
 
+  // Ruling ④: git refuses `commit --amend` while MERGE_HEAD exists, even once
+  // every conflict is resolved. A pending squash has no MERGE_HEAD.
+  group('isActionEnabled -- repositoryAmendLastCommit during a merge', () {
+    RepoSessionState withFlags(int flags) => RepoSessionState(
+      repoState: RepoState(
+        flags: flags,
+        isClean: false,
+        isSequencerOperation: false,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: '',
+      ),
+    );
+
+    test('a merge with every conflict resolved disables amend only', () {
+      final RepoSessionState merging = withFlags(RepoStateFlags.merge);
+      expect(merging.conflictActive, isFalse);
+
+      expect(
+        isActionEnabled(GbmActionId.repositoryAmendLastCommit, merging),
+        isFalse,
+      );
+      expect(isActionEnabled(GbmActionId.repositoryCommit, merging), isTrue);
+    });
+
+    // Every other conflict fixture here is also a merge, so without this
+    // row the page-07 conflict gate on amend would go untested on its own.
+    test('a cherry-pick conflict still disables amend', () {
+      final RepoSessionState picking = RepoSessionState(
+        repoState: withFlags(RepoStateFlags.cherryPick).repoState,
+        workingCopyStatus: WorkingCopyStatus(
+          entries: [_entry(conflicted: true)],
+        ),
+      );
+      expect(picking.conflictActive, isTrue);
+
+      expect(
+        isActionEnabled(GbmActionId.repositoryAmendLastCommit, picking),
+        isFalse,
+      );
+    });
+
+    test('no merge in progress leaves amend enabled', () {
+      expect(
+        isActionEnabled(GbmActionId.repositoryAmendLastCommit, withFlags(0)),
+        isTrue,
+      );
+    });
+  });
+
   group('isActionEnabled -- ids outside the state-gated set', () {
     test('always true regardless of state (not this policy\'s concern)', () {
       const clean = RepoSessionState();

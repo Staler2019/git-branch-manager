@@ -79,13 +79,13 @@ progress: `repositoryFetch`, `repositoryPull`, `repositoryPush`,
 `branchRebaseOnto`, `branchStashChanges`, `branchDeleteBranch`. The banner's
 Abort/Skip/Continue/Resolve… stay the only way forward until then.
 
-Two more gates are folded into the same function despite **not** being from
-spec page 07 — kept there anyway so every state-dependent availability
-decision in the app lives in exactly one place, not because they share the
-conflict/clean distinction the twelve above do:
+Three more gates are **not** from spec page 07; they live here only so every
+state-dependent decision has one home:
 
 - `branchRenameCurrentBranch` — additionally requires
   `refs.head.branchName.isNotEmpty` (a detached HEAD has no branch to rename).
+- `repositoryAmendLastCommit` — also off while `repoState.isMerging`,
+  resolved or not: git refuses to amend with MERGE_HEAD (ruling ④).
 - `repositoryStageAll` — `workingCopyStatus.unstaged.isNotEmpty` only,
   independent of `conflictActive` entirely (nothing to stage with an empty
   unstaged list, regardless of conflict state).

@@ -245,12 +245,9 @@ void main() {
         );
         expect(commitButton.onPressed, isNull);
 
-        // `Amend…` with the ellipsis: it enters amend mode rather than
-        // amending, and the gate is the same one either way.
-        final GbmButton amendButton = tester.widget<GbmButton>(
-          find.widgetWithText(GbmButton, 'Amend\u2026'),
-        );
-        expect(amendButton.onPressed, isNull);
+        // This conflict is a merge, and ruling ④ does not draw Amend at
+        // all during one (git refuses to amend mid-merge).
+        expect(find.widgetWithText(GbmButton, 'Amend'), findsNothing);
       },
     );
 

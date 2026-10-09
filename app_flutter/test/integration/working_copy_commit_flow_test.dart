@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
+import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -205,7 +206,7 @@ void main() {
       // message".
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
 
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
 
       final Iterable<FakeCommand> asked = pumped.controller.commandLog.where(
@@ -219,7 +220,7 @@ void main() {
       WidgetTester tester,
     ) async {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
 
       pumped.controller.emit(
@@ -239,7 +240,7 @@ void main() {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'mine');
       await tester.pump();
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
       pumped.controller.emit(
         _sessionAt(
@@ -262,7 +263,7 @@ void main() {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'reworded');
       await tester.pump();
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
@@ -284,7 +285,7 @@ void main() {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'reworded');
       await tester.pump();
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pump();
@@ -292,7 +293,7 @@ void main() {
       pumped.controller.emit(_sessionAt('cafe1234'));
       await tester.pumpAndSettle();
 
-      expect(find.widgetWithText(GbmButton, 'Amend…'), findsOneWidget);
+      expect(find.widgetWithText(GbmButton, 'Amend'), findsOneWidget);
       expect(find.widgetWithText(GbmButton, 'Cancel amend'), findsNothing);
     });
 
@@ -325,7 +326,7 @@ void main() {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'reworded');
       await tester.pump();
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
 
       await _pressAmendShortcut(tester);
@@ -336,6 +337,70 @@ void main() {
       );
       expect(commits.length, 1);
       expect(commits.single.args['amend'], isTrue);
+    });
+  });
+
+  // Ruling ④: amending during a merge fails in git itself ("You are in the
+  // middle of a merge -- cannot amend"), so the button is not drawn and the
+  // menu item and shortcut are disabled. A pending squash has no MERGE_HEAD
+  // and amends fine, so it keeps the button.
+  group('no amend during a merge', () {
+    RepoSessionState merging({bool squash = false}) =>
+        _sessionAt('deadbeef').copyWith(
+          repoState: RepoState(
+            flags: squash ? 0 : RepoStateFlags.merge,
+            isClean: false,
+            isSequencerOperation: false,
+            rebaseStep: 0,
+            rebaseTotal: 0,
+            rebaseOntoLabel: '',
+            indexLocked: false,
+            indexLockAgeSeconds: null,
+            describe: '',
+            preparedMessagePending: true,
+          ),
+        );
+
+    testWidgets('the button is not drawn while merging', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+
+      pumped.controller.emit(merging());
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(GbmButton, 'Amend'), findsNothing);
+      expect(find.widgetWithText(GbmButton, 'Commit'), findsOneWidget);
+    });
+
+    testWidgets('the shortcut does not enter the mode while merging', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      pumped.controller.emit(merging());
+      await tester.pumpAndSettle();
+
+      await _pressAmendShortcut(tester);
+      await tester.pumpAndSettle();
+
+      expect(
+        pumped.controller.commandLog
+            .where((FakeCommand c) => c.name == 'requestCommitMeta')
+            .length,
+        0,
+      );
+      expect(find.widgetWithText(GbmButton, 'Cancel amend'), findsNothing);
+    });
+
+    testWidgets('a pending squash keeps the button', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+
+      pumped.controller.emit(merging(squash: true));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(GbmButton, 'Amend'), findsOneWidget);
     });
   });
 
@@ -363,7 +428,7 @@ void main() {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'reworded');
       await tester.pump();
-      await tester.tap(find.widgetWithText(GbmButton, 'Amend…'));
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pumpAndSettle();
 
       await _pressCommitShortcut(tester);

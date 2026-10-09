@@ -469,7 +469,7 @@ void main() {
       // Check for commit box elements
       expect(find.text('Commit summary'), findsOneWidget);
       expect(find.text('Commit'), findsOneWidget);
-      expect(find.text('Amend\u2026'), findsOneWidget);
+      expect(find.text('Amend'), findsOneWidget);
     });
 
     // The board is told by the status the view already reads, not by a

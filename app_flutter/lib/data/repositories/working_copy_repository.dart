@@ -92,7 +92,7 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
 ///
 /// **The one place amend mode starts from**, for the same reason
 /// [submitCommit] is the one place a commit is made from: the message box's
-/// `Amend…` button and `GbmActionId.repositoryAmendLastCommit` both come
+/// `Amend` button and `GbmActionId.repositoryAmendLastCommit` both come
 /// through here.
 ///
 /// Asks explicitly rather than reading `commitMetaCache` and hoping. That

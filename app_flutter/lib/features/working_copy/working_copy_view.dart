@@ -598,21 +598,25 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                     kind: GbmButtonKind.primary,
                     onPressed: canCommit ? () => _onSubmit(amend: false) : null,
                   ),
-                  const SizedBox(height: GbmSpacing.space2),
                   // Enters the mode; it does not amend. The box has to show
                   // what is about to be rewritten before there is anything
-                  // to press Amend on.
-                  GbmButton(
-                    label: 'Amend…',
-                    kind: GbmButtonKind.secondary,
-                    onPressed:
-                        isActionEnabled(
-                          GbmActionId.repositoryAmendLastCommit,
-                          session,
-                        )
-                        ? () => wc.beginAmendMode(ref, widget.identity)
-                        : null,
-                  ),
+                  // to press Amend on. No ellipsis: no dialog follows
+                  // ([UX-ellipsis-promises-a-dialog], ruling ⑮). Not drawn
+                  // at all during a merge, where git refuses to amend (④).
+                  if (!(session.repoState?.isMerging ?? false)) ...<Widget>[
+                    const SizedBox(height: GbmSpacing.space2),
+                    GbmButton(
+                      label: 'Amend',
+                      kind: GbmButtonKind.secondary,
+                      onPressed:
+                          isActionEnabled(
+                            GbmActionId.repositoryAmendLastCommit,
+                            session,
+                          )
+                          ? () => wc.beginAmendMode(ref, widget.identity)
+                          : null,
+                    ),
+                  ],
                 ],
               ],
             ),

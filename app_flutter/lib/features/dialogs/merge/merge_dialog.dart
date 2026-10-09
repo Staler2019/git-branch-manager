@@ -98,13 +98,6 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
     return preview.isCurrentFor(target, session.refs) ? preview : null;
   }
 
-  /// A reply that could not be built still answers the pick: Merge is
-  /// allowed, with whatever the user typed (empty leaves it only staged).
-  bool _previewFailedFor(RepoSessionState session) {
-    final SquashMessagePreview? preview = session.squashMessagePreview;
-    return preview != null && preview.failed && preview.source == _target;
-  }
-
   /// What the box should hold right now if the user has not written their
   /// own: git's squash message in Squash mode (empty until it arrives), the
   /// merge title otherwise.
@@ -207,9 +200,11 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
         );
       }
     });
+    // A preview that could not be built leaves Squash unavailable: its
+    // reason is on the window's banner (capi fires ERROR_OCCURRED too,
+    // 使用者裁定 2026-10-09), and a message that is not git's is not offered.
     final bool squashReady =
         _mode != MergeMode.squash ||
-        _previewFailedFor(session) ||
         (_currentPreview(session)?.message.isNotEmpty ?? false);
 
     return GbmDialogShell(
@@ -221,8 +216,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
           label: 'Merge',
           kind: GbmButtonKind.primary,
           // In Squash mode, only once git's message for *these* refs is in
-          // the box -- or nothing could be built and the user is on their
-          // own. An empty current preview is "nothing to squash".
+          // the box. An empty current preview is "nothing to squash".
           onPressed: _target == null || !squashReady
               ? null
               : () {

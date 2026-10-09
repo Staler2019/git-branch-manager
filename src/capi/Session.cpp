@@ -829,6 +829,11 @@ void Session::requestSquashMessage(std::string source) {
         if (!result) {
             payload += ",\"error\":";
             payload += toJson(result.error());
+            // Also the ordinary error event (使用者裁定 2026-10-09「抓不到
+            // capi應該跳錯誤」), so the reason reaches the window's banner and
+            // the Log like any other failure. First, so it is already
+            // recorded when READY ends the dialog's wait.
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
         }
         payload += '}';
         callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);

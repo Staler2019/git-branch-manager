@@ -234,8 +234,9 @@ enum GbmEventType {
     /// "message": string, "error": GitError JSON (only on failure)}. Reply
     /// to gbm_request_squash_message(): the text `git merge --squash
     /// <source>` would write to SQUASH_MSG. "message" is empty when the
-    /// source adds nothing to HEAD, and on failure (with "error" set) --
-    /// a preview that cannot be built is not an ERROR_OCCURRED banner.
+    /// source adds nothing to HEAD, and on failure (with "error" set). A
+    /// failure also fires GBM_EVENT_ERROR_OCCURRED with the same GitError,
+    /// before this reply.
     /// The two oids are the commits the text describes: it is right only
     /// while HEAD and the source still point there, so a caller adopts a
     /// reply only while both match its own current refs.

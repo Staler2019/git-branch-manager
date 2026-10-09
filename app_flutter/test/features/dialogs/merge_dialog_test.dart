@@ -444,5 +444,33 @@ void main() {
 
       expect(requests(fake), before);
     });
+
+    // 使用者裁定 2026-10-09「抓不到capi應該跳錯誤」: the reason goes to the
+    // window's banner (capi's ERROR_OCCURRED); the dialog does not offer a
+    // squash whose message is not git's.
+    testWidgets('a failed preview disables Merge, even with typed text', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      fake.publishSquashMessagePreview(
+        const SquashMessagePreview(
+          source: 'feature',
+          headOid: '',
+          sourceOid: '',
+          message: '',
+          failed: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(mergeEnabled(tester), isFalse);
+
+      await tester.enterText(find.byType(TextField).last, 'my own message');
+      await tester.pumpAndSettle();
+      expect(mergeEnabled(tester), isFalse);
+    });
   });
 }

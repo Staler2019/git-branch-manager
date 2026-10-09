@@ -23,6 +23,7 @@ struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
     std::vector<std::string> squashPayloads;
+    std::vector<std::string> errorPayloads;
 
     bool waitForSquash(std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
         std::unique_lock<std::mutex> lock(mutex);
@@ -41,8 +42,12 @@ void logCallback(GbmSessionHandle,
         body.assign(reinterpret_cast<const char*>(payload), static_cast<std::size_t>(payloadLen));
         gbm_free_event_payload(payload);
     }
-    if (eventType != GBM_EVENT_SQUASH_MESSAGE_READY) return;
     std::lock_guard<std::mutex> lock(log->mutex);
+    if (eventType == GBM_EVENT_ERROR_OCCURRED) {
+        log->errorPayloads.push_back(std::move(body));
+        return;
+    }
+    if (eventType != GBM_EVENT_SQUASH_MESSAGE_READY) return;
     log->squashPayloads.push_back(std::move(body));
     log->cv.notify_all();
 }
@@ -109,12 +114,15 @@ TEST_F(SquashMessageApiTest, EchoesTheSourceAndBothOidsWithGitsMessage) {
               std::string::npos)
         << payload;
     EXPECT_EQ(payload.find("\"error\""), std::string::npos) << payload;
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_TRUE(log_.errorPayloads.empty()) << "a preview that was built is no error";
 }
 
 TEST_F(SquashMessageApiTest, AnUnknownSourceRepliesWithAnErrorAndNoMessage) {
-    // Still a SQUASH_MESSAGE_READY, not GBM_EVENT_ERROR_OCCURRED: a preview
-    // that cannot be built is the dialog's business (it leaves the box
-    // empty), not a failure banner over the whole window.
+    // Both events (使用者裁定 2026-10-09「抓不到capi應該跳錯誤」): the READY reply tells
+    // the dialog its wait is over, and ERROR_OCCURRED puts the reason where
+    // every other failure goes (the window's banner and the Log). The error
+    // is emitted first, so it is already logged when READY wakes the waiter.
     gbm_request_squash_message(session_, "no-such-branch");
     ASSERT_TRUE(log_.waitForSquash());
     const std::string payload = log_.squashPayloads.front();
@@ -122,6 +130,10 @@ TEST_F(SquashMessageApiTest, AnUnknownSourceRepliesWithAnErrorAndNoMessage) {
     EXPECT_NE(payload.find("\"source\":\"no-such-branch\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"message\":\"\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"error\":"), std::string::npos) << payload;
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    ASSERT_EQ(log_.errorPayloads.size(), 1u);
+    EXPECT_NE(log_.errorPayloads.front().find("\"code\""), std::string::npos)
+        << log_.errorPayloads.front();
 }
 
 }  // namespace

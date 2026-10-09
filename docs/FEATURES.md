@@ -30,9 +30,11 @@ Everything below works end to end on Linux, macOS and Windows.
   with a warning instead of silently producing a mixed or garbled result.
   Three explicit exits — save current progress, apply all and finish, or
   cancel — are the only way out; a repo-level Abort stays on the main
-  window's banner. Once every conflict is resolved, whatever commit message
-  Git already prepared (merge or squash) is pre-filled automatically without
-  overwriting anything the user has typed.
+  window's banner. The moment a merge or squash happens, the commit message
+  Git prepared for it (comment lines stripped) fills the commit box,
+  replacing what was there; a Preferences switch limits that to an empty
+  box. Aborting with the filled-in message untouched puts the earlier text
+  back.
 - **Branch sync hygiene**: a local branch whose upstream was deleted carries a
   `gone` badge in the sidebar and a tooltip naming the missing upstream; the
   Branches section header can select every such branch in one go — excluding

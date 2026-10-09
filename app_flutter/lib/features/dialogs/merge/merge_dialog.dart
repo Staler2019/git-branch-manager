@@ -55,6 +55,11 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   late final TextEditingController _messageController;
   String? _target;
 
+  /// The picker entry's kind; `null` for a source the caller locked (05-B
+  /// opens only from a local branch row), which [RefSnapshot.findBranch]
+  /// then resolves local-first.
+  RefKind? _targetKind;
+
   /// What the message box was last filled with automatically. A new source
   /// replaces the message only while the box still holds exactly this --
   /// the moment the user types their own, it is theirs.
@@ -76,17 +81,34 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
     _syncMessage(ref.read(repoSessionProvider(widget.identity)));
   }
 
-  bool _isRemote(RepoSessionState session, String name) =>
-      session.refs.remoteBranches.any((RefInfo b) => b.shortName == name);
+  RefInfo? _targetRef(RepoSessionState session, String name) =>
+      session.refs.findBranch(name, kind: _targetKind);
 
-  String _sourceTip(RepoSessionState session, String name) {
-    for (final RefInfo b in <RefInfo>[
-      ...session.refs.localBranches,
-      ...session.refs.remoteBranches,
-    ]) {
-      if (b.shortName == name) return b.target;
-    }
-    return '';
+  bool _isRemote(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.kind == RefKind.remoteBranch;
+
+  String _sourceTip(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.target ?? '';
+
+  /// What git is handed: the branch's full ref, because a bare name resolves
+  /// tag-first and a same-named tag would be merged instead (verifier P4 #7).
+  /// Shown and titled by its short name all the same.
+  String _gitRef(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.fullName ?? name;
+
+  /// A squash message is git's own text, indented body and all; git's commit
+  /// cleanup handles its edges. A merge message the user cleared falls back
+  /// to git's title: empty would mean `--no-edit`, and git would then name
+  /// the full ref it was given ("Merge branch 'refs/heads/x'").
+  String _dispatchedMessage(RepoSessionState session, String target) {
+    if (_mode == MergeMode.squash) return _messageController.text;
+    final String typed = _messageController.text.trim();
+    if (typed.isNotEmpty || _mode != MergeMode.noFastForward) return typed;
+    return _defaultMergeTitle(
+      source: target,
+      sourceIsRemote: _isRemote(session, target),
+      currentBranch: session.refs.head.branchName,
+    );
   }
 
   /// The squash preview, but only if it answers the current pick against
@@ -95,7 +117,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
     final String? target = _target;
     final SquashMessagePreview? preview = session.squashMessagePreview;
     if (target == null || preview == null) return null;
-    return preview.isCurrentFor(target, session.refs) ? preview : null;
+    return preview.isCurrentFor(_gitRef(session, target), session.refs)
+        ? preview
+        : null;
   }
 
   /// What the box should hold right now if the user has not written their
@@ -144,7 +168,7 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
       if (!mounted) return;
       ref
           .read(repoSessionProvider(widget.identity).notifier)
-          .requestSquashMessage(target);
+          .requestSquashMessage(_gitRef(session, target));
     });
     SchedulerBinding.instance.ensureVisualUpdate();
   }
@@ -223,13 +247,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
                       .mergeBranch(
-                        _target!,
+                        _gitRef(session, _target!),
                         _mode,
-                        // A squash message is git's own text, indented body
-                        // and all; git's commit cleanup handles its edges.
-                        message: _mode == MergeMode.squash
-                            ? _messageController.text
-                            : _messageController.text.trim(),
+                        message: _dispatchedMessage(session, _target!),
                         stashFirst: _stashFirst,
                       );
                   context.pop();
@@ -280,6 +300,9 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                 onSelected: (GbmRefPickerEntry entry) {
                   setState(() {
                     _target = entry.name;
+                    _targetKind = entry.kind == GbmRefKind.remoteBranch
+                        ? RefKind.remoteBranch
+                        : RefKind.localBranch;
                     _syncMessage(session);
                   });
                   _ensureSquashRequested(session);

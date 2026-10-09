@@ -157,8 +157,27 @@ void main() {
       await tester.pump();
 
       final FakeCommand call = _merged(fake);
-      expect(call.args['target'], 'feature');
+      // The full ref: git reads a bare name tag-first, so a same-named tag
+      // would be merged instead (verifier P4 #7). The title keeps the name.
+      expect(call.args['target'], 'refs/heads/feature');
       expect(call.args['message'], "Merge branch 'feature'");
+    });
+
+    testWidgets('a cleared no-ff message still sends git\'s short-name title', (
+      tester,
+    ) async {
+      // Empty would mean --no-edit, and git would then title it after the
+      // full ref it was given: "Merge branch 'refs/heads/feature'".
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await tester.enterText(find.byType(TextField).last, '   ');
+      await tester.pump();
+      await tester.tap(find.text('Merge'));
+      await tester.pump();
+
+      expect(_merged(fake).args['message'], "Merge branch 'feature'");
     });
   });
 
@@ -192,7 +211,18 @@ void main() {
       await tester.pump();
       await tester.tap(find.text('Merge'));
       await tester.pump();
-      expect(_merged(fake).args['target'], 'feature');
+      expect(_merged(fake).args['target'], 'refs/heads/feature');
+    });
+
+    testWidgets('a picked remote branch is sent as its remote ref', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(tester);
+      await tester.tap(find.text('origin/feat'));
+      await tester.pump();
+      await tester.tap(find.text('Merge'));
+      await tester.pump();
+      expect(_merged(fake).args['target'], 'refs/remotes/origin/feat');
     });
 
     testWidgets('picking a source pre-fills the message, and a new pick '
@@ -267,7 +297,7 @@ void main() {
         'Squashed commit of the following:\n\ncommit 1234\n\n    Add g\n';
 
     SquashMessagePreview preview({
-      String source = 'feature',
+      String source = 'refs/heads/feature',
       String head = headTarget,
       String? tip,
       String message = squashMsg,
@@ -307,7 +337,7 @@ void main() {
       final FakeCommand call = fake.commandLog.lastWhere(
         (FakeCommand c) => c.name == 'requestSquashMessage',
       );
-      expect(call.args['source'], 'feature');
+      expect(call.args['source'], 'refs/heads/feature');
     });
 
     testWidgets('a current preview fills a multi-line message and is what '
@@ -433,7 +463,7 @@ void main() {
 
       fake.publishSquashMessagePreview(
         const SquashMessagePreview(
-          source: 'feature',
+          source: 'refs/heads/feature',
           headOid: '',
           sourceOid: '',
           message: '',
@@ -458,7 +488,7 @@ void main() {
       await pickSquash(tester);
       fake.publishSquashMessagePreview(
         const SquashMessagePreview(
-          source: 'feature',
+          source: 'refs/heads/feature',
           headOid: '',
           sourceOid: '',
           message: '',

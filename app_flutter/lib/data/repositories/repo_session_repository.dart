@@ -279,16 +279,17 @@ class SquashMessagePreview {
   /// The preview could not be built (an unknown source, a git failure).
   final bool failed;
 
-  /// Whether this reply answers a pick of [pickedSource] against [refs] as
-  /// they are now: same source, and neither HEAD nor the source tip moved.
-  bool isCurrentFor(String pickedSource, RefSnapshot refs) {
-    if (failed || source != pickedSource) return false;
+  /// Whether this reply answers a request for [requestedRef] -- the full
+  /// ref the dialog handed git, e.g. `refs/heads/x` -- against [refs] as
+  /// they are now: same ref, and neither HEAD nor that ref's tip moved.
+  bool isCurrentFor(String requestedRef, RefSnapshot refs) {
+    if (failed || source != requestedRef) return false;
     if (headOid != refs.head.target) return false;
     for (final RefInfo ref in <RefInfo>[
       ...refs.localBranches,
       ...refs.remoteBranches,
     ]) {
-      if (ref.shortName == pickedSource) return ref.target == sourceOid;
+      if (ref.fullName == requestedRef) return ref.target == sourceOid;
     }
     return false;
   }

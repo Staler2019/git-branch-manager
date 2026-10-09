@@ -3229,6 +3229,35 @@ TEST_F(RealRepoTest, SquashMergeWithAMessageCommitsItAsOneOrdinaryCommit) {
     EXPECT_NE(body->out.find("c3 on feature"), std::string::npos) << body->out;
 }
 
+TEST_F(RealRepoTest, AFullBranchRefMergesTheBranchNotASameNamedTag) {
+    // git resolves a bare name tag-first ("refname 'topic' is ambiguous"), so
+    // `git merge topic` merges the *tag*. The Merge and Rebase dialogs send
+    // refs/heads/<name> for exactly this reason (verifier P4 #7).
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("t.txt", "old\n", "old topic");
+    ASSERT_TRUE(run({"tag", "topic"}));
+    commitFile("t.txt", "new\n", "new topic");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "main moves");
+    auto branchTip = run({"rev-parse", "refs/heads/topic"});
+    auto tagTip = run({"rev-parse", "refs/tags/topic"});
+    ASSERT_TRUE(branchTip && tagTip);
+    ASSERT_NE(branchTip->out, tagTip->out);
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "refs/heads/topic";
+    request.mode = MergeMode::NoFastForward;
+    request.message = "Merge branch 'topic'";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto second = run({"rev-parse", "HEAD^2"});
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second->out, branchTip->out) << "the branch, not the tag";
+}
+
 TEST_F(RealRepoTest, ASquashWithNoNetChangeCommitsNothingAndLeavesNoSquashMsg) {
     // The source changed a file and changed it back: git squashes, writes a
     // SQUASH_MSG, and stages nothing. Nothing to commit -- and the leftover

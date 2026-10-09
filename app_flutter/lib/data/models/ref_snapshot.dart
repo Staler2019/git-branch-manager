@@ -150,6 +150,23 @@ class RefSnapshot {
   List<RefInfo> get remoteBranches =>
       refs.where((r) => r.kind == RefKind.remoteBranch).toList(growable: false);
 
+  /// The branch the user means by [shortName]: of [kind] only when given,
+  /// else local before remote. Its [RefInfo.fullName] is what to hand git --
+  /// a bare name resolves tag-first ("refname is ambiguous"), so a same-named
+  /// tag would win. `null` when no branch has that name (a commit oid, say):
+  /// the caller then passes the string through unchanged.
+  RefInfo? findBranch(String shortName, {RefKind? kind}) {
+    final List<RefKind> order = kind == null
+        ? const <RefKind>[RefKind.localBranch, RefKind.remoteBranch]
+        : <RefKind>[kind];
+    for (final RefKind k in order) {
+      for (final RefInfo r in refs) {
+        if (r.kind == k && r.shortName == shortName) return r;
+      }
+    }
+    return null;
+  }
+
   /// All tags (e.g., v1.0.0, release-2024).
   List<RefInfo> get tags =>
       refs.where((r) => r.kind == RefKind.tag).toList(growable: false);

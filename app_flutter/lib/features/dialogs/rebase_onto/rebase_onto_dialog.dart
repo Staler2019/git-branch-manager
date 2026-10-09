@@ -67,6 +67,11 @@ class RebaseOntoDialogContent extends ConsumerStatefulWidget {
 class _RebaseOntoDialogContentState
     extends ConsumerState<RebaseOntoDialogContent> {
   String? _target;
+
+  /// The picker entry's kind. A locked target comes from a local branch row
+  /// (05-B) or a commit row (05-E), so it is looked up as a local branch and
+  /// otherwise -- an oid -- left as it is.
+  RefKind _targetKind = RefKind.localBranch;
   bool _stashFirst = false;
   bool _rebaseMerges = true;
   bool _autosquash = false;
@@ -150,7 +155,12 @@ class _RebaseOntoDialogContentState
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
                       .startRebase(
-                        _target!,
+                        // The full ref: git reads a bare name tag-first, so a
+                        // same-named tag would be the base (verifier P4 #7).
+                        session.refs
+                                .findBranch(_target!, kind: _targetKind)
+                                ?.fullName ??
+                            _target!,
                         stashFirst: _stashFirst,
                         rebaseMerges: _rebaseMerges,
                         autosquash: _autosquash,
@@ -205,8 +215,12 @@ class _RebaseOntoDialogContentState
                 hintText: '搜尋分支',
                 emptyMessage: '沒有可以作為基準的分支。',
                 maxListHeight: 160,
-                onSelected: (GbmRefPickerEntry entry) =>
-                    setState(() => _target = entry.name),
+                onSelected: (GbmRefPickerEntry entry) => setState(() {
+                  _target = entry.name;
+                  _targetKind = entry.kind == GbmRefKind.remoteBranch
+                      ? RefKind.remoteBranch
+                      : RefKind.localBranch;
+                }),
               ),
             ],
             const SizedBox(height: GbmSpacing.space2),

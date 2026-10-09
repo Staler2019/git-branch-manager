@@ -44,7 +44,7 @@ RefSnapshot _refs({String? head, String? tip}) => RefSnapshot(
   totalRefCount: 3,
 );
 
-SquashMessagePreview _preview({String source = 'feature'}) =>
+SquashMessagePreview _preview({String source = 'refs/heads/feature'}) =>
     SquashMessagePreview.fromJson(<String, dynamic>{
       'source': source,
       'headOid': _head,
@@ -56,7 +56,7 @@ void main() {
   group('SquashMessagePreview.fromJson', () {
     test('reads every field', () {
       final SquashMessagePreview p = _preview();
-      expect(p.source, 'feature');
+      expect(p.source, 'refs/heads/feature');
       expect(p.headOid, _head);
       expect(p.sourceOid, _tip);
       expect(p.message, 'Squashed commit of the following:\n');
@@ -80,40 +80,47 @@ void main() {
 
   group('isCurrentFor', () {
     test('holds while source, HEAD and the source tip all still match', () {
-      expect(_preview().isCurrentFor('feature', _refs()), isTrue);
+      expect(_preview().isCurrentFor('refs/heads/feature', _refs()), isTrue);
     });
 
     test('a different pick is not answered by this reply', () {
-      expect(_preview().isCurrentFor('release/0.5', _refs()), isFalse);
+      expect(
+        _preview().isCurrentFor('refs/heads/release/0.5', _refs()),
+        isFalse,
+      );
     });
 
     test('a moved HEAD makes it stale', () {
       expect(
-        _preview().isCurrentFor('feature', _refs(head: 'c' * 40)),
+        _preview().isCurrentFor('refs/heads/feature', _refs(head: 'c' * 40)),
         isFalse,
       );
     });
 
     test('a moved source tip makes it stale, HEAD unchanged', () {
-      expect(_preview().isCurrentFor('feature', _refs(tip: 'c' * 40)), isFalse);
+      expect(
+        _preview().isCurrentFor('refs/heads/feature', _refs(tip: 'c' * 40)),
+        isFalse,
+      );
     });
 
     test('a failed reply is never current, even if its oids line up', () {
       final SquashMessagePreview failed = SquashMessagePreview.fromJson(
         <String, dynamic>{
-          'source': 'feature',
+          'source': 'refs/heads/feature',
           'headOid': _head,
           'sourceOid': _tip,
           'message': '',
           'error': <String, dynamic>{'message': 'git log failed'},
         },
       );
-      expect(failed.isCurrentFor('feature', _refs()), isFalse);
+      expect(failed.isCurrentFor('refs/heads/feature', _refs()), isFalse);
     });
 
     test('a remote-tracking source is looked up among remote branches', () {
       expect(
-        _preview(source: 'origin/feat').isCurrentFor('origin/feat', _refs()),
+        _preview(source: 'refs/remotes/origin/feat')
+            .isCurrentFor('refs/remotes/origin/feat', _refs()),
         isTrue,
       );
     });
@@ -124,9 +131,9 @@ void main() {
       const RepoIdentity(workDir: '/tmp/r', gitDir: '/tmp/r/.git'),
       RepoSessionState(isOpen: true, refs: _refs()),
     );
-    fake.requestSquashMessage('feature');
+    fake.requestSquashMessage('refs/heads/feature');
     fake.publishSquashMessagePreview(_preview());
-    expect(fake.state.squashMessagePreview?.source, 'feature');
+    expect(fake.state.squashMessagePreview?.source, 'refs/heads/feature');
   });
 
   // Replies are posted to the front of a multi-worker pool, so two quick
@@ -138,10 +145,10 @@ void main() {
       RepoSessionState(isOpen: true, refs: _refs()),
     );
     fake.requestSquashMessage('older');
-    fake.requestSquashMessage('feature');
+    fake.requestSquashMessage('refs/heads/feature');
     fake.publishSquashMessagePreview(_preview());
     fake.publishSquashMessagePreview(_preview(source: 'older'));
 
-    expect(fake.state.squashMessagePreview?.source, 'feature');
+    expect(fake.state.squashMessagePreview?.source, 'refs/heads/feature');
   });
 }

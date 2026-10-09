@@ -160,5 +160,14 @@ TEST(RefStoreReadHead, ATimedOutRevParsePropagatesAsAFailure) {
     EXPECT_EQ(runner.invocationCount(), 1u);
 }
 
+TEST(RefDisplayName, StripsOnlyAKnownRefPrefix) {
+    EXPECT_EQ(refDisplayName("refs/heads/feature/x"), "feature/x");
+    EXPECT_EQ(refDisplayName("refs/remotes/origin/main"), "origin/main");
+    EXPECT_EQ(refDisplayName("refs/tags/v1.0"), "v1.0");
+    EXPECT_EQ(refDisplayName("0123456789abcdef"), "0123456789abcdef");
+    EXPECT_EQ(refDisplayName("refs/stash"), "refs/stash");
+    EXPECT_EQ(refDisplayName("topic"), "topic");
+}
+
 }  // namespace
 }  // namespace gbm

@@ -13,10 +13,14 @@ namespace {
 
 constexpr char kFieldSeparator = '\x1f';  // ASCII unit separator: cannot occur in a ref name.
 
+constexpr std::string_view kHeadsPrefix = "refs/heads/";
+constexpr std::string_view kRemotesPrefix = "refs/remotes/";
+constexpr std::string_view kTagsPrefix = "refs/tags/";
+
 RefKind kindForRef(std::string_view fullName) {
-    if (fullName.rfind("refs/heads/", 0) == 0) return RefKind::LocalBranch;
-    if (fullName.rfind("refs/remotes/", 0) == 0) return RefKind::RemoteBranch;
-    if (fullName.rfind("refs/tags/", 0) == 0) return RefKind::Tag;
+    if (fullName.rfind(kHeadsPrefix, 0) == 0) return RefKind::LocalBranch;
+    if (fullName.rfind(kRemotesPrefix, 0) == 0) return RefKind::RemoteBranch;
+    if (fullName.rfind(kTagsPrefix, 0) == 0) return RefKind::Tag;
     if (fullName.rfind("refs/notes/", 0) == 0) return RefKind::Note;
     if (fullName == "refs/stash") return RefKind::Stash;
     return RefKind::Other;
@@ -25,11 +29,11 @@ RefKind kindForRef(std::string_view fullName) {
 std::string shortNameFor(std::string_view fullName, RefKind kind) {
     switch (kind) {
         case RefKind::LocalBranch:
-            return std::string(fullName.substr(11));
+            return std::string(fullName.substr(kHeadsPrefix.size()));
         case RefKind::RemoteBranch:
-            return std::string(fullName.substr(13));
+            return std::string(fullName.substr(kRemotesPrefix.size()));
         case RefKind::Tag:
-            return std::string(fullName.substr(10));
+            return std::string(fullName.substr(kTagsPrefix.size()));
         default:
             return std::string(fullName);
     }
@@ -81,6 +85,10 @@ std::vector<std::string_view> splitFields(std::string_view line, char separator)
 }
 
 }  // namespace
+
+std::string refDisplayName(std::string_view ref) {
+    return shortNameFor(ref, kindForRef(ref));
+}
 
 void RefSnapshot::buildIndex() {
     byTarget.clear();

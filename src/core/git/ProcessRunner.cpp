@@ -518,7 +518,10 @@ public:
         }
 
         // No stdin pipe -> NUL, as POSIX opens /dev/null: GetStdHandle() of a
-        // GUI process may be null, which the inherit list below refuses.
+        // GUI process may be null, which the inherit list below refuses. An
+        // inherited stdin is also what git took for a terminal: `git revert`
+        // opened the editor Git for Windows' installer configured (VS Code,
+        // 使用者回報 2026-10-08) -- RevertOps passes --no-edit as well.
         const HANDLE nulInput = wantStdin ? nullptr : win::openInheritableNul();
         const HANDLE childStdin = wantStdin ? inRead : nulInput;
         const HANDLE childStderr = command.mergeStderrIntoStdout ? outWrite : errWrite;

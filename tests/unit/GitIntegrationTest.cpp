@@ -34,6 +34,7 @@
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/SubmoduleOps.h"
@@ -3196,6 +3197,141 @@ TEST_F(RealRepoTest, SquashMergeStagesChangesWithoutCommittingOrRecordingAParent
     EXPECT_FALSE(status->get()->staged().empty()) << "the squashed diff must be staged";
 }
 
+// The Merge dialog's squash path end to end: SquashMessageStore's preview is
+// the message, and a conflict-free squash is committed with it as one
+// ordinary single-parent commit (使用者裁定 2026-10-08).
+TEST_F(RealRepoTest, SquashMergeWithAMessageCommitsItAsOneOrdinaryCommit) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "c2 on feature");
+    commitFile("b.txt", "b\n", "c3 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    SquashMessageStore store(*runner_, paths_);
+    auto preview = store.preview("feature", CancellationToken{});
+    ASSERT_TRUE(preview);
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = preview->message;
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "one commit on top of c1";
+    auto parents = run({"rev-list", "--parents", "-1", "HEAD"});
+    ASSERT_TRUE(parents);
+    EXPECT_EQ(std::count(parents->out.begin(), parents->out.end(), ' '), 1)
+        << "a squash records no second parent";
+    auto subject = run({"log", "-1", "--format=%s"});
+    ASSERT_TRUE(subject);
+    EXPECT_EQ(subject->out, "Squashed commit of the following:");
+    auto body = run({"log", "-1", "--format=%b"});
+    ASSERT_TRUE(body);
+    EXPECT_NE(body->out.find("c2 on feature"), std::string::npos) << body->out;
+    EXPECT_NE(body->out.find("c3 on feature"), std::string::npos) << body->out;
+}
+
+TEST_F(RealRepoTest, AFullBranchRefMergesTheBranchNotASameNamedTag) {
+    // git resolves a bare name tag-first ("refname 'topic' is ambiguous"), so
+    // `git merge topic` merges the *tag*. The Merge and Rebase dialogs send
+    // refs/heads/<name> for exactly this reason (verifier P4 #7).
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("t.txt", "old\n", "old topic");
+    ASSERT_TRUE(run({"tag", "topic"}));
+    commitFile("t.txt", "new\n", "new topic");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "main moves");
+    auto branchTip = run({"rev-parse", "refs/heads/topic"});
+    auto tagTip = run({"rev-parse", "refs/tags/topic"});
+    ASSERT_TRUE(branchTip && tagTip);
+    ASSERT_NE(branchTip->out, tagTip->out);
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "refs/heads/topic";
+    request.mode = MergeMode::NoFastForward;
+    request.message = "Merge branch 'topic'";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto second = run({"rev-parse", "HEAD^2"});
+    ASSERT_TRUE(second);
+    EXPECT_EQ(second->out, branchTip->out) << "the branch, not the tag";
+}
+
+TEST_F(RealRepoTest, ASquashWithNoNetChangeCommitsNothingAndLeavesNoSquashMsg) {
+    // The source changed a file and changed it back: git squashes, writes a
+    // SQUASH_MSG, and stages nothing. Nothing to commit -- and the leftover
+    // SQUASH_MSG would otherwise reappear as the next manual commit's message.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "change a");
+    commitFile("a.txt", "1\n", "change it back");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "main moves");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    EXPECT_NE(outcome.summary.find("no net changes"), std::string::npos) << outcome.summary;
+    EXPECT_FALSE(std::filesystem::exists(repo_ / ".git" / "SQUASH_MSG"));
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "HEAD did not move";
+}
+
+TEST_F(RealRepoTest, AnAlreadyMergedSquashSaysUpToDate) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"branch", "feature"}));
+    commitFile("m.txt", "m\n", "main moves");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+    EXPECT_NE(outcome.summary.find("up to date"), std::string::npos) << outcome.summary;
+}
+
+TEST_F(RealRepoTest, ASquashNeverCommitsWorkTheUserHadAlreadyStaged) {
+    // A fast-forward squash keeps an unrelated staged change, so committing
+    // after it would sweep that change into the squash commit (S3 verifier,
+    // 2026-10-09). The squash still lands -- staged, not committed.
+    commitFile("unrelated.txt", "u\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "a\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    writeFile("unrelated.txt", "u\nmine\n");
+    ASSERT_TRUE(run({"add", "unrelated.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1") << "HEAD did not move";
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_EQ(staged->out, "a.txt\nunrelated.txt") << "both still staged, for the user to commit";
+}
+
 TEST_F(RealRepoTest, AConflictingMergeStopsAndCanBeAborted) {
     commitFile("shared.txt", "base\n", "base");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));
@@ -5829,6 +5965,69 @@ TEST(CatFileBatchDeadline, TheMultiplierStretchesTheRequestDeadline) {
     const auto record = spy.lastEndingWith({"cat-file", "--batch"});
     ASSERT_TRUE(record.has_value());
     EXPECT_EQ(record->timeoutMs, 600);
+}
+
+// A command given no stdinData must read an empty, already-closed stdin --
+// /dev/null on POSIX, NUL on Windows -- never the app's own. Windows used to
+// hand git the parent's stdin, which git took for a terminal: `git revert`
+// opened VS Code (使用者回報 2026-10-08). hash-object --stdin reads stdin to
+// EOF, so an inherited, still-open stdin shows up here as a timeout instead
+// of the empty blob's id.
+TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
+    GitCommand command(repo_, {"hash-object", "--stdin"});
+    command.timeout = std::chrono::seconds(10);
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_FALSE(result->timedOut);
+    EXPECT_EQ(result->out, "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");
+}
+
+// Ruling ⑨: the Merge dialog's squash message is git's own SQUASH_MSG, shown
+// before the squash runs. `git log` reads config the squash walk ignores, so
+// this repo turns on log.abbrevCommit and a .mailmap remapping the author --
+// dropping either guard flag turns this red -- and puts a merge commit in the
+// range. The note is there too, but measured harmless: an explicit --pretty
+// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule:
+// byte-exact. preview() restores the final newline run() drops
+// ([CPP-run-not-byte-exact]), so a tolerance here would hide that restore.
+TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
+    commitFile("base.txt", "base\n", "base");
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));
+    writeFile("a.txt", "a\n");
+    ASSERT_TRUE(run({"add", "a.txt"}));
+    ASSERT_TRUE(run({"commit",
+                     "--quiet",
+                     "-m",
+                     "Add a",
+                     "-m",
+                     "Body line one.\n\nBody line two.\n\tA tab git log would expand."}));
+    ASSERT_TRUE(run({"notes", "add", "-m", "a note git log would print", "HEAD"}));
+    ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
+    commitFile("b.txt", "b\n", "Add b on a side branch");
+    ASSERT_TRUE(run({"checkout", "--quiet", "feature"}));
+    ASSERT_TRUE(run({"merge", "--quiet", "--no-ff", "--no-edit", "side"}));
+    ASSERT_TRUE(run({"checkout", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "Main moves on");
+
+    ASSERT_TRUE(run({"config", "log.abbrevCommit", "true"}));
+    // Untracked on purpose: git log reads the work tree's .mailmap either way,
+    // and a tracked one would itself be part of the squash.
+    writeFile(".mailmap", "Mapped Name <mapped@example.invalid> <test@example.invalid>\n");
+
+    SquashMessageStore store(*runner_, paths_);
+    auto preview = store.preview("feature", CancellationToken{});
+    ASSERT_TRUE(preview) << preview.error().message;
+
+    ASSERT_TRUE(run({"merge", "--squash", "feature"}));
+    std::ifstream in(repo_ / ".git" / "SQUASH_MSG", std::ios::binary);
+    ASSERT_TRUE(in.good());
+    std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+
+    EXPECT_EQ(preview->message, onDisk);
+    EXPECT_NE(preview->message.find("Merge: "), std::string::npos)
+        << "the merge commit in the range is part of the fixture";
 }
 
 }  // namespace

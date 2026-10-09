@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,13 +12,40 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_ref_picker.dart';
+import '../../../widgets/gbm_ref_read_only_field.dart';
+
+/// git's own default title for merging [source] into [currentBranch] --
+/// git is the authority; this only copies its rule so the dialog can show
+/// the message before git runs. Measured on git 2.56 (2026-10-08, see
+/// docs/claude-design-demo/merge-rebase-dialogs-spec.html ⑦): the
+/// `into <branch>` suffix is omitted for `main` and `master`, and a
+/// remote-tracking source is named as one.
+String _defaultMergeTitle({
+  required String source,
+  required bool sourceIsRemote,
+  required String currentBranch,
+}) {
+  final String kind = sourceIsRemote ? 'remote-tracking branch' : 'branch';
+  final bool omitsDestination =
+      currentBranch.isEmpty ||
+      currentBranch == 'main' ||
+      currentBranch == 'master';
+  return omitsDestination
+      ? "Merge $kind '$source'"
+      : "Merge $kind '$source' into $currentBranch";
+}
 
 /// The Dart analog of `MergeDialog` (src/app/dialogs/MergeDialog.cpp).
 /// Routed as `/repo/:repoId/dialogs/merge`.
 class MergeDialogContent extends ConsumerStatefulWidget {
-  const MergeDialogContent({super.key, required this.identity});
+  const MergeDialogContent({super.key, required this.identity, this.source});
 
   final RepoIdentity identity;
+
+  /// The branch to merge, when the caller already knows it (05-B's "Merge
+  /// into current"). See RoutePaths.mergeDialogFor.
+  final String? source;
 
   @override
   ConsumerState<MergeDialogContent> createState() => _MergeDialogContentState();
@@ -26,13 +54,136 @@ class MergeDialogContent extends ConsumerStatefulWidget {
 class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
   late final TextEditingController _messageController;
   String? _target;
+
+  /// The picker entry's kind; `null` for a source the caller locked (05-B
+  /// opens only from a local branch row), which [RefSnapshot.findBranch]
+  /// then resolves local-first.
+  RefKind? _targetKind;
+
+  /// What the message box was last filled with automatically. A new source
+  /// replaces the message only while the box still holds exactly this --
+  /// the moment the user types their own, it is theirs.
+  String _lastAutofill = '';
   MergeMode _mode = MergeMode.noFastForward;
   bool _stashFirst = false;
+
+  /// `source|HEAD oid|source oid` of the last squash preview asked for, and
+  /// of the one already re-asked after a stale reply -- the second is what
+  /// stops a reply that never matches from looping requests forever.
+  String? _requestedKey;
+  String? _retriedKey;
 
   @override
   void initState() {
     super.initState();
     _messageController = TextEditingController();
+    _target = widget.source;
+    _syncMessage(ref.read(repoSessionProvider(widget.identity)));
+  }
+
+  RefInfo? _targetRef(RepoSessionState session, String name) =>
+      session.refs.findBranch(name, kind: _targetKind);
+
+  bool _isRemote(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.kind == RefKind.remoteBranch;
+
+  String _sourceTip(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.target ?? '';
+
+  /// What git is handed: the branch's full ref, because a bare name resolves
+  /// tag-first and a same-named tag would be merged instead (verifier P4 #7).
+  /// Shown and titled by its short name all the same.
+  String _gitRef(RepoSessionState session, String name) =>
+      _targetRef(session, name)?.fullName ?? name;
+
+  /// A squash message is git's own text, indented body and all; git's commit
+  /// cleanup handles its edges. A merge message the user cleared falls back
+  /// to git's title: empty would mean `--no-edit`, and git would then name
+  /// the full ref it was given ("Merge branch 'refs/heads/x'").
+  String _dispatchedMessage(RepoSessionState session, String target) {
+    if (_mode == MergeMode.squash) return _messageController.text;
+    final String typed = _messageController.text.trim();
+    if (typed.isNotEmpty || _mode != MergeMode.noFastForward) return typed;
+    return _defaultMergeTitle(
+      source: target,
+      sourceIsRemote: _isRemote(session, target),
+      currentBranch: session.refs.head.branchName,
+    );
+  }
+
+  /// The squash preview, but only if it answers the current pick against
+  /// the refs as they are now ([SquashMessagePreview.isCurrentFor]).
+  SquashMessagePreview? _currentPreview(RepoSessionState session) {
+    final String? target = _target;
+    final SquashMessagePreview? preview = session.squashMessagePreview;
+    if (target == null || preview == null) return null;
+    return preview.isCurrentFor(_gitRef(session, target), session.refs)
+        ? preview
+        : null;
+  }
+
+  /// What the box should hold right now if the user has not written their
+  /// own: git's squash message in Squash mode (empty until it arrives), the
+  /// merge title otherwise.
+  String _autofillFor(RepoSessionState session) {
+    final String? target = _target;
+    if (target == null) return '';
+    if (_mode == MergeMode.squash) {
+      return _currentPreview(session)?.message ?? '';
+    }
+    return _defaultMergeTitle(
+      source: target,
+      sourceIsRemote: _isRemote(session, target),
+      currentBranch: session.refs.head.branchName,
+    );
+  }
+
+  /// Replaces the message only while the box still holds exactly the last
+  /// autofill -- the moment the user types their own, it is theirs.
+  void _syncMessage(RepoSessionState session) {
+    if (_messageController.text != _lastAutofill) return;
+    _lastAutofill = _autofillFor(session);
+    _messageController.text = _lastAutofill;
+  }
+
+  /// Asks core for the squash message whenever the pick, HEAD or the source
+  /// tip differs from what was last asked. Deferred to after the frame: this
+  /// runs from a provider listener, and a provider write must not happen
+  /// inside the notification that triggered it ([FLU-postframe-no-frame]:
+  /// paired with ensureVisualUpdate so the callback actually runs).
+  void _ensureSquashRequested(RepoSessionState session, {bool stale = false}) {
+    final String? target = _target;
+    if (_mode != MergeMode.squash || target == null) return;
+    if (_currentPreview(session) != null) return;
+    final String key =
+        '$target|${session.refs.head.target}|${_sourceTip(session, target)}';
+    if (stale) {
+      if (_retriedKey == key) return;
+      _retriedKey = key;
+    } else if (_requestedKey == key) {
+      return;
+    }
+    _requestedKey = key;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .requestSquashMessage(_gitRef(session, target));
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Ruling ②: local branches other than the current one, plus every
+  /// remote-tracking branch -- merging `origin/main` is an ordinary request.
+  List<GbmRefPickerEntry> _entries(RepoSessionState session) {
+    final String head = session.refs.head.branchName;
+    return <GbmRefPickerEntry>[
+      for (final RefInfo b in session.refs.localBranches)
+        if (b.shortName != head)
+          GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.localBranch),
+      for (final RefInfo b in session.refs.remoteBranches)
+        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+    ];
   }
 
   @override
@@ -48,9 +199,37 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
       repoSessionProvider(widget.identity),
     );
     final String currentBranch = session.refs.head.branchName;
-    final List<RefInfo> candidates = session.refs.localBranches
-        .where((b) => b.shortName != currentBranch)
-        .toList(growable: false);
+    final String? source = widget.source;
+
+    // A squash preview arriving, or HEAD / the source tip moving, re-syncs the
+    // box and, when the reply no longer matches, asks again.
+    ref.listen<RepoSessionState>(repoSessionProvider(widget.identity), (
+      RepoSessionState? previous,
+      RepoSessionState next,
+    ) {
+      if (_mode != MergeMode.squash) return;
+      final bool replyArrived =
+          next.squashMessagePreview != null &&
+          next.squashMessagePreview != previous?.squashMessagePreview;
+      if (next.refs != previous?.refs || replyArrived) {
+        setState(() => _syncMessage(next));
+        // A failed reply is an answer, not a stale one: asking again would
+        // only fail again.
+        _ensureSquashRequested(
+          next,
+          stale:
+              replyArrived &&
+              next.squashMessagePreview?.failed != true &&
+              _currentPreview(next) == null,
+        );
+      }
+    });
+    // A preview that could not be built leaves Squash unavailable: its
+    // reason is on the window's banner (capi fires ERROR_OCCURRED too,
+    // 使用者裁定 2026-10-09), and a message that is not git's is not offered.
+    final bool squashReady =
+        _mode != MergeMode.squash ||
+        (_currentPreview(session)?.message.isNotEmpty ?? false);
 
     return GbmDialogShell(
       title: 'Merge Branch',
@@ -60,15 +239,17 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
         GbmButton(
           label: 'Merge',
           kind: GbmButtonKind.primary,
-          onPressed: _target == null
+          // In Squash mode, only once git's message for *these* refs is in
+          // the box. An empty current preview is "nothing to squash".
+          onPressed: _target == null || !squashReady
               ? null
               : () {
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
                       .mergeBranch(
-                        _target!,
+                        _gitRef(session, _target!),
                         _mode,
-                        message: _messageController.text.trim(),
+                        message: _dispatchedMessage(session, _target!),
                         stashFirst: _stashFirst,
                       );
                   context.pop();
@@ -89,37 +270,61 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              '合入 $currentBranch',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: GbmSpacing.space1),
-            SizedBox(
-              height: GbmSpacing.inputHeight,
-              child: DropdownButtonFormField<String>(
-                initialValue: _target,
-                isExpanded: true,
-                decoration: gbmInputDecoration(
-                  colors: colors,
-                  hintText: '來源分支',
+            // DLGS: `focus 來源分支` then `ro 合入`. A source the caller
+            // already chose is drawn `ro` instead -- re-asking for what the
+            // user just clicked is the defect this replaced.
+            if (source != null)
+              GbmRefReadOnlyField(
+                label: '來源分支',
+                name: source,
+                kind: _isRemote(session, source)
+                    ? GbmRefKind.remoteBranch
+                    : GbmRefKind.localBranch,
+              )
+            else ...<Widget>[
+              Text(
+                '來源分支',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
                 ),
-                items: <DropdownMenuItem<String>>[
-                  for (final branch in candidates)
-                    DropdownMenuItem(
-                      value: branch.shortName,
-                      child: Text(branch.shortName),
-                    ),
-                ],
-                onChanged: (value) => setState(() => _target = value),
               ),
+              const SizedBox(height: GbmSpacing.space1),
+              GbmRefPicker(
+                entries: _entries(session),
+                selected: _target,
+                autofocus: true,
+                hintText: '搜尋分支',
+                emptyMessage: '沒有可以合入的分支。',
+                maxListHeight: 160,
+                onSelected: (GbmRefPickerEntry entry) {
+                  setState(() {
+                    _target = entry.name;
+                    _targetKind = entry.kind == GbmRefKind.remoteBranch
+                        ? RefKind.remoteBranch
+                        : RefKind.localBranch;
+                    _syncMessage(session);
+                  });
+                  _ensureSquashRequested(session);
+                },
+              ),
+            ],
+            const SizedBox(height: GbmSpacing.space2),
+            GbmRefReadOnlyField(
+              label: '合入',
+              name: currentBranch,
+              kind: GbmRefKind.localBranch,
             ),
             const SizedBox(height: GbmSpacing.space3),
             RadioGroup<MergeMode>(
               groupValue: _mode,
-              onChanged: (mode) => setState(() => _mode = mode ?? _mode),
+              onChanged: (mode) {
+                setState(() {
+                  _mode = mode ?? _mode;
+                  _syncMessage(session);
+                });
+                _ensureSquashRequested(session);
+              },
               child: const Column(
                 children: <Widget>[
                   _ModeOption(
@@ -141,19 +346,32 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
                   _ModeOption(
                     mode: MergeMode.squash,
                     label: 'Squash 成一筆',
-                    description: '把變更併進來，但不記錄 merge commit。',
+                    description: '把來源的變更合成一筆一般 commit，不記錄 merge commit。',
                   ),
                 ],
               ),
             ),
             const SizedBox(height: GbmSpacing.space3),
+            Text(
+              'Commit 訊息',
+              style: TextStyle(
+                fontSize: GbmTypography.textXs,
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: GbmSpacing.space1),
             TextField(
               controller: _messageController,
-              enabled: _mode != MergeMode.squash,
-              maxLines: 2,
+              style: const TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textSm,
+              ),
+              // 02-C: DLGS's hint 「squash 時改為多行欄位並帶入來源 commit 摘要」.
+              minLines: _mode == MergeMode.squash ? 4 : null,
+              maxLines: _mode == MergeMode.squash ? 8 : 2,
               decoration: gbmMultilineInputDecoration(
                 colors: colors,
-                hintText: 'Commit 訊息（可留空）',
+                hintText: "Merge branch '…'",
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),

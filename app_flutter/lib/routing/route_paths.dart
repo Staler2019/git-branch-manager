@@ -126,7 +126,14 @@ abstract final class RoutePaths {
             : <String, String>{'target': target},
       ).toString();
 
-  static String mergeDialogFor(String repoId) => '/repo/$repoId/dialogs/merge';
+  /// [source] locks the dialog on the branch to merge -- 05-B's "Merge into
+  /// current" passes the row's name, so the dialog draws it read-only instead
+  /// of asking the user to pick what they just clicked. Omitted, the dialog
+  /// offers its picker (Branch → Merge into current…, Ctrl/Cmd+Shift+M).
+  static String mergeDialogFor(String repoId, {String source = ''}) => Uri(
+    path: '/repo/$repoId/dialogs/merge',
+    queryParameters: source.isEmpty ? null : <String, String>{'source': source},
+  ).toString();
   static String cherryPickDialogFor(String repoId) =>
       '/repo/$repoId/dialogs/cherry-pick';
   static String stashChangesDialogFor(String repoId) =>

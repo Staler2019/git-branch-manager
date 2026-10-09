@@ -12,7 +12,8 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
-import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/gbm_ref_picker.dart';
+import '../../../widgets/gbm_ref_read_only_field.dart';
 
 /// Branch → Rebase onto… (Ctrl/Cmd+Shift+R), and context menu 05-B's
 /// "Rebase current onto here".
@@ -50,13 +51,12 @@ class RebaseOntoDialogContent extends ConsumerStatefulWidget {
 
   final RepoIdentity identity;
 
-  /// Pre-selects what to rebase onto. 05-B's "Rebase current onto here"
-  /// passes a branch name, which is already one of the dropdown's own
-  /// options; 05-E's "Rebase onto here" passes a commit oid, which is not,
-  /// so [_candidateItems] adds it as an extra option rather than dropping a
-  /// target the user explicitly picked. `git rebase` takes any committish,
-  /// so an oid is a perfectly good upstream -- see gbm_capi.h's
-  /// gbm_rebase_start.
+  /// What to rebase onto, when the caller already chose it: 05-B's "Rebase
+  /// current onto here" passes a branch name, 05-E's "Rebase onto here" a
+  /// commit oid. Either locks the field read-only (merge-rebase-dialogs-spec
+  /// 03-B/03-C, ruling ①) -- the user is not asked again for what they just
+  /// right-clicked. `git rebase` takes any committish, so an oid is a
+  /// perfectly good upstream -- see gbm_capi.h's gbm_rebase_start.
   final String? target;
 
   @override
@@ -67,6 +67,11 @@ class RebaseOntoDialogContent extends ConsumerStatefulWidget {
 class _RebaseOntoDialogContentState
     extends ConsumerState<RebaseOntoDialogContent> {
   String? _target;
+
+  /// The picker entry's kind. A locked target comes from a local branch row
+  /// (05-B) or a commit row (05-E), so it is looked up as a local branch and
+  /// otherwise -- an oid -- left as it is.
+  RefKind _targetKind = RefKind.localBranch;
   bool _stashFirst = false;
   bool _rebaseMerges = true;
   bool _autosquash = false;
@@ -77,29 +82,33 @@ class _RebaseOntoDialogContentState
     _target = widget.target;
   }
 
-  /// The branch list, plus [RebaseOntoDialogContent.target] itself when it
-  /// is not one of those branches (a commit oid). Without that extra entry
-  /// `DropdownButtonFormField` would assert on an `initialValue` that is
-  /// not among its items, and silently dropping the pre-fill would send the
-  /// user back to picking a target they already chose.
-  List<DropdownMenuItem<String>> _candidateItems(List<RefInfo> candidates) {
-    final String? target = widget.target;
-    final bool targetIsBranch = candidates.any(
-      (RefInfo b) => b.shortName == target,
+  /// Local branches other than the current one, then every remote-tracking
+  /// branch -- the list the dropdown this replaced offered.
+  List<GbmRefPickerEntry> _entries(
+    RepoSessionState session,
+    String currentBranch,
+  ) => <GbmRefPickerEntry>[
+    for (final RefInfo b in session.refs.localBranches)
+      if (b.shortName != currentBranch)
+        GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.localBranch),
+    for (final RefInfo b in session.refs.remoteBranches)
+      GbmRefPickerEntry(name: b.shortName, kind: GbmRefKind.remoteBranch),
+  ];
+
+  /// How a locked [RebaseOntoDialogContent.target] is drawn: a branch by
+  /// name, an oid abbreviated the way every other oid in the app is, so it
+  /// reads as a commit rather than as a 40-character branch name.
+  (String, GbmRefKind) _lockedTarget(RepoSessionState session, String target) {
+    if (session.refs.remoteBranches.any((RefInfo b) => b.shortName == target)) {
+      return (target, GbmRefKind.remoteBranch);
+    }
+    if (session.refs.localBranches.any((RefInfo b) => b.shortName == target)) {
+      return (target, GbmRefKind.localBranch);
+    }
+    return (
+      target.length >= 8 ? 'commit ${target.substring(0, 8)}' : target,
+      GbmRefKind.commit,
     );
-    return <DropdownMenuItem<String>>[
-      if (target != null && !targetIsBranch)
-        DropdownMenuItem<String>(
-          value: target,
-          // Abbreviated the way every other oid in the app is, so the row
-          // reads as a commit rather than as a 40-character branch name.
-          child: Text(
-            target.length >= 8 ? 'commit ${target.substring(0, 8)}' : target,
-          ),
-        ),
-      for (final RefInfo b in candidates)
-        DropdownMenuItem<String>(value: b.shortName, child: Text(b.shortName)),
-    ];
   }
 
   @override
@@ -112,11 +121,7 @@ class _RebaseOntoDialogContentState
         ? session.refs.head.branchName
         : 'HEAD';
 
-    final List<RefInfo> candidates = <RefInfo>[
-      for (final RefInfo b in session.refs.localBranches)
-        if (b.shortName != currentBranch) b,
-      ...session.refs.remoteBranches,
-    ];
+    final String? lockedTarget = widget.target;
 
     final bool isDirty = session.workingCopyStatus.entries.isNotEmpty;
 
@@ -150,7 +155,12 @@ class _RebaseOntoDialogContentState
                   ref
                       .read(repoSessionProvider(widget.identity).notifier)
                       .startRebase(
-                        _target!,
+                        // The full ref: git reads a bare name tag-first, so a
+                        // same-named tag would be the base (verifier P4 #7).
+                        session.refs
+                                .findBranch(_target!, kind: _targetKind)
+                                ?.fullName ??
+                            _target!,
                         stashFirst: _stashFirst,
                         rebaseMerges: _rebaseMerges,
                         autosquash: _autosquash,
@@ -167,24 +177,52 @@ class _RebaseOntoDialogContentState
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(
-              '重新安置 $currentBranch 到：',
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
+            // DLGS: `ro 重新安置` then `focus 基於`; a target the caller
+            // already chose is drawn `ro` too.
+            GbmRefReadOnlyField(
+              label: '重新安置',
+              name: currentBranch,
+              kind: GbmRefKind.localBranch,
             ),
-            const SizedBox(height: GbmSpacing.space1),
-            SizedBox(
-              height: GbmSpacing.inputHeight,
-              child: DropdownButtonFormField<String>(
-                initialValue: _target,
-                isExpanded: true,
-                decoration: gbmInputDecoration(colors: colors, hintText: '基於'),
-                items: _candidateItems(candidates),
-                onChanged: (String? value) => setState(() => _target = value),
+            const SizedBox(height: GbmSpacing.space2),
+            if (lockedTarget != null)
+              Builder(
+                builder: (_) {
+                  final (String name, GbmRefKind kind) = _lockedTarget(
+                    session,
+                    lockedTarget,
+                  );
+                  return GbmRefReadOnlyField(
+                    label: '基於',
+                    name: name,
+                    kind: kind,
+                  );
+                },
+              )
+            else ...<Widget>[
+              Text(
+                '基於',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
               ),
-            ),
+              const SizedBox(height: GbmSpacing.space1),
+              GbmRefPicker(
+                entries: _entries(session, currentBranch),
+                selected: _target,
+                autofocus: true,
+                hintText: '搜尋分支',
+                emptyMessage: '沒有可以作為基準的分支。',
+                maxListHeight: 160,
+                onSelected: (GbmRefPickerEntry entry) => setState(() {
+                  _target = entry.name;
+                  _targetKind = entry.kind == GbmRefKind.remoteBranch
+                      ? RefKind.remoteBranch
+                      : RefKind.localBranch;
+                }),
+              ),
+            ],
             const SizedBox(height: GbmSpacing.space2),
             Text(
               'Rebase 會重寫 $currentBranch 的 commit。若某筆 commit 衝突，'

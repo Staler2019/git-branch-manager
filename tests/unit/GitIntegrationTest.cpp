@@ -5864,8 +5864,9 @@ TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
 // this repo turns on log.abbrevCommit and a .mailmap remapping the author --
 // dropping either guard flag turns this red -- and puts a merge commit in the
 // range. The note is there too, but measured harmless: an explicit --pretty
-// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule: exact,
-// apart from at most one trailing newline ([CPP-run-not-byte-exact]).
+// already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule:
+// byte-exact. preview() restores the final newline run() drops
+// ([CPP-run-not-byte-exact]), so a tolerance here would hide that restore.
 TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     commitFile("base.txt", "base\n", "base");
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));
@@ -5899,10 +5900,7 @@ TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     ASSERT_TRUE(in.good());
     std::string onDisk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 
-    std::string got = preview->message;
-    if (got.size() + 1 == onDisk.size() && onDisk.back() == '\n') got.push_back('\n');
-    if (onDisk.size() + 1 == got.size() && got.back() == '\n') got.pop_back();
-    EXPECT_EQ(got, onDisk);
+    EXPECT_EQ(preview->message, onDisk);
     EXPECT_NE(preview->message.find("Merge: "), std::string::npos)
         << "the merge commit in the range is part of the fixture";
 }

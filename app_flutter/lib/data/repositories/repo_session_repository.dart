@@ -242,15 +242,6 @@ class StashDiffReply {
   final ParsedDiff diff;
 }
 
-/// Reply to [RepoSessionController.requestSquashMessage]: mirrors
-/// GBM_EVENT_SQUASH_MESSAGE_READY -- the text `git merge --squash <source>`
-/// would write to SQUASH_MSG (merge-rebase-dialogs-spec.html 02-C, ruling ⑨).
-///
-/// **Not a cache.** The session keeps only the latest reply, and the Merge
-/// dialog asks again on every open and every pick. What makes a reply usable
-/// is [isCurrentFor]: the text lists the commits in `headOid..sourceOid`, so
-/// it is right only while HEAD and the source still point there. Missing
-/// that check writes the wrong commit list into a permanent commit message.
 /// A [RepoSessionController.requestPreparedMessage] reply: the commit
 /// message git prepared for the merge or squash in progress, comment lines
 /// already stripped by core (`PreparedMessageStore`).
@@ -273,6 +264,15 @@ class PreparedMessageReply {
   final bool failed;
 }
 
+/// Reply to [RepoSessionController.requestSquashMessage]: mirrors
+/// GBM_EVENT_SQUASH_MESSAGE_READY -- the text `git merge --squash <source>`
+/// would write to SQUASH_MSG (merge-rebase-dialogs-spec.html 02-C, ruling ⑨).
+///
+/// **Not a cache.** The session keeps only the latest reply, and the Merge
+/// dialog asks again on every open and every pick. What makes a reply usable
+/// is [isCurrentFor]: the text lists the commits in `headOid..sourceOid`, so
+/// it is right only while HEAD and the source still point there. Missing
+/// that check writes the wrong commit list into a permanent commit message.
 class SquashMessagePreview {
   const SquashMessagePreview({
     required this.source,

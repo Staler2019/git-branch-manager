@@ -57,6 +57,20 @@ public:
             }
         }
 
+        // Asked before the merge, because a fast-forward squash keeps what the
+        // user had staged: committing after it would fold that work into a
+        // commit whose message lists only the source's commits.
+        bool commitAfterSquash = request_.mode == MergeMode::Squash && !request_.message.empty();
+        if (commitAfterSquash) {
+            auto indexMatchesHead = indexMatchesHeadProbe(runner, paths, token);
+            if (!indexMatchesHead) {
+                outcome.error = std::move(indexMatchesHead).error();
+                outcome.summary = "Could not check what was staged, so nothing was merged";
+                return outcome;
+            }
+            commitAfterSquash = *indexMatchesHead;
+        }
+
         std::vector<std::string> args{"merge"};
         switch (request_.mode) {
             case MergeMode::FastForwardOnly:
@@ -89,8 +103,15 @@ public:
 
         auto result = runner.run(command, token);
         if (result) {
-            if (request_.mode == MergeMode::Squash && !request_.message.empty()) {
+            if (commitAfterSquash) {
                 return commitSquash(runner, paths, token);
+            }
+            if (request_.mode == MergeMode::Squash && !request_.message.empty()) {
+                outcome.succeeded = true;
+                outcome.summary = "Squashed " + request_.target +
+                                  " and staged it, but not committed -- you already had staged "
+                                  "changes, which would have gone into the same commit";
+                return outcome;
             }
             outcome.succeeded = true;
             outcome.summary = modeLabel(request_.mode) + "d " + request_.target;
@@ -124,6 +145,24 @@ public:
     }
 
 private:
+    /// `git diff --cached --quiet`: true when the index matches HEAD. Exit 1
+    /// is the answer "it differs", not a failure.
+    static GitResult<bool> indexMatchesHeadProbe(IProcessRunner& runner,
+                                                 const RepoPaths& paths,
+                                                 CancellationToken token) {
+        GitCommand staged(paths.commandDir(), {"diff", "--cached", "--quiet"});
+        staged.timeout = std::chrono::seconds(60);
+        staged.benignExitCodes = {1};
+        auto probe = runner.run(staged, token);
+        if (probe) {
+            return true;
+        }
+        if (probe.error().exitCode == 1) {
+            return false;
+        }
+        return Unexpected<GitError>(std::move(probe).error());
+    }
+
     /// The squash landed without conflict (使用者裁定 2026-10-08：「merge沒
     /// conflict才可以直接commit」), so commit it with the caller's message.
     /// Nothing staged -- the source was already in HEAD -- is not a commit
@@ -134,20 +173,16 @@ private:
                                   CancellationToken token) {
         OperationOutcome outcome;
 
-        // Exit 1 is the answer "the index differs from HEAD", not a failure.
-        GitCommand staged(paths.commandDir(), {"diff", "--cached", "--quiet"});
-        staged.timeout = std::chrono::seconds(60);
-        staged.benignExitCodes = {1};
-        auto probe = runner.run(staged, token);
-        if (probe) {
-            outcome.succeeded = true;
-            outcome.summary = request_.target + " is already up to date -- nothing to squash";
-            return outcome;
-        }
-        if (probe.error().exitCode != 1) {
-            outcome.error = std::move(probe).error();
+        auto indexMatchesHead = indexMatchesHeadProbe(runner, paths, token);
+        if (!indexMatchesHead) {
+            outcome.error = std::move(indexMatchesHead).error();
             outcome.summary = "Squashed " + request_.target +
                               ", but could not check what was staged -- nothing was committed";
+            return outcome;
+        }
+        if (*indexMatchesHead) {
+            outcome.succeeded = true;
+            outcome.summary = request_.target + " is already up to date -- nothing to squash";
             return outcome;
         }
 

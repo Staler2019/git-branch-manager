@@ -3229,6 +3229,33 @@ TEST_F(RealRepoTest, SquashMergeWithAMessageCommitsItAsOneOrdinaryCommit) {
     EXPECT_NE(body->out.find("c3 on feature"), std::string::npos) << body->out;
 }
 
+TEST_F(RealRepoTest, ASquashNeverCommitsWorkTheUserHadAlreadyStaged) {
+    // A fast-forward squash keeps an unrelated staged change, so committing
+    // after it would sweep that change into the squash commit (S3 verifier,
+    // 2026-10-09). The squash still lands -- staged, not committed.
+    commitFile("unrelated.txt", "u\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "a\n", "c2 on feature");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    writeFile("unrelated.txt", "u\nmine\n");
+    ASSERT_TRUE(run({"add", "unrelated.txt"}));
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "1") << "HEAD did not move";
+    auto staged = run({"diff", "--cached", "--name-only"});
+    ASSERT_TRUE(staged);
+    EXPECT_EQ(staged->out, "a.txt\nunrelated.txt") << "both still staged, for the user to commit";
+}
+
 TEST_F(RealRepoTest, AConflictingMergeStopsAndCanBeAborted) {
     commitFile("shared.txt", "base\n", "base");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "left"}));

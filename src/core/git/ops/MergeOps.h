@@ -16,9 +16,10 @@ enum class MergeMode : std::uint8_t {
     NoFastForward,
     /// `--squash`: stages the combined diff with no merge commit and no
     /// parent link. With a MergeRequest::message and no conflict, it is then
-    /// committed as one ordinary commit; without one, it stays staged for the
-    /// caller. Never leaves a MERGE_HEAD behind, so RepoState::Merge never
-    /// applies to a squash.
+    /// committed as one ordinary commit -- unless the index already differed
+    /// from HEAD before it, which stays staged rather than be swept into that
+    /// commit; without one, it stays staged for the caller. Never leaves a
+    /// MERGE_HEAD behind, so RepoState::Merge never applies to a squash.
     Squash,
 };
 

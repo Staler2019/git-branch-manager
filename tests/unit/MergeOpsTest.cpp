@@ -42,9 +42,11 @@ bool contains(const std::vector<std::string>& args, const std::string& token) {
     return std::find(args.begin(), args.end(), token) != args.end();
 }
 
-/// Index differs from HEAD: `git diff --cached --quiet` exits 1.
+/// `git diff --cached --quiet` is asked twice: before the squash (exit 0, the
+/// index matched HEAD -- nothing of the user's is staged) and after it (exit
+/// 1, the squash staged something).
 void scriptStagedChanges(FakeProcessRunner& runner) {
-    runner.whenArgsContain({"diff", "--cached", "--quiet"}, exitWith(1));
+    runner.whenArgsContainInTurn({"diff", "--cached", "--quiet"}, {exitWith(0), exitWith(1)});
 }
 
 TEST(MergeOperationSquash, CommitsWithTheMessageOverStdin) {
@@ -55,15 +57,15 @@ TEST(MergeOperationSquash, CommitsWithTheMessageOverStdin) {
         makeMergeOperation(squash(kMessage))->run(runner, testPaths(), CancellationToken{});
 
     EXPECT_TRUE(outcome.succeeded) << outcome.summary;
-    ASSERT_EQ(runner.invocations().size(), 3u);
-    const std::vector<std::string> commit = runner.invokedArgs(2);
+    ASSERT_EQ(runner.invocations().size(), 4u);
+    const std::vector<std::string> commit = runner.invokedArgs(3);
     ASSERT_FALSE(commit.empty());
     EXPECT_EQ(commit.front(), "commit");
     EXPECT_TRUE(contains(commit, "--file"));
     EXPECT_TRUE(contains(commit, "-"));
     EXPECT_FALSE(contains(commit, "-m"));
     EXPECT_FALSE(contains(commit, kMessage));
-    EXPECT_EQ(runner.invocations()[2].stdinData.value_or(""), kMessage);
+    EXPECT_EQ(runner.invocations()[3].stdinData.value_or(""), kMessage);
 }
 
 TEST(MergeOperationSquash, AFailedCommitSaysTheChangesAreStaged) {
@@ -78,7 +80,7 @@ TEST(MergeOperationSquash, AFailedCommitSaysTheChangesAreStaged) {
     EXPECT_FALSE(outcome.succeeded);
     EXPECT_TRUE(outcome.error.has_value());
     EXPECT_NE(outcome.summary.find("staged"), std::string::npos) << outcome.summary;
-    EXPECT_EQ(runner.invocations().size(), 3u);
+    EXPECT_EQ(runner.invocations().size(), 4u);
 }
 
 TEST(MergeOperationSquash, NothingStagedMeansNoCommit) {
@@ -92,7 +94,27 @@ TEST(MergeOperationSquash, NothingStagedMeansNoCommit) {
 
     EXPECT_TRUE(outcome.succeeded);
     EXPECT_NE(outcome.summary.find("up to date"), std::string::npos) << outcome.summary;
-    EXPECT_EQ(runner.invocations().size(), 2u);
+    EXPECT_EQ(runner.invocations().size(), 3u);
+}
+
+TEST(MergeOperationSquash, AlreadyStagedWorkIsNeverCommittedWithTheSquash) {
+    // A fast-forward squash keeps whatever the user had staged, and `git
+    // commit` would fold it into a commit whose message lists only the
+    // source's commits. So: squash, stage, and stop -- the pre-2026-10-08
+    // behaviour, for exactly this case.
+    FakeProcessRunner runner;
+    runner.whenArgsContain({"diff", "--cached", "--quiet"}, exitWith(1));
+
+    OperationOutcome outcome =
+        makeMergeOperation(squash(kMessage))->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    EXPECT_NE(outcome.summary.find("not committed"), std::string::npos) << outcome.summary;
+    for (std::size_t i = 0; i < runner.invocations().size(); ++i) {
+        EXPECT_NE(runner.invokedArgs(i).front(), "commit") << "invocation " << i;
+    }
+    ASSERT_EQ(runner.invocations().size(), 2u);
+    EXPECT_TRUE(contains(runner.invokedArgs(1), "--squash"));
 }
 
 TEST(MergeOperationSquash, AConflictNeverCommits) {
@@ -104,7 +126,7 @@ TEST(MergeOperationSquash, AConflictNeverCommits) {
         makeMergeOperation(squash(kMessage))->run(runner, testPaths(), CancellationToken{});
 
     EXPECT_FALSE(outcome.succeeded);
-    EXPECT_EQ(runner.invocations().size(), 1u);
+    EXPECT_EQ(runner.invocations().size(), 2u);
 }
 
 TEST(MergeOperationSquash, NoMessageStillOnlyStages) {

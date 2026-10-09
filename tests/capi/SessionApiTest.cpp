@@ -133,6 +133,39 @@ TEST_F(CapiSessionTest, RepoStateJsonReportsCleanRepository) {
     EXPECT_NE(json.find("\"isClean\":true"), std::string::npos);
 }
 
+std::string repoStateJson(GbmSessionHandle session) {
+    if (gbm_repo_state_json(session) != 0) return {};
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    return json;
+}
+
+// preparedMessagePending across the C ABI, from states git itself wrote:
+// a staged squash (SQUASH_MSG only) is pending, a cherry-pick conflict
+// (MERGE_MSG without MERGE_HEAD) is not.
+TEST_F(CapiSessionTest, RepoStateJsonReportsAStagedSquashAsPreparedMessagePending) {
+    ASSERT_EQ(runGit({"switch", "--quiet", "-c", "topic"}), 0);
+    std::ofstream(repo_ / "g.txt") << "g\n";
+    ASSERT_EQ(runGit({"add", "g.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "topic adds g"}), 0);
+    ASSERT_EQ(runGit({"switch", "--quiet", "main"}), 0);
+    ASSERT_EQ(runGit({"merge", "--squash", "topic"}), 0);
+
+    EXPECT_NE(repoStateJson(session_).find("\"preparedMessagePending\":true"), std::string::npos);
+}
+
+TEST_F(CapiSessionTest, RepoStateJsonReportsACherryPickConflictAsNotPending) {
+    ASSERT_EQ(runGit({"switch", "--quiet", "-c", "topic"}), 0);
+    std::ofstream(repo_ / "file.txt") << "topic\n";
+    ASSERT_EQ(runGit({"commit", "--quiet", "-am", "topic change"}), 0);
+    ASSERT_EQ(runGit({"switch", "--quiet", "main"}), 0);
+    std::ofstream(repo_ / "file.txt") << "main\n";
+    ASSERT_EQ(runGit({"commit", "--quiet", "-am", "main change"}), 0);
+    ASSERT_NE(runGit({"cherry-pick", "topic"}), 0);
+
+    EXPECT_NE(repoStateJson(session_).find("\"preparedMessagePending\":false"), std::string::npos);
+}
+
 TEST_F(CapiSessionTest, RemoveStaleIndexLockDeletesAnOldLockThroughTheCAbi) {
     // The threshold arithmetic itself (stale vs. fresh, already-gone) is
     // covered exhaustively at the unit tier

@@ -1019,6 +1019,48 @@ TEST_F(RealRepoTest, ReadsACleanRepoState) {
     EXPECT_TRUE(state.describe().empty());
 }
 
+// preparedMessagePending: git has a message waiting for the Working Copy
+// box. A merge (MERGE_HEAD) or a squash (SQUASH_MSG, which writes no
+// MERGE_HEAD) counts; a cherry-pick conflict writes MERGE_MSG too, but it is
+// finished by the conflict window's Continue, not by the box, so it does not
+// (prepared-commit-message-spec.html section 01).
+TEST_F(RealRepoTest, PreparedMessagePendingDuringAConflictedMerge) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    EXPECT_FALSE(RepoState::read(paths_).preparedMessagePending);
+
+    ASSERT_FALSE(run({"merge", "--no-ff", "-m", "Merge branch 'topic'", "topic"}));
+    EXPECT_TRUE(RepoState::read(paths_).preparedMessagePending);
+}
+
+TEST_F(RealRepoTest, PreparedMessagePendingForAStagedSquashWithNoMergeHead) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("g.txt", "g\n", "topic adds g");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("h.txt", "h\n", "main adds h");
+    ASSERT_TRUE(run({"merge", "--squash", "topic"}));
+
+    const RepoState state = RepoState::read(paths_);
+    ASSERT_EQ(state.flags & RepoState::Merge, 0u) << "a squash writes no MERGE_HEAD";
+    EXPECT_TRUE(state.preparedMessagePending);
+}
+
+TEST_F(RealRepoTest, PreparedMessageNotPendingDuringACherryPickConflict) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    ASSERT_FALSE(run({"cherry-pick", "topic"}));
+    ASSERT_TRUE(std::filesystem::exists(repo_ / ".git" / "MERGE_MSG")) << "the case this pins";
+
+    EXPECT_FALSE(RepoState::read(paths_).preparedMessagePending);
+}
+
 TEST_F(RealRepoTest, DetectsAConflictedMergeState) {
     // A real conflict, so the state detection is tested against what git actually
     // writes rather than against files we fabricated.

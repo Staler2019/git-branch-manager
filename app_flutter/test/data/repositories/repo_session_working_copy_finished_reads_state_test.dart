@@ -27,6 +27,7 @@ Map<String, dynamic> _repoStateJson({required int flags}) => <String, dynamic>{
   'rebaseOntoLabel': '',
   'indexLocked': false,
   'indexLockAgeSeconds': null,
+  'preparedMessagePending': false,
   'describe': '',
 };
 

@@ -1,5 +1,7 @@
 #include "core/git/ops/MergeOps.h"
 
+#include "core/git/RefStore.h"
+
 #include <chrono>
 #include <filesystem>
 #include <system_error>
@@ -26,7 +28,7 @@ public:
     explicit MergeOperation(MergeRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return modeLabel(request_.mode) + " " + request_.target;
+        return modeLabel(request_.mode) + " " + refDisplayName(request_.target);
     }
 
     OperationOutcome run(IProcessRunner& runner,
@@ -44,12 +46,13 @@ public:
         // merge itself still leaves the user's work recoverable from the stash
         // rather than lost.
         if (request_.stashFirst) {
-            GitCommand stash(paths.commandDir(),
-                             {"stash",
-                              "push",
-                              "--include-untracked",
-                              "-m",
-                              "git-branch-manager: before merging " + request_.target});
+            GitCommand stash(
+                paths.commandDir(),
+                {"stash",
+                 "push",
+                 "--include-untracked",
+                 "-m",
+                 "git-branch-manager: before merging " + refDisplayName(request_.target)});
             stash.timeout = GitCommand::kLocalCeiling;
             auto stashed = runner.run(stash, token);
             if (!stashed) {
@@ -110,13 +113,13 @@ public:
             }
             if (request_.mode == MergeMode::Squash && !request_.message.empty()) {
                 outcome.succeeded = true;
-                outcome.summary = "Squashed " + request_.target +
+                outcome.summary = "Squashed " + refDisplayName(request_.target) +
                                   " and staged it, but not committed -- you already had staged "
                                   "changes, which would have gone into the same commit";
                 return outcome;
             }
             outcome.succeeded = true;
-            outcome.summary = modeLabel(request_.mode) + "d " + request_.target;
+            outcome.summary = modeLabel(request_.mode) + "d " + refDisplayName(request_.target);
             return outcome;
         }
 
@@ -178,7 +181,7 @@ private:
         auto indexMatchesHead = indexMatchesHeadProbe(runner, paths, token);
         if (!indexMatchesHead) {
             outcome.error = std::move(indexMatchesHead).error();
-            outcome.summary = "Squashed " + request_.target +
+            outcome.summary = "Squashed " + refDisplayName(request_.target) +
                               ", but could not check what was staged -- nothing was committed";
             return outcome;
         }
@@ -192,10 +195,11 @@ private:
             std::error_code ec;
             if (std::filesystem::exists(squashMsg, ec)) {
                 std::filesystem::remove(squashMsg, ec);
-                outcome.summary = "Squashed " + request_.target +
+                outcome.summary = "Squashed " + refDisplayName(request_.target) +
                                   ", but it has no net changes -- nothing was committed";
             } else {
-                outcome.summary = request_.target + " is already up to date -- nothing to squash";
+                outcome.summary =
+                    refDisplayName(request_.target) + " is already up to date -- nothing to squash";
             }
             return outcome;
         }
@@ -208,12 +212,12 @@ private:
         auto committed = runner.run(commit, token);
         if (!committed) {
             outcome.error = std::move(committed).error();
-            outcome.summary =
-                "Squashed " + request_.target + ", but the commit failed -- the changes are staged";
+            outcome.summary = "Squashed " + refDisplayName(request_.target) +
+                              ", but the commit failed -- the changes are staged";
             return outcome;
         }
         outcome.succeeded = true;
-        outcome.summary = "Squash merged " + request_.target;
+        outcome.summary = "Squash merged " + refDisplayName(request_.target);
         return outcome;
     }
 

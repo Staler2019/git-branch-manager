@@ -139,5 +139,42 @@ TEST(MergeOperationSquash, NoMessageStillOnlyStages) {
     EXPECT_EQ(runner.invocations().size(), 1u);
 }
 
+// The dialogs hand git the full ref so a same-named tag cannot win; what
+// the app itself writes for people -- the undo list, the summary, the stash
+// entry -- still names the branch the way they picked it.
+TEST(MergeOperationText, NamesTheBranchButHandsGitTheFullRef) {
+    FakeProcessRunner runner;
+    MergeRequest request;
+    request.target = "refs/heads/feature";
+    request.mode = MergeMode::NoFastForward;
+    request.message = "Merge branch 'feature'";
+    request.stashFirst = true;
+    auto operation = makeMergeOperation(request);
+
+    EXPECT_EQ(operation->describe(), "Merge feature");
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_EQ(outcome.summary, "Merged feature");
+    ASSERT_EQ(runner.invocations().size(), 2u);
+    EXPECT_TRUE(contains(runner.invokedArgs(0), "git-branch-manager: before merging feature"));
+    EXPECT_TRUE(contains(runner.invokedArgs(1), "refs/heads/feature")) << "git gets the full ref";
+}
+
+TEST(MergeOperationText, NamesARemoteBranchByItsRemoteName) {
+    FakeProcessRunner runner;
+    MergeRequest request = squash("");
+    request.target = "refs/remotes/origin/feat";
+    auto operation = makeMergeOperation(request);
+
+    EXPECT_EQ(operation->describe(), "Squash merge origin/feat");
+}
+
+TEST(MergeOperationText, LeavesACommitOidAsItIs) {
+    MergeRequest request;
+    request.target = "0123456789abcdef0123456789abcdef01234567";
+    EXPECT_EQ(makeMergeOperation(request)->describe(),
+              "Merge 0123456789abcdef0123456789abcdef01234567");
+}
+
 }  // namespace
 }  // namespace gbm

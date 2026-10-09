@@ -576,6 +576,19 @@ void main() {
       expect(draft().summary, 'mine');
     });
 
+    test('a merge ending under an outstanding commit restores nothing', () {
+      reconcile();
+      reconcile(reply: PreparedReplyStatus.message);
+      notifier.commitSubmitted('deadbeef');
+
+      expect(reconcile(pending: false), PreparedMessageAction.end);
+      expect(draft().summary, "Merge branch 'topic'");
+
+      notifier.commitLanded();
+      expect(draft().summary, isEmpty);
+      expect(draft().pendingCommitFrom, isNull);
+    });
+
     test('a new episode after the last one ended starts again', () {
       reconcile();
       reconcile(reply: PreparedReplyStatus.message);

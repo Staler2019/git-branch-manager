@@ -7,7 +7,6 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/commit_meta.dart';
-import '../../data/models/git_error.dart';
 import '../../data/models/parsed_diff.dart';
 import '../../data/models/prepared_message_policy.dart';
 import '../../data/models/working_copy_status.dart';
@@ -71,16 +70,6 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
-
-  /// HEAD's oid at the moment a commit was submitted, or null when none is
-  /// outstanding.
-  ///
-  /// The draft is cleared when HEAD moves off it, **not** when the button is
-  /// pressed. Clearing on press is what the box used to do, and a commit
-  /// that failed -- nothing staged, a rejecting hook, a bad identity -- took
-  /// the message with it; now that the message is also on disk, that would
-  /// have destroyed the saved copy too.
-  String? _pendingCommitFrom;
 
   /// The oid whose message has already been pulled into the box for
   /// amending, so a rebuild does not overwrite the user's edits with HEAD's
@@ -173,7 +162,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       _requestBothSides(next);
     });
 
-    _watchCommitOutcome();
     _watchAmendPrefill(session);
     _watchPreparedMessage();
     _syncBoxFromDraft();
@@ -631,41 +619,6 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     );
   }
 
-  /// Clears the box once HEAD has actually moved off where it was when the
-  /// commit was submitted.
-  ///
-  /// A commit -- amend included -- always produces a new oid, so HEAD moving
-  /// is the success signal, and no capi addition is needed to get one.
-  void _watchCommitOutcome() {
-    ref.listen(
-      repoSessionProvider(widget.identity).select((s) => s.refs.head.target),
-      (String? previous, String next) {
-        // No `next != _pendingCommitFrom` check: `select` only notifies when
-        // the selected value actually changes, so arriving here already
-        // means HEAD moved. Status refreshes republish the session
-        // constantly during a commit and must not be mistaken for one.
-        if (_pendingCommitFrom == null) return;
-        _pendingCommitFrom = null;
-        _summaryController.clear();
-        _descriptionController.clear();
-        ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
-      },
-    );
-    // Any error cancels the wait. **Not attributed to the commit** -- a
-    // fetch failing mid-commit cancels it too, and this repo's own rule is
-    // that "the next event is mine" is never a safe attribution. The
-    // reduction is deliberate and fail-safe in the direction that matters:
-    // the cost of a false cancel is a message that outlives a commit that
-    // did succeed, while the cost of not cancelling is clearing a message
-    // the user wrote *after* a failure, when some later checkout moves HEAD.
-    ref.listen<GitError?>(
-      repoSessionProvider(widget.identity).select((s) => s.lastError),
-      (GitError? previous, GitError? next) {
-        if (next != null) _pendingCommitFrom = null;
-      },
-    );
-  }
-
   /// Pulls HEAD's message into the box once it arrives, exactly once per oid.
   void _watchAmendPrefill(RepoSessionState session) {
     final WorkingCopyDraft draft = ref.watch(
@@ -799,14 +752,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
   /// Submits, through the one shared entry point the menu and the shortcut
   /// also use.
+  /// Waiting for the commit to land is `WorkspaceScreen`'s job, for every
+  /// path alike (`WorkingCopyDraft.pendingCommitFrom`).
   void _onSubmit({required bool amend}) {
-    final String from = ref
-        .read(repoSessionProvider(widget.identity))
-        .refs
-        .head
-        .target;
-    if (!wc.submitCommit(ref, widget.identity, amend: amend)) return;
-    _pendingCommitFrom = from;
+    wc.submitCommit(ref, widget.identity, amend: amend);
   }
 
   /// Context menu 05-F for a working-copy file.

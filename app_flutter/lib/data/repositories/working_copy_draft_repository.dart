@@ -65,6 +65,7 @@ class WorkingCopyDraft {
     this.hasAutofill = false,
     this.autofilledSummary = '',
     this.autofilledDescription = '',
+    this.pendingCommitFrom,
   });
 
   /// First line of the commit message (typically treated separately by Git).
@@ -110,6 +111,14 @@ class WorkingCopyDraft {
   final String autofilledSummary;
   final String autofilledDescription;
 
+  /// HEAD's oid when a commit from this box was submitted, or null when none
+  /// is outstanding. The box is cleared when HEAD moves off it, **not** when
+  /// the commit is sent: a commit that failed -- nothing staged, a rejecting
+  /// hook, a bad identity -- would otherwise take the message with it.
+  /// Memory only; one place sets it ([submitCommit]) for the button, the
+  /// shortcut and the menu alike, and `WorkspaceScreen` watches HEAD for it.
+  final String? pendingCommitFrom;
+
   /// Creates a copy with any fields optionally replaced.
   WorkingCopyDraft copyWith({
     String? summary,
@@ -125,6 +134,8 @@ class WorkingCopyDraft {
     bool? hasAutofill,
     String? autofilledSummary,
     String? autofilledDescription,
+    String? pendingCommitFrom,
+    bool clearPendingCommit = false,
   }) {
     return WorkingCopyDraft(
       summary: summary ?? this.summary,
@@ -143,6 +154,9 @@ class WorkingCopyDraft {
       autofilledSummary: autofilledSummary ?? this.autofilledSummary,
       autofilledDescription:
           autofilledDescription ?? this.autofilledDescription,
+      pendingCommitFrom: clearPendingCommit
+          ? null
+          : (pendingCommitFrom ?? this.pendingCommitFrom),
     );
   }
 }
@@ -239,6 +253,7 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         reply: reply,
         overwrite: overwrite,
         boxEmpty: d.summary.trim().isEmpty && d.description.trim().isEmpty,
+        commitInFlight: d.pendingCommitFrom != null,
         boxMatchesAutofill:
             d.hasAutofill &&
             d.summary == d.autofilledSummary &&
@@ -293,6 +308,24 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     autofilledSummary: '',
     autofilledDescription: '',
   );
+
+  /// A commit was sent from HEAD [head]; wait for HEAD to move off it.
+  void commitSubmitted(String head) {
+    state = state.copyWith(pendingCommitFrom: head);
+  }
+
+  /// HEAD moved while a commit was outstanding: the message is a commit now.
+  void commitLanded() {
+    if (state.pendingCommitFrom == null) return;
+    reset();
+  }
+
+  /// The commit failed, or its outcome can no longer be told: stop waiting
+  /// and keep the text, so a later checkout does not clear it.
+  void commitAbandoned() {
+    if (state.pendingCommitFrom == null) return;
+    state = state.copyWith(clearPendingCommit: true);
+  }
 
   /// Resets all fields to their defaults, on disk as well as in memory.
   /// Called after a successful commit: the message has become a commit, and

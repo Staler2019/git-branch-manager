@@ -12,6 +12,7 @@ PreparedMessageAction _decide({
   bool overwrite = true,
   bool boxEmpty = false,
   bool boxMatchesAutofill = false,
+  bool commitInFlight = false,
 }) => decidePreparedMessageAction(
   PreparedMessageContext(
     pending: pending,
@@ -22,6 +23,7 @@ PreparedMessageAction _decide({
     overwrite: overwrite,
     boxEmpty: boxEmpty,
     boxMatchesAutofill: boxMatchesAutofill,
+    commitInFlight: commitInFlight,
   ),
 );
 
@@ -92,6 +94,20 @@ void main() {
       expect(
         _decide(pending: false, filled: true, boxMatchesAutofill: true),
         PreparedMessageAction.restoreAndEnd,
+      );
+    });
+
+    // A commit from the box concluded the merge: not an Abort, so nothing
+    // is put back (使用者 2026-10-10).
+    test('the merge ending under an outstanding commit restores nothing', () {
+      expect(
+        _decide(
+          pending: false,
+          filled: true,
+          boxMatchesAutofill: true,
+          commitInFlight: true,
+        ),
+        PreparedMessageAction.end,
       );
     });
 

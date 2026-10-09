@@ -4,6 +4,7 @@
 // untouched, and does all of that once per operation -- a tab switch is not a
 // second merge.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -334,5 +335,45 @@ void main() {
       expect(_summary(tester), 'mine');
       expect(_description(tester), 'my body');
     });
+  });
+
+  // 使用者 2026-10-10: committing the unedited prepared message through the
+  // keyboard used to put the pre-merge text back, because the merge ending
+  // (pending -> false) looked exactly like an Abort.
+  testWidgets('Cmd/Ctrl+Enter on the prepared message ends with an empty box', (
+    WidgetTester tester,
+  ) async {
+    final PumpedWorkspace pumped = await _pump(tester);
+    await _type(tester, 'mine', 'my body');
+    await _setPending(tester, pumped, true);
+    await _reply(tester, pumped);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pump();
+    // RepoState is re-read before refs: the merge ends first...
+    await _setPending(tester, pumped, false);
+    expect(_summary(tester), isNot('mine'));
+    // ...then HEAD moves.
+    pumped.controller.emit(
+      pumped.controller.state.copyWith(
+        refs: const RefSnapshot(
+          head: HeadInfo(
+            kind: HeadKind.branch,
+            branchName: 'main',
+            fullRef: 'refs/heads/main',
+            target: 'cafebabe',
+          ),
+          refs: <RefInfo>[],
+          refCountGuardTripped: false,
+          totalRefCount: 0,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(_summary(tester), isEmpty);
+    expect(_description(tester), isEmpty);
   });
 }

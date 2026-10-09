@@ -13,6 +13,7 @@ import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/git_error.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
@@ -143,6 +144,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // after the first frame rather than here, so the dispatch does not land
     // mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncHistoryFilter());
+    // Same reason for an outstanding commit: the draft outlives this shell, so
+    // HEAD may have moved while it was gone (`_settleOutstandingCommit`).
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _settleOutstandingCommit(widget.identity),
+    );
 
     // Nothing in this app used to react to the window regaining focus, so
     // coming back from an editor or a terminal left both the working-copy
@@ -172,6 +178,63 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     _focusRefreshCooldown = Timer(kFocusRefreshThrottle, () {});
 
     refreshRepoStatus(ref, widget.identity);
+  }
+
+  @override
+  void didUpdateWidget(WorkspaceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.identity != widget.identity) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _settleOutstandingCommit(widget.identity),
+      );
+    }
+  }
+
+  /// A commit left outstanding while this shell was not mounted: HEAD moved
+  /// off it → it landed; HEAD still on it → it failed or its outcome cannot
+  /// be told, so stop waiting and keep the text (a later, unrelated HEAD move
+  /// must not clear what the user types next).
+  void _settleOutstandingCommit(RepoIdentity identity) {
+    if (!mounted) return;
+    final WorkingCopyDraftController draft = ref.read(
+      workingCopyDraftProvider(identity).notifier,
+    );
+    final String? from = ref
+        .read(workingCopyDraftProvider(identity))
+        .pendingCommitFrom;
+    if (from == null) return;
+    if (ref.read(repoSessionProvider(identity)).refs.head.target != from) {
+      draft.commitLanded();
+    } else {
+      draft.commitAbandoned();
+    }
+  }
+
+  /// Clears the commit box once HEAD actually moves off where it was when a
+  /// commit was submitted -- by the button, the shortcut or the menu alike.
+  /// Lives here rather than in `WorkingCopyView` because a commit can land
+  /// while Working Copy is off screen.
+  void _watchCommitOutcome(RepoIdentity identity) {
+    // `select` notifies only when HEAD actually changes, so status refreshes
+    // that republish the session mid-commit are not mistaken for one. A
+    // commit -- amend included -- always makes a new oid.
+    ref.listen<String>(
+      repoSessionProvider(identity).select((s) => s.refs.head.target),
+      (_, _) =>
+          ref.read(workingCopyDraftProvider(identity).notifier).commitLanded(),
+    );
+    // Any error cancels the wait. **Not attributed to the commit** -- a fetch
+    // failing mid-commit cancels it too. Fail-safe in the direction that
+    // matters: a false cancel leaves a committed message in the box, while
+    // not cancelling would clear a message written *after* a failure the
+    // next time a checkout moves HEAD.
+    ref.listen<GitError?>(
+      repoSessionProvider(identity).select((s) => s.lastError),
+      (_, GitError? next) {
+        if (next == null) return;
+        ref.read(workingCopyDraftProvider(identity).notifier).commitAbandoned();
+      },
+    );
   }
 
   @override
@@ -337,6 +400,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // widget.isMacOS's doc comment for why this can't just be
     // Platform.isMacOS directly.
     final bool isMacOS = widget.isMacOS ?? Platform.isMacOS;
+
+    _watchCommitOutcome(identity);
 
     // Times the history scan for the status bar's elapsed figure. Recorded
     // on the false -> true edge and closed on true -> false, so a rebuild

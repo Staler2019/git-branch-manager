@@ -5,6 +5,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
@@ -445,6 +446,143 @@ void main() {
         },
       );
     }
+  });
+
+  // 使用者 2026-10-10 ruled the keyboard and menu clear the box on success
+  // like the button. The wait used to live in the view's private field, set
+  // only by the button, so Cmd+Enter left a committed message in the box.
+  group('every commit path clears the box once HEAD moves', () {
+    String draftSummary(PumpedWorkspace p) =>
+        p.container.read(workingCopyDraftProvider(_identity)).summary;
+    String? pending(PumpedWorkspace p) =>
+        p.container.read(workingCopyDraftProvider(_identity)).pendingCommitFrom;
+
+    testWidgets('Cmd/Ctrl+Enter', (WidgetTester tester) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      await tester.enterText(_summaryField, 'fix: via keyboard');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+
+      pumped.controller.emit(_sessionAt('cafebabe'));
+      await tester.pumpAndSettle();
+
+      expect(draftSummary(pumped), isEmpty);
+      expect(
+        tester.widget<TextField>(_summaryField).controller!.text,
+        isEmpty,
+        reason: 'the field on screen follows the draft',
+      );
+    });
+
+    testWidgets('HEAD moving while Working Copy is off screen still counts', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+      pumped.router.go(
+        RoutePaths.historyFor(Uri.encodeComponent(_identity.workDir)),
+      );
+      await tester.pumpAndSettle();
+
+      pumped.controller.emit(_sessionAt('cafebabe'));
+      await tester.pumpAndSettle();
+      pumped.router.go(
+        RoutePaths.workingCopyFor(Uri.encodeComponent(_identity.workDir)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(draftSummary(pumped), isEmpty);
+      expect(pending(pumped), isNull);
+
+      // A later, unrelated HEAD move must not clear what is typed next.
+      await tester.enterText(_summaryField, 'next thought');
+      await tester.pump();
+      pumped.controller.emit(_sessionAt('0ddba11'));
+      await tester.pumpAndSettle();
+      expect(draftSummary(pumped), 'next thought');
+    });
+
+    // The draft outlives the workspace shell; a shell that was not there
+    // when HEAD moved has to look at HEAD when it comes back.
+    testWidgets('HEAD moving while the repository is closed still counts', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _sessionAt('deadbeef'),
+        workingCopyBuilder: (BuildContext context, _) =>
+            const WorkingCopyView(identity: _identity),
+        topLevelRoutes: <RouteBase>[
+          GoRoute(
+            path: '/elsewhere',
+            builder: (BuildContext context, _) => const Scaffold(),
+          ),
+        ],
+      );
+      final String wcPath = RoutePaths.workingCopyFor(
+        Uri.encodeComponent(_identity.workDir),
+      );
+      pumped.router.go(wcPath);
+      await tester.pumpAndSettle();
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+      pumped.router.go('/elsewhere');
+      await tester.pumpAndSettle();
+
+      pumped.controller.emit(_sessionAt('cafebabe'));
+      await tester.pumpAndSettle();
+      pumped.router.go(wcPath);
+      await tester.pumpAndSettle();
+
+      expect(draftSummary(pumped), isEmpty);
+      expect(pending(pumped), isNull);
+      await tester.enterText(_summaryField, 'next thought');
+      await tester.pump();
+      pumped.controller.emit(_sessionAt('0ddba11'));
+      await tester.pumpAndSettle();
+      expect(draftSummary(pumped), 'next thought');
+    });
+
+    testWidgets('a reopen at the same HEAD stops waiting', (
+      WidgetTester tester,
+    ) async {
+      // The commit failed or its outcome is unknown: keep the user's text and
+      // stop waiting, so a later checkout does not wipe it.
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _sessionAt('deadbeef'),
+        workingCopyBuilder: (BuildContext context, _) =>
+            const WorkingCopyView(identity: _identity),
+        topLevelRoutes: <RouteBase>[
+          GoRoute(
+            path: '/elsewhere',
+            builder: (BuildContext context, _) => const Scaffold(),
+          ),
+        ],
+      );
+      final String wcPath = RoutePaths.workingCopyFor(
+        Uri.encodeComponent(_identity.workDir),
+      );
+      pumped.router.go(wcPath);
+      await tester.pumpAndSettle();
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+      pumped.router.go('/elsewhere');
+      await tester.pumpAndSettle();
+      pumped.router.go(wcPath);
+      await tester.pumpAndSettle();
+
+      expect(pending(pumped), isNull);
+      pumped.controller.emit(_sessionAt('0ddba11'));
+      await tester.pumpAndSettle();
+      expect(draftSummary(pumped), 'fix: something');
+    });
   });
 
   group('Ctrl/Cmd+Enter', () {

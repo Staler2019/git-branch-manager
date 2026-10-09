@@ -56,6 +56,7 @@ class PreparedMessageContext {
     required this.overwrite,
     required this.boxEmpty,
     required this.boxMatchesAutofill,
+    this.commitInFlight = false,
   });
 
   /// `RepoState.preparedMessagePending`.
@@ -75,11 +76,17 @@ class PreparedMessageContext {
 
   /// The box still holds exactly what this episode filled it with.
   final bool boxMatchesAutofill;
+
+  /// A commit from the box is outstanding. The merge then ends because it was
+  /// committed, not aborted, so nothing is restored -- RepoState is re-read
+  /// before refs, so the pending flag drops before HEAD visibly moves.
+  final bool commitInFlight;
 }
 
 PreparedMessageAction decidePreparedMessageAction(PreparedMessageContext c) {
   if (!c.pending) {
     if (!c.episodeActive) return PreparedMessageAction.nothing;
+    if (c.commitInFlight) return PreparedMessageAction.end;
     return c.boxMatchesAutofill
         ? PreparedMessageAction.restoreAndEnd
         : PreparedMessageAction.end;

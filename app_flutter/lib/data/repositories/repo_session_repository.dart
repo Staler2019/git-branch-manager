@@ -1307,6 +1307,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           }
           _handleWorkingCopyOutcomeKind(payload);
         }
+        // A commit finishes here, not on operationFinished, and a commit is
+        // what concludes a merge or a squash: without this read `isMerging`
+        // stayed true until the next focus or F5. Cheap -- gbm_repo_state_json
+        // only stats a handful of paths.
+        _readRepoState();
         _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
         final Object? payload = decodeEventPayload(event.payload);

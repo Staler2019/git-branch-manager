@@ -79,6 +79,10 @@ Slice A 各 commit 的 mutation 數：C0a 1／1、C0b 1／1、C1 3（1 個等價
 
 - 用 Cmd+Enter 或選單 commit 一個沒改過的 merge 訊息後，框會放回 merge 前的字：policy 只看 pending 由 true 變 false，分不出 commit 與 Abort；按鈕 commit 因為隨後 `reset()` 清框，結果是空的。③⑨ 只講 Abort。
 - merge 中改過訊息後重開 app 再 Abort：merge 前的字只在記憶體，拿不回來。
+- verifier A1（P3，defer）：先進 amend 模式再開始 merge，模式內送出用的 `Amend` 仍畫且可按，按下得到 M6 的 `cannot amend`（lastError，可恢復）。④ 只規定進入模式的那顆按鈕。
+- verifier A2（P4，defer）：pending 變 true 時正在 amend 模式則 episode 不開始，Cancel amend 後也不補填——與設計稿 01 圖「不在 amend 模式 → 請求」一致。
+
+最後 verifier（整輪 Slice B，HEAD `0417bfd`）：**CONFIRMED**。重跑 `flutter test` +3353、analyze 0、裝置層 3／3、core＋capi ctest 782／782。
 
 ### 裝置層重跑
 

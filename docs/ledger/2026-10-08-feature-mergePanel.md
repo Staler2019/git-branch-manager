@@ -160,8 +160,12 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
 驗證：裝置層 4 檔在 `dd959a7` 重跑全綠（+1、+2、+1、+1）；Flutter 全套 +3293／1 skip、analyzer 0；core 579、capi 183。
 S5 的 verifier **CONFIRMED**（真 git 端到端：同名 tag 時 no-ff／squash／rebase 都取分支、remote `origin/feat/x`、含 `/` 的 local 分支；capi probe 證實 ERROR_OCCURRED 先於 READY；失敗後 Cancel 與切換模式仍可用）。
 
-verifier 另回報 4 項建議，**等待使用者裁定**（不自行延後）：
+verifier 另回報 4 項建議，~~**等待使用者裁定**（不自行延後）~~ 使用者 2026-10-09「驗完就 push 開 PR」——依我的建議解讀為 A 修、B／C／D 不修：
 1. P3（本輪 `dd959a7` 引入）：git 不寫的字串改成顯示完整 ref——`MergeOps` 的 `describe()`／summary／stash 訊息、`RebaseOps` 的 "Rebased onto …"；Undo 對話框會顯示 "Merge refs/heads/topic"，Log 與 stash list 亦同。
 2. P4：每個 ERROR_OCCURRED 都會把 `isRefreshing` 設成 false（既有行為），預覽失敗可能提早熄掉刷新指示。
 3. P4（推論，未重現）：(d) 只以 source 防晚到；同 source、較舊且失敗的回覆晚到時，Merge 會停用到 HEAD 或 tip 移動。
 4. P4：`5d4ed8f` 的訊息措辭——無需動作。
+
+A 的處置：`2cb7673` 新增 `refDisplayName`（`RefStore.h`，以既有 `shortNameFor` 為單一來源，前綴長度改為具名常數），`MergeOps`／`RebaseOps` 自己組的 describe／summary／stash 訊息改用它，git argv 仍是完整 ref。
+該 commit 訊息寫「先紅後綠未實際觀察、mutation 未跑」；~~mutation 未跑~~ 更正：之後補跑 2 個——`refDisplayName` 原樣回傳紅 5 個；merge 的 argv 改用顯示名稱紅 2 個（含 `RealRepoTest.AFullBranchRefMergesTheBranchNotASameNamedTag`）。先紅後綠那一步確實沒有觀察到，照實保留。core 585 全綠。
+

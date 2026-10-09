@@ -25,6 +25,7 @@ add_library(gbm_capi SHARED
     Lfs.cpp
     Merge.cpp
     OriginalOperationMessage.cpp
+    PreparedMessage.cpp
     Patch.cpp
     Rebase.cpp
     Reflog.cpp

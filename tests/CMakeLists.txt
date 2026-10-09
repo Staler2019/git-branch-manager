@@ -213,6 +213,7 @@ if(GBM_BUILD_CAPI)
         capi/RemoteApiTest.cpp
         capi/ResetApiTest.cpp
         capi/SessionApiTest.cpp
+        capi/PreparedMessageApiTest.cpp
         capi/SquashMessageApiTest.cpp
         capi/StashApiTest.cpp
         capi/SubmoduleApiTest.cpp

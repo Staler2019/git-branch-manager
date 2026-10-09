@@ -43,6 +43,7 @@
 #include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/PatchOps.h"
+#include "core/git/ops/PreparedMessageOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
@@ -232,6 +233,9 @@ public:
     /// Async: see gbm_request_squash_message()'s doc comment. `source` is
     /// echoed back so a reply can be matched to the pick it answers.
     void requestSquashMessage(std::string source);
+
+    /// Async: see gbm_request_prepared_message()'s doc comment.
+    void requestPreparedMessage();
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
@@ -627,6 +631,7 @@ private:
     std::unique_ptr<RemoteStore> remoteStore_;
     std::unique_ptr<CompareStore> compareStore_;
     std::unique_ptr<SquashMessageStore> squashMessageStore_;
+    std::unique_ptr<PreparedMessageStore> preparedMessageStore_;
     std::unique_ptr<BlobStore> blobStore_;
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<CommitMetaStore> commitMetaStore_;

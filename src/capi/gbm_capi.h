@@ -241,6 +241,15 @@ enum GbmEventType {
     /// while HEAD and the source still point there, so a caller adopts a
     /// reply only while both match its own current refs.
     GBM_EVENT_SQUASH_MESSAGE_READY = 36,
+    /// payload: {"message": string, "error": GitError JSON (only on
+    /// failure)}. Reply to gbm_request_prepared_message(): the commit message
+    /// git has prepared for the merge or squash in progress, as `git commit`
+    /// would commit it -- SQUASH_MSG then MERGE_MSG, comment lines stripped
+    /// by `git stripspace --strip-comments` (so core.commentChar decides what
+    /// a comment is). "message" is empty when git prepared none, and on
+    /// failure (with "error" set); a failure also fires
+    /// GBM_EVENT_ERROR_OCCURRED with the same GitError, before this reply.
+    GBM_EVENT_PREPARED_MESSAGE_READY = 37,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -628,6 +637,12 @@ GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
 /// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY (see its payload doc),
 /// including on failure.
 GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source);
+
+/// Requests the commit message git has prepared for the merge or squash in
+/// progress, for the Working Copy box (RepoState's preparedMessagePending says
+/// when there is one). Async: fires GBM_EVENT_PREPARED_MESSAGE_READY (see its
+/// payload doc), including on failure.
+GBM_API void gbm_request_prepared_message(GbmSessionHandle session);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot

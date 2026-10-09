@@ -348,6 +348,14 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(const FakeCommand('skipRebase'));
   }
 
+  /// Records the request only: a test plays the reply by emitting a state
+  /// with [RepoSessionState.preparedMessage] set, the way core would.
+  @override
+  void requestPreparedMessage() {
+    commandLog.add(const FakeCommand('requestPreparedMessage'));
+    state = state.copyWith(clearPreparedMessage: true);
+  }
+
   @override
   void requestOriginalOperationMessage() {
     // Simulates the async gbm_request_original_operation_message() round

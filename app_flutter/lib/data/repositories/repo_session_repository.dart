@@ -251,6 +251,28 @@ class StashDiffReply {
 /// is [isCurrentFor]: the text lists the commits in `headOid..sourceOid`, so
 /// it is right only while HEAD and the source still point there. Missing
 /// that check writes the wrong commit list into a permanent commit message.
+/// A [RepoSessionController.requestPreparedMessage] reply: the commit
+/// message git prepared for the merge or squash in progress, comment lines
+/// already stripped by core (`PreparedMessageStore`).
+class PreparedMessageReply {
+  const PreparedMessageReply({required this.message, required this.failed});
+
+  factory PreparedMessageReply.fromJson(Map<String, dynamic> json) =>
+      PreparedMessageReply(
+        message: json['message'] as String? ?? '',
+        failed: json['error'] != null,
+      );
+
+  /// Empty when git prepared none, or when [failed].
+  final String message;
+
+  /// The read failed (the reason went to `lastError` through
+  /// GBM_EVENT_ERROR_OCCURRED). Kept apart from an empty [message] because
+  /// the Working Copy box replaces its text on a reply, and a failure must
+  /// not clear it.
+  final bool failed;
+}
+
 class SquashMessagePreview {
   const SquashMessagePreview({
     required this.source,
@@ -534,6 +556,7 @@ class RepoSessionState {
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
     this.squashMessagePreview,
+    this.preparedMessage,
     this.refreshTimings = const RefreshTimings(),
   });
 
@@ -730,6 +753,11 @@ class RepoSessionState {
   /// goes out.
   final SquashMessagePreview? squashMessagePreview;
 
+  /// The latest [RepoSessionController.requestPreparedMessage] reply. Null
+  /// while a request is in flight (the request clears it first) and before
+  /// the first one.
+  final PreparedMessageReply? preparedMessage;
+
   /// The current focus-regain sweep's stamps -- see [RefreshTimings]'s own
   /// doc comment. Reset to a fresh instance at the start of every
   /// [RepoSessionController.refreshRepoStatus] call.
@@ -804,6 +832,8 @@ class RepoSessionState {
     bool clearOriginalOperationMessage = false,
     SquashMessagePreview? squashMessagePreview,
     bool clearSquashMessagePreview = false,
+    PreparedMessageReply? preparedMessage,
+    bool clearPreparedMessage = false,
     RefreshTimings? refreshTimings,
   }) {
     return RepoSessionState(
@@ -868,6 +898,9 @@ class RepoSessionState {
       squashMessagePreview: clearSquashMessagePreview
           ? null
           : (squashMessagePreview ?? this.squashMessagePreview),
+      preparedMessage: clearPreparedMessage
+          ? null
+          : (preparedMessage ?? this.preparedMessage),
       refreshTimings: refreshTimings ?? this.refreshTimings,
     );
   }
@@ -1516,6 +1549,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         if (payload is Map<String, dynamic>) {
           state = state.copyWith(
             originalOperationMessage: payload['message'] as String? ?? '',
+          );
+        }
+      case GbmEventType.preparedMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            preparedMessage: PreparedMessageReply.fromJson(payload),
           );
         }
       case GbmEventType.squashMessageReady:
@@ -2934,6 +2974,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_session == nullptr) return;
     state = state.copyWith(clearOriginalOperationMessage: true);
     _bindings.requestOriginalOperationMessage(_session);
+  }
+
+  /// Async: fires GBM_EVENT_PREPARED_MESSAGE_READY into
+  /// [RepoSessionState.preparedMessage], which this nulls first so a request
+  /// in flight cannot be mistaken for the previous reply.
+  void requestPreparedMessage() {
+    if (_session == nullptr) return;
+    state = state.copyWith(clearPreparedMessage: true);
+    _bindings.requestPreparedMessage(_session);
   }
 
   /// The source of the latest [requestSquashMessage]. Replies are posted to

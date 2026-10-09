@@ -169,6 +169,7 @@ Session::Session(GitInstallation installation,
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       compareStore_(std::make_unique<CompareStore>(*runner_, paths_)),
       squashMessageStore_(std::make_unique<SquashMessageStore>(*runner_, paths_)),
+      preparedMessageStore_(std::make_unique<PreparedMessageStore>(*runner_, paths_)),
       blobStore_(std::make_unique<BlobStore>(installation_.executable, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
@@ -837,6 +838,25 @@ void Session::requestSquashMessage(std::string source) {
         }
         payload += '}';
         callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);
+    });
+}
+
+void Session::requestPreparedMessage() {
+    // postFront: the Working Copy box is waiting on this to fill itself
+    // ([CPP-interactive-reads-go-to-the-front]).
+    sharedReadPool().postFront([this]() {
+        const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
+        std::string payload = "{\"message\":";
+        jsonAppendEscaped(payload, result ? *result : std::string());
+        if (!result) {
+            payload += ",\"error\":";
+            payload += toJson(result.error());
+            // First, like requestSquashMessage(): the reason reaches the
+            // window's banner and the Log before READY ends the wait.
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+        }
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, payload);
     });
 }
 

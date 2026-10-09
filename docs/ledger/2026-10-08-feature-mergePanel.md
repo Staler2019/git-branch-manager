@@ -108,8 +108,20 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
   non-ff squash 遇已 stage 變更時 git 直接拒絕（連 stage 都沒有，走既有錯誤路徑）；預覽失敗時使用者自行輸入的文字仍會被 commit。
 - G3 orphan grep 兩方向：`requestSquashMessage` / `squashMessagePreview` / `mergeDialogFor` / `openMergeDialog` /
   `GbmRefReadOnlyField` 在 `lib/` 都有 caller 與 reader。改動的 lib 檔沒有新的 `InkWell(` / `GestureDetector(`。
-- device 層：`integration_test/` 沒有任何測試走 merge / rebase / revert（唯一 grep 命中是 05-G 的 discard 行測試，與本輪無關），
-  所以本輪沒有可跑的 device 測試；這是覆蓋缺口，不是「跑過且綠」。
+- ~~device 層：`integration_test/` 沒有任何測試走 merge / rebase / revert（唯一 grep 命中是 05-G 的 discard 行測試，與本輪無關），
+  所以本輪沒有可跑的 device 測試；這是覆蓋缺口，不是「跑過且綠」。~~
+  更正（使用者 2026-10-09「覆蓋缺口補一下」）：缺口已補，四個新檔各自單獨實跑（macOS）：
+
+  | 檔案 | 走的入口 | 結果 | mutation（跑了幾個 → 各自紅幾個） |
+  |---|---|---|---|
+  | `merge_current_flow_test.dart` | 05-B ⋮ → Merge into current | +1 | 2 → 1、1 |
+  | `merge_squash_flow_test.dart` | 同上 → Squash 成一筆（SQUASH_MSG 與 clone 中 git 寫的逐 byte 比對；已 stage 時不 commit） | +2 | 3 → 1、1、1（C++ 兩個、預覽一個；dylib 每次由 Xcode phase 重編） |
+  | `rebase_onto_flow_test.dart` | main 列 ⋮ → Rebase current onto here | +1 | 2 → 1、1 |
+  | `revert_commit_flow_test.dart` | History 列右鍵 → More actions → Revert commit | +1 | 2 → 1、**0** |
+
+  revert 的第二個 mutation（拿掉 `--no-edit`）在 macOS **不紅**：POSIX 子行程 stdin 本來就是 `/dev/null`，git 只在 terminal 時開 editor。
+  這個測試證明的是入口到 native revert 與 git 預設訊息；`--no-edit` 本身由 `RevertOpsTest` 釘住，Windows 的 stdin 修正仍只有 Windows 能驗。
+  `pumpUntil` 從 `context_menu_flows_test.dart` 搬到 harness 共用（arch-suggester 建議）；搬移後該檔裝置層 +5 全綠，對照組 `rename_branch_flow_test.dart` +2。
 
 未驗證 / 未做，明列：
 

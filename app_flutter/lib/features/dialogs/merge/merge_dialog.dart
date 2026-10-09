@@ -196,9 +196,14 @@ class _MergeDialogContentState extends ConsumerState<MergeDialogContent> {
           next.squashMessagePreview != previous?.squashMessagePreview;
       if (next.refs != previous?.refs || replyArrived) {
         setState(() => _syncMessage(next));
+        // A failed reply is an answer, not a stale one: asking again would
+        // only fail again.
         _ensureSquashRequested(
           next,
-          stale: replyArrived && _currentPreview(next) == null,
+          stale:
+              replyArrived &&
+              next.squashMessagePreview?.failed != true &&
+              _currentPreview(next) == null,
         );
       }
     });

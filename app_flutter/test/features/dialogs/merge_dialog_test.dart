@@ -420,5 +420,29 @@ void main() {
         findsOneWidget,
       );
     });
+
+    // A failed reply is the answer, not a stale one: asking again would only
+    // fail again, one round trip later (verifier P4 #1).
+    testWidgets('a failed preview is not asked for again', (tester) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        source: 'feature',
+      );
+      await pickSquash(tester);
+      final int before = requests(fake);
+
+      fake.publishSquashMessagePreview(
+        const SquashMessagePreview(
+          source: 'feature',
+          headOid: '',
+          sourceOid: '',
+          message: '',
+          failed: true,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(requests(fake), before);
+    });
   });
 }

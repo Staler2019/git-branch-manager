@@ -404,6 +404,49 @@ void main() {
     });
   });
 
+  // Ruling ⑤⑭ (overrides P3 item 8 for this one case): resolving every
+  // conflict by taking ours leaves nothing staged, and `git commit` still
+  // concludes the merge. Outside a merge the old rule stands.
+  group('Commit with nothing staged', () {
+    RepoSessionState nothingStaged({required bool merging}) => RepoSessionState(
+      isOpen: true,
+      refs: _refsAt('deadbeef'),
+      repoState: RepoState(
+        flags: merging ? RepoStateFlags.merge : 0,
+        isClean: !merging,
+        isSequencerOperation: false,
+        rebaseStep: 0,
+        rebaseTotal: 0,
+        rebaseOntoLabel: '',
+        indexLocked: false,
+        indexLockAgeSeconds: null,
+        describe: '',
+        preparedMessagePending: merging,
+      ),
+      workingCopyStatus: const WorkingCopyStatus(entries: <WorkingCopyEntry>[]),
+    );
+
+    for (final bool merging in <bool>[true, false]) {
+      testWidgets(
+        merging
+            ? 'is allowed while a merge is in progress'
+            : 'is not allowed outside a merge',
+        (WidgetTester tester) async {
+          final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+          pumped.controller.emit(nothingStaged(merging: merging));
+          await tester.pumpAndSettle();
+          await tester.enterText(_summaryField, 'conclude');
+          await tester.pump();
+
+          final GbmButton commit = tester.widget<GbmButton>(
+            find.widgetWithText(GbmButton, 'Commit'),
+          );
+          expect(commit.onPressed != null, merging);
+        },
+      );
+    }
+  });
+
   group('Ctrl/Cmd+Enter', () {
     testWidgets('commits when the box is already on screen', (
       WidgetTester tester,

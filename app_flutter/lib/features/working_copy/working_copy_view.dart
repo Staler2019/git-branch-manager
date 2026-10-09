@@ -538,8 +538,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     required WorkingCopyStatus status,
     required RepoSessionState session,
   }) {
+    // A merge concludes with nothing staged when every conflict took ours
+    // (ruling ⑤⑭, which overrides P3 item 8 for this case); git commits it.
     final bool canCommit =
-        status.staged.isNotEmpty &&
+        (status.staged.isNotEmpty || (session.repoState?.isMerging ?? false)) &&
         _summaryController.text.trim().isNotEmpty &&
         isActionEnabled(GbmActionId.repositoryCommit, session);
 

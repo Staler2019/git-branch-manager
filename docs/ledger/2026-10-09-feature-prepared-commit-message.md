@@ -141,3 +141,10 @@ Plan readiness：epoch 1、2、4、5 皆 plan-verifier REVISE，blocker 就地�
 
 - `reset()` 與磁碟寫入之間仍有毫秒級的 crash 視窗：此時當掉，下次開啟可能看到剛 commit 的訊息。
 - app 開著時從外部 commit（終端機）：`pendingCommitFrom` 只由 app 內的 `submitCommit` 設定，外部 commit 結束 merge 時照 Abort 規則處理（框若仍是 autofill 會放回 merge 前的字）。
+
+最後 verifier（Slice C，HEAD `1377804`）：**CONFIRMED**。重跑 `flutter test` +3396 ~1、analyze 0、裝置層 `prepared_message_flow_test` +4、`commit_flow_test` +1；7 個 scratchpad probe 全綠。
+三個 P4 advisory，皆 defer（報告給使用者）：
+
+- A1：commit 進行中若剛好來了一個無關的 lastError（例如背景 fetch 失敗），`commitAbandoned` 先跑，merge 結束時框若仍是 autofill 會放回 merge 前的字。merge commit 已存在，無資料遺失。
+- A2：refs 載入前送出的 commit 記到的 HEAD 是 ''，第一次 refs 載入就被當成 HEAD 移動而清框，即使 commit 之後失敗。非本輪引入（舊 view 程式同樣讀法）。
+- A3：格式錯的 episode key 被 `read()` 忽略但不刪，直到下一個已填 episode 覆寫；不影響行為。

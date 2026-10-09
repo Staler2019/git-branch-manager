@@ -53,6 +53,9 @@ InputDecoration gbmInputDecoration({
   final Color resting = hasError ? colors.danger : colors.borderDefault;
   return InputDecoration(
     hintText: hintText,
+    // Kit `.gbm-input::placeholder { color: var(--text-tertiary) }` (ruling
+    // ⑬); unset, Material painted every hint in its own default colour.
+    hintStyle: TextStyle(color: colors.textTertiary),
     suffixText: suffixText,
     prefixIcon: prefixIcon,
     // spec `.box`: `background: var(--gbm-surface-panel)`. Unfilled, the box
@@ -123,6 +126,7 @@ InputDecoration gbmMultilineInputDecoration({
   );
   return InputDecoration(
     hintText: hintText,
+    hintStyle: TextStyle(color: colors.textTertiary),
     filled: true,
     fillColor: colors.surfacePanel,
     // Dense **here**, unlike the single-line helper: this box has no

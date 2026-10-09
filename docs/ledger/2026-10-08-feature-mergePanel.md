@@ -102,7 +102,8 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
 - S3 的 verifier（risk 單元，序列化邊界）共三次：REFUTED（tab 展開）→ `29cee0e`；REFUTED（ff squash 夾帶已 stage 變更）→ `6713043`；
   第三次 **CONFIRMED**（HEAD `6713043`；含 hostile config、ISO-8859-1、remote、detached、capi JSON 跳脫、dialog probe、真實 repo 七個 merge 情境）。
   計畫預算「fix/reverify 至多 2 輪」剛好用完。
-- 延後的 P4（未修，理由：不影響正確性或已 fail-safe）：失敗回覆多一次重請求；整合測試容忍一個結尾換行；postFront 回覆順序顛倒（未重現）；
+- ~~延後的 P4（未修，理由：不影響正確性或已 fail-safe）：~~ 更正：這 9 項當時是我自行決定延後、**沒有經過使用者裁定**，違反 [CULT-standing-rules]。
+  使用者 2026-10-09 逐項裁定（「1~8照你建議，但9抓不到capi應該跳錯誤」），處置見下方「S5」。原清單保留如下：失敗回覆多一次重請求；整合測試容忍一個結尾換行；postFront 回覆順序顛倒（未重現）；
   非 UTF-8 訊息的嚴格 `utf8.decode`（未重現）；commit 時 git 把 `"    \n"` 清成 `"\n"`（與手動 commit SQUASH_MSG 相同）；
   淨變更為零的 squash 留下 `.git/SQUASH_MSG`；與 branch 同名的 tag 讓預覽一直陳舊（fail-safe）；
   non-ff squash 遇已 stage 變更時 git 直接拒絕（連 stage 都沒有，走既有錯誤路徑）；預覽失敗時使用者自行輸入的文字仍會被 commit。
@@ -135,3 +136,32 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
   [CULT-orphan-wiring] 的形狀。本輪的 SQUASH_MSG 走預覽而非讀檔，所以沒有接它。
 
 沒有新增 rule：本輪的陷阱（revert 的 tty 判斷、`--no-notes` 冗餘）都已由測試或程式註解釘住。
+
+## S5 — verifier P4 回報的處置（2026-10-09）
+
+計畫 S5 經 plan-verifier 一次 REVISE（P6 的 rebase 解析規則會把 05-E 的 oid 加上 `refs/heads/`；no-ff 訊息清空時 `--no-edit` 會寫出 `Merge branch 'refs/heads/topic'`）後更正、closing review READY，使用者核准。
+
+| # | 處置 | Commit | mutation（跑了幾個 → 各自紅幾個） |
+|---|---|---|---|
+| 2 | 整合測試改為逐 byte 相等 | `c74c4a4` | 1 → 2（整合測試原本不紅） |
+| 6 | 淨變更為零時刪 SQUASH_MSG、摘要改準確 | `5d4ed8f` | 1 → 1 |
+| 1 | 失敗回覆不重問 | `e690452` | 1 → 1 |
+| 3 | repository 丟棄非最近一次請求的回覆 | `ec195f6` | 1 → 1 |
+| 9 | capi 失敗時另發 `GBM_EVENT_ERROR_OCCURRED`（先於 READY）；Squash 模式預覽失敗時 Merge 停用 | `a17ac86` | 2 → 1、1 |
+| 7 | merge／squash 預覽／rebase 送完整 ref；`RefSnapshot.findBranch` | `dd959a7` | 6 → 7、2、1、1、1、3 |
+| 4、5、8 | 不修（使用者採納建議） | — | — |
+
+量測：
+- **#7 是本輪之前就存在的錯誤，不只是預覽陳舊**：分支 `topic` 與 tag `topic` 同名時，`git merge topic` 取 tag（`Merge tag 'topic'`、第二個 parent 是 tag 的 commit）；`git rebase` 同一形狀。`RealRepoTest.AFullBranchRefMergesTheBranchNotASameNamedTag` 以真 git 釘住。
+- **#4 評估**：新版 `git commit` 會把 latin-1 轉成 UTF-8；只有 `hash-object` 等寫入的原始位元組會被 `git log` 原樣輸出 → Dart 嚴格 `utf8.decode` 丟 FormatException → `_onEvent` 寫一筆 `eventUndecodable` Log、事件丟棄。fail-safe，但錯誤不上 banner；`decodeEventPayload` 由 30 個事件共用，留待另一輪。
+- **#9 的根因是 capi**：`28ff794` 時我自己決定預覽失敗「不是 ERROR_OCCURRED banner」，`SquashMessageApiTest` 還把它寫成斷言；使用者裁定推翻，測試與 `gbm_capi.h` 原地改寫。
+
+
+驗證：裝置層 4 檔在 `dd959a7` 重跑全綠（+1、+2、+1、+1）；Flutter 全套 +3293／1 skip、analyzer 0；core 579、capi 183。
+S5 的 verifier **CONFIRMED**（真 git 端到端：同名 tag 時 no-ff／squash／rebase 都取分支、remote `origin/feat/x`、含 `/` 的 local 分支；capi probe 證實 ERROR_OCCURRED 先於 READY；失敗後 Cancel 與切換模式仍可用）。
+
+verifier 另回報 4 項建議，**等待使用者裁定**（不自行延後）：
+1. P3（本輪 `dd959a7` 引入）：git 不寫的字串改成顯示完整 ref——`MergeOps` 的 `describe()`／summary／stash 訊息、`RebaseOps` 的 "Rebased onto …"；Undo 對話框會顯示 "Merge refs/heads/topic"，Log 與 stash list 亦同。
+2. P4：每個 ERROR_OCCURRED 都會把 `isRefreshing` 設成 false（既有行為），預覽失敗可能提早熄掉刷新指示。
+3. P4（推論，未重現）：(d) 只以 source 防晚到；同 source、較舊且失敗的回覆晚到時，Merge 會停用到 HEAD 或 tip 移動。
+4. P4：`5d4ed8f` 的訊息措辭——無需動作。

@@ -2029,9 +2029,15 @@ void main() {
       expect(find.text('使用全域 gitignore 檔案'), findsOneWidget);
       expect(find.text('COMMIT 訊息'), findsOneWidget);
       expect(
-        find.text('cherry-pick 時加上「(cherry picked from commit …)」'),
+        find.text('（預設）cherry-pick 時加上「(cherry picked from commit …)」'),
         findsOneWidget,
       );
+      // Ruling ⑪, drawn in prepared-commit-message-spec.html 02-E.
+      expect(
+        find.text('（預設）merge／squash 時用 git 準備好的訊息覆蓋 commit 框'),
+        findsOneWidget,
+      );
+      expect(find.text('關閉時，只有 commit 框是空的才會帶入。'), findsOneWidget);
       expect(find.text('GLOBAL GITIGNORE'), findsNothing);
       expect(find.text('COMMIT MESSAGES'), findsNothing);
     });

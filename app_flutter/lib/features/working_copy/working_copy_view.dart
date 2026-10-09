@@ -216,6 +216,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         Container(
           height: 200,
           decoration: BoxDecoration(
+            // P3's mock: the commit area is surface-panel-raised (ruling ⑮).
+            color: colors.surfacePanelRaised,
             border: Border(top: BorderSide(color: colors.borderSubtle)),
           ),
           child: _buildCommitBox(context, status: status, session: session),

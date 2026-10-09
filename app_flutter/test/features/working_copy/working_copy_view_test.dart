@@ -18,6 +18,7 @@ import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
     as wc;
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
+import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 
@@ -470,6 +471,50 @@ void main() {
       expect(find.text('Commit summary'), findsOneWidget);
       expect(find.text('Commit'), findsOneWidget);
       expect(find.text('Amend'), findsOneWidget);
+    });
+
+    // Ruling ⑮: P3's mock paints the commit area surface-panel-raised.
+    testWidgets('the commit area is surface-panel-raised', (tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(WorkingCopyStatus(entries: [stagedEntry])),
+          wc
+              .repoWorkingCopyDiffsProvider(identity)
+              .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+        ],
+      );
+
+      final Container area = tester.widget<Container>(
+        find
+            .ancestor(
+              of: find.byType(CommitMessageBox),
+              matching: find.byWidgetPredicate(
+                (Widget w) => w is Container && w.constraints?.maxHeight == 200,
+              ),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = area.decoration! as BoxDecoration;
+      expect(
+        decoration.color?.toARGB32(),
+        tester
+            .element(find.byType(CommitMessageBox))
+            .gbmColors
+            .surfacePanelRaised
+            .toARGB32(),
+      );
     });
 
     // The board is told by the status the view already reads, not by a

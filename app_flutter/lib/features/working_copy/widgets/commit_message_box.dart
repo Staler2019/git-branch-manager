@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
+import '../../../widgets/gbm_input_decoration.dart';
 
 /// A presentational widget for commit message input (summary + description).
 /// Renders two text fields:
@@ -125,18 +126,19 @@ class _SummaryField extends StatelessWidget {
             }
             return KeyEventResult.ignored;
           },
-          child: TextField(
-            controller: controller,
-            focusNode: focusNode,
-            maxLines: 1,
-            textInputAction: TextInputAction.next,
-            decoration: InputDecoration(
-              hintText: 'Commit summary',
-              isDense: true,
-              border: OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space2,
-                vertical: GbmSpacing.space1,
+          // A kit `.gbm-input` (ruling ⑫): the helper's 30px contract needs
+          // the SizedBox -- see gbmInputDecoration's doc comment.
+          child: SizedBox(
+            height: GbmSpacing.inputHeight,
+            child: TextField(
+              controller: controller,
+              focusNode: focusNode,
+              maxLines: 1,
+              textInputAction: TextInputAction.next,
+              style: const TextStyle(fontSize: GbmTypography.textSm),
+              decoration: gbmInputDecoration(
+                colors: colors,
+                hintText: 'Commit summary',
               ),
             ),
           ),
@@ -191,11 +193,9 @@ class _DescriptionField extends StatelessWidget {
             fontFamily: GbmTypography.fontMono,
             fontSize: GbmTypography.textBase,
           ),
-          decoration: InputDecoration(
+          decoration: gbmMultilineInputDecoration(
+            colors: colors,
             hintText: 'Commit description (optional)',
-            isDense: true,
-            border: OutlineInputBorder(),
-            contentPadding: const EdgeInsets.all(GbmSpacing.space2),
           ),
         ),
         // 72-char ruler overlay
@@ -226,7 +226,8 @@ class _DescriptionField extends StatelessWidget {
   double _calculateRulerPosition() {
     const double charWidth = 8.0;
     const int rulerCharPosition = 72;
-    const double leftPadding = GbmSpacing.space2;
+    // gbmMultilineInputDecoration's horizontal content padding.
+    const double leftPadding = GbmSpacing.space3;
     return leftPadding + (rulerCharPosition * charWidth);
   }
 }

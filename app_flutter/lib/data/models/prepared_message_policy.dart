@@ -27,6 +27,11 @@ enum PreparedMessageAction {
   /// Open an episode and ask core for the prepared message.
   startAndRequest,
 
+  /// Same as [startAndRequest], but amend mode is on: leave it first, putting
+  /// back what the box held before it. The merge or squash wins -- git's
+  /// state, not the app's mode, decides (使用者 2026-10-10).
+  cancelAmendAndStart,
+
   /// Replace the box with the reply, remembering what it held.
   replace,
 
@@ -60,7 +65,7 @@ class PreparedMessageContext {
   /// The box was already replaced or deliberately kept in this episode.
   final bool filled;
 
-  /// Amend mode holds HEAD's message; an episode never starts over it.
+  /// Amend mode holds HEAD's message; an episode starting cancels it.
   final bool amending;
   final PreparedReplyStatus reply;
 
@@ -81,7 +86,7 @@ PreparedMessageAction decidePreparedMessageAction(PreparedMessageContext c) {
   }
   if (!c.episodeActive) {
     return c.amending
-        ? PreparedMessageAction.nothing
+        ? PreparedMessageAction.cancelAmendAndStart
         : PreparedMessageAction.startAndRequest;
   }
   if (c.filled) return PreparedMessageAction.nothing;

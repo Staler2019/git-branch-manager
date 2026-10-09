@@ -561,6 +561,21 @@ void main() {
       expect(reconcile(pending: false), PreparedMessageAction.end);
     });
 
+    test('a merge starting in amend mode puts the pre-amend text back', () {
+      notifier.beginAmend();
+      notifier.applyAmendedMessage(summary: 'HEAD subject', description: 'hb');
+
+      expect(reconcile(), PreparedMessageAction.cancelAmendAndStart);
+      expect(draft().amending, isFalse);
+      expect(draft().summary, 'mine');
+      expect(draft().description, 'my body');
+      expect(draft().preparedEpisodeActive, isTrue);
+
+      reconcile(reply: PreparedReplyStatus.message);
+      expect(reconcile(pending: false), PreparedMessageAction.restoreAndEnd);
+      expect(draft().summary, 'mine');
+    });
+
     test('a new episode after the last one ended starts again', () {
       reconcile();
       reconcile(reply: PreparedReplyStatus.message);

@@ -176,6 +176,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     _watchCommitOutcome();
     _watchAmendPrefill(session);
     _watchPreparedMessage();
+    _syncBoxFromDraft();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -692,6 +693,25 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     });
   }
 
+  /// Keeps the two text fields showing what the draft holds, whoever changed
+  /// it -- the prepared-message episode, a cancelled amend, a reset. Typing
+  /// writes the draft from the field, so the two are already equal then and
+  /// nothing is written back (the cursor stays put). Without this, a draft
+  /// changed off-screen leaves the box showing text Commit would not send.
+  void _syncBoxFromDraft() {
+    ref.listen<WorkingCopyDraft>(workingCopyDraftProvider(widget.identity), (
+      _,
+      WorkingCopyDraft next,
+    ) {
+      if (_summaryController.text != next.summary) {
+        _summaryController.text = next.summary;
+      }
+      if (_descriptionController.text != next.description) {
+        _descriptionController.text = next.description;
+      }
+    });
+  }
+
   /// Re-runs the prepared-message episode whenever anything it reads
   /// changes: RepoState's pending flag, the reply, or the overwrite switch.
   void _watchPreparedMessage() {
@@ -747,18 +767,16 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               .read(appPreferencesProvider)
               .overwriteWithPreparedMessage,
         );
+    // The box follows the draft through [_syncBoxFromDraft]; all that is
+    // left here is asking core for the message.
     switch (action) {
       case PreparedMessageAction.startAndRequest:
+      case PreparedMessageAction.cancelAmendAndStart:
         ref
             .read(repoSessionProvider(widget.identity).notifier)
             .requestPreparedMessage();
       case PreparedMessageAction.replace:
       case PreparedMessageAction.restoreAndEnd:
-        final WorkingCopyDraft draft = ref.read(
-          workingCopyDraftProvider(widget.identity),
-        );
-        _summaryController.text = draft.summary;
-        _descriptionController.text = draft.description;
       case PreparedMessageAction.nothing:
       case PreparedMessageAction.keep:
       case PreparedMessageAction.end:

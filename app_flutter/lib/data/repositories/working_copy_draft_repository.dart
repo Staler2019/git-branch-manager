@@ -250,6 +250,12 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         break;
       case PreparedMessageAction.startAndRequest:
         state = d.copyWith(preparedEpisodeActive: true, preparedFilled: false);
+      case PreparedMessageAction.cancelAmendAndStart:
+        cancelAmend();
+        state = state.copyWith(
+          preparedEpisodeActive: true,
+          preparedFilled: false,
+        );
       case PreparedMessageAction.replace:
         state = d.copyWith(
           preparedFilled: true,

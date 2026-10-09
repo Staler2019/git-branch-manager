@@ -34,10 +34,12 @@ void main() {
       );
     });
 
-    test('amend mode starts nothing', () {
+    // 使用者 2026-10-10:「以merge為優先，也就是以git狀態為主」 -- the merge
+    // takes the box; amend mode is cancelled, not waited out.
+    test('a merge starting in amend mode cancels amend and starts', () {
       expect(
         _decide(episodeActive: false, amending: true),
-        PreparedMessageAction.nothing,
+        PreparedMessageAction.cancelAmendAndStart,
       );
     });
 

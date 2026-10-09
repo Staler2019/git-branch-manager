@@ -5,6 +5,8 @@
 // second merge.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/commit_meta.dart';
+import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -13,6 +15,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 
 import '../support/fake_repo_session.dart';
 import '../support/pump_workspace.dart';
@@ -243,5 +246,93 @@ void main() {
 
     expect(_summary(tester), 'mine');
     expect(_description(tester), 'my body');
+  });
+
+  // 使用者 2026-10-10:「先進 amend 模式再開始 merge ... 以merge為優先，也就是以
+  // git狀態為主」, and 「對cancel了話做message恢復」.
+  group('a merge starting in amend mode', () {
+    Future<PumpedWorkspace> inAmend(
+      WidgetTester tester, {
+      Map<String, Object> initialPrefs = const <String, Object>{},
+    }) async {
+      final PumpedWorkspace pumped = await _pump(
+        tester,
+        initialPrefs: initialPrefs,
+      );
+      await _type(tester, 'mine', 'my body');
+      await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
+      await tester.pumpAndSettle();
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(
+          commitMetaCache: const <String, CommitMeta>{
+            'deadbeef': CommitMeta(
+              oid: 'deadbeef',
+              tree: '',
+              parents: <String>[],
+              author: Signature(
+                name: 'a',
+                email: 'a@b',
+                when: 0,
+                tzOffsetMinutes: 0,
+              ),
+              committer: Signature(
+                name: 'a',
+                email: 'a@b',
+                when: 0,
+                tzOffsetMinutes: 0,
+              ),
+              subject: 'HEAD subject',
+              body: 'HEAD body',
+              signedCommit: false,
+            ),
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_summary(tester), 'HEAD subject');
+      return pumped;
+    }
+
+    testWidgets('leaves amend and takes git\'s message', (tester) async {
+      final PumpedWorkspace pumped = await inAmend(tester);
+
+      await _setPending(tester, pumped, true);
+      expect(find.widgetWithText(GbmButton, 'Cancel amend'), findsNothing);
+      expect(_requests(pumped), 1);
+      await _reply(tester, pumped);
+
+      expect(_summary(tester), "Merge branch 'topic'");
+    });
+
+    // The box on screen must be what the draft holds, or Commit sends text
+    // the user cannot see.
+    testWidgets('with the switch off, the box shows the pre-amend text', (
+      tester,
+    ) async {
+      final PumpedWorkspace pumped = await inAmend(
+        tester,
+        initialPrefs: <String, Object>{
+          'appPrefs.overwriteWithPreparedMessage': false,
+        },
+      );
+
+      await _setPending(tester, pumped, true);
+      await _reply(tester, pumped);
+
+      expect(_summary(tester), 'mine');
+      expect(_description(tester), 'my body');
+    });
+
+    testWidgets('a failed read leaves the pre-amend text on screen', (
+      tester,
+    ) async {
+      final PumpedWorkspace pumped = await inAmend(tester);
+
+      await _setPending(tester, pumped, true);
+      await _reply(tester, pumped, message: '', failed: true);
+
+      expect(_summary(tester), 'mine');
+      expect(_description(tester), 'my body');
+    });
   });
 }

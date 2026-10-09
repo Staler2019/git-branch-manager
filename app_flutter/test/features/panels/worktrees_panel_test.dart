@@ -222,8 +222,9 @@ void main() {
           tester,
           primary: const <String>['Add worktree…'],
           maintenance: const <String>['Prune'],
-          external: const <String>['Open in terminal'],
-          notOnToolbar: const <String>['Remove'],
+          // 使用者裁定: Open in terminal acts on one worktree, so it sits
+          // beside Switch to in the detail row, not on the toolbar.
+          notOnToolbar: const <String>['Remove', 'Open in terminal'],
           listHeader: 'Worktrees · 2',
           statusBar: RegExp(r'^2 worktrees · 掃描 \d+ ms$'),
         );
@@ -650,12 +651,12 @@ void main() {
       expect(find.text('2026-06-02 14:41'), findsOneWidget);
     });
 
-    testWidgets('the jump-out action is disabled with nothing selected', (
+    testWidgets('the per-worktree actions are absent with nothing selected', (
       tester,
     ) async {
       await _pump(tester);
 
-      expect(panelButton(tester, 'Open in terminal').onPressed, isNull);
+      expect(find.text('Open in terminal'), findsNothing);
       expect(
         find.text('Remove worktree…'),
         findsNothing,
@@ -684,6 +685,34 @@ void main() {
         expect(find.text(label), findsOneWidget, reason: label);
       }
       expectDangerPinnedRight(tester, 'Remove worktree…');
+    });
+
+    // 使用者裁定: 「open in terminal is relative to a worktree function, so
+    // might be put on same line with "switch to" button」 and 「can you add
+    // a terminal icon」. Order is asserted by left edge, since membership
+    // alone cannot fail.
+    testWidgets('Open in terminal sits right after Switch to, with its icon', (
+      tester,
+    ) async {
+      await _pump(tester, worktrees: <WorktreeInfo>[_main, _wt()]);
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+
+      final Finder row = find.byType(PanelDetailActions);
+      double leftOf(String label) => tester
+          .getRect(
+            find.ancestor(
+              of: find.descendant(of: row, matching: find.text(label)),
+              matching: find.byType(GbmButton),
+            ),
+          )
+          .left;
+      expect(leftOf('Switch to'), lessThan(leftOf('Open in terminal')));
+      expect(leftOf('Open in terminal'), lessThan(leftOf('Lock…')));
+
+      final GbmButton button = panelButton(tester, 'Open in terminal');
+      expect(button.onPressed, isNotNull);
+      expect((button.icon as LucideIcon?)?.name, 'terminal');
     });
 
     // Two `context.go` calls are indistinguishable by `onPressed != null`

@@ -243,4 +243,17 @@ void main() {
       expect(find.text('No submodules'), findsOneWidget);
     });
   });
+
+  // Not in the focus/F5 sweep: this panel is the only reader, so it
+  // re-reads on each new sweep itself, and only while it is on screen.
+  testWidgets(
+    'a refresh sweep while the panel is open re-reads submodules once',
+    (WidgetTester tester) async {
+      final PumpedPanel pumped = await _pump(tester);
+
+      await startRefreshSweep(tester, pumped.fake);
+
+      expect(countCommand(pumped.fake, 'refreshSubmodules'), 1);
+    },
+  );
 }

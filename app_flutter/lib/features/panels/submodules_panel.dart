@@ -14,6 +14,7 @@ import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
 import 'panel_toolbar_spec.dart';
 import 'panel_widgets.dart';
+import 'refresh_sweep_listener.dart';
 
 /// `manage-submodules` as a tab (spec page 14 `IAMAP`), on page 19's
 /// template.
@@ -111,6 +112,7 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
 
   @override
   Widget build(BuildContext context) {
+    listenToRefreshSweep(ref, widget.identity, _session.refreshSubmodules);
     final List<SubmoduleInfo> submodules = ref.watch(
       repoSessionProvider(widget.identity).select((s) => s.submodules),
     );

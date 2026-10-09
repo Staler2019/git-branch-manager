@@ -65,6 +65,7 @@ TEST(SquashMessageStore, LogsTheExactOidRangeWithConfigProofFlags) {
                              "--no-decorate",
                              "--no-abbrev-commit",
                              "--no-mailmap",
+                             "--no-expand-tabs",
                              "--no-notes",
                              "--no-show-signature",
                              "--no-color",

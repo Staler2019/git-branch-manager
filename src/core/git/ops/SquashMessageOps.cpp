@@ -58,7 +58,9 @@ GitResult<SquashMessagePreview> SquashMessageStore::preview(const std::string& s
     // and the squash walk does not: format.pretty, log.decorate,
     // log.abbrevCommit and log.mailmap (on by default since 2.29) are each
     // measured to change the text without their flag (GitIntegrationTest's
-    // SquashPreviewMatchesTheSquashMsgGitWrites); log.showSignature, color.ui
+    // SquashPreviewMatchesTheSquashMsgGitWrites). --no-expand-tabs is not
+    // config: medium expands a body tab to spaces, SQUASH_MSG keeps the tab
+    // (measured, same test); log.showSignature, color.ui
     // and log.date by documentation. --no-notes is measured *redundant*: an
     // explicit --pretty already suppresses the default notes display. It is
     // kept as a guard, not as a fix for anything observed. The range is the
@@ -69,6 +71,7 @@ GitResult<SquashMessagePreview> SquashMessageStore::preview(const std::string& s
                         "--no-decorate",
                         "--no-abbrev-commit",
                         "--no-mailmap",
+                        "--no-expand-tabs",
                         "--no-notes",
                         "--no-show-signature",
                         "--no-color",

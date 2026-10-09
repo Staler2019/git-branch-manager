@@ -5844,8 +5844,12 @@ TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));
     writeFile("a.txt", "a\n");
     ASSERT_TRUE(run({"add", "a.txt"}));
-    ASSERT_TRUE(
-        run({"commit", "--quiet", "-m", "Add a", "-m", "Body line one.\n\nBody line two."}));
+    ASSERT_TRUE(run({"commit",
+                     "--quiet",
+                     "-m",
+                     "Add a",
+                     "-m",
+                     "Body line one.\n\nBody line two.\n\tA tab git log would expand."}));
     ASSERT_TRUE(run({"notes", "add", "-m", "a note git log would print", "HEAD"}));
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "side"}));
     commitFile("b.txt", "b\n", "Add b on a side branch");

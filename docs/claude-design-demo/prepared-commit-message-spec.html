@@ -1,0 +1,726 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prepared Commit Message</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Deliberately namespaced away from the mockup tokens (--gbm-*)
+   so the document's cascade can never bleed into the specimens.
+   Light is the bare :root; dark is redefined in two guarded
+   places so the un-stamped "system" state resolves too.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+td.was { font-family: "JetBrains Mono", "PingFang TC", ui-monospace, monospace; color: var(--pg-ink-2); }
+td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg-ink); }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.no  { color: var(--pg-good); }
+.verdict.yes { color: var(--pg-bad); }
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1060px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.75rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   docs/design/tokens-reference.md. Three themes, switchable,
+   because the dialog must hold in all three.
+   ============================================================ */
+.stage {   /* tokens live ONLY here: a .mock redeclaring them would override
+             what it inherits from the themed stage and pin every specimen
+             to light -- same specificity, and .mock sits deeper. */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e;
+  --gbm-border-strong:#98a3ad;
+  --gbm-accent:#2f81f7;
+ 
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93;
+  --gbm-border-strong:#3d444d;
+  --gbm-accent:#2f81f7;
+ 
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f;
+  --gbm-border-strong:#c6cad1;
+  --gbm-accent:#2f81f7;
+ 
+}
+footer.colophon {
+  margin-top: 5rem; padding-top: 1.5rem;
+  border-top: var(--rail) solid var(--pg-line);
+  font-size: var(--step--1); color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 2rem;
+}
+
+/* ============================================================
+   THE SPECIMEN — Working Copy's commit area, as shipped.
+   This round adds NO new geometry to it. Every value below is
+   read from the shipped widget, cited:
+     [APP]  working_copy_view.dart _buildCommitBox /
+            commit_message_box.dart, read 2026-10-09
+     [KIT]  the .gbm-* component CSS (GbmButton follows it)
+     [P8]   spec P8 「解完之後的 commit message」 panel
+   Anything with no source is listed in section 05 as inferred.
+   ============================================================ */
+.working-copy-commit-area {
+  width: 640px; max-width: 100%;                              /* Inferred I-7: specimen width */
+  background: var(--gbm-surface-panel-raised);                /* [P3] mock commit area background:var(--surface-panel-raised) (⑮) */
+  border: 1px solid var(--gbm-border-subtle);                 /* stage framing only, not app (app: top border only) */
+  padding: 12px;                                              /* [APP] GbmSpacing.space3 */
+  display: flex; gap: 8px; align-items: stretch;              /* [APP] SizedBox(width: space2) */
+  font-family: "Inter", sans-serif;                           /* [APP] fontUi Inter; sans-serif fallback = stage framing (I-12) */
+}
+.commit-message-box { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 8px; } /* [APP] Padding(bottom: space2) */
+.commit-message-box__summary,
+.commit-message-box__description {
+  border: 1px solid var(--gbm-border-default);                /* [APP] OutlineInputBorder 1px; colour Inferred I-9 */
+  border-radius: 4px;                                         /* [APP] OutlineInputBorder default radius 4 */
+  background: var(--gbm-surface-panel);                       /* Inferred I-9: no fillColor in app */
+  color: var(--gbm-text-primary);                             /* [APP] gbm_theme bodyLarge textPrimary */
+}
+.commit-message-box__summary {
+  padding: 4px 8px;                                           /* [APP] contentPadding h space2 / v space1 */
+  font-size: 15px; line-height: 1.5;                          /* [APP] gbm_theme bodyLarge textMd / leadingNormal (I-1) */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* stage framing: maxLines 1 */
+}
+.commit-message-box__description {
+  padding: 8px;                                               /* [APP] contentPadding all space2 */
+  height: 128px;                                              /* Inferred I-2: Expanded share of the 200px box */
+  font-family: "JetBrains Mono", ui-monospace, monospace;     /* [APP] GbmTypography.fontMono */
+  font-size: 13.5px;                                          /* [APP] textBase */
+  line-height: 1.5;                                           /* Inferred I-1: bodyLarge leadingNormal merged */
+  white-space: pre; overflow: hidden;                         /* stage framing: app wraps and scrolls */
+}
+.commit-message-box .ph { color: var(--gbm-text-tertiary); }  /* Inferred I-9: app uses Material hint colour */
+.commit-message-box .cm { color: var(--gbm-text-tertiary); }  /* [P8] 「這幾行以 tertiary 灰顯示」 */
+.commit-message-box__note {
+  font-size: 11px; color: var(--gbm-text-tertiary);          /* [APP] original_operation_message_dialog.dart's note: textXs, textTertiary */
+  margin-top: -4px;                                           /* Inferred I-3 */
+}
+.commit-buttons { flex: 0 0 132px; display: flex; flex-direction: column; gap: 8px; } /* [APP] _kCommitButtonColumnWidth 132, SizedBox(height: space2) */
+.gbm-button {
+  height: 30px; border-radius: 6px;                           /* [KIT] .gbm-btn h30, --radius-md */
+  display: flex; align-items: center; justify-content: center; /* [KIT] inline-flex/center; centring = stage framing */
+  font-size: 12.5px; font-weight: 500;                        /* [KIT] --text-sm, w500 */
+  border: 1px solid var(--gbm-border-default);                /* [KIT] .gbm-btn-secondary */
+  background: var(--gbm-surface-panel-raised); color: var(--gbm-text-primary); /* [KIT] .gbm-btn-secondary */
+}
+.gbm-button--primary { background: var(--gbm-accent); border-color: transparent; color: var(--gbm-text-on-accent); } /* [KIT] .gbm-btn-primary */
+.gbm-button[aria-disabled="true"] { opacity: .45; }          /* Inferred I-4: GbmButton disabled rendering, approximated */
+.tip {
+  align-self: flex-end; font-size: 11px; color: var(--gbm-text-secondary); /* Inferred I-5 */
+  background: var(--gbm-surface-sunken); border: 1px solid var(--gbm-border-default); /* Inferred I-5 */
+  border-radius: 4px; padding: 3px 7px;                       /* Inferred I-5: tooltip look */
+}
+
+.conflict-banner {
+  width: 640px; max-width: 100%;                              /* Inferred I-7: specimen width */
+  padding: 8px 16px;                                          /* [APP] symmetric(h: space4, v: space2) */
+  background: var(--gbm-diff-del-bg);                         /* [APP] colors.diffDelBg */
+  border-bottom: 1px solid var(--gbm-border-subtle);          /* [APP] Border(bottom: borderSubtle) */
+  display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 8px; /* [APP] Wrap spaceBetween, spacing space2, runSpacing space1 */
+  font-family: "Inter", sans-serif;                           /* [APP] fontUi Inter; sans-serif fallback = stage framing (I-12) */
+}
+.conflict-banner__status { font-size: 12.5px; color: var(--gbm-diff-del-text); }  /* [APP] textSm, diffDelText */
+.conflict-banner__controls { display: flex; gap: 8px; }     /* [APP] Wrap spacing space2 */
+.conflict-banner__btn {
+  font-size: 12.5px; font-weight: 600; color: var(--gbm-diff-del-text); /* [APP] TextButton label textSm, weightSemibold, diffDelText */
+  padding: 4px 8px;                                           /* Inferred I-11: Material TextButton padding */
+}
+
+/* --- 02-D: the box restyled to .gbm-input (proposal) --- */
+.commit-message-box--kit .commit-message-box__summary {
+  height: 30px; padding: 0 12px;                              /* [KIT] .gbm-input h30, pad 0 var(--space-3) */
+  border-radius: 6px;                                         /* [KIT] --radius-md */
+  font-size: 12.5px; line-height: 28px;                       /* [KIT] --text-sm; line-height = stage framing (I-13) */
+  border: 1px solid var(--gbm-border-default);                /* [KIT] .gbm-input */
+  background: var(--gbm-surface-panel);                       /* [KIT] .gbm-input */
+}
+.commit-message-box--kit .commit-message-box__description {
+  border-radius: 6px;                                         /* [KIT] --radius-md; [APP] gbmMultilineInputDecoration */
+  padding: 8px 12px;                                          /* [APP] gbmMultilineInputDecoration h space3 / v space2 */
+  border: 1px solid var(--gbm-border-default);                /* [APP] gbmMultilineInputDecoration borderDefault */
+  background: var(--gbm-surface-panel);                       /* [APP] gbmMultilineInputDecoration fillColor surfacePanel */
+}
+.commit-message-box--kit .is-focus { border-color: var(--gbm-accent); } /* [APP] gbmInputDecoration focusedBorder accent */
+.commit-message-box--kit .ph { color: var(--gbm-text-tertiary); }      /* [KIT] .gbm-input::placeholder text-tertiary */
+
+/* --- 02-E: Preferences > Git switch --- */
+.pref-panel {
+  width: 640px; max-width: 100%;                              /* Inferred I-7: specimen width */
+  background: var(--gbm-surface-panel-raised); padding: 12px 15px; /* stage framing (I-13) */
+  font-family: "Inter", sans-serif;                           /* [APP] fontUi Inter; fallback = stage framing (I-12) */
+  display: flex; flex-direction: column; gap: 10px;           /* stage framing (I-13) */
+}
+.setting-switch { display: flex; gap: 12px; align-items: flex-start; } /* Inferred I-14: Material CheckboxListTile leading layout */
+.setting-switch__mark {
+  width: 15px; height: 15px; flex: 0 0 15px; margin-top: 2px; /* [KIT] .gbm-checkbox 15x15; margin = I-14 */
+  border-radius: 3px; border: 1.5px solid var(--gbm-border-strong); /* [KIT] .gbm-checkbox r3, 1.5px border-strong */
+}
+.setting-switch__mark[data-on="1"] { background: var(--gbm-accent); border-color: var(--gbm-accent); } /* [KIT] .gbm-checkbox.checked */
+.setting-switch__title { font-size: 12.5px; color: var(--gbm-text-primary); }  /* [APP] _SettingSwitch title textSm textPrimary */
+.setting-switch__sub { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.5; } /* [APP] _SettingSwitch subtitle textXs textTertiary leadingNormal */
+
+/* page-only helpers */
+.ascii {
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .78rem; line-height: 1.5;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+  padding: 1rem 1.1rem; overflow-x: auto; white-space: pre; color: var(--pg-ink-2);
+}
+.grid2 { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+@media (min-width: 1060px) { .grid2 { grid-template-columns: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow"><span>git-branch-manager · Working Copy</span><span>design spec · 2026-10-09</span><span>branch: feature/prepared-commit-message (proposed)</span></div>
+    <h1 class="zh">Commit 框帶入 git 準備好的訊息</h1>
+    <p class="standfirst zh">merge 衝突解完、或 squash 只 stage 沒 commit 時，git 早就在 <code>.git/MERGE_MSG</code> / <code>.git/SQUASH_MSG</code> 寫好了訊息。core 的 <code>readPreparedCommitMessage()</code> 會讀，但從 Qt 版移除後就沒有人呼叫它（[CULT-orphan-wiring]）。這份稿子讓 Working Copy 的 commit 框重新帶入這段訊息。框本身的外觀<b>完全不改</b>，改的只有<b>什麼時候、填什麼</b>。</p>
+    <div class="status-row">
+      <span class="pill is-open">G1 · 全部已裁定（①～⑮）</span>
+      <span class="pill">版面：0 個新元件</span>
+      <span class="pill">實測：git 2.56.0</span>
+    </div>
+  </header>
+
+  <!-- ============================ 1 ============================ -->
+  <section id="flow">
+    <div class="sec-head"><span class="sec-num">01</span><h2 class="zh">什麼時候會填</h2></div>
+    <p class="lede zh"><span class="verdict no">使用者裁定 2026-10-09</span>：「衝突解完會回到 working copy 決定是否 commit，所以 commit message 必須先是 merge 預設，會覆蓋如果使用者早有填入 message 的情形」、「merge 發生時就換 MERGE_MSG」。<br>所以 <code>docs/FEATURES.md</code> 的「without overwriting anything the user has typed」，以及 <code>PreparedCommitMessage.h</code> 的設計 C3「不得覆蓋使用者已經打好的 commit message」，都已被這次裁定推翻；實作時兩處都會在原處改寫。</p>
+<div class="ascii">  git 寫下訊息                        app                                      commit 框
+  ─────────────                       ───                                      ─────────
+  merge 衝突      MERGE_HEAD+MERGE_MSG ─┐
+  squash 衝突     SQUASH_MSG+MERGE_MSG ─┤  RepoState.preparedMessagePending
+  squash 只 stage SQUASH_MSG          ─┤  （兩次 stat，不讀內容）
+  squash commit 失敗（hook） SQUASH_MSG─┘          │
+                                                  │ false → true 的那一刻（merge 發生時）
+                                                  ▼
+                              不在 amend 模式 → 請求訊息
+                                                  │ gbm_request_prepared_commit_message
+                                                  ▼
+                              PREPARED_COMMIT_MESSAGE_READY {message}  （已經用 stripspace -s 去掉註解行）
+                                                  │ 原本框裡的字先存起來（同 amend 的 preAmend）
+                                                  ▼ 覆蓋：第一行 → Summary，其餘 → Description
+                                           ┌────────────────────────────┐
+                                           │ Merge branch 'feature/…'   │
+                                           └────────────────────────────┘
+  之後使用者在框裡改的字 → 保留（每個 merge 只填一次）
+  Commit 送出 → git 刪掉 MERGE_MSG／SQUASH_MSG → pending 變成 false → 框照舊清空
+  Abort       → pending 變成 false → 框還是自動填的內容 → 放回 merge 前存起來的字（裁定 ③＋⑨）</div>
+  </section>
+
+  <!-- ============================ 2 ============================ -->
+  <section id="specimens">
+    <div class="sec-head"><span class="sec-num">02</span><h2 class="zh">各狀態的 commit 框、banner 與開關</h2></div>
+    <p class="lede zh">分支名與檔名取自 spec P8 的 MSGS 表（<code>feature/graph-lanes</code>、<code>LaneAllocator.dart</code>）。MSGS 寫的是 <code>… into main</code>，但上一輪裁定 ⑦ 實測 git 2.56 合入 main 時會省略目的地，這裡畫的是 git 實際寫出的 <code>Merge branch 'feature/graph-lanes'</code>。其餘示例資料是編的，列在 I-8。description 的 72 字尺標與 summary 的 <code>N chars</code> 警示這輪不會動，示意圖裡沒畫（I-10）。</p>
+
+    <div class="stage-controls">
+      <span class="label">Palette</span>
+      <div class="themebtns">
+        <button class="themebtn" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+    </div>
+
+    <h3 class="zh">02-A　merge 一發生：框被 MERGE_MSG 覆蓋（裁定 ①②），Amend… 不顯示（裁定 ④）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag before">merge 前</span><span class="specimen-note zh">使用者先打了字</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area">
+            <div class="commit-message-box">
+              <div class="commit-message-box__summary">Bring lane allocator into main</div>
+              <div class="commit-message-box__description">Keeps the 48-lane cap from review.</div>
+            </div>
+            <div class="commit-buttons">
+              <div class="gbm-button gbm-button--primary">Commit</div>
+              <div class="gbm-button">Amend</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">merge 後</span><span class="specimen-note zh">覆蓋成 git 的預設訊息（R1：註解行已去掉）；原本的字存起來，Abort 時放回</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area">
+            <div class="commit-message-box">
+              <div class="commit-message-box__summary">Merge branch 'feature/graph-lanes'</div>
+              <div class="commit-message-box__description"><span class="ph">Commit description (optional)</span></div>
+            </div>
+            <div class="commit-buttons">
+              <div class="gbm-button gbm-button--primary">Commit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="zh">02-B　squash 只 stage 沒 commit：SQUASH_MSG 覆蓋；沒有 MERGE_HEAD，所以 Amend… 照常顯示（M7）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案</span><span class="specimen-note zh">SQUASH_MSG 原文</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area">
+            <div class="commit-message-box">
+              <div class="commit-message-box__summary">Squashed commit of the following:</div>
+              <div class="commit-message-box__description">commit 7c3d9e2a41f0…
+Author: a.iyer &lt;a.iyer@example.com&gt;
+Date:   Thu Aug 13 10:12:44 2026 +0800
+
+    Implement lane allocator</div>
+            </div>
+            <div class="commit-buttons">
+              <div class="gbm-button gbm-button--primary">Commit</div>
+              <div class="gbm-button">Amend</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案（裁定 ⑤）</span><span class="specimen-note zh">衝突全部取 ours，staged 0 個檔：merge 進行中照樣可以 Commit</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area">
+            <div class="commit-message-box">
+              <div class="commit-message-box__summary">Merge branch 'feature/graph-lanes'</div>
+              <div class="commit-message-box__description"><span class="ph">Commit description (optional)</span></div>
+            </div>
+            <div class="commit-buttons">
+              <div class="gbm-button gbm-button--primary">Commit</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="zh">02-C　merge 的 conflict banner（裁定 ⑥）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag before">現況</span><span class="specimen-note zh">Skip、Continue 一直顯示但停用</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Merge in progress: 1 file conflicted</span>
+            <span class="conflict-banner__controls"><span class="conflict-banner__btn">Abort</span><span class="conflict-banner__btn" style="opacity:.45">Skip</span><span class="conflict-banner__btn" style="opacity:.45">Continue</span><span class="conflict-banner__btn">Resolve…</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案</span><span class="specimen-note zh">merge 不顯示 Skip／Continue；有衝突才顯示 Resolve…（開衝突視窗，現況已是如此）</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical" style="flex-direction:column;align-items:center;gap:12px" data-note="stage framing I-12">
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Merge in progress: 1 file conflicted</span>
+            <span class="conflict-banner__controls"><span class="conflict-banner__btn">Abort</span><span class="conflict-banner__btn">Resolve…</span></span>
+          </div>
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Merge in progress</span>
+            <span class="conflict-banner__controls"><span class="conflict-banner__btn">Abort</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  
+    <h3 class="zh">02-C2　revert 的 conflict banner（裁定 ⑩：照建議，不能用的就不畫）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag before">現況</span><span class="specimen-note zh">Abort、Skip、Continue 都顯示但停用</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Revert in progress: 1 file conflicted</span>
+            <span class="conflict-banner__controls"><span class="conflict-banner__btn" style="opacity:.45">Abort</span><span class="conflict-banner__btn" style="opacity:.45">Skip</span><span class="conflict-banner__btn" style="opacity:.45">Continue</span><span class="conflict-banner__btn">Resolve…</span></span>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案</span><span class="specimen-note zh">只剩 Resolve…；沒有衝突時只剩狀態文字</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical" style="flex-direction:column;align-items:center;gap:12px" data-note="stage framing I-12">
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Revert in progress: 1 file conflicted</span>
+            <span class="conflict-banner__controls"><span class="conflict-banner__btn">Resolve…</span></span>
+          </div>
+          <div class="conflict-banner">
+            <span class="conflict-banner__status">Revert in progress</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="zh">02-D　commit 框改用 <code>.gbm-input</code> 的樣式（你說「順便修」）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag before">現況</span><span class="specimen-note zh">Material 預設 <code>OutlineInputBorder()</code>：r4、框線是黑色 1px、沒有底色、summary 用 bodyLarge 15px</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area" style="background:var(--gbm-surface-panel)" data-note="as shipped: no background of its own (I-9)">
+            <div class="commit-message-box">
+              <div class="commit-message-box__summary" style="border-color:#000;background:transparent">Merge branch 'feature/graph-lanes'</div>
+              <div class="commit-message-box__description" style="border-color:#000;background:transparent"><span class="ph">Commit description (optional)</span></div>
+            </div>
+            <div class="commit-buttons"><div class="gbm-button gbm-button--primary">Commit</div><div class="gbm-button">Amend</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案</span><span class="specimen-note zh">summary 用 <code>gbmInputDecoration</code>＋h30；description 用 <code>gbmMultilineInputDecoration</code>，兩個 helper app 裡都已經有了。kit 的 focus 還有 <code>box-shadow:var(--shadow-focus)</code>，helper 沒畫，這裡也沒畫（只回報）</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="working-copy-commit-area">
+            <div class="commit-message-box commit-message-box--kit">
+              <div class="commit-message-box__summary is-focus">Merge branch 'feature/graph-lanes'</div>
+              <div class="commit-message-box__description"><span class="ph">Commit description (optional)</span></div>
+            </div>
+            <div class="commit-buttons"><div class="gbm-button gbm-button--primary">Commit</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="zh">02-E　Preferences → Git 的開關（裁定 ⑪：「我要預設覆蓋使用者已填的訊息，但設 feature flag 開關」）</h3>
+    <div class="compare">
+      <div class="specimen">
+        <div class="specimen-head"><span class="specimen-tag after">提案</span><span class="specimen-note zh">放在現有的 cherry-pick 開關下面；預設開。兩顆標題開頭加「（預設）」（使用者裁定 2026-10-09：「02-E 這兩顆 label 文字你開頭加上（預設）文字」），所以現有 cherry-pick 開關的標題也會跟著改</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical">
+          <div class="pref-panel">
+            <div class="setting-switch"><span class="setting-switch__mark" data-on="1"></span><span><div class="setting-switch__title">（預設）cherry-pick 時加上「(cherry picked from commit …)」</div><div class="setting-switch__sub">會附加在原始 commit 內文的最後一行。</div></span></div>
+            <div class="setting-switch"><span class="setting-switch__mark" data-on="1"></span><span><div class="setting-switch__title">（預設）merge／squash 時用 git 準備好的訊息覆蓋 commit 框</div><div class="setting-switch__sub">關閉時，只有 commit 框是空的才會帶入。</div></span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================ 3 ============================ -->
+  <section id="measured">
+    <div class="sec-head"><span class="sec-num">03</span><h2 class="zh">實測（git 2.56.0，2026-10-09，scratchpad 裡的拋棄式 repo）</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:4%">#</th><th style="width:40%">情境</th><th>結果</th><th style="width:20%">影響</th></tr></thead>
+      <tbody>
+        <tr><td class="num">M1</td><td class="zh">merge 衝突（不論有沒有給 <code>-m</code>）後的 MERGE_MSG</td><td><code>Merge branch 'topic'\n\n# Conflicts:\n#\tf\n</code></td><td class="zh">註解行會進框</td></tr>
+        <tr><td class="num">M2</td><td class="zh">把 M1 原樣交給 <code>git commit --file -</code>（app 現在的 commit 指令）</td><td class="zh"><b>註解行留在永久訊息裡</b>：沒開 editor 時 git 的 cleanup 是 whitespace，不是 strip。spec P8 寫「提交時會被 git 自動去掉」，這只對 cherry-pick/rebase 的 <code>--continue</code> 成立</td><td class="zh">裁定 ① 的起因</td></tr>
+        <tr><td class="num">M3</td><td class="zh">squash 遇到衝突時寫下哪些檔</td><td class="zh"><b>SQUASH_MSG 和 MERGE_MSG 兩個都有</b>，而且 MERGE_MSG 只有 <code>\n# Conflicts:\n#\tf</code>。<code>readPreparedCommitMessage()</code> 先讀 MERGE_MSG，所以只會拿到註解行；它的註解寫「the two are mutually exclusive in practice」，<b>這句是錯的</b></td><td class="zh">core 要改，並在原處更正這段註解</td></tr>
+        <tr><td class="num">M4</td><td class="zh">同一個 squash 衝突解完後，<code>git commit</code>（editor 流程）自己寫進去的訊息</td><td class="zh">SQUASH_MSG 的全文，MERGE_MSG 的註解行被 strip 掉。也就是 git 的組法是 <b>SQUASH_MSG 接 MERGE_MSG，再做 strip</b></td><td class="zh">照抄這個順序</td></tr>
+        <tr><td class="num">M5</td><td class="zh"><code>git stripspace -s</code>，設定 <code>core.commentChar=;</code></td><td class="zh">只去掉 <code>;</code> 開頭的行，<code>#123 mine</code> 留下</td><td class="zh">R1 交給 git 做，不在 Dart 裡寫死 <code>#</code></td></tr>
+        <tr><td class="num">M6</td><td class="zh">merge 衝突解完後 <code>git commit --amend</code></td><td><code>fatal: You are in the middle of a merge -- cannot amend.</code></td><td class="zh">app 的 Amend… 此時是可按的 → bug（裁定 ④）</td></tr>
+        <tr><td class="num">M7</td><td class="zh">squash 等待 commit 時 <code>git commit --amend -m x</code></td><td class="zh">成功，squash 進來的變更併進 HEAD，SQUASH_MSG 被刪掉</td><td class="zh">squash 等待中不停用 Amend…</td></tr>
+        <tr><td class="num">M8</td><td class="zh">衝突全部取 ours → <code>git add</code></td><td class="zh"><code>git diff --cached</code> 是 0 個檔，但 <code>git commit</code> 照樣建出兩個 parent 的 merge commit</td><td class="zh">app 的 <code>canCommit</code> 要求 <code>staged.isNotEmpty</code> → 卡住（裁定 ⑤）</td></tr>
+        <tr><td class="num">M9</td><td class="zh"><code>git merge --abort</code>／對 squash 做 <code>git reset --hard</code></td><td class="zh">MERGE_MSG、SQUASH_MSG 都被刪掉</td><td class="zh">pending 會自己變回 false</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ============================ 4 ============================ -->
+  <section id="rulings">
+    <div class="sec-head"><span class="sec-num">04</span><h2>裁定</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:4%">#</th><th style="width:30%">問題</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td class="num">①</td><td class="zh"><code>#</code> 註解行；使用者已打的字要不要覆蓋</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-09</span>：註解行「其他照你建議」→ <b>R1</b>（core 用 <code>git stripspace -s</code> 去掉註解行）。覆蓋：「commit message 必須先是 merge 預設，會覆蓋如果使用者早有填入 message 的情形」。<s>原建議：框裡有使用者的字就不覆蓋（C3）</s></td></tr>
+        <tr><td class="num">②</td><td class="zh">什麼時候填</td><td class="zh"><span class="verdict no">使用者裁定</span>：「merge 發生時就換 MERGE_MSG」。<s>原建議：衝突清單清空時</s></td></tr>
+        <tr><td class="num">③</td><td class="zh">Abort 之後框裡的字</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。框還是自動填的內容就清掉；使用者改過就留著。清掉之後放回什麼，見 ⑨</td></tr>
+        <tr><td class="num">④</td><td class="zh">merge 中的 Amend…</td><td class="zh"><span class="verdict no">使用者裁定</span>：「merge 時，amend 按鈕不應該出現」→ <b>不顯示</b>。<s>原建議：停用並加 tooltip</s>。註：spec 有一句「disabled，並附 tooltip 說明原因，不隱藏」（講的是選單項目和多選），這次照你的裁定。squash 等待中沒有 MERGE_HEAD，git 允許 amend（M7），所以照常顯示</td></tr>
+        <tr><td class="num">⑤</td><td class="zh">取 ours 後 Commit 被停用</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。merge 進行中不要求 staged 非空</td></tr>
+        <tr><td class="num">⑥</td><td class="zh">P8 的 Continue 與 merge</td><td class="zh"><span class="verdict no">使用者裁定</span>：「merge 時有可能會 conflict……如果不需要解衝突，應該最上面 warning 列只會有 abort 按鈕，沒有 continue 按鈕」→ 02-C：merge 的 banner 不顯示 Skip／Continue（現況是顯示但停用）；有衝突時 Resolve… 開衝突視窗（現況已是如此）。不另做 merge 的 Continue 訊息步驟，commit 一律回 Working Copy</td></tr>
+        <tr><td class="num">⑦</td><td class="zh">C++ 的 <code>shouldApplyPreparedCommitMessage()</code></td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。刪掉；覆蓋規則改成 ①，判斷寫在 Dart</td></tr>
+        <tr><td class="num">⑧</td><td class="zh">訊息怎麼送到 Dart</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。<code>RepoState.preparedMessagePending</code> 加上請求／事件</td></tr>
+        <tr><td class="num">⑨</td><td class="zh">① 會蓋掉使用者原本的字，Abort 時要放回來嗎？</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。放回：做法和 Cancel amend 一樣（<code>preAmendSummary</code>），merge 前的字存起來，Abort 後框還是自動填的內容就換回去。不放回的話，使用者在 merge 前打的字會因為一次 Abort 就消失</td></tr>
+        <tr><td class="num">⑩</td><td class="zh">revert 的 banner 也是 Skip／Continue 顯示但停用（<code>canSkip</code>／<code>canContinue</code> 對 revert 都是 false）</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>（02-C2）。一起改成不顯示：banner 用同一個規則「不能用的就不畫」；Abort 對 revert 也是停用（<code>canAbort</code> false），一併不顯示。也可以只改 merge，由你決定</td></tr>
+        <tr><td class="num">⑪</td><td class="zh">app 啟動時 merge 已經在進行</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-09</span>：「我要預設覆蓋使用者已填的訊息，但設 feature flag 開關」→ 啟動時也覆蓋；Preferences → Git 加開關 <code>overwriteWithPreparedMessage</code>，預設開（02-E）。關閉時只有框是空的才帶入。<s>原建議：框是空的才填</s>。附註：開著的時候，merge 中途改好的訊息在重開 app 後會被蓋回 git 的預設</td></tr>
+        <tr><td class="num">⑫</td><td class="zh">commit 框樣式</td><td class="zh"><span class="verdict no">使用者裁定</span>：「commit message 你說的 style 問題順便修」→ 02-D，改用 app 已有的 <code>gbmInputDecoration</code>／<code>gbmMultilineInputDecoration</code>（radius 6、border-default、surface-panel 底、focus 時 accent），summary 用 h30、text-sm</td></tr>
+        <tr><td class="num">⑬</td><td class="zh">placeholder 的顏色。kit 寫 <code>.gbm-input::placeholder{color:var(--text-tertiary)}</code>，但這兩個共用 helper 沒有設 <code>hintStyle</code>，所以 <s>全 app 約 15 個輸入框</s> 全 app 用這兩個 helper 的 21 個輸入框（其中 <s>17</s> 14 個有傳 <code>hintText</code>，spec-auditor 逐一列舉）的 placeholder 都還是 Material 預設色</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。在兩個 helper 裡補上 <code>hintStyle</code>（text-tertiary）</td></tr>
+        <tr><td class="num">⑭</td><td class="zh"><b>和 spec 的矛盾</b>：P3 第 8 項寫「staged 為 0 或 summary 為空時停用」，裁定 ⑤ 讓 merge 中 staged 為 0 也能 Commit</td><td class="zh"><span class="verdict no">使用者裁定：照建議</span>。M8 實測：衝突全部取 ours 之後 staged 是 0，git 照樣能 commit，照 spec 做的話這個 merge 就結束不了。維持 ⑤，在 ledger 記一筆「⑤ 推翻 P3 第 8 項，只限 merge 進行中」</td></tr>
+        <tr><td class="num">⑮</td><td class="zh">P3 縮小 mock 和 app 還有其他不同：placeholder 是中文（「Summary（50 字內，subject 行）」）、按鈕寫 <code>Commit 1</code>（帶數量）和 <code>Amend</code>（沒有 …）、commit 區底色是 surface-panel-raised</td><td class="zh"><span class="verdict no">使用者裁定 2026-10-09</span>：「15 的除了中文問題，其他修」→ <s>按鈕改成 <code>Commit N</code>（N = staged 檔數）</s> 使用者裁定：「不需要 commit n，把它改回 commit 就好」→ 維持 <code>Commit</code>；<code>Amend…</code> 改成 <code>Amend</code>（不帶 …）；commit 區底色改成 surface-panel-raised。placeholder 維持英文。注意：拿掉 … 之後，進入 amend 模式的按鈕和 amend 模式裡送出的按鈕都叫 <code>Amend</code>（兩者不會同時出現）。另外 <code>Amend…</code> 拿掉 … 也符合 [UX-ellipsis-promises-a-dialog]：它只是進入模式，不開對話框</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ============================ 5 ============================ -->
+  <section id="inferred">
+    <div class="sec-head"><span class="sec-num">05</span><h2 class="zh">Inferred：spec 和 app 都沒有給的值</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:6%">#</th><th style="width:30%">值</th><th>為什麼是猜的</th></tr></thead>
+      <tbody>
+        <tr><td class="num">I-1</td><td>summary 15px／行高 1.5；description 行高 1.5</td><td class="zh"><s>TextField 沒有指定 style，用的是 Material 主題預設</s> 更正（spec-auditor）：repo 裡讀得到主題值，<code>gbm_theme.dart</code> 的 bodyLarge 是 <code>textMd</code> 15 加 <code>leadingNormal</code> 1.5。M3 TextField 預設吃 bodyLarge，這是 Flutter SDK 的行為，沒讀 SDK 原始碼確認</td></tr>
+        <tr><td class="num">I-2</td><td>description 高 128px</td><td class="zh">app 是 200px 的框裡 <code>Expanded</code> 分剩下的高度；示意圖取近似值</td></tr>
+        <tr><td class="num">I-3</td><td class="zh">R2 的「送出時會移除」放在 description 下方，<code>margin-top:-4px</code></td><td class="zh">P8 只說要「註明」，沒有說放哪裡。只有 R2 才會用到</td></tr>
+        <tr><td class="num">I-4</td><td>停用按鈕 opacity .45</td><td class="zh">示意 GbmButton 的停用樣子，不是 GbmButton 實際的值；實作不改</td></tr>
+        <tr><td class="num">I-5</td><td class="zh"><s>tooltip「merge 進行中不能 amend」及其外觀</s> 裁定 ④ 改成不顯示，這條作廢</td><td class="zh">spec 只要求「disabled，並附 tooltip 說明原因，不隱藏」，沒有給文字；hint 類文字依 DLGS 慣例用中文。實作會用 Material <code>Tooltip</code> 包住 <code>GbmButton</code>，這是 <code>branch_tree_item.dart</code> 等既有地方的做法（<code>GbmButton</code> 本身沒有 tooltip 參數）</td></tr>
+        <tr><td class="num">I-6</td><td class="zh">Summary／Description 的拆法：第一行是 summary，之後跳過一個空行，其餘是 description</td><td class="zh">沿用 <code>splitOriginalOperationMessage()</code> 的規則（P8：「預設 summary／預設 description」）；SQUASH_MSG 的第一行是 <code>Squashed commit of the following:</code></td></tr>
+        <tr><td class="num">I-7</td><td>示意圖寬 640px、<code>max-width:100%</code></td><td class="zh">只是示意圖的寬度；app 的框是滿版寬</td></tr>
+        <tr><td class="num">I-8</td><td class="zh">示例資料：<code>7c3d9e2a41f0…</code> 的後段、<code>a.iyer@example.com</code>、<code>Thu Aug 13 10:12:44 2026 +0800</code>、<code>Implement lane allocator</code>、<code>Bring lane allocator into main</code>、<code>Keeps the 48-lane cap from review.</code></td><td class="zh">MSGS／commit 清單只有 <code>7c3d9e2</code>、<code>a.iyer</code>、<code>Aug 13</code>，其餘是編的</td></tr>
+        <tr><td class="num">I-9</td><td class="zh">02-A～02-C 示意圖的欄位框線 border-default、底色 surface-panel、外框底色</td><td class="zh"><s>app 用的是 Material OutlineInputBorder() 與 ColorScheme 推出來的顏色……示意圖拿最接近的 token 代替；實作不改</s> 更正：02-A～02-C 畫的是裁定 ⑫ 修好以後的框（border-default、surface-panel）；現在出貨的樣子（黑色框線、沒有底色，依 <code>gbm_input_decoration.dart</code> 的註解「black, width 1」）只畫在 02-D 的「現況」。<code>#000</code> 是把 black 寫成色碼，沒讀 SDK</td></tr>
+        <tr><td class="num">I-11</td><td class="zh">banner 按鈕 padding 4px 8px、停用 opacity .45</td><td class="zh">Material <code>TextButton</code> 預設值，沒讀 SDK；只用於示意</td></tr>
+        <tr><td class="num">I-12</td><td class="zh">示意台的排版：<code>sans-serif</code> 後備字型、02-C、02-C2 兩條 banner 上下排列並間隔 12px；banner 外框 1px（<code>BorderSide</code> 沒指定寬度，用 Flutter 預設，沒讀 SDK）</td><td class="zh">只是示意台的擺法，app 沒有對應的值</td></tr>
+        <tr><td class="num">I-13</td><td class="zh">summary 行高 28、Preferences 示意區的底色／padding／間距</td><td class="zh">示意台的排版；app 由 <code>SizedBox(height: 30)</code> 決定高度</td></tr>
+        <tr><td class="num">I-14</td><td class="zh">開關列的排版（勾選框和文字間距 12、勾選框往下 2px）；開關的標題和說明文字</td><td class="zh">app 用的是 Material <code>CheckboxListTile</code>，沒讀 SDK。文字是我寫的，照同一區其他開關的寫法（中文標題＋一句說明）。放在 cherry-pick 開關下面也是我選的位置（那是「COMMIT 訊息」區唯一的開關，⑪ 沒有指定位置）。勾選框畫的是 kit 的 <code>.gbm-checkbox</code>，app 實際是 Material 預設勾選框，這輪不改它</td></tr>
+        <tr><td class="num">I-10</td><td class="zh">沒畫 72 字尺標、<code>N chars</code> 警示；tooltip 畫成按鈕下方一直顯示的一塊</td><td class="zh">尺標與警示這輪不會動。實際的 tooltip 是 hover 才出現的浮層，畫成一直顯示只是為了讓你看到文字</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ============================ 6 ============================ -->
+  <section id="crosscheck">
+    <div class="sec-head"><span class="sec-num">06</span><h2 class="zh">和已出貨的實作逐項比對</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>畫的值</th><th>來源</th><th>app 現在的值</th><th>一致</th></tr></thead>
+      <tbody>
+        <tr><td>外框 padding 12</td><td>[APP]</td><td><code>EdgeInsets.all(GbmSpacing.space3)</code></td><td class="verdict no">✓</td></tr>
+        <tr><td>欄位與按鈕欄的間距 8</td><td>[APP]</td><td><code>SizedBox(width: GbmSpacing.space2)</code></td><td class="verdict no">✓</td></tr>
+        <tr><td>按鈕欄寬 132、按鈕間距 8</td><td>[APP]</td><td><code>_kCommitButtonColumnWidth = 132</code>、<code>SizedBox(height: space2)</code></td><td class="verdict no">✓</td></tr>
+        <tr><td>按鈕 h30 r6 12.5px</td><td>[KIT] .gbm-btn</td><td><code>GbmButton</code>：height 30、<code>radiusMd</code>、textSm</td><td class="verdict no">✓</td></tr>
+        <tr><td>summary／description 間距 8</td><td>[APP]</td><td><code>Padding(bottom: space2)</code></td><td class="verdict no">✓</td></tr>
+        <tr><td>description 字型 mono 13.5</td><td>[APP]</td><td><code>fontMono</code>、<code>textBase</code></td><td class="verdict no">✓</td></tr>
+        <tr><td>欄位框 1px r4</td><td>[APP]</td><td class="zh">Material <code>OutlineInputBorder()</code> 預設值（這和 <code>.gbm-input</code> 的 r6 h30 不同；是既有的落差，本輪不碰）</td><td class="verdict no">✓（照 app）</td></tr>
+        <tr><td>R2 的註解行用 tertiary 顏色</td><td>[P8]</td><td class="zh"><code>_CommentAwareController</code>（衝突視窗的訊息步驟已經這樣做了），可以搬過來共用</td><td class="verdict no">✓</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ============================ 7 ============================ -->
+  <section id="commits">
+    <div class="sec-head"><span class="sec-num">07</span><h2 class="zh">核准後的 commit 結構（每個都可以單獨 revert）</h2></div>
+    <p class="lede zh">開新分支 <code>feature/prepared-commit-message</code>，從 <code>feature/mergePanel</code> 分出去（PR #182 還沒合併）。新的 capi 事件和新的 RepoState 欄位都會跨 FFI 序列化，屬於 risk trigger：實作前要 plan-verifier 回 READY，完成後要 verifier 驗收。新檔案動手前先 dispatch arch-suggester。</p>
+<div class="ascii">C1 fix(core)    readPreparedCommitMessage：SQUASH_MSG 接 MERGE_MSG（M3/M4），在原處更正註解與 C3
+C2 feat(core)   經 git stripspace -s 去掉註解行（R1，commentChar 交給 git）
+C3 feat(core)   RepoState.preparedMessagePending + JSON + Dart model
+C4 feat(capi)   gbm_request_prepared_commit_message → PREPARED_COMMIT_MESSAGE_READY；失敗時另發 ERROR_OCCURRED
+C5 feat(dart)   draft controller：applyPreparedMessage（覆蓋、存下原本的字）／restoreAfterAbort（⑨）
+C6 feat(dart)   commit 框接上：pending false→true 時填（②）；啟動時已在 merge 中、框空才填（⑪）；Abort 時處理（③⑨）
+C7 fix(dart)    merge 進行中不顯示 Amend…（④）
+C7b feat(dart)  AppPreferences.overwriteWithPreparedMessage（預設 true）＋ Preferences → Git 開關（⑪）；兩顆開關標題前加「（預設）」
+C7c fix(dart)   commit 框改用 gbmInputDecoration／gbmMultilineInputDecoration（⑫）
+C7d fix(dart)   兩個 input helper 補 hintStyle text-tertiary（⑬）
+C7e fix(dart)   Amend… → Amend、commit 區底色 surface-panel-raised（⑮）
+C8 fix(dart)    merge 進行中 staged 為空也可以 Commit（⑤）
+C9 fix(dart)    conflict banner：不能用的 Abort／Skip／Continue 不顯示（⑥⑩）
+               ledger 記「⑤ 推翻 P3 第 8 項，只限 merge 進行中」（⑭）
+C10 refactor    刪掉 C++ 的 shouldApplyPreparedCommitMessage（⑦）；FEATURES.md 改寫覆蓋規則
+C11 test        裝置層：merge 衝突 → 框有訊息 → 解完 → Commit；squash 已 stage → 框有 SQUASH_MSG；Abort 放回原字
+C12 chore       ledger + INDEX</div>
+  </section>
+
+  <!-- ============================ 8 ============================ -->
+  <section id="audits">
+    <div class="sec-head"><span class="sec-num">08</span><h2 class="zh">六項稽核結果</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th style="width:24%">稽核</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td class="zh">1 沒有出處的值</td><td class="zh"><s>0 個（每個 px／顏色都標了 [APP]/[KIT]/[P8]，或列在 Inferred I-1～I-7）</s> <b>更正</b>：我自己的檢查只抓 px 和小數，漏掉了只寫 <code>var(--gbm-*)</code> 的顏色和示例資料。spec-auditor 逐值核了 65 項：符合 41、不符 3、沒有出處也沒列出 15。已全部處理：不符的改掉（summary 字級、primary 外框、去掉 <code>lib/</code>，並說明 <code>into main</code>），沒有出處的補上引用或列進 I-8～I-10。另外 CSS 裡多了一個 <code>}</code>，會讓外框那條規則整條失效，也已刪掉</td></tr>
+        <tr><td class="zh">2 token 覆蓋</td><td class="zh">三套 palette 都是：用到但沒定義的 0 個、定義了沒用到的 0 個</td></tr>
+        <tr><td class="zh">3 對比（WCAG）</td><td class="zh">欄位文字 16.0–17.3；secondary 按鈕 14.6–17.3；tooltip 5.9–7.1。<b>低於 4.5 的</b>：tertiary 文字（placeholder／R2 的灰色註解行與附註）neutral 4.62、dark 4.12、light-ide <b>3.08</b>；Commit（accent 上的白字）三套都是 <b>3.75</b>。兩者都是 <code>tokens-reference.md</code> 的值，也是 app 現在出貨的樣子，所以只回報、不在這裡改。如果選 R2，灰色註解行會在 light-ide 下對比偏低</td></tr>
+        <tr><td class="zh">4 HTML 結構</td><td class="zh"><code>html.parser</code>：錯配 0 個、沒關閉 0 個</td></tr>
+        <tr><td class="zh">5 和實作對照</td><td class="zh">見第 06 節，8 項都和 app 一致；這 8 項不包含框線色、hint 色、行高、底色，那幾項列在 I-1／I-9（欄位框照 app 的 Material 預設，和 <code>.gbm-input</code> 的落差是既有的，本輪不碰）</td></tr>
+        <tr><td class="zh">6 元件有沒有認錯</td><td class="zh">註解行的灰色＝P8 面板描述的訊息步驟樣式，不是 <code>.gbm-banner</code>；附註沿用 <code>original_operation_message_dialog.dart</code> 的 textXs tertiary 註記，不是 dialog 的 <code>warn</code> 欄位；tooltip 是 Material <code>Tooltip</code>，app 沒有 <code>.gbm-*</code> 的 tooltip 類別</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <footer class="colophon">
+    <span>Sources: Flutter Desktop Spec (standalone).html — P8「解完之後的 commit message」, MSGS; docs/FEATURES.md; src/core/git/PreparedCommitMessage.h</span>
+    <span>[APP] = shipped Flutter widget, read 2026-10-09</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>
+</body>
+</html>

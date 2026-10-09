@@ -1,6 +1,8 @@
 #include "core/git/ops/MergeOps.h"
 
 #include <chrono>
+#include <filesystem>
+#include <system_error>
 #include <utility>
 
 namespace gbm {
@@ -182,7 +184,19 @@ private:
         }
         if (*indexMatchesHead) {
             outcome.succeeded = true;
-            outcome.summary = request_.target + " is already up to date -- nothing to squash";
+            // git writes SQUASH_MSG only when the source had commits to
+            // squash, so its presence tells "changed and changed back" from
+            // "already in HEAD". Left behind, it would prefill the user's next
+            // unrelated commit -- nothing else reads it.
+            const std::filesystem::path squashMsg = paths.gitDir() / "SQUASH_MSG";
+            std::error_code ec;
+            if (std::filesystem::exists(squashMsg, ec)) {
+                std::filesystem::remove(squashMsg, ec);
+                outcome.summary = "Squashed " + request_.target +
+                                  ", but it has no net changes -- nothing was committed";
+            } else {
+                outcome.summary = request_.target + " is already up to date -- nothing to squash";
+            }
             return outcome;
         }
 

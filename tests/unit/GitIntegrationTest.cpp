@@ -3229,6 +3229,47 @@ TEST_F(RealRepoTest, SquashMergeWithAMessageCommitsItAsOneOrdinaryCommit) {
     EXPECT_NE(body->out.find("c3 on feature"), std::string::npos) << body->out;
 }
 
+TEST_F(RealRepoTest, ASquashWithNoNetChangeCommitsNothingAndLeavesNoSquashMsg) {
+    // The source changed a file and changed it back: git squashes, writes a
+    // SQUASH_MSG, and stages nothing. Nothing to commit -- and the leftover
+    // SQUASH_MSG would otherwise reappear as the next manual commit's message.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("a.txt", "2\n", "change a");
+    commitFile("a.txt", "1\n", "change it back");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("m.txt", "m\n", "main moves");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+
+    EXPECT_NE(outcome.summary.find("no net changes"), std::string::npos) << outcome.summary;
+    EXPECT_FALSE(std::filesystem::exists(repo_ / ".git" / "SQUASH_MSG"));
+    auto count = run({"rev-list", "--count", "HEAD"});
+    ASSERT_TRUE(count);
+    EXPECT_EQ(count->out, "2") << "HEAD did not move";
+}
+
+TEST_F(RealRepoTest, AnAlreadyMergedSquashSaysUpToDate) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"branch", "feature"}));
+    commitFile("m.txt", "m\n", "main moves");
+
+    OperationRunner operations(*runner_, paths_);
+    MergeRequest request;
+    request.target = "feature";
+    request.mode = MergeMode::Squash;
+    request.message = "Squashed commit of the following:\n";
+    auto outcome = submitAndWait(operations, makeMergeOperation(request));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : outcome.summary);
+    EXPECT_NE(outcome.summary.find("up to date"), std::string::npos) << outcome.summary;
+}
+
 TEST_F(RealRepoTest, ASquashNeverCommitsWorkTheUserHadAlreadyStaged) {
     // A fast-forward squash keeps an unrelated staged change, so committing
     // after it would sweep that change into the squash commit (S3 verifier,

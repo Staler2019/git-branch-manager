@@ -49,6 +49,8 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
 | `28ff794` | capi `GBM_EVENT_SQUASH_MESSAGE_READY = 36` + Dart binding / state | capi 2 → 1、1；Dart 3 → 1、1、1 |
 | `2fd61a4` | `MergeOps` squash：有 stage 內容才 `commit --file -` | 4 → 1、1、1、4 |
 | `6bcbd13` | 對話框 squash：預填預覽、陳舊即重請求、預覽未到停用 Merge | 5 → 2、2、3、2、1 |
+| `29cee0e` | squash 預覽加 `--no-expand-tabs`（verifier 的 REFUTED，見下） | 1 → 2 |
+| `6713043` | squash 前已有 stage 內容時只 stage、不 commit（第二次 REFUTED，見下） | 1 → 2 |
 
 量測與實跑得到、讀碼得不到的事：
 
@@ -56,7 +58,11 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
   Windows 分支用 `GetStdHandle` 繼承了 app 的 stdin。兩處都修：`--no-edit` 是語意上的修正，`NUL` 是讓
   其他指令也不會再遇到同一個陷阱。
 - **SQUASH_MSG 可以 byte-identical 重現**：`"Squashed commit of the following:\n\n"` +
-  `git log --pretty=medium --no-decorate --no-abbrev-commit --no-mailmap --no-notes --no-show-signature --no-color --date=default <headOid>..<sourceOid>` + `"\n"`。
+  ~~`git log --pretty=medium --no-decorate --no-abbrev-commit --no-mailmap --no-notes --no-show-signature --no-color --date=default <headOid>..<sourceOid>` + `"\n"`。~~
+  更正：上面那組旗標**不夠**——內文有 tab 時 medium 格式會展開成空白，SQUASH_MSG 保留 tab。S3 的 verifier 以
+  `printf 'Subject\n\n\tindented with a tab\n' | git commit -F -` 重現（`cmp` 第 9 行不同），判 REFUTED（P2，本輪引入）。
+  `29cee0e` 加 `--no-expand-tabs` 後，該最小重現與 verifier 的 hostile-config 情境（含 tab、`功能/ü`、CRLF、空訊息）皆 byte 相同。
+  正確的指令是 `git log --pretty=medium --no-decorate --no-abbrev-commit --no-mailmap --no-expand-tabs --no-notes --no-show-signature --no-color --date=default <headOid>..<sourceOid>`。
   `RealRepoTest.SquashPreviewMatchesTheSquashMsgGitWrites` 在設了 `log.abbrevCommit=true`、`.mailmap`、
   一筆 note、範圍含 merge commit 的 repo 上比對真的 `.git/SQUASH_MSG`。
   ~~計畫寫「逐一拿掉三個新旗標各自變紅」~~ 更正：拿掉 `--no-abbrev-commit`、`--no-mailmap` 各自讓整合測試變紅；
@@ -67,6 +73,12 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
 - **squash commit 的分支**：`merge --squash` 成功後 `diff --cached --quiet`——exit 0（沒有 stage 內容）就不 commit、
   回 up to date；exit 1 才 `commit --file -`（訊息走 stdin，不走 `-m`，避免 argv 長度與 `-` 開頭問題）。
   commit 失敗（hook、簽章）回 `succeeded=false`，summary 寫明變更已 stage。衝突時只有一條指令。
+  ~~上述流程足以保證 commit 只含來源的變更~~ 更正：S3 的第二次 verifier 判 REFUTED（P2，`2fd61a4` 引入）——
+  **fast-forward 的 `merge --squash` 會保留使用者原本 stage 的變更**（non-ff 時 git 會以 "Local changes would be
+  overwritten" 拒絕，所以只有 ff 會中），之後的 `commit` 把它們一起寫進只列來源 commit 的訊息。`6713043` 改成
+  merge **之前**先跑一次 `diff --cached --quiet`：index 與 HEAD 不同就照樣 squash，但只 stage、不 commit，summary 說明原因
+  ——也就是本輪之前的行為，只用在這一種情況。勾 stash 時 stash 先跑、index 乾淨，照常 commit。
+  `RealRepoTest.ASquashNeverCommitsWorkTheUserHadAlreadyStaged` 以 verifier 的情境端到端釘住。
 
 過程中的錯誤，如實記錄：
 
@@ -85,6 +97,15 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
 - Merge 訊息預填 git 預設格式；squash 預填 SQUASH_MSG，無衝突時直接 commit 成一筆一般 commit。
 - revert 不再開 editor。
 - G3 全套（`6bcbd13` 上）：core 572 pass／2 skipped（git-lfs 未安裝的兩個 LFS 測試）；capi 183 pass；Flutter 3282 pass／1 skipped；`dart analyze` 0、`dart format` 0。
+  之後的 `29cee0e`、`6713043` 只動 C++：core 576 pass（+2 新測試；git-lfs 於 2026-10-09 13:53 出現在 homebrew——
+  同時段 go／llvm／qtbase 也被更新，不是本 session 做的——兩個 LFS 測試因此不再 skip）、capi 183 pass。
+- S3 的 verifier（risk 單元，序列化邊界）共三次：REFUTED（tab 展開）→ `29cee0e`；REFUTED（ff squash 夾帶已 stage 變更）→ `6713043`；
+  第三次 **CONFIRMED**（HEAD `6713043`；含 hostile config、ISO-8859-1、remote、detached、capi JSON 跳脫、dialog probe、真實 repo 七個 merge 情境）。
+  計畫預算「fix/reverify 至多 2 輪」剛好用完。
+- 延後的 P4（未修，理由：不影響正確性或已 fail-safe）：失敗回覆多一次重請求；整合測試容忍一個結尾換行；postFront 回覆順序顛倒（未重現）；
+  非 UTF-8 訊息的嚴格 `utf8.decode`（未重現）；commit 時 git 把 `"    \n"` 清成 `"\n"`（與手動 commit SQUASH_MSG 相同）；
+  淨變更為零的 squash 留下 `.git/SQUASH_MSG`；與 branch 同名的 tag 讓預覽一直陳舊（fail-safe）；
+  non-ff squash 遇已 stage 變更時 git 直接拒絕（連 stage 都沒有，走既有錯誤路徑）；預覽失敗時使用者自行輸入的文字仍會被 commit。
 - G3 orphan grep 兩方向：`requestSquashMessage` / `squashMessagePreview` / `mergeDialogFor` / `openMergeDialog` /
   `GbmRefReadOnlyField` 在 `lib/` 都有 caller 與 reader。改動的 lib 檔沒有新的 `InkWell(` / `GestureDetector(`。
 - device 層：`integration_test/` 沒有任何測試走 merge / rebase / revert（唯一 grep 命中是 05-G 的 discard 行測試，與本輪無關），
@@ -96,6 +117,7 @@ Rebase current onto here → /dialogs/rebase-onto?target=X    DropdownButtonForm
   [CPP-windows-terminate-hangs-join] 的原則同樣適用。
 - 使用者的 Windows 機器上 revert 不再跳 VS Code，**尚未由使用者確認**。
 - 沒有 push、沒有開 PR（AUTO 模式不授權）。
+- **沒有實際啟動 app 點擊驗證**：本 session 沒有能操作原生 macOS 視窗的工具，05-B 兩個項目的實點只由 widget / integration 層（`sidebar_branch_compare_rebase_test`、`dialog_target_prefill_test`）驗證。
 - 發現但未處理（只報告，未開 issue）：`src/core/git/PreparedCommitMessage.h` 的 `readPreparedCommitMessage` /
   `shouldApplyPreparedCommitMessage` 在 `src/capi/` 與 `app_flutter/lib/` 都沒有 caller，只有單元測試引用——
   [CULT-orphan-wiring] 的形狀。本輪的 SQUASH_MSG 走預覽而非讀檔，所以沒有接它。

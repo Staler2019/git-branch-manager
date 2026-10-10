@@ -22,6 +22,11 @@ public:
 
     std::string describe() const override { return request_.amend ? "Amend commit" : "Commit"; }
 
+    // Read by the Working Copy box (prepared-commit-message Slice D): the box
+    // is cleared or kept on this outcome alone, never on a HEAD move or an
+    // unrelated error. Amend is the same kind -- it ends the same wait.
+    std::string kind() const override { return "commit"; }
+
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {

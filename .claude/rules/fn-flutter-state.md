@@ -42,4 +42,5 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md). Rules a test
 
 - **Rule**: `gbm_session_close` drains core, and a read still running then (`requestWorktreePendingCounts` runs git per worktree) emits once more through the registered callback; invoking a closed `NativeCallable` aborts the app with "Callback invoked after it has been deleted".
 - **Do**: `RepoSessionController.dispose()` calls `closeNativeSession()` before `_events?.dispose()`; once the session is closed nothing emits. `repo_session_dispose_order_test.dart` emits from inside `sessionClose` and reddens the reversed order with the same VM abort.
+- **Do**: events emitted during that drain are still queued when `dispose()` runs, and a listener drops what is queued when it closes (payloads never freed); `GbmSessionEvents.dispose()` therefore sends a sentinel through its own callable and closes only when it arrives (`event_dispatcher_test.dart`).
 - **Evidence**: [ledger: worktree_add_refresh 的崩潰](../../docs/ledger/2026-10-11-fix-path-relative-and-worktree-flake.md)

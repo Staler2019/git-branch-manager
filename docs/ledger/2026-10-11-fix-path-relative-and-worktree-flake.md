@@ -52,7 +52,10 @@
 - 本機 6 份 `gbm_flutter-2026-10-11-*.ips`（包括前一輪的 4 份）全部一樣：
   - `SIGABRT`
   - `dart::Assert::Fail` ← `DLRT_GetFfiCallbackMetadata`
-  - ← `Session::requestWorktreePendingCounts()` 的 emit（`Session.cpp:1065`／`1079`）
+  - ← `Session::requestWorktreePendingCounts()` ~~的 emit（`Session.cpp:1065`／`1079`）~~ 裡的 callback 呼叫（更正，verifier P4）：
+    - 1079 是 `emitEmpty(WORKTREES_UPDATED)`。
+    - 1065 是 `if (!result)`，不是 emit。這一幀直接接 Dart trampoline，中間是被內聯的呼叫，而這個範圍內唯一的 callback 呼叫是 1066 的 `emit(ERROR_OCCURRED)`。推論：`~Session` 先 cancel `readCancel_`，`list()` 因此失敗，送出錯誤事件。
+    - Session.cpp 從 12:05（`4c60e76e`）之後沒改過，6 份 crash 都在那之後，所以行號對得上現在的原始碼。
 - 原因：`RepoSessionController.dispose()` 先 `_events?.dispose()`（`NativeCallable.close()`），再 `closeNativeSession()`。
   - core 要到 `~Session` 才 drain，這段期間仍在跑的 pending counts（每個 worktree 跑一次 git）會 emit。
   - 這時事件打到已經 close 的 callable，Dart VM abort。
@@ -77,3 +80,17 @@
   - 修正後沒有新的 crash report。
 - 已在原處補註 2026-10-09 ledger 對這個 flake「不認定原因」的那段。
 - 新 pin：`[FLU-close-session-before-callable]`。
+
+## 追加：verifier 的三條 P4（使用者 2026-10-11：「p4修完」）
+
+- **PATH 測試在 Windows 不跑**：`SearchPathSkipsARelativePathEntry` 拿掉 `#ifndef _WIN32`。
+  - 改用 `setEnv`（Windows 用 `_putenv_s`），分隔符與執行檔名依平台決定。
+  - Windows 上 registry 找到的 Git for Windows 會排在最前面，所以那裡改成斷言「真正的 git 有被列入」，並且「每個候選都是絕對路徑」。
+  - macOS 上 mutation 1 次（拿掉檢查），紅 1。
+  - 本機沒有 Windows 工具鏈，Windows 的編譯與執行要等 PR 的 base 是 `main` 時的 CI。
+- **close 時排隊中的事件 payload 沒被釋放**：先量。新測試在 `sessionClose` 裡送一個帶 payload 的事件，dispose 後等事件迴圈跑完再計數，結果釋放 0/1。這證實了：listener 關閉時，佇列裡的訊息會被丟掉。
+  - 修法：`GbmSessionEvents.dispose()` 不立刻 close，改成經由自己的 callable 送出哨兵（eventType -1）。listener 的訊息依序送達，哨兵抵達時前面的事件都已經收到、payload 也已釋放，`_onEvent` 這時才 close。
+  - 新增 `@visibleForTesting isNativeCallbackClosed` 與 `test/data/ffi/event_dispatcher_test.dart`。原因：「永遠不關」這個 mutation 第一次沒有被任何測試擋下，而沒關的 listener 會讓 isolate 一直活著。
+  - mutation 3 次（立刻 close、永遠不關、不送哨兵），各紅 1。
+- **ledger 行號**：見上方 Action 的原處更正。
+

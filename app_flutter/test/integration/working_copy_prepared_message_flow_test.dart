@@ -6,6 +6,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -17,6 +18,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 
 import '../support/fake_repo_session.dart';
@@ -126,6 +128,83 @@ Future<void> _reply(
   await tester.pumpAndSettle();
 }
 
+/// Refs re-read, as `publishRefs` publishes them: [head] (default: where
+/// they were) and one more `refsEpoch`.
+Future<void> _refsArrive(
+  WidgetTester tester,
+  PumpedWorkspace pumped, {
+  String? head,
+}) async {
+  final RepoSessionState s = pumped.controller.state;
+  pumped.controller.emit(
+    s.copyWith(
+      refsEpoch: s.refsEpoch + 1,
+      refs: head == null
+          ? null
+          : RefSnapshot(
+              head: HeadInfo(
+                kind: HeadKind.branch,
+                branchName: 'main',
+                fullRef: 'refs/heads/main',
+                target: head,
+              ),
+              refs: const <RefInfo>[],
+              refCountGuardTripped: false,
+              totalRefCount: 0,
+            ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+/// A commit-meta reply: [oid] with [parents], or an empty reply when [oid]
+/// is null. Either way one more `commitMetaReplySeq`.
+Future<void> _metaReply(
+  WidgetTester tester,
+  PumpedWorkspace pumped, {
+  String? oid,
+  List<String> parents = const <String>[],
+}) async {
+  final RepoSessionState s = pumped.controller.state;
+  pumped.controller.emit(
+    s.copyWith(
+      commitMetaReplySeq: s.commitMetaReplySeq + 1,
+      commitMetaCache: oid == null
+          ? null
+          : <String, CommitMeta>{
+              ...s.commitMetaCache,
+              oid: CommitMeta(
+                oid: oid,
+                tree: '',
+                parents: parents,
+                author: const Signature(
+                  name: 'a',
+                  email: 'a@b',
+                  when: 0,
+                  tzOffsetMinutes: 0,
+                ),
+                committer: const Signature(
+                  name: 'a',
+                  email: 'a@b',
+                  when: 0,
+                  tzOffsetMinutes: 0,
+                ),
+                subject: 's',
+                body: '',
+                signedCommit: false,
+              ),
+            },
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+int _commands(PumpedWorkspace pumped, String name) => pumped
+    .controller
+    .commandLog
+    .where((FakeCommand c) => c.name == name)
+    .length;
+
 void main() {
   testWidgets('a merge starting asks once and overwrites typed text (①②⑪)', (
     WidgetTester tester,
@@ -185,9 +264,137 @@ void main() {
     await _reply(tester, pumped);
 
     await _setPending(tester, pumped, false);
+    // Slice D R2: HEAD is re-read before an Abort is told from a commit.
+    expect(_commands(pumped, 'refreshHistory'), 1);
+    expect(_summary(tester), "Merge branch 'topic'");
+    await _refsArrive(tester, pumped);
 
     expect(_summary(tester), 'mine');
     expect(_description(tester), 'my body');
+    final SharedPreferences prefs = pumped.container.read(
+      sharedPreferencesProvider,
+    );
+    await tester.pumpAndSettle();
+    expect(
+      prefs.getStringList('workingCopyPreparedEpisode:${_identity.workDir}'),
+      isNull,
+    );
+  });
+
+  // Slice D R2 (使用者 2026-10-11 「分辨 commit，其他照 Abort」).
+  group('the merge ending without an in-app commit', () {
+    Future<PumpedWorkspace> filledThenEnded(WidgetTester tester) async {
+      final PumpedWorkspace pumped = await _pump(tester);
+      await _type(tester, 'mine', 'my body');
+      await _setPending(tester, pumped, true);
+      await _reply(tester, pumped);
+      await _setPending(tester, pumped, false);
+      return pumped;
+    }
+
+    testWidgets('an error while re-reading refs is an Abort', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(
+          lastError: const GitError(
+            code: 1,
+            codeName: 'ProcessFailed',
+            message: 'refs failed',
+            detail: '',
+            argv: <String>['git', 'for-each-ref'],
+            exitCode: 1,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(_summary(tester), 'mine');
+    });
+
+    testWidgets('committed outside the app: the box clears', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      await _refsArrive(tester, pumped, head: 'cafebabe');
+      expect(_commands(pumped, 'requestCommitMeta'), 1);
+      await _metaReply(
+        tester,
+        pumped,
+        oid: 'cafebabe',
+        parents: <String>['deadbeef', 'f00d'],
+      );
+      expect(_summary(tester), isEmpty);
+      expect(_description(tester), isEmpty);
+    });
+
+    testWidgets('a reset elsewhere puts back the untouched autofill', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      await _refsArrive(tester, pumped, head: '0ddba11');
+      await _metaReply(
+        tester,
+        pumped,
+        oid: '0ddba11',
+        parents: <String>['beefcafe'],
+      );
+      expect(_summary(tester), 'mine');
+    });
+
+    testWidgets('a reset elsewhere keeps an edited message', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pump(tester);
+      await _type(tester, 'mine', 'my body');
+      await _setPending(tester, pumped, true);
+      await _reply(tester, pumped);
+      await _type(tester, "Merge branch 'topic'", 'my own words');
+      await _setPending(tester, pumped, false);
+      await _refsArrive(tester, pumped, head: '0ddba11');
+      await _metaReply(
+        tester,
+        pumped,
+        oid: '0ddba11',
+        parents: <String>['beefcafe'],
+      );
+      expect(_description(tester), 'my own words');
+    });
+
+    testWidgets('no answer about the new HEAD is an Abort', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      await _refsArrive(tester, pumped, head: 'cafebabe');
+      await _metaReply(tester, pumped);
+      expect(_summary(tester), 'mine');
+    });
+
+    testWidgets('a remount asks about the new HEAD again', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      await _refsArrive(tester, pumped, head: 'cafebabe');
+      expect(_commands(pumped, 'requestCommitMeta'), 1);
+
+      pumped.router.go(
+        RoutePaths.historyFor(Uri.encodeComponent(_identity.workDir)),
+      );
+      await tester.pumpAndSettle();
+      pumped.router.go(
+        RoutePaths.workingCopyFor(Uri.encodeComponent(_identity.workDir)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(_commands(pumped, 'requestCommitMeta'), 2);
+      await _metaReply(
+        tester,
+        pumped,
+        oid: 'cafebabe',
+        parents: <String>['deadbeef'],
+      );
+      expect(_summary(tester), isEmpty);
+    });
   });
 
   testWidgets('an abort after the user edited keeps the edit', (

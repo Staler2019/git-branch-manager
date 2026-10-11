@@ -18,6 +18,14 @@ PreparedMessageAction _decide({
   bool needsRevalidation = false,
   bool revalidationRequested = false,
   bool sameMerge = false,
+  bool episodeHeadKnown = false,
+  bool headCheckRequested = false,
+  bool headCheckDone = false,
+  bool headMoved = false,
+  bool checkFailed = false,
+  bool parentCheckRequested = false,
+  ParentCheck parent = ParentCheck.none,
+  bool mounting = false,
 }) => decidePreparedMessageAction(
   PreparedMessageContext(
     pending: pending,
@@ -34,6 +42,14 @@ PreparedMessageAction _decide({
     needsRevalidation: needsRevalidation,
     revalidationRequested: revalidationRequested,
     sameMerge: sameMerge,
+    episodeHeadKnown: episodeHeadKnown,
+    headCheckRequested: headCheckRequested,
+    headCheckDone: headCheckDone,
+    headMoved: headMoved,
+    checkFailed: checkFailed,
+    parentCheckRequested: parentCheckRequested,
+    parent: parent,
+    mounting: mounting,
   ),
 );
 
@@ -247,6 +263,123 @@ void main() {
       expect(
         reopened(reply: PreparedReplyStatus.failed),
         PreparedMessageAction.keep,
+      );
+    });
+  });
+
+  // Slice D R2: the merge ending outside an in-app commit. A commit (new
+  // HEAD's first parent is the episode's HEAD) clears the box; any other
+  // HEAD move, or none, follows the Abort rule (使用者 2026-10-11 「分辨
+  // commit，其他照 Abort」).
+  group('a filled episode ending without an in-app commit', () {
+    PreparedMessageAction ended({
+      bool boxMatchesAutofill = true,
+      bool episodeHeadKnown = true,
+      bool filled = true,
+      bool headCheckRequested = true,
+      bool headCheckDone = true,
+      bool headMoved = true,
+      bool checkFailed = false,
+      bool parentCheckRequested = true,
+      ParentCheck parent = ParentCheck.none,
+      bool mounting = false,
+      bool commitInFlight = false,
+    }) => _decide(
+      pending: false,
+      filled: filled,
+      boxMatchesAutofill: boxMatchesAutofill,
+      episodeHeadKnown: episodeHeadKnown,
+      headCheckRequested: headCheckRequested,
+      headCheckDone: headCheckDone,
+      headMoved: headMoved,
+      checkFailed: checkFailed,
+      parentCheckRequested: parentCheckRequested,
+      parent: parent,
+      mounting: mounting,
+      commitInFlight: commitInFlight,
+    );
+
+    test('first asks for fresh refs', () {
+      expect(ended(headCheckRequested: false), PreparedMessageAction.checkHead);
+    });
+
+    test('waits for them', () {
+      expect(ended(headCheckDone: false), PreparedMessageAction.nothing);
+    });
+
+    test('HEAD unchanged is an Abort: untouched restores, edited ends', () {
+      expect(ended(headMoved: false), PreparedMessageAction.restoreAndEnd);
+      expect(
+        ended(headMoved: false, boxMatchesAutofill: false),
+        PreparedMessageAction.end,
+      );
+    });
+
+    test('HEAD moved asks for its parent, then waits', () {
+      expect(
+        ended(parentCheckRequested: false),
+        PreparedMessageAction.checkParent,
+      );
+      expect(ended(), PreparedMessageAction.nothing);
+    });
+
+    test('a remount while the parent is unanswered asks again', () {
+      expect(ended(mounting: true), PreparedMessageAction.checkParent);
+    });
+
+    test('a commit clears the box', () {
+      expect(
+        ended(parent: ParentCheck.commit),
+        PreparedMessageAction.clearAndEnd,
+      );
+      expect(
+        ended(parent: ParentCheck.commit, boxMatchesAutofill: false),
+        PreparedMessageAction.clearAndEnd,
+      );
+    });
+
+    test('a reset, an undo, a root commit or no answer is an Abort', () {
+      for (final ParentCheck p in <ParentCheck>[
+        ParentCheck.notCommit,
+        ParentCheck.noAnswer,
+      ]) {
+        expect(ended(parent: p), PreparedMessageAction.restoreAndEnd);
+        expect(
+          ended(parent: p, boxMatchesAutofill: false),
+          PreparedMessageAction.end,
+        );
+      }
+    });
+
+    test('an error while waiting is an Abort', () {
+      expect(
+        ended(headCheckDone: false, checkFailed: true),
+        PreparedMessageAction.restoreAndEnd,
+      );
+      expect(ended(checkFailed: true), PreparedMessageAction.restoreAndEnd);
+    });
+
+    // plan-verifier epoch 1: an unfilled episode has no HEAD recorded, and
+    // "HEAD differs from ''" would always read as a move.
+    test('an unfilled episode or one with no HEAD is not checked', () {
+      expect(
+        ended(
+          filled: false,
+          headCheckRequested: false,
+          boxMatchesAutofill: false,
+        ),
+        PreparedMessageAction.end,
+      );
+      expect(
+        ended(episodeHeadKnown: false, headCheckRequested: false),
+        PreparedMessageAction.restoreAndEnd,
+      );
+    });
+
+    test('an in-app commit still just ends', () {
+      expect(
+        ended(commitInFlight: true, headCheckRequested: false),
+        PreparedMessageAction.end,
       );
     });
   });

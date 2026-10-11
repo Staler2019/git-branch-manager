@@ -84,6 +84,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// this frame.
   bool _preparedPassScheduled = false;
 
+  /// The first pass after mounting re-asks an unanswered parent check: its
+  /// reply may have arrived, and been evicted, while this view was gone.
+  bool _firstPreparedPass = true;
+
   @override
   void initState() {
     super.initState();
@@ -669,7 +673,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// changes: RepoState and its pending flag, the reply, HEAD, or the
   /// overwrite switch.
   void _watchPreparedMessage() {
-    ref.listen<(bool, PreparedMessageReply?, String, bool)>(
+    ref.listen<(bool, PreparedMessageReply?, String, bool, int, bool, int)>(
       repoSessionProvider(widget.identity).select(
         (s) => (
           s.repoState?.preparedMessagePending ?? false,
@@ -678,6 +682,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           // that records an episode is decided before either.
           s.refs.head.target,
           s.repoState == null,
+          // Slice D R2's waits: refs re-read with the same HEAD (an Abort
+          // changes nothing else), an error while waiting, and a
+          // commit-meta reply -- empty ones included.
+          s.refsEpoch,
+          s.lastError != null,
+          s.commitMetaReplySeq,
         ),
       ),
       (_, _) => _schedulePreparedPass(),
@@ -716,6 +726,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final ({String summary, String description}) split =
         splitOriginalOperationMessage(message);
 
+    final bool mounting = _firstPreparedPass;
+    _firstPreparedPass = false;
     final PreparedMessageAction action = ref
         .read(workingCopyDraftProvider(widget.identity).notifier)
         .reconcilePreparedMessage(
@@ -729,6 +741,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           overwrite: ref
               .read(appPreferencesProvider)
               .overwriteWithPreparedMessage,
+          refsEpoch: session.refsEpoch,
+          commitMetaReplySeq: session.commitMetaReplySeq,
+          parentsOf: (String oid) => session.commitMetaCache[oid]?.parents,
+          lastErrorPresent: session.lastError != null,
+          mounting: mounting,
         );
     // The box follows the draft through [_syncBoxFromDraft]; all that is
     // left here is asking core for the message.
@@ -739,6 +756,14 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         ref
             .read(repoSessionProvider(widget.identity).notifier)
             .requestPreparedMessage();
+      case PreparedMessageAction.checkHead:
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .refreshHistory();
+      case PreparedMessageAction.checkParent:
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .requestCommitMeta(<String>[session.refs.head.target]);
       case PreparedMessageAction.replace:
       case PreparedMessageAction.restoreAndEnd:
       case PreparedMessageAction.nothing:

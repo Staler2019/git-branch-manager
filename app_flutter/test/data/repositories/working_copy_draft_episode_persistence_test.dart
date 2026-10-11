@@ -88,6 +88,7 @@ void main() {
     String head = 'deadbeef',
     bool overwrite = true,
     bool repoStateKnown = true,
+    int refsEpoch = 0,
   }) {
     final List<String> lines = raw.split('\n');
     return n.reconcilePreparedMessage(
@@ -99,7 +100,21 @@ void main() {
       head: head,
       overwrite: overwrite,
       repoStateKnown: repoStateKnown,
+      refsEpoch: refsEpoch,
     );
+  }
+
+  /// The merge ended without an in-app commit and fresh refs show HEAD
+  /// unchanged: an Abort (Slice D R2).
+  PreparedMessageAction endAtSameHead(
+    WorkingCopyDraftController n, {
+    String head = 'deadbeef',
+  }) {
+    expect(
+      pass(n, pending: false, head: head),
+      PreparedMessageAction.checkHead,
+    );
+    return pass(n, pending: false, head: head, refsEpoch: 1);
   }
 
   /// Settles every queued write.
@@ -143,7 +158,7 @@ void main() {
       final WorkingCopyDraftController n = open();
       pass(n);
       pass(n, reply: PreparedReplyStatus.message);
-      expect(pass(n, pending: false), PreparedMessageAction.restoreAndEnd);
+      expect(endAtSameHead(n), PreparedMessageAction.restoreAndEnd);
       expect(now().summary, 'mine');
       await flush();
       expect(prefs.lists[_episodeKey], isNull);
@@ -190,7 +205,10 @@ void main() {
         pass(n, reply: PreparedReplyStatus.message, head: 'cafebabe'),
         PreparedMessageAction.replaceAsNew,
       );
-      expect(pass(n, pending: false), PreparedMessageAction.restoreAndEnd);
+      expect(
+        endAtSameHead(n, head: 'cafebabe'),
+        PreparedMessageAction.restoreAndEnd,
+      );
       expect(now().summary, isEmpty);
     });
 
@@ -355,7 +373,7 @@ void main() {
       pass(n, reply: PreparedReplyStatus.message);
       await flush();
       prefs.ops.clear();
-      pass(n, pending: false);
+      endAtSameHead(n);
       await flush();
       expect(prefs.ops.first, 'remove $_episodeKey');
     });
@@ -375,7 +393,7 @@ void main() {
       final WorkingCopyDraftController n = open();
       pass(n);
       pass(n, reply: PreparedReplyStatus.message);
-      pass(n, pending: false);
+      endAtSameHead(n);
       expect(now().summary, 'mine');
     });
 

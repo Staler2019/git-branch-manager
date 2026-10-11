@@ -161,6 +161,9 @@ class WorkingCopyDraft {
     this.autofilledRaw = '',
     this.needsRevalidation = false,
     this.revalidationRequested = false,
+    this.headCheckEpoch,
+    this.parentCheckHead,
+    this.parentCheckSeq,
   });
 
   /// First line of the commit message (typically treated separately by Git).
@@ -235,6 +238,16 @@ class WorkingCopyDraft {
   final bool needsRevalidation;
   final bool revalidationRequested;
 
+  /// Slice D R2, memory only. `RepoSessionState.refsEpoch` when the merge
+  /// ended without an in-app commit and fresh refs were asked for; then the
+  /// new HEAD whose commit was asked for, and `commitMetaReplySeq` at that
+  /// moment. Here rather than in the view, so a wait survives Working Copy
+  /// being unmounted. Cleared by the episode ending, or by a merge pending
+  /// again.
+  final int? headCheckEpoch;
+  final String? parentCheckHead;
+  final int? parentCheckSeq;
+
   /// Creates a copy with any fields optionally replaced.
   WorkingCopyDraft copyWith({
     String? summary,
@@ -259,6 +272,10 @@ class WorkingCopyDraft {
     String? autofilledRaw,
     bool? needsRevalidation,
     bool? revalidationRequested,
+    int? headCheckEpoch,
+    String? parentCheckHead,
+    int? parentCheckSeq,
+    bool clearEndChecks = false,
   }) {
     return WorkingCopyDraft(
       summary: summary ?? this.summary,
@@ -294,6 +311,15 @@ class WorkingCopyDraft {
       needsRevalidation: needsRevalidation ?? this.needsRevalidation,
       revalidationRequested:
           revalidationRequested ?? this.revalidationRequested,
+      headCheckEpoch: clearEndChecks
+          ? null
+          : (headCheckEpoch ?? this.headCheckEpoch),
+      parentCheckHead: clearEndChecks
+          ? null
+          : (parentCheckHead ?? this.parentCheckHead),
+      parentCheckSeq: clearEndChecks
+          ? null
+          : (parentCheckSeq ?? this.parentCheckSeq),
     );
   }
 }
@@ -398,8 +424,19 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     required String head,
     required bool overwrite,
     bool repoStateKnown = true,
+    int refsEpoch = 0,
+    int commitMetaReplySeq = 0,
+    List<String>? Function(String oid)? parentsOf,
+    bool lastErrorPresent = false,
+    bool mounting = false,
   }) {
+    // A merge pending again ends any wait on how the previous one ended.
+    if (pending &&
+        (state.headCheckEpoch != null || state.parentCheckHead != null)) {
+      state = state.copyWith(clearEndChecks: true);
+    }
     final WorkingCopyDraft d = state;
+    final int? checkEpoch = d.headCheckEpoch;
     final PreparedMessageAction action = decidePreparedMessageAction(
       PreparedMessageContext(
         pending: pending,
@@ -420,6 +457,14 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         needsRevalidation: d.needsRevalidation,
         revalidationRequested: d.revalidationRequested,
         sameMerge: _isSameMerge(d, reply: reply, raw: raw, head: head),
+        episodeHeadKnown: d.episodeHead.isNotEmpty,
+        headCheckRequested: checkEpoch != null,
+        headCheckDone: checkEpoch != null && refsEpoch > checkEpoch,
+        headMoved: head != d.episodeHead,
+        checkFailed: checkEpoch != null && lastErrorPresent,
+        parentCheckRequested: d.parentCheckHead != null,
+        parent: _parentCheck(d, commitMetaReplySeq, parentsOf),
+        mounting: mounting,
       ),
     );
     _apply(
@@ -428,8 +473,30 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       description: description,
       raw: raw,
       head: head,
+      refsEpoch: refsEpoch,
+      commitMetaReplySeq: commitMetaReplySeq,
     );
     return action;
+  }
+
+  /// The asked-for commit's first parent against the episode's HEAD. A
+  /// root commit has none, and is not a commit of this merge.
+  static ParentCheck _parentCheck(
+    WorkingCopyDraft d,
+    int replySeq,
+    List<String>? Function(String oid)? parentsOf,
+  ) {
+    final String? asked = d.parentCheckHead;
+    if (asked == null) return ParentCheck.none;
+    final List<String>? parents = parentsOf?.call(asked);
+    if (parents != null) {
+      return parents.isNotEmpty && parents.first == d.episodeHead
+          ? ParentCheck.commit
+          : ParentCheck.notCommit;
+    }
+    return replySeq > (d.parentCheckSeq ?? replySeq)
+        ? ParentCheck.noAnswer
+        : ParentCheck.none;
   }
 
   /// Same HEAD, and the same message unless the stored one is empty (its
@@ -452,11 +519,20 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     required String description,
     required String raw,
     required String head,
+    required int refsEpoch,
+    required int commitMetaReplySeq,
   }) {
     final WorkingCopyDraft d = state;
     switch (action) {
       case PreparedMessageAction.nothing:
         break;
+      case PreparedMessageAction.checkHead:
+        state = d.copyWith(headCheckEpoch: refsEpoch);
+      case PreparedMessageAction.checkParent:
+        state = d.copyWith(
+          parentCheckHead: head,
+          parentCheckSeq: commitMetaReplySeq,
+        );
       case PreparedMessageAction.startAndRequest:
         state = d.copyWith(preparedEpisodeActive: true, preparedFilled: false);
       case PreparedMessageAction.cancelAmendAndStart:
@@ -535,6 +611,7 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     autofilledRaw: '',
     needsRevalidation: false,
     revalidationRequested: false,
+    clearEndChecks: true,
   );
 
   /// A commit is about to be sent while the session's commit count stands

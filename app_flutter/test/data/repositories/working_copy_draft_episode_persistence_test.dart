@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const RepoIdentity _repo = RepoIdentity(workDir: '/repo', gitDir: '/repo/.git');
 const String _draftKey = 'workingCopyDraft:/repo';
 const String _episodeKey = 'workingCopyPreparedEpisode:/repo';
+const String _markerKey = 'workingCopyPendingCommit:/repo';
 const String _mergeRaw = "Merge branch 'topic'\n\nmerged body";
 
 /// In-memory preferences whose writes can be held open, so a test can stop
@@ -397,7 +398,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(prefs.ops.last, startsWith('set $_episodeKey'));
 
-      n.commitSubmitted(0);
+      n.commitSubmitted(0, head: 'deadbeef', headKnown: true);
       n.commitLanded();
       final int resetAt = prefs.ops.length;
       final Completer<void> held = prefs.gate!;
@@ -417,6 +418,142 @@ void main() {
       open();
       expect(now().summary, isEmpty);
       expect(now().preparedEpisodeActive, isFalse);
+    });
+  });
+
+  // R1: a commit outstanding across a crash. The marker is on disk before
+  // the commit is sent, so a reopen can tell from HEAD whether it landed.
+  group('a commit outstanding across a restart', () {
+    void settle(
+      WorkingCopyDraftController n, {
+      int outcomeSeq = 0,
+      bool lastSucceeded = false,
+      bool refsLoaded = true,
+      String head = 'deadbeef',
+    }) => n.settleCommit(
+      outcomeSeq: outcomeSeq,
+      lastSucceeded: lastSucceeded,
+      refsLoaded: refsLoaded,
+      head: head,
+    );
+
+    /// Typed 'mine', submitted at HEAD deadbeef, and the app died before any
+    /// outcome reached the box.
+    Future<void> submittedThenCrashed({bool headKnown = true}) async {
+      final WorkingCopyDraftController n = open();
+      n.updateSummary('mine');
+      await n.commitSubmitted(0, head: 'deadbeef', headKnown: headKnown);
+    }
+
+    test('the marker has landed when commitSubmitted completes', () async {
+      final WorkingCopyDraftController n = open();
+      n.updateSummary('mine');
+      prefs.gate = Completer<void>();
+      bool done = false;
+      unawaited(
+        n
+            .commitSubmitted(0, head: 'deadbeef', headKnown: true)
+            .then((_) => done = true),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(done, isFalse, reason: 'the write is held');
+      prefs.gate!.complete();
+      prefs.gate = null;
+      await flush();
+      expect(done, isTrue);
+      expect(prefs.lists[_markerKey], <String>['deadbeef', '1']);
+    });
+
+    test(
+      'HEAD moved: it landed, so the box and both keys are cleared',
+      () async {
+        await submittedThenCrashed();
+        final WorkingCopyDraftController n = open();
+        expect(now().summary, 'mine');
+        settle(n, head: 'cafebabe');
+        await flush();
+        expect(now().summary, isEmpty);
+        expect(prefs.lists[_draftKey], isNull);
+        expect(prefs.lists[_markerKey], isNull);
+      },
+    );
+
+    test(
+      'HEAD unchanged: it failed, so the text stays and the marker goes',
+      () async {
+        await submittedThenCrashed();
+        final WorkingCopyDraftController n = open();
+        settle(n);
+        await flush();
+        expect(now().summary, 'mine');
+        expect(prefs.lists[_markerKey], isNull);
+        expect(now().pendingCommitHead, isNull);
+      },
+    );
+
+    test('nothing is decided before refs load', () async {
+      await submittedThenCrashed();
+      final WorkingCopyDraftController n = open();
+      settle(n, refsLoaded: false, head: '');
+      await flush();
+      expect(now().summary, 'mine');
+      expect(prefs.lists[_markerKey], isNotNull);
+    });
+
+    test(
+      'a HEAD unknown at submit cannot be compared: the text stays',
+      () async {
+        await submittedThenCrashed(headKnown: false);
+        final WorkingCopyDraftController n = open();
+        settle(n, head: 'cafebabe');
+        await flush();
+        expect(now().summary, 'mine');
+        expect(prefs.lists[_markerKey], isNull);
+      },
+    );
+
+    test('a malformed marker is ignored and deleted on open', () async {
+      prefs.lists[_draftKey] = <String>['mine', ''];
+      prefs.lists[_markerKey] = <String>['deadbeef'];
+      final WorkingCopyDraftController n = open();
+      expect(now().pendingCommitHead, isNull);
+      await flush();
+      expect(prefs.lists[_markerKey], isNull);
+      settle(n, head: 'cafebabe');
+      await flush();
+      expect(now().summary, 'mine');
+    });
+
+    // plan-verifier epoch 1: a marker left behind by an in-session failure
+    // would read as "landed" after any later checkout and a normal quit.
+    test('an in-session failure deletes the marker', () async {
+      final WorkingCopyDraftController n = open();
+      n.updateSummary('mine');
+      await n.commitSubmitted(0, head: 'deadbeef', headKnown: true);
+      settle(n, outcomeSeq: 1, lastSucceeded: false);
+      // Not typed over: the text the commit failed with is kept as is, so
+      // no later keystroke round would delete the marker either.
+      await flush();
+      expect(prefs.lists[_markerKey], isNull);
+
+      final WorkingCopyDraftController again = open();
+      settle(again, head: 'cafebabe');
+      await flush();
+      expect(now().summary, 'mine');
+    });
+
+    test('a landed commit deletes the draft before the marker', () async {
+      final WorkingCopyDraftController n = open();
+      n.updateSummary('mine');
+      await n.commitSubmitted(0, head: 'deadbeef', headKnown: true);
+      final int from = prefs.ops.length;
+      settle(n, outcomeSeq: 1, lastSucceeded: true, head: 'cafebabe');
+      await flush();
+      final List<String> removes = prefs.ops
+          .skip(from)
+          .where((String op) => op.startsWith('remove'))
+          .toList();
+      expect(removes, <String>['remove $_draftKey', 'remove $_markerKey']);
     });
   });
 }

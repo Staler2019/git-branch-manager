@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
@@ -18,6 +19,7 @@ import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 
 import 'package:gbm_flutter/widgets/gbm_button.dart';
 
@@ -165,6 +167,30 @@ void main() {
         pumped.container.read(workingCopyDraftProvider(_identity)).summary,
         'fix: something',
       );
+    });
+
+    // Slice D R1: the marker is what a reopen after a crash reads, so it must
+    // already be on disk when the commit is sent -- not written beside it.
+    testWidgets('the commit is sent only once the marker is on disk', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      final SharedPreferences prefs = pumped.container.read(
+        sharedPreferencesProvider,
+      );
+      List<String>? markerAtCommit;
+      pumped.controller.onCommit = () => markerAtCommit = prefs.getStringList(
+        'workingCopyPendingCommit:${_identity.workDir}',
+      );
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Commit'));
+      await tester.pumpAndSettle();
+
+      expect(_commits(pumped), 1);
+      expect(markerAtCommit, isNotNull);
+      expect(markerAtCommit!.first, 'deadbeef');
     });
 
     testWidgets('a successful outcome clears it', (WidgetTester tester) async {

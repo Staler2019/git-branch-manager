@@ -581,7 +581,7 @@ void main() {
     test('a merge ending under an outstanding commit restores nothing', () {
       reconcile();
       reconcile(reply: PreparedReplyStatus.message);
-      notifier.commitSubmitted(0);
+      notifier.commitSubmitted(0, head: 'deadbeef', headKnown: true);
 
       expect(reconcile(pending: false), PreparedMessageAction.end);
       expect(draft().summary, "Merge branch 'topic'");

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/working_copy_status.dart';
@@ -84,12 +86,25 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
   final WorkingCopyDraft draft = ref.read(workingCopyDraftProvider(identity));
   final String message = composeCommitMessage(draft.summary, draft.description);
   if (message.isEmpty) return false;
-  ref
-      .read(workingCopyDraftProvider(identity).notifier)
-      .commitSubmitted(
-        ref.read(repoSessionProvider(identity)).commitOutcomeSeq,
-      );
-  commitChanges(ref, identity, message, amend: amend);
+  final RepoSessionState session = ref.read(repoSessionProvider(identity));
+  // Read now: the commit is sent after an await, when this WidgetRef's
+  // widget may be gone.
+  final RepoSessionController sender = ref.read(
+    repoSessionProvider(identity).notifier,
+  );
+  // The pending-commit marker reaches disk before the commit is sent, so a
+  // crash after it lands cannot bring the committed message back (Slice D
+  // R1). The button, shortcut and menu need only "accepted", hence the bool.
+  unawaited(
+    ref
+        .read(workingCopyDraftProvider(identity).notifier)
+        .commitSubmitted(
+          session.commitOutcomeSeq,
+          head: session.refs.head.target,
+          headKnown: session.refsEpoch > 0,
+        )
+        .then((_) => sender.commit(message, amend: amend)),
+  );
   return true;
 }
 

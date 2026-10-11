@@ -115,8 +115,13 @@ class FakeRepoSessionController extends RepoSessionController {
   /// Recorded, not left to the null-session guard: an unoverridden method
   /// no-ops silently, so a test could not tell a dead Commit button from a
   /// dispatched one.
+  /// Runs as [commit] is dispatched, so a test can look at what was already
+  /// on disk at that moment (the pending-commit marker must be).
+  void Function()? onCommit;
+
   @override
   void commit(String message, {bool amend = false, bool signOff = false}) {
+    onCommit?.call();
     commandLog.add(
       FakeCommand('commit', <String, Object?>{
         'message': message,

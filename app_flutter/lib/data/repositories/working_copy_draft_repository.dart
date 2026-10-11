@@ -34,6 +34,14 @@ class WorkingCopyDraftRepository {
   /// autofilledSummary, autofilledDescription, episodeHead, autofilledRaw]`.
   static const int _episodeLength = 7;
 
+  /// A commit from this box is outstanding: `[headFrom, headKnown ('1'/'0')]`.
+  /// Written **before** the commit is sent, so a crash after it lands -- but
+  /// before the cleared draft reaches disk -- is told apart on reopen by HEAD
+  /// having moved (Slice D R1). `headKnown` is '0' when refs had not loaded
+  /// at submit: HEAD then read '' and cannot be compared.
+  static String _pendingCommitKey(RepoIdentity identity) =>
+      'workingCopyPendingCommit:${identity.workDir}';
+
   /// One list of exactly two entries rather than two keys: a message is one
   /// thing, and two `setString` calls can half-land, leaving a body with
   /// somebody else's subject.
@@ -46,6 +54,19 @@ class WorkingCopyDraftRepository {
     final WorkingCopyDraft draft = stored == null || stored.length != 2
         ? const WorkingCopyDraft()
         : WorkingCopyDraft(summary: stored[0], description: stored[1]);
+    final List<String>? m = _prefs.getStringList(_pendingCommitKey(identity));
+    final WorkingCopyDraft withCommit =
+        m == null || m.length != 2 || (m[1] != '1' && m[1] != '0')
+        ? draft
+        : draft.copyWith(
+            pendingCommitHead: m[0],
+            pendingCommitHeadKnown: m[1] == '1',
+            pendingCommitFromDisk: true,
+          );
+    return _withEpisode(identity, withCommit);
+  }
+
+  WorkingCopyDraft _withEpisode(RepoIdentity identity, WorkingCopyDraft draft) {
     final List<String>? e = _prefs.getStringList(_episodeKey(identity));
     if (e == null || e.length != _episodeLength) return draft;
     if (e[2] != '1' && e[2] != '0') return draft;
@@ -90,6 +111,23 @@ class WorkingCopyDraftRepository {
   Future<void> clearEpisode(RepoIdentity identity) =>
       _prefs.remove(_episodeKey(identity));
 
+  /// Whether the marker key holds anything, well-formed or not: a malformed
+  /// one is read as none and must still be deleted.
+  bool hasPendingCommitMarker(RepoIdentity identity) =>
+      _prefs.getStringList(_pendingCommitKey(identity)) != null;
+
+  Future<void> writePendingCommit(
+    RepoIdentity identity, {
+    required String head,
+    required bool headKnown,
+  }) => _prefs.setStringList(_pendingCommitKey(identity), <String>[
+    head,
+    if (headKnown) '1' else '0',
+  ]);
+
+  Future<void> clearPendingCommit(RepoIdentity identity) =>
+      _prefs.remove(_pendingCommitKey(identity));
+
   Future<void> clear(RepoIdentity identity) => _prefs.remove(_key(identity));
 }
 
@@ -116,6 +154,9 @@ class WorkingCopyDraft {
     this.autofilledSummary = '',
     this.autofilledDescription = '',
     this.pendingCommitSeq,
+    this.pendingCommitHead,
+    this.pendingCommitHeadKnown = false,
+    this.pendingCommitFromDisk = false,
     this.episodeHead = '',
     this.autofilledRaw = '',
     this.needsRevalidation = false,
@@ -176,6 +217,14 @@ class WorkingCopyDraft {
   /// `WorkspaceScreen` settles it.
   final int? pendingCommitSeq;
 
+  /// HEAD when the outstanding commit was submitted, and whether refs had
+  /// loaded then. Persisted as the pending-commit marker; read back with
+  /// [pendingCommitFromDisk] set, where [pendingCommitSeq] is meaningless
+  /// (the session's count restarts) and HEAD is the only evidence left.
+  final String? pendingCommitHead;
+  final bool pendingCommitHeadKnown;
+  final bool pendingCommitFromDisk;
+
   /// The episode's same-merge key: HEAD when it was filled, and git's message
   /// then ('' when that read failed). Persisted with the episode, so a
   /// reopen can tell the same merge from a new one (使用者 2026-10-10).
@@ -202,6 +251,9 @@ class WorkingCopyDraft {
     String? autofilledSummary,
     String? autofilledDescription,
     int? pendingCommitSeq,
+    String? pendingCommitHead,
+    bool? pendingCommitHeadKnown,
+    bool? pendingCommitFromDisk,
     bool clearPendingCommit = false,
     String? episodeHead,
     String? autofilledRaw,
@@ -228,6 +280,15 @@ class WorkingCopyDraft {
       pendingCommitSeq: clearPendingCommit
           ? null
           : (pendingCommitSeq ?? this.pendingCommitSeq),
+      pendingCommitHead: clearPendingCommit
+          ? null
+          : (pendingCommitHead ?? this.pendingCommitHead),
+      pendingCommitHeadKnown: clearPendingCommit
+          ? false
+          : (pendingCommitHeadKnown ?? this.pendingCommitHeadKnown),
+      pendingCommitFromDisk: clearPendingCommit
+          ? false
+          : (pendingCommitFromDisk ?? this.pendingCommitFromDisk),
       episodeHead: episodeHead ?? this.episodeHead,
       autofilledRaw: autofilledRaw ?? this.autofilledRaw,
       needsRevalidation: needsRevalidation ?? this.needsRevalidation,
@@ -243,6 +304,10 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   WorkingCopyDraftController(this._repo, this._identity)
     : super(_repo.read(_identity)) {
     _episodeOnDisk = state.preparedEpisodeActive;
+    _markerOnDisk = _repo.hasPendingCommitMarker(_identity);
+    _markerHead = state.pendingCommitHead;
+    // A malformed marker was read as none; the next round deletes it.
+    if (_markerOnDisk && state.pendingCommitHead == null) _persist();
   }
 
   final WorkingCopyDraftRepository _repo;
@@ -253,6 +318,11 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
 
   /// The episode key holds something, so ending an episode must delete it.
   bool _episodeOnDisk = false;
+
+  /// Same for the pending-commit marker, and which HEAD it holds, so a round
+  /// rewrites it only when a new commit was submitted.
+  bool _markerOnDisk = false;
+  String? _markerHead;
 
   /// Updates the commit message summary (first line).
   void updateSummary(String value) {
@@ -339,7 +409,8 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         reply: reply,
         overwrite: overwrite,
         boxEmpty: d.summary.trim().isEmpty && d.description.trim().isEmpty,
-        commitInFlight: d.pendingCommitSeq != null,
+        commitInFlight:
+            d.pendingCommitSeq != null || d.pendingCommitHead != null,
         boxMatchesAutofill:
             d.hasAutofill &&
             d.summary == d.autofilledSummary &&
@@ -466,23 +537,69 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     revalidationRequested: false,
   );
 
-  /// A commit was sent while the session's commit count stood at [seq];
-  /// wait for the count to move past it.
-  void commitSubmitted(int seq) {
-    state = state.copyWith(pendingCommitSeq: seq);
+  /// A commit is about to be sent while the session's commit count stands
+  /// at [seq] and HEAD at [head]. Completes once the marker is on disk;
+  /// [submitCommit] sends the commit only then (Slice D R1).
+  Future<void> commitSubmitted(
+    int seq, {
+    required String head,
+    required bool headKnown,
+  }) async {
+    state = state.copyWith(
+      pendingCommitSeq: seq,
+      pendingCommitHead: head,
+      pendingCommitHeadKnown: headKnown,
+      pendingCommitFromDisk: false,
+    );
+    _persist();
+    final Future<void>? writing = _inFlight;
+    if (writing != null) await writing;
   }
+
+  /// Settles an outstanding commit from what the session knows now.
+  ///
+  /// In-session: the commit count moved past [WorkingCopyDraft.pendingCommitSeq]
+  /// → [lastSucceeded] decides. Read back from disk: refs must have loaded,
+  /// then HEAD off the recorded one → it landed; on it, or unknown at submit
+  /// → it failed or cannot be told, so the text stays.
+  void settleCommit({
+    required int outcomeSeq,
+    required bool lastSucceeded,
+    required bool refsLoaded,
+    required String head,
+  }) {
+    final int? seq = state.pendingCommitSeq;
+    if (seq != null) {
+      if (outcomeSeq <= seq) return;
+      lastSucceeded ? commitLanded() : commitAbandoned();
+      return;
+    }
+    if (!state.pendingCommitFromDisk || state.pendingCommitHead == null) {
+      return;
+    }
+    if (!refsLoaded) return;
+    final bool moved =
+        state.pendingCommitHeadKnown && head != state.pendingCommitHead;
+    moved ? commitLanded() : commitAbandoned();
+  }
+
+  bool get _commitOutstanding =>
+      state.pendingCommitSeq != null || state.pendingCommitHead != null;
 
   /// This commit's outcome said it succeeded: the message is a commit now.
   void commitLanded() {
-    if (state.pendingCommitSeq == null) return;
+    if (!_commitOutstanding) return;
     reset();
   }
 
   /// This commit's outcome said it failed: stop waiting and keep the text,
   /// so a later checkout does not clear it.
   void commitAbandoned() {
-    if (state.pendingCommitSeq == null) return;
+    if (!_commitOutstanding) return;
     state = state.copyWith(clearPendingCommit: true);
+    // The marker too: left behind, a later checkout and a normal quit would
+    // read as "landed" on the next launch (plan-verifier, Slice D epoch 1).
+    _persist();
   }
 
   /// Resets all fields to their defaults, on disk as well as in memory.
@@ -532,6 +649,23 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       // away): [state] can no longer be read.
       if (!mounted) break;
       await _repo.write(_identity, state);
+      if (!mounted) break;
+      // Last, so a reset deletes the draft before the marker: a crash in
+      // between leaves a marker that only resets an empty draft again.
+      final String? head = state.pendingCommitHead;
+      if (head != null && (!_markerOnDisk || _markerHead != head)) {
+        _markerOnDisk = true;
+        _markerHead = head;
+        await _repo.writePendingCommit(
+          _identity,
+          head: head,
+          headKnown: state.pendingCommitHeadKnown,
+        );
+      } else if (head == null && _markerOnDisk) {
+        _markerOnDisk = false;
+        _markerHead = null;
+        await _repo.clearPendingCommit(_identity);
+      }
       if (!mounted) break;
     }
     _inFlight = null;

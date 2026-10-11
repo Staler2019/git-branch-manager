@@ -189,27 +189,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
   }
 
-  /// A commit left outstanding settles once the session's commit count has
-  /// moved past the one recorded at submit: its own outcome, by kind
-  /// (`RepoSessionState.commitOutcomeSeq`). Not yet moved → keep waiting --
-  /// the outcome is still coming. Also run on mount, for an outcome that
-  /// arrived while this shell was not there.
+  /// Settles a commit left outstanding (`WorkingCopyDraftController
+  /// .settleCommit`): by its own outcome in this session, or by HEAD once
+  /// refs load for one read back from disk. Also run on mount, for an
+  /// outcome that arrived while this shell was not there.
   void _settleOutstandingCommit(RepoIdentity identity) {
     if (!mounted) return;
-    final int? submittedAt = ref
-        .read(workingCopyDraftProvider(identity))
-        .pendingCommitSeq;
-    if (submittedAt == null) return;
     final RepoSessionState session = ref.read(repoSessionProvider(identity));
-    if (session.commitOutcomeSeq <= submittedAt) return;
-    final WorkingCopyDraftController draft = ref.read(
-      workingCopyDraftProvider(identity).notifier,
-    );
-    if (session.lastCommitSucceeded) {
-      draft.commitLanded();
-    } else {
-      draft.commitAbandoned();
-    }
+    ref
+        .read(workingCopyDraftProvider(identity).notifier)
+        .settleCommit(
+          outcomeSeq: session.commitOutcomeSeq,
+          lastSucceeded: session.lastCommitSucceeded,
+          refsLoaded: session.refsEpoch > 0,
+          head: session.refs.head.target,
+        );
   }
 
   /// Clears the commit box once this commit's own outcome says it landed --
@@ -220,6 +214,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   void _watchCommitOutcome(RepoIdentity identity) {
     ref.listen<int>(
       repoSessionProvider(identity).select((s) => s.commitOutcomeSeq),
+      (_, _) => _settleOutstandingCommit(identity),
+    );
+    // A commit read back from disk waits for refs, not for an outcome.
+    ref.listen<int>(
+      repoSessionProvider(identity).select((s) => s.refsEpoch),
       (_, _) => _settleOutstandingCommit(identity),
     );
   }

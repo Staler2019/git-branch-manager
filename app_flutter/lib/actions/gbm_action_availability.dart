@@ -15,6 +15,9 @@ import 'gbm_action_id.dart';
 /// commit is disabled while [RepoSessionState.conflictActive] is true. The
 /// banner's Abort/Skip/Continue/Resolve… stay the only way forward.
 ///
+/// [GbmActionId.repositoryAmendLastCommit] is additionally disabled for the
+/// whole of a merge (ruling ④), not only while a conflict is unresolved.
+///
 /// [GbmActionId.branchRenameCurrentBranch] and
 /// [GbmActionId.repositoryStageAll] are NOT from spec page 07 -- they're
 /// pre-existing, independently justified gates (a detached HEAD has no
@@ -35,7 +38,6 @@ bool isActionEnabled(GbmActionId id, RepoSessionState session) {
     case GbmActionId.repositoryPush:
     case GbmActionId.remoteFetchAllRemotes:
     case GbmActionId.repositoryCommit:
-    case GbmActionId.repositoryAmendLastCommit:
     case GbmActionId.branchNewBranch:
     case GbmActionId.branchCheckout:
     case GbmActionId.branchMergeIntoCurrent:
@@ -43,6 +45,12 @@ bool isActionEnabled(GbmActionId id, RepoSessionState session) {
     case GbmActionId.branchStashChanges:
     case GbmActionId.branchDeleteBranch:
       return !session.conflictActive;
+    case GbmActionId.repositoryAmendLastCommit:
+      // Ruling ④ (prepared-commit-message-spec.html): git refuses to amend
+      // while MERGE_HEAD exists, conflicts resolved or not. A pending squash
+      // has no MERGE_HEAD and amends fine.
+      return !session.conflictActive &&
+          !(session.repoState?.isMerging ?? false);
     case GbmActionId.branchRenameCurrentBranch:
       return !session.conflictActive && session.refs.head.branchName.isNotEmpty;
     case GbmActionId.repositoryStageAll:

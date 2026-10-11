@@ -24,6 +24,7 @@ class RepoState {
     required this.indexLocked,
     required this.indexLockAgeSeconds,
     required this.describe,
+    this.preparedMessagePending = false,
   });
 
   factory RepoState.fromJson(Map<String, dynamic> json) {
@@ -37,6 +38,7 @@ class RepoState {
       indexLocked: json['indexLocked'] as bool,
       indexLockAgeSeconds: json['indexLockAgeSeconds'] as int?,
       describe: json['describe'] as String,
+      preparedMessagePending: json['preparedMessagePending'] as bool,
     );
   }
 
@@ -49,6 +51,14 @@ class RepoState {
   final bool indexLocked;
   final int? indexLockAgeSeconds;
   final String describe;
+
+  /// Mirrors `gbm::RepoState::preparedMessagePending`: a merge (MERGE_HEAD)
+  /// or a squash (SQUASH_MSG) has a message waiting for the Working Copy
+  /// box. A cherry-pick/revert conflict's MERGE_MSG does not count.
+  ///
+  /// Required on the wire (capi always sends it, `JsonCodecTest`), defaulted
+  /// only in the constructor so hand-built test states need not spell it.
+  final bool preparedMessagePending;
 
   bool get isMerging => flags & RepoStateFlags.merge != 0;
   bool get isCherryPicking => flags & RepoStateFlags.cherryPick != 0;

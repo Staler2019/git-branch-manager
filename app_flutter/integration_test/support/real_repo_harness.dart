@@ -163,6 +163,9 @@ Future<SharedPreferences> _pumpRealApp(
     'appPrefs.showRefreshTimings',
     'appPrefs.keepDiffDuringRefresh',
     'appPrefs.tieredRefresh',
+    // Ruling ⑪: off, the commit box keeps typed text through a merge, and
+    // prepared_message_flow_test.dart asserts the default overwrite.
+    'appPrefs.overwriteWithPreparedMessage',
   };
   for (final String key in prefs.getKeys().where(
     (String k) =>

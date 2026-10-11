@@ -238,4 +238,23 @@ void main() {
       expect(box.height, GbmSpacing.inputHeight);
     });
   });
+
+  // Ruling ⑬: the kit's `.gbm-input::placeholder { color: var(--text-tertiary) }`.
+  // Without it every caller's hint painted in Material's default colour.
+  group('placeholder colour', () {
+    test('the single-line helper paints hints text-tertiary', () {
+      expect(
+        gbmInputDecoration(colors: colors).hintStyle?.color?.toARGB32(),
+        colors.textTertiary.toARGB32(),
+      );
+    });
+
+    test('the multiline helper paints hints text-tertiary', () {
+      expect(
+        gbmMultilineInputDecoration(colors: colors).hintStyle?.color
+            ?.toARGB32(),
+        colors.textTertiary.toARGB32(),
+      );
+    });
+  });
 }

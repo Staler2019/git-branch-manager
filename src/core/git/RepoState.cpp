@@ -54,6 +54,9 @@ RepoState RepoState::read(const RepoPaths& paths) {
     if (pathExists(paths.mergeHeadFile())) {
         state.flags |= Merge;
     }
+    // One more stat, not a read: the message itself is fetched on demand
+    // (PreparedMessageStore) only when the Working Copy box needs it.
+    state.preparedMessagePending = (state.flags & Merge) != 0 || pathExists(paths.squashMsgFile());
     if (pathExists(paths.cherryPickHeadFile())) {
         state.flags |= CherryPick;
     }

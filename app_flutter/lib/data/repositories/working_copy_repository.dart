@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/working_copy_status.dart';
@@ -84,7 +86,40 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
   final WorkingCopyDraft draft = ref.read(workingCopyDraftProvider(identity));
   final String message = composeCommitMessage(draft.summary, draft.description);
   if (message.isEmpty) return false;
-  commitChanges(ref, identity, message, amend: amend);
+  final RepoSessionState session = ref.read(repoSessionProvider(identity));
+  // Read now: the commit is sent after an await, when this WidgetRef's
+  // widget may be gone.
+  final RepoSessionController sender = ref.read(
+    repoSessionProvider(identity).notifier,
+  );
+  // The pending-commit marker reaches disk before the commit is sent, so a
+  // crash after it lands cannot bring the committed message back (Slice D
+  // R1). The button, shortcut and menu need only "accepted", hence the bool.
+  // A failed write still sends the commit -- losing only that crash
+  // protection for this one commit -- and says so in the log (Slice E D2).
+  void send() => sender.commit(message, amend: amend);
+  unawaited(
+    ref
+        .read(workingCopyDraftProvider(identity).notifier)
+        .commitSubmitted(
+          session.commitOutcomeSeq,
+          head: session.refs.head.target,
+          headKnown: session.refsEpoch > 0,
+        )
+        .then(
+          (_) => send(),
+          onError: (Object error, StackTrace stack) {
+            // An Exception is the disk refusing a write (SharedPreferences
+            // fails with PlatformException), which the commit can outlive.
+            // An Error is this code being wrong -- the draft is in a state
+            // nothing anticipated -- so nothing is sent and the bug surfaces
+            // instead of committing from that state.
+            if (error is! Exception) Error.throwWithStackTrace(error, stack);
+            send();
+            sender.recordDraftNotSaved();
+          },
+        ),
+  );
   return true;
 }
 
@@ -92,7 +127,7 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
 ///
 /// **The one place amend mode starts from**, for the same reason
 /// [submitCommit] is the one place a commit is made from: the message box's
-/// `Amend…` button and `GbmActionId.repositoryAmendLastCommit` both come
+/// `Amend` button and `GbmActionId.repositoryAmendLastCommit` both come
 /// through here.
 ///
 /// Asks explicitly rather than reading `commitMetaCache` and hoping. That

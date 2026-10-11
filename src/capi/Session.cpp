@@ -169,6 +169,7 @@ Session::Session(GitInstallation installation,
       remoteStore_(std::make_unique<RemoteStore>(*runner_, paths_)),
       compareStore_(std::make_unique<CompareStore>(*runner_, paths_)),
       squashMessageStore_(std::make_unique<SquashMessageStore>(*runner_, paths_)),
+      preparedMessageStore_(std::make_unique<PreparedMessageStore>(*runner_, paths_)),
       blobStore_(std::make_unique<BlobStore>(installation_.executable, paths_)),
       blameStore_(std::make_unique<BlameStore>(*runner_, paths_)),
       commitMetaStore_(std::make_unique<CommitMetaStore>(installation_.executable, paths_)),
@@ -275,7 +276,7 @@ bool Session::removeStaleIndexLock() {
     return operations_->removeStaleIndexLock();
 }
 
-void Session::refreshHistory() {
+std::uint64_t Session::refreshHistory() {
     // Not "cancel whatever is running, then post mine". That is what this
     // used to do, and it terminated a perfectly healthy `git` process on
     // every refresh that landed on a busy session -- the exit 143
@@ -295,8 +296,10 @@ void Session::refreshHistory() {
     // so that a future refs-only entry point is a change of arguments rather
     // than a change of mechanism.
     bool needsArm = false;
+    std::uint64_t request = 0;
     {
         std::lock_guard<std::mutex> lock(refreshMutex_);
+        request = ++refreshRequestSeq_;
         needsArm = refreshCoalescer_.request(/*wantsRefs=*/true,
                                              /*wantsHistory=*/true,
                                              GraphUpdateOrigin::Explicit) ==
@@ -305,11 +308,13 @@ void Session::refreshHistory() {
     if (needsArm) {
         refreshTimer_.arm(RefreshCoalescer::kDelay);
     }
+    return request;
 }
 
 void Session::onRefreshTimerFired() {
     RefreshCoalescer::Generation generation = 0;
     CancellationToken token;
+    std::uint64_t covers = 0;
     {
         std::lock_guard<std::mutex> lock(refreshMutex_);
         generation = refreshCoalescer_.onTimeout();
@@ -319,9 +324,10 @@ void Session::onRefreshTimerFired() {
             return;
         }
         (void)refreshCoalescer_.takePending();
+        covers = refreshRequestSeq_;
         token = historyCancel_.token();
     }
-    dispatchRefresh(generation, token);
+    dispatchRefresh(generation, token, covers);
 }
 
 void Session::finishRefresh(RefreshCoalescer::Generation generation) {
@@ -349,8 +355,10 @@ bool Session::claimPublishLocked(RefreshCoalescer::Generation generation) {
     return true;
 }
 
-void Session::dispatchRefresh(RefreshCoalescer::Generation generation, CancellationToken token) {
-    sharedReadPool().post([this, generation, token]() {
+void Session::dispatchRefresh(RefreshCoalescer::Generation generation,
+                              CancellationToken token,
+                              std::uint64_t coversRequest) {
+    sharedReadPool().post([this, generation, token, coversRequest]() {
         // onFinished() must run on *every* terminal path: miss one and the
         // coalescer stays running_ forever, every later request folds into a
         // dirty bit nothing will ever drive, and refreshes silently stop.
@@ -373,7 +381,8 @@ void Session::dispatchRefresh(RefreshCoalescer::Generation generation, Cancellat
             }
             refs_ = refsResult.value();
         }
-        callbacks_.emitEmpty(GBM_EVENT_REFS_UPDATED);
+        callbacks_.emit(GBM_EVENT_REFS_UPDATED,
+                        "{\"coversRequest\":" + std::to_string(coversRequest) + "}");
 
         HistoryQuery query;
         query.seedRefs = RefStore::historySeedRefs(*refsResult.value());
@@ -462,8 +471,13 @@ void Session::setHistoryFilter(std::vector<std::string> includeRefs,
     // waste. Cancelling it is what leaves a `cancelled` record behind; a
     // deliberate, user-initiated filter change is rare and honest about it,
     // unlike the per-operation churn refreshHistory() used to produce.
+    //
+    // fireNow() also absorbs a refreshHistory() request still in the delay
+    // window, or folded into the walk this cancels, and leaves no follow-up
+    // for it -- so this dispatch must report it as covered.
     RefreshCoalescer::Generation generation = 0;
     CancellationToken token;
+    std::uint64_t covers = 0;
     {
         std::lock_guard<std::mutex> lock(refreshMutex_);
         historyCancel_.cancel();
@@ -473,8 +487,9 @@ void Session::setHistoryFilter(std::vector<std::string> includeRefs,
                                                /*wantsHistory=*/true,
                                                GraphUpdateOrigin::Explicit);
         (void)refreshCoalescer_.takePending();
+        covers = refreshRequestSeq_;
     }
-    dispatchRefresh(generation, token);
+    dispatchRefresh(generation, token, covers);
 }
 
 GraphSnapshotPtr Session::currentGraph() const {
@@ -837,6 +852,25 @@ void Session::requestSquashMessage(std::string source) {
         }
         payload += '}';
         callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);
+    });
+}
+
+void Session::requestPreparedMessage() {
+    // postFront: the Working Copy box is waiting on this to fill itself
+    // ([CPP-interactive-reads-go-to-the-front]).
+    sharedReadPool().postFront([this]() {
+        const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
+        std::string payload = "{\"message\":";
+        jsonAppendEscaped(payload, result ? *result : std::string());
+        if (!result) {
+            payload += ",\"error\":";
+            payload += toJson(result.error());
+            // First, like requestSquashMessage(): the reason reaches the
+            // window's banner and the Log before READY ends the wait.
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+        }
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, payload);
     });
 }
 

@@ -34,6 +34,7 @@
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
+#include "core/git/ops/PreparedMessageOps.h"
 #include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
@@ -1016,6 +1017,48 @@ TEST_F(RealRepoTest, ReadsACleanRepoState) {
     EXPECT_TRUE(state.isClean());
     EXPECT_FALSE(state.indexLocked);
     EXPECT_TRUE(state.describe().empty());
+}
+
+// preparedMessagePending: git has a message waiting for the Working Copy
+// box. A merge (MERGE_HEAD) or a squash (SQUASH_MSG, which writes no
+// MERGE_HEAD) counts; a cherry-pick conflict writes MERGE_MSG too, but it is
+// finished by the conflict window's Continue, not by the box, so it does not
+// (prepared-commit-message-spec.html section 01).
+TEST_F(RealRepoTest, PreparedMessagePendingDuringAConflictedMerge) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    EXPECT_FALSE(RepoState::read(paths_).preparedMessagePending);
+
+    ASSERT_FALSE(run({"merge", "--no-ff", "-m", "Merge branch 'topic'", "topic"}));
+    EXPECT_TRUE(RepoState::read(paths_).preparedMessagePending);
+}
+
+TEST_F(RealRepoTest, PreparedMessagePendingForAStagedSquashWithNoMergeHead) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("g.txt", "g\n", "topic adds g");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("h.txt", "h\n", "main adds h");
+    ASSERT_TRUE(run({"merge", "--squash", "topic"}));
+
+    const RepoState state = RepoState::read(paths_);
+    ASSERT_EQ(state.flags & RepoState::Merge, 0u) << "a squash writes no MERGE_HEAD";
+    EXPECT_TRUE(state.preparedMessagePending);
+}
+
+TEST_F(RealRepoTest, PreparedMessageNotPendingDuringACherryPickConflict) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    ASSERT_FALSE(run({"cherry-pick", "topic"}));
+    ASSERT_TRUE(std::filesystem::exists(repo_ / ".git" / "MERGE_MSG")) << "the case this pins";
+
+    EXPECT_FALSE(RepoState::read(paths_).preparedMessagePending);
 }
 
 TEST_F(RealRepoTest, DetectsAConflictedMergeState) {
@@ -5992,6 +6035,60 @@ TEST_F(RealRepoTest, ACommandWithNoStdinDataReadsAnEmptyClosedStdin) {
 // already hides notes, so --no-notes is a guard this test cannot redden. Comparison rule:
 // byte-exact. preview() restores the final newline run() drops
 // ([CPP-run-not-byte-exact]), so a tolerance here would hide that restore.
+// PreparedMessageStore against a real git: the message the Working Copy box
+// is prefilled with must be what git's own `git commit` would have committed
+// -- comment lines gone, git's comment character honoured, and a conflicted
+// squash composed SQUASH_MSG-then-MERGE_MSG (prepared-commit-message-spec.html
+// M1-M5).
+TEST_F(RealRepoTest, PreparedMessageOfAConflictedMergeHasNoCommentLines) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    ASSERT_FALSE(run({"merge", "--no-ff", "-m", "Merge branch 'topic'", "topic"}));
+
+    PreparedMessageStore store(*runner_, paths_);
+    auto message = store.read(CancellationToken{});
+
+    ASSERT_TRUE(message) << message.error().message;
+    EXPECT_EQ(*message, "Merge branch 'topic'");
+}
+
+TEST_F(RealRepoTest, PreparedMessageHonoursTheConfiguredCommentChar) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    ASSERT_TRUE(run({"config", "core.commentChar", ";"}));
+    ASSERT_FALSE(run({"merge", "--no-ff", "-m", "Merge branch 'topic'\n\n#123 stays", "topic"}));
+
+    PreparedMessageStore store(*runner_, paths_);
+    auto message = store.read(CancellationToken{});
+
+    ASSERT_TRUE(message) << message.error().message;
+    // ';' lines (git's own Conflicts listing) gone; a '#' line is the user's.
+    EXPECT_EQ(*message, "Merge branch 'topic'\n\n#123 stays");
+}
+
+TEST_F(RealRepoTest, PreparedMessageOfAConflictedSquashIsTheSquashLog) {
+    commitFile("f.txt", "a\n", "base");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "topic"}));
+    commitFile("f.txt", "b\n", "topic change");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    commitFile("f.txt", "c\n", "main change");
+    ASSERT_FALSE(run({"merge", "--squash", "topic"}));
+
+    PreparedMessageStore store(*runner_, paths_);
+    auto message = store.read(CancellationToken{});
+
+    ASSERT_TRUE(message) << message.error().message;
+    EXPECT_EQ(message->rfind("Squashed commit of the following:", 0), 0u) << *message;
+    EXPECT_NE(message->find("    topic change"), std::string::npos) << *message;
+    EXPECT_EQ(message->find("Conflicts"), std::string::npos) << *message;
+}
+
 TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     commitFile("base.txt", "base\n", "base");
     ASSERT_TRUE(run({"checkout", "--quiet", "-b", "feature"}));

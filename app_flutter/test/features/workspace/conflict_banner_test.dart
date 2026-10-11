@@ -68,55 +68,47 @@ Future<void> _pump(
 
 void main() {
   group('ConflictBanner', () {
-    testWidgets('merge: shows status text, Abort enabled, Skip disabled', (
-      tester,
-    ) async {
-      int abortCount = 0;
-      final session = RepoSessionState(
-        repoState: RepoState(
-          flags: RepoStateFlags.merge,
-          isClean: false,
-          isSequencerOperation: true,
-          rebaseStep: 0,
-          rebaseTotal: 0,
-          rebaseOntoLabel: '',
-          indexLocked: false,
-          indexLockAgeSeconds: null,
-          describe: 'merging',
-        ),
-        workingCopyStatus: _conflictedStatus(2),
-      );
+    testWidgets(
+      'merge: shows status text and Abort; Skip and Continue are not drawn',
+      (tester) async {
+        int abortCount = 0;
+        final session = RepoSessionState(
+          repoState: RepoState(
+            flags: RepoStateFlags.merge,
+            isClean: false,
+            isSequencerOperation: true,
+            rebaseStep: 0,
+            rebaseTotal: 0,
+            rebaseOntoLabel: '',
+            indexLocked: false,
+            indexLockAgeSeconds: null,
+            describe: 'merging',
+          ),
+          workingCopyStatus: _conflictedStatus(2),
+        );
 
-      await _pump(tester, session: session, onAbort: () => abortCount++);
+        await _pump(tester, session: session, onAbort: () => abortCount++);
 
-      expect(
-        find.text('Merge in progress: 2 files conflicted'),
-        findsOneWidget,
-      );
+        expect(
+          find.text('Merge in progress: 2 files conflicted'),
+          findsOneWidget,
+        );
 
-      await tester.tap(find.text('Abort'));
-      expect(abortCount, 1);
+        await tester.tap(find.text('Abort'));
+        expect(abortCount, 1);
 
-      final skipButton = tester.widget<TextButton>(
-        find.ancestor(of: find.text('Skip'), matching: find.byType(TextButton)),
-      );
-      expect(skipButton.onPressed, isNull);
+        // Ruling ⑥⑩: a control that cannot be used is not drawn. Merge has
+        // no skip, and no backend "continue" (a plain commit finishes a merge;
+        // see gbm_capi.h -- there is no gbm_merge_continue()).
+        expect(find.text('Skip'), findsNothing);
+        expect(find.text('Continue'), findsNothing);
 
-      // Merge has no backend "continue" (a plain commit finishes a merge;
-      // see gbm_capi.h -- there is no gbm_merge_continue()).
-      final continueButton = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Continue'),
-          matching: find.byType(TextButton),
-        ),
-      );
-      expect(continueButton.onPressed, isNull);
-
-      // Resolve… must stay reachable during a real conflict, not just the
-      // no-sequencer-state edge case -- this is the actual route into
-      // ConflictResolveWindow's three-pane editor.
-      expect(find.text('Resolve…'), findsOneWidget);
-    });
+        // Resolve… must stay reachable during a real conflict, not just the
+        // no-sequencer-state edge case -- this is the actual route into
+        // ConflictResolveWindow's three-pane editor.
+        expect(find.text('Resolve…'), findsOneWidget);
+      },
+    );
 
     testWidgets('cherry-pick: Abort and Continue enabled, Skip enabled', (
       tester,
@@ -202,9 +194,7 @@ void main() {
       expect(find.text('Resolve…'), findsOneWidget);
     });
 
-    testWidgets('revert: Abort, Skip, and Continue all disabled', (
-      tester,
-    ) async {
+    testWidgets('revert: only Resolve… is drawn', (tester) async {
       final session = RepoSessionState(
         repoState: RepoState(
           flags: RepoStateFlags.revert,
@@ -222,26 +212,12 @@ void main() {
 
       await _pump(tester, session: session);
 
-      final abortButton = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Abort'),
-          matching: find.byType(TextButton),
-        ),
-      );
-      final skipButton = tester.widget<TextButton>(
-        find.ancestor(of: find.text('Skip'), matching: find.byType(TextButton)),
-      );
-      final continueButton = tester.widget<TextButton>(
-        find.ancestor(
-          of: find.text('Continue'),
-          matching: find.byType(TextButton),
-        ),
-      );
-      expect(abortButton.onPressed, isNull);
-      expect(skipButton.onPressed, isNull);
-      // Revert has no backend continue either -- see RevertOps.h: "Continue/
-      // skip/abort for an in-progress revert have no UI entry point yet".
-      expect(continueButton.onPressed, isNull);
+      // Revert has no backend abort/skip/continue -- see RevertOps.h:
+      // "Continue/skip/abort for an in-progress revert have no UI entry
+      // point yet" -- so ruling ⑩ draws none of the three.
+      expect(find.text('Abort'), findsNothing);
+      expect(find.text('Skip'), findsNothing);
+      expect(find.text('Continue'), findsNothing);
 
       // Revert's only path to actually resolve anything is the window.
       expect(find.text('Resolve…'), findsOneWidget);
@@ -263,6 +239,32 @@ void main() {
         expect(find.text('Continue'), findsNothing);
       },
     );
+
+    // Ruling ⑥: once every conflict is resolved the merge banner offers
+    // Abort only -- Resolve… has nothing left to open.
+    testWidgets('merge with nothing conflicted shows Abort alone', (
+      tester,
+    ) async {
+      final session = RepoSessionState(
+        repoState: RepoState(
+          flags: RepoStateFlags.merge,
+          isClean: false,
+          isSequencerOperation: true,
+          rebaseStep: 0,
+          rebaseTotal: 0,
+          rebaseOntoLabel: '',
+          indexLocked: false,
+          indexLockAgeSeconds: null,
+          describe: 'merging',
+        ),
+        workingCopyStatus: _conflictedStatus(0),
+      );
+
+      await _pump(tester, session: session);
+
+      expect(find.byType(TextButton), findsOneWidget);
+      expect(find.text('Abort'), findsOneWidget);
+    });
 
     testWidgets('merge with zero conflicted files omits the count suffix', (
       tester,

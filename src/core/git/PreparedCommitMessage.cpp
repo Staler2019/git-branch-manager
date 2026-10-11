@@ -5,18 +5,15 @@
 namespace gbm {
 
 std::string readPreparedCommitMessage(const RepoPaths& paths) {
-    if (auto mergeMsg = fsutil::readSmallFile(paths.mergeMsgFile())) {
-        return *mergeMsg;
-    }
+    // git's own order (`git commit` reads SQUASH_MSG, then appends MERGE_MSG).
+    std::string message;
     if (auto squashMsg = fsutil::readSmallFile(paths.squashMsgFile())) {
-        return *squashMsg;
+        message += *squashMsg;
     }
-    return std::string();
-}
-
-bool shouldApplyPreparedCommitMessage(const std::string& currentMessageBoxText,
-                                      const std::string& lastAutofilledMessage) {
-    return currentMessageBoxText.empty() || currentMessageBoxText == lastAutofilledMessage;
+    if (auto mergeMsg = fsutil::readSmallFile(paths.mergeMsgFile())) {
+        message += *mergeMsg;
+    }
+    return message;
 }
 
 }  // namespace gbm

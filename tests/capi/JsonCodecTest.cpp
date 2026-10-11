@@ -29,6 +29,16 @@ TEST(JsonCodecTest, RepoStateEncodesCleanState) {
     EXPECT_NE(json.find("\"flags\":0"), std::string::npos);
     EXPECT_NE(json.find("\"isClean\":true"), std::string::npos);
     EXPECT_NE(json.find("\"indexLockAgeSeconds\":null"), std::string::npos);
+    EXPECT_NE(json.find("\"preparedMessagePending\":false"), std::string::npos);
+}
+
+TEST(JsonCodecTest, RepoStateEncodesAPendingPreparedMessage) {
+    RepoState state;
+    state.preparedMessagePending = true;
+
+    const std::string json = toJson(state);
+
+    EXPECT_NE(json.find("\"preparedMessagePending\":true"), std::string::npos);
 }
 
 TEST(JsonCodecTest, RepoStateEncodesInProgressMerge) {

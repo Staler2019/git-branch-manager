@@ -50,6 +50,8 @@ std::string toJson(const RepoState& state) {
     } else {
         out += "null";
     }
+    out += ",\"preparedMessagePending\":";
+    jsonAppendBool(out, state.preparedMessagePending);
     out += ",\"describe\":";
     jsonAppendEscaped(out, state.describe());
     out += '}';

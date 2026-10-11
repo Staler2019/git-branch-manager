@@ -77,8 +77,13 @@ enum GbmErrorCode {
 // defined so far; later milestones extend this enum, never renumber it.
 
 enum GbmEventType {
-    GBM_EVENT_GRAPH_UPDATED = 0,   ///< payload: {"complete": bool}
-    GBM_EVENT_REFS_UPDATED = 1,    ///< no payload
+    GBM_EVENT_GRAPH_UPDATED = 0,  ///< payload: {"complete": bool}
+    /// payload: {"coversRequest": uint64} -- every gbm_history_refresh()
+    /// request numbered at or below it was made before this refs load began.
+    /// Not monotonic across events: a walk superseded by
+    /// gbm_history_set_filter() may report after the newer one, so a reader
+    /// keeps the maximum.
+    GBM_EVENT_REFS_UPDATED = 1,
     GBM_EVENT_ERROR_OCCURRED = 2,  ///< payload: GitError JSON
     /// payload: OperationOutcome JSON: {"succeeded": bool, "error": GitError
     /// JSON | null, "choices": OperationChoice[], "summary": string,
@@ -241,6 +246,15 @@ enum GbmEventType {
     /// while HEAD and the source still point there, so a caller adopts a
     /// reply only while both match its own current refs.
     GBM_EVENT_SQUASH_MESSAGE_READY = 36,
+    /// payload: {"message": string, "error": GitError JSON (only on
+    /// failure)}. Reply to gbm_request_prepared_message(): the commit message
+    /// git has prepared for the merge or squash in progress, as `git commit`
+    /// would commit it -- SQUASH_MSG then MERGE_MSG, comment lines stripped
+    /// by `git stripspace --strip-comments` (so core.commentChar decides what
+    /// a comment is). "message" is empty when git prepared none, and on
+    /// failure (with "error" set); a failure also fires
+    /// GBM_EVENT_ERROR_OCCURRED with the same GitError, before this reply.
+    GBM_EVENT_PREPARED_MESSAGE_READY = 37,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -341,7 +355,12 @@ GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id);
 /// are read, then one or more GBM_EVENT_GRAPH_UPDATED as the walk streams
 /// (the last has payload {"complete": true}), or GBM_EVENT_ERROR_OCCURRED on
 /// failure.
-GBM_API void gbm_history_refresh(GbmSessionHandle session);
+///
+/// Returns this request's number, rising per call. Refs read for it -- not
+/// merely after it -- are the first GBM_EVENT_REFS_UPDATED whose
+/// `coversRequest` is at or above it; a request made while a refs load is
+/// already running is covered by the follow-up walk, not that one.
+GBM_API uint64_t gbm_history_refresh(GbmSessionHandle session);
 
 /// Narrows every subsequent history walk, then triggers the same refresh
 /// gbm_history_refresh() would. The filter is session state, so an
@@ -628,6 +647,12 @@ GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
 /// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY (see its payload doc),
 /// including on failure.
 GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source);
+
+/// Requests the commit message git has prepared for the merge or squash in
+/// progress, for the Working Copy box (RepoState's preparedMessagePending says
+/// when there is one). Async: fires GBM_EVENT_PREPARED_MESSAGE_READY (see its
+/// payload doc), including on failure.
+GBM_API void gbm_request_prepared_message(GbmSessionHandle session);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot

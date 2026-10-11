@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,8 +7,8 @@ import 'package:go_router/go_router.dart';
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
 import '../../data/models/commit_meta.dart';
-import '../../data/models/git_error.dart';
 import '../../data/models/parsed_diff.dart';
+import '../../data/models/prepared_message_policy.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/file_list_view_mode_repository.dart';
@@ -16,6 +17,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart'
     show
         ConflictResolution,
+        PreparedMessageReply,
         RepoSessionController,
         RepoSessionState,
         WorkingCopyDiffReply,
@@ -32,6 +34,8 @@ import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/temporary_scope_provider.dart';
+import '../conflict_resolution/original_operation_message_dialog.dart'
+    show splitOriginalOperationMessage;
 import '../workspace/workspace_screen.dart' show repoIdForRoute;
 import 'working_copy_file_identity.dart';
 import 'widgets/commit_message_box.dart';
@@ -67,16 +71,6 @@ class WorkingCopyView extends ConsumerStatefulWidget {
 class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   String? _selectedPath;
 
-  /// HEAD's oid at the moment a commit was submitted, or null when none is
-  /// outstanding.
-  ///
-  /// The draft is cleared when HEAD moves off it, **not** when the button is
-  /// pressed. Clearing on press is what the box used to do, and a commit
-  /// that failed -- nothing staged, a rejecting hook, a bad identity -- took
-  /// the message with it; now that the message is also on disk, that would
-  /// have destroyed the saved copy too.
-  String? _pendingCommitFrom;
-
   /// The oid whose message has already been pulled into the box for
   /// amending, so a rebuild does not overwrite the user's edits with HEAD's
   /// original text every time the cache is touched.
@@ -86,9 +80,20 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   late TextEditingController _descriptionController;
   late ScrollController _diffScrollController;
 
+  /// A [_reconcilePreparedMessage] pass is already scheduled for the end of
+  /// this frame.
+  bool _preparedPassScheduled = false;
+
+  /// The first pass after mounting re-asks an unanswered parent check: its
+  /// reply may have arrived, and been evicted, while this view was gone.
+  bool _firstPreparedPass = true;
+
   @override
   void initState() {
     super.initState();
+    // A merge can already be pending when the view mounts (app startup,
+    // ruling ⑪), and a listener never fires for the value already there.
+    _schedulePreparedPass();
     final draft = ref.read(workingCopyDraftProvider(widget.identity));
     _summaryController = TextEditingController(text: draft.summary)
       ..addListener(_onSummaryChanged);
@@ -161,8 +166,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       _requestBothSides(next);
     });
 
-    _watchCommitOutcome();
     _watchAmendPrefill(session);
+    _watchPreparedMessage();
+    _syncBoxFromDraft();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -203,6 +209,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         Container(
           height: 200,
           decoration: BoxDecoration(
+            // P3's mock: the commit area is surface-panel-raised (ruling ⑮).
+            color: colors.surfacePanelRaised,
             border: Border(top: BorderSide(color: colors.borderSubtle)),
           ),
           child: _buildCommitBox(context, status: status, session: session),
@@ -525,8 +533,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     required WorkingCopyStatus status,
     required RepoSessionState session,
   }) {
+    // A merge concludes with nothing staged when every conflict took ours
+    // (ruling ⑤⑭, which overrides P3 item 8 for this case); git commits it.
     final bool canCommit =
-        status.staged.isNotEmpty &&
+        (status.staged.isNotEmpty || (session.repoState?.isMerging ?? false)) &&
         _summaryController.text.trim().isNotEmpty &&
         isActionEnabled(GbmActionId.repositoryCommit, session);
 
@@ -585,62 +595,31 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                     kind: GbmButtonKind.primary,
                     onPressed: canCommit ? () => _onSubmit(amend: false) : null,
                   ),
-                  const SizedBox(height: GbmSpacing.space2),
                   // Enters the mode; it does not amend. The box has to show
                   // what is about to be rewritten before there is anything
-                  // to press Amend on.
-                  GbmButton(
-                    label: 'Amend…',
-                    kind: GbmButtonKind.secondary,
-                    onPressed:
-                        isActionEnabled(
-                          GbmActionId.repositoryAmendLastCommit,
-                          session,
-                        )
-                        ? () => wc.beginAmendMode(ref, widget.identity)
-                        : null,
-                  ),
+                  // to press Amend on. No ellipsis: no dialog follows
+                  // ([UX-ellipsis-promises-a-dialog], ruling ⑮). Not drawn
+                  // at all during a merge, where git refuses to amend (④).
+                  if (!(session.repoState?.isMerging ?? false)) ...<Widget>[
+                    const SizedBox(height: GbmSpacing.space2),
+                    GbmButton(
+                      label: 'Amend',
+                      kind: GbmButtonKind.secondary,
+                      onPressed:
+                          isActionEnabled(
+                            GbmActionId.repositoryAmendLastCommit,
+                            session,
+                          )
+                          ? () => wc.beginAmendMode(ref, widget.identity)
+                          : null,
+                    ),
+                  ],
                 ],
               ],
             ),
           ),
         ],
       ),
-    );
-  }
-
-  /// Clears the box once HEAD has actually moved off where it was when the
-  /// commit was submitted.
-  ///
-  /// A commit -- amend included -- always produces a new oid, so HEAD moving
-  /// is the success signal, and no capi addition is needed to get one.
-  void _watchCommitOutcome() {
-    ref.listen(
-      repoSessionProvider(widget.identity).select((s) => s.refs.head.target),
-      (String? previous, String next) {
-        // No `next != _pendingCommitFrom` check: `select` only notifies when
-        // the selected value actually changes, so arriving here already
-        // means HEAD moved. Status refreshes republish the session
-        // constantly during a commit and must not be mistaken for one.
-        if (_pendingCommitFrom == null) return;
-        _pendingCommitFrom = null;
-        _summaryController.clear();
-        _descriptionController.clear();
-        ref.read(workingCopyDraftProvider(widget.identity).notifier).reset();
-      },
-    );
-    // Any error cancels the wait. **Not attributed to the commit** -- a
-    // fetch failing mid-commit cancels it too, and this repo's own rule is
-    // that "the next event is mine" is never a safe attribution. The
-    // reduction is deliberate and fail-safe in the direction that matters:
-    // the cost of a false cancel is a message that outlives a commit that
-    // did succeed, while the cost of not cancelling is clearing a message
-    // the user wrote *after* a failure, when some later checkout moves HEAD.
-    ref.listen<GitError?>(
-      repoSessionProvider(widget.identity).select((s) => s.lastError),
-      (GitError? previous, GitError? next) {
-        if (next != null) _pendingCommitFrom = null;
-      },
     );
   }
 
@@ -671,6 +650,136 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     });
   }
 
+  /// Keeps the two text fields showing what the draft holds, whoever changed
+  /// it -- the prepared-message episode, a cancelled amend, a reset. Typing
+  /// writes the draft from the field, so the two are already equal then and
+  /// nothing is written back (the cursor stays put). Without this, a draft
+  /// changed off-screen leaves the box showing text Commit would not send.
+  void _syncBoxFromDraft() {
+    ref.listen<WorkingCopyDraft>(workingCopyDraftProvider(widget.identity), (
+      _,
+      WorkingCopyDraft next,
+    ) {
+      if (_summaryController.text != next.summary) {
+        _summaryController.text = next.summary;
+      }
+      if (_descriptionController.text != next.description) {
+        _descriptionController.text = next.description;
+      }
+    });
+  }
+
+  /// Re-runs the prepared-message episode whenever anything it reads
+  /// changes: RepoState and its pending flag, the reply, HEAD, or the
+  /// overwrite switch.
+  void _watchPreparedMessage() {
+    ref.listen<(bool, PreparedMessageReply?, String, bool, int, bool, int)>(
+      repoSessionProvider(widget.identity).select(
+        (s) => (
+          s.repoState?.preparedMessagePending ?? false,
+          s.preparedMessage,
+          // HEAD and RepoState arriving at all are inputs too: nothing
+          // that records an episode is decided before either.
+          s.refs.head.target,
+          s.repoState == null,
+          // Slice D R2's waits: refs read for the head check (an Abort
+          // changes nothing else in them), an error while waiting, and a
+          // commit-meta reply -- empty ones included.
+          s.refsCoverRequest,
+          s.lastError != null,
+          s.commitMetaReplySeq,
+        ),
+      ),
+      (_, _) => _schedulePreparedPass(),
+    );
+    ref.listen<bool>(
+      appPreferencesProvider.select((p) => p.overwriteWithPreparedMessage),
+      (_, _) => _schedulePreparedPass(),
+    );
+  }
+
+  /// Post-frame, because a pass writes the draft provider and may request
+  /// from the session -- neither may happen while a listener of either is
+  /// being notified. [FLU-postframe-no-frame]: the callback only runs if a
+  /// frame is coming, so ask for one.
+  void _schedulePreparedPass() {
+    if (_preparedPassScheduled) return;
+    _preparedPassScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _preparedPassScheduled = false;
+      if (mounted) _reconcilePreparedMessage();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  void _reconcilePreparedMessage() {
+    final RepoSessionState session = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    final PreparedMessageReply? reply = session.preparedMessage;
+    final String message = reply?.message.trimRight() ?? '';
+    final PreparedReplyStatus status = reply == null
+        ? PreparedReplyStatus.none
+        : (reply.failed || message.isEmpty)
+        ? PreparedReplyStatus.failed
+        : PreparedReplyStatus.message;
+    final ({String summary, String description}) split =
+        splitOriginalOperationMessage(message);
+
+    final bool mounting = _firstPreparedPass;
+    _firstPreparedPass = false;
+    final PreparedMessageAction action = ref
+        .read(workingCopyDraftProvider(widget.identity).notifier)
+        .reconcilePreparedMessage(
+          pending: session.repoState?.preparedMessagePending ?? false,
+          reply: status,
+          summary: split.summary,
+          description: split.description,
+          raw: status == PreparedReplyStatus.message ? message : '',
+          head: session.refs.head.target,
+          repoStateKnown: session.repoState != null,
+          overwrite: ref
+              .read(appPreferencesProvider)
+              .overwriteWithPreparedMessage,
+          refsCoverRequest: session.refsCoverRequest,
+          requestRefresh: ref
+              .read(repoSessionProvider(widget.identity).notifier)
+              .refreshHistory,
+          commitMetaReplySeq: session.commitMetaReplySeq,
+          commitMetaRequestSeq: ref
+              .read(repoSessionProvider(widget.identity).notifier)
+              .commitMetaRequestSeq,
+          parentsOf: (String oid) => session.commitMetaCache[oid]?.parents,
+          lastErrorPresent: session.lastError != null,
+          mounting: mounting,
+        );
+    // The box follows the draft through [_syncBoxFromDraft]; all that is
+    // left here is asking core for the message.
+    switch (action) {
+      case PreparedMessageAction.startAndRequest:
+      case PreparedMessageAction.cancelAmendAndStart:
+      case PreparedMessageAction.revalidate:
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .requestPreparedMessage();
+      case PreparedMessageAction.checkParent:
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .requestCommitMeta(<String>[session.refs.head.target]);
+      // Sent by the draft itself, which records the request number.
+      case PreparedMessageAction.checkHead:
+      case PreparedMessageAction.replace:
+      case PreparedMessageAction.restoreAndEnd:
+      case PreparedMessageAction.nothing:
+      case PreparedMessageAction.keep:
+      case PreparedMessageAction.end:
+      case PreparedMessageAction.keepValidated:
+      case PreparedMessageAction.replaceAsNew:
+      case PreparedMessageAction.clearAndEnd:
+        break;
+    }
+  }
+
   void _onCancelAmend() {
     final WorkingCopyDraftController notifier = ref.read(
       workingCopyDraftProvider(widget.identity).notifier,
@@ -686,14 +795,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
   /// Submits, through the one shared entry point the menu and the shortcut
   /// also use.
+  /// Waiting for the commit to land is `WorkspaceScreen`'s job, for every
+  /// path alike (`WorkingCopyDraft.pendingCommitSeq`).
   void _onSubmit({required bool amend}) {
-    final String from = ref
-        .read(repoSessionProvider(widget.identity))
-        .refs
-        .head
-        .target;
-    if (!wc.submitCommit(ref, widget.identity, amend: amend)) return;
-    _pendingCommitFrom = from;
+    wc.submitCommit(ref, widget.identity, amend: amend);
   }
 
   /// Context menu 05-F for a working-copy file.

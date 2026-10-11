@@ -9,9 +9,9 @@ Pin prefix `CULT-`. Format: [README.md](README.md).
 
 ## [CULT-orphan-wiring] Orphan wiring is the recurring defect shape here
 
-- **Rule**: a route, provider, preference, capi field or parameter with no caller or reader under `lib/` — or a producer whose output nothing reads. It has shipped twelve times (**#102**).
+- **Rule**: a route, provider, preference, capi field or parameter with no caller or reader under `lib/` — or a producer whose output nothing reads. It has shipped 13 times (**#102**).
 - **Do**: grep both directions before adding one and before deleting the last caller; 「who reads this」 finds the orphan, 「could the reader do what this promises」 decides wire versus delete.
-- **Evidence**: [record: the twelve instances](../records/2026-10-04-orphan-wiring-instances.md)
+- **Evidence**: [record: the instances](../records/2026-10-04-orphan-wiring-instances.md)
 
 ## [CULT-single-source-of-truth] A second source of truth for a computed fact is how a bug hides
 

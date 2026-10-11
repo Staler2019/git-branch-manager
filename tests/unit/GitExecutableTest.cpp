@@ -9,6 +9,7 @@
 // be probed last.
 #include "core/git/GitExecutable.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -96,35 +97,58 @@ TEST_F(GitExecutableTest, DetectAggregatesEveryFailedCandidateInsteadOfOnlyTheLa
 }
 #endif
 
-#ifndef _WIN32
+/// Sets an environment variable on every platform the core builds for.
+void setEnv(const char* name, const std::string& value) {
+#ifdef _WIN32
+    ::_putenv_s(name, value.c_str());
+#else
+    ::setenv(name, value.c_str(), 1);
+#endif
+}
+
 // A relative PATH entry resolves against whatever directory the app happens
 // to run in, so a `git` planted there -- a cloned repository's own `./git`,
 // say -- would be picked ahead of the real one. Only absolute entries count.
+// Runs on Windows too: the rule is not platform-specific, and neither is the
+// planted-binary risk.
 TEST_F(GitExecutableTest, SearchPathSkipsARelativePathEntry) {
+#ifdef _WIN32
+    const char* kExeName = "git.exe";
+    const char* kSeparator = ";";
+#else
+    const char* kExeName = "git";
+    const char* kSeparator = ":";
+#endif
     const auto relativeDir = std::filesystem::path("planted");
     const auto absoluteDir = root_ / "real";
     std::filesystem::create_directories(root_ / relativeDir);
     std::filesystem::create_directories(absoluteDir);
-    { std::ofstream(root_ / relativeDir / "git") << "planted"; }
-    { std::ofstream(absoluteDir / "git") << "real"; }
+    { std::ofstream(root_ / relativeDir / kExeName) << "planted"; }
+    { std::ofstream(absoluteDir / kExeName) << "real"; }
 
-    const std::string savedPath = std::getenv("PATH") != nullptr ? std::getenv("PATH") : "";
+    const char* original = std::getenv("PATH");
+    const std::string savedPath = original != nullptr ? original : "";
     const auto savedCwd = std::filesystem::current_path();
     std::filesystem::current_path(root_);
-    ::setenv("PATH", (relativeDir.string() + ":" + absoluteDir.string()).c_str(), 1);
+    setEnv("PATH", relativeDir.string() + kSeparator + absoluteDir.string());
 
     const auto candidates = GitExecutable::searchPath();
 
-    ::setenv("PATH", savedPath.c_str(), 1);
+    setEnv("PATH", savedPath);
     std::filesystem::current_path(savedCwd);
 
     ASSERT_FALSE(candidates.empty());
-    EXPECT_EQ(candidates.front(), absoluteDir / "git");
+#ifdef _WIN32
+    // The registry's Git for Windows install, when present, ranks first.
+    const auto real = std::find(candidates.begin(), candidates.end(), absoluteDir / kExeName);
+    EXPECT_NE(real, candidates.end());
+#else
+    EXPECT_EQ(candidates.front(), absoluteDir / kExeName);
+#endif
     for (const auto& candidate : candidates) {
         EXPECT_TRUE(candidate.is_absolute()) << candidate;
     }
 }
-#endif
 
 }  // namespace
 }  // namespace gbm

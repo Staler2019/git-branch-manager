@@ -209,7 +209,48 @@ epoch 3 是 closing review，REVISE 後暫停交使用者，取得上面的裁�
 ### Slice D 最後 verifier（2026-10-11，`e6f1e49..0195db5`）
 
 - **CONFIRMED**。重現：`flutter test` +3444 ~1、analyze 0、capi ctest 783／783（序列跑）。並行跑時 `graph_matches_git_on_generated_history` 紅過一次，單獨重跑綠，verifier 判定是兩個 ctest 同時跑造成，本輪未動 graph。
-- 未處理的 advisory（P3／P4 預設延後，交使用者裁定）：
-  - D1（P3）：`commitMetaReplySeq` 每個 `COMMIT_META_READY` 都加一，包括 History 列先前的請求。這種回覆若在 checkParent 之後到、又不含新 HEAD 的 oid，真的 app 外 merge commit 會被判為 noAnswer，框回到 merge 前的文字，而不是清空。不會遺失資料。
-  - D2（P3）：`submitCommit` 中 prefs 寫入若丟例外，`.then` 不會執行，commit 不送出也沒有錯誤顯示。`_drain` 丟例外會卡住 `_inFlight` 是本輪之前就有的；本輪新增的影響是連 commit 也被擋下。
-  - D3（P4，未重現）：checkHead 之前就開始讀、之後才發佈的 refs 會被當成新的，看到 HEAD 未動 → Abort 規則。
+- ~~未處理的 advisory（P3／P4 預設延後，交使用者裁定）~~ 使用者 2026-10-11 裁定「三個都修」，見 Slice E：
+  - ~~D1（P3）：`commitMetaReplySeq` 每個 `COMMIT_META_READY` 都加一，包括 History 列先前的請求。這種回覆若在 checkParent 之後到、又不含新 HEAD 的 oid，真的 app 外 merge commit 會被判為 noAnswer，框回到 merge 前的文字，而不是清空。不會遺失資料。~~ 已修（Slice E `cdd81c6`）。
+  - ~~D2（P3）：`submitCommit` 中 prefs 寫入若丟例外，`.then` 不會執行，commit 不送出也沒有錯誤顯示。`_drain` 丟例外會卡住 `_inFlight` 是本輪之前就有的；本輪新增的影響是連 commit 也被擋下。~~ 已修（Slice E `879eba2`）。
+  - ~~D3（P4，未重現）：checkHead 之前就開始讀、之後才發佈的 refs 會被當成新的，看到 HEAD 未動 → Abort 規則。~~ 已修（Slice E `4c60e76`／`2751cb6`／`eac76d2`）。「未重現」只是沒試著重現：focus 重新整理會先同步讀 RepoState，再請求 refresh，所以這條路徑確實走得到。
+
+## Slice E — verifier advisories D1–D3（2026-10-11）
+
+### Task
+
+使用者 2026-10-11「三個都修」：D1、D2、D3。dart:io 回收子行程另開一輪（使用者裁定），push／PR 延後。
+
+Plan readiness：三個 epoch。
+- epoch 1 REVISE：`setHistoryFilter()` 是第二個 dispatch 點，它的 `fireNow()` 會吸收等待中的請求且不再補跑，計畫原本沒寫；Dart 欄位可能倒退。
+- epoch 2 REVISE：寫入同步拋出時，`_drain` 的 `finally` 會在 `_inFlight ??= _drain()` 賦值之前就跑完。
+- epoch 3（收尾審查）**READY**。使用者「continue」核准實作。
+
+### Action
+
+| commit | 內容 | mutations-run | tests-reddened |
+|---|---|---|---|
+| `4c60e76` F1 | core＋capi：`gbm_history_refresh` 回傳請求編號；REFS_UPDATED 帶 `{"coversRequest"}`；兩個 dispatch 點都在 `takePending()` 同一段鎖內記下 | 4 | 3／1／1／2 |
+| `2751cb6` F2 | Dart：`refsCoverRequest`（只取最大值）、`refreshHistory()` 回傳編號 | 3 | 1／2／1 |
+| `eac76d2` F3 | D3：HEAD 檢查等 `refsCoverRequest >= headCheckRequest`；請求改由草稿送出 | 3 | 1／2／8 |
+| `cdd81c6` F4 | D1：`commitMetaReplySeq >= commitMetaRequestSeq` 才算沒有答案；解不開的回覆也計數 | 4 | 2／1／1／1 |
+| `879eba2` F5 | D2：寫入失敗時照樣送出 commit、記 Log；`_drain`／`_drainRounds` 拆開讓 `_inFlight` 一定歸零 | 7 | 2／2／0／0／2／1／3 |
+
+偏離計畫與自己的錯：
+
+- F1 把 Dart binding 的簽章（`_HistoryRefreshNative` 改 `Uint64`）也放進 F1，不是計畫寫的 F2：header 一改，`gbm_capi_signature_parity_test.dart` 就要求 binding 同步，分開放的話 F1 這個 commit 會是紅的。驗證過：只留 native typedef 為 `Void`，parity 測試紅 1（`gbm_history_refresh`）。
+- F1 第一批 mutation 有四次無效：三次被 `-Werror` 擋下沒編譯成功（未使用的 capture、shadow、未使用變數），M4 那次跑到的是 M3 留下的舊執行檔；M2' 的腳本先還原檔案才套用第二處修改。改寫成能編譯的版本後，四個都有效。
+- F1 第一次跑完整 ctest 只有 783 個：ctest 用的是加測試前的清單。重新 build 後 786／786。
+- F3 的 widget 層「過期 refs」測試第一版太弱：過期 refs 的 cover 等於舊值 0，監聽紀錄沒變，根本沒觸發 pass，P1 mutation 時它照樣綠。改成先多做一次 refresh，讓過期值是新的非零值，P1' 才紅 2。
+- F5 的計畫寫「每次寫入都經 `Future.sync`」。實作後兩個 mutation 都存活：拿掉 marker 的 `Future.sync`（R3），以及補上 draft 同步失敗案例後拿掉 draft 的（R3'）。原因是 `_drain`／`_drainRounds` 拆開本身就讓同步拋出先被 `_drainRounds` 的 future 接住，`Future.sync` 是多餘的，已刪除。plan-verifier 要的驗收仍然成立：把迴圈放回單一函式加 `try/finally`（R5）時，只有 draft 同步失敗那個案例變紅。marker 寫入永遠排在 draft 寫入的 `await` 之後，所以計畫寫的「marker 同步失敗」這個案例本來就驗不到卡住問題，已在測試註解寫明。
+- F4 的 COMMIT_META_READY 回覆計數移到 `finally`，payload 解不開時一樣計入：否則一個回覆漏算，「全部已回覆」就永遠不會成立。
+
+### Result
+
+- `flutter test` +3460 ~1、analyze 0、format 0。capi ctest 786／786。core 未改動。
+
+- 裝置層：20 個檔案逐檔跑（`879eba2`，`lib` 未改動），18 個綠，包括 `prepared_message_flow` +5、`stage_lines_flow` +9、`history_filter` +2。
+  - `update_check_flow` 紅 2：GitHub API 回 403，是外部網路因素。
+  - `worktree_add_refresh` 不穩：在 `879eba2` 上共跑 4 次，綠 1 次。紅的 3 次中，1 次第二個測試沒跑完，1 次 tearDownAll 沒跑完，1 次第一個測試卡到 900 秒 timeout。
+  - 對照：在本輪之前的 `d59a3be` 上跑 3 次，綠 1、紅 2（都是 tearDownAll 沒跑完）。所以不穩是本輪之前就有的。那次卡住只在 `879eba2` 出現過一次、沒有重現，記為「未重現」，不認定原因。沒有開 issue。
+- 逐 commit 檢查（另開 worktree）：F1–F4 每個中間 commit 都是 analyze 0，`flutter test` 依序 +3444／+3449／+3451／+3457，全綠。
+- 新增欄位與函式都有讀取者或呼叫者：`coversRequest`、`refsCoverRequest`、`commitMetaRequestSeq`、`recordDraftNotSaved`、`headCheckRequest`；`headCheckEpoch` 已完全移除。

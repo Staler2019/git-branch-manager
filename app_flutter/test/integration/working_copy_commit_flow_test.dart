@@ -4,11 +4,13 @@
 // does the box clear on the right event rather than on the press.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -782,6 +784,53 @@ void main() {
       );
     });
   });
+
+  // Slice E D2: a write failing on the commit path must neither swallow the
+  // commit nor wedge every later draft write. The repository's writers are
+  // plain methods, so one can throw before the drain's first `await` -- the
+  // draft write is that first write; the marker write always comes after it.
+  for (final _Failure failure in _Failure.values) {
+    testWidgets('a ${failure.label} still commits, once', (
+      WidgetTester tester,
+    ) async {
+      late _FailingMarkerRepository repo;
+      final PumpedWorkspace pumped = await pumpWorkspace(
+        tester,
+        identity: _identity,
+        initialState: _sessionAt('deadbeef'),
+        workingCopyBuilder: (BuildContext context, _) =>
+            const WorkingCopyView(identity: _identity),
+        overrides: <Override>[
+          workingCopyDraftRepositoryProvider.overrideWith(
+            (Ref ref) => repo = _FailingMarkerRepository(
+              ref.watch(sharedPreferencesProvider),
+              failure: failure,
+            ),
+          ),
+        ],
+      );
+      pumped.router.go(
+        RoutePaths.workingCopyFor(Uri.encodeComponent(_identity.workDir)),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(GbmButton, 'Commit'));
+      await tester.pumpAndSettle();
+
+      expect(_commits(pumped), 1);
+      expect(
+        pumped.controller.state.operationLog.map((GbmLogEntry e) => e.message),
+        contains(contains('draft could not be saved')),
+      );
+
+      final int before = repo.draftWrites;
+      await tester.enterText(_summaryField, 'fix: next');
+      await tester.pumpAndSettle();
+      expect(repo.draftWrites, greaterThan(before), reason: 'writes wedged');
+    });
+  }
 }
 
 Future<void> _pressAmendShortcut(WidgetTester tester) async {
@@ -810,3 +859,55 @@ CommitMeta _meta() => const CommitMeta(
   body: 'its body',
   signedCommit: false,
 );
+
+enum _Failure {
+  markerSync('marker write throwing synchronously'),
+  markerAsync('marker write failing asynchronously'),
+  draftSync('draft write throwing synchronously');
+
+  const _Failure(this.label);
+  final String label;
+}
+
+/// Fails one write on the commit path, then lets later writes through, and
+/// counts draft writes.
+class _FailingMarkerRepository extends WorkingCopyDraftRepository {
+  _FailingMarkerRepository(super.prefs, {required this.failure});
+
+  final _Failure failure;
+  int draftWrites = 0;
+  bool _committing = false;
+
+  @override
+  Future<void> writePendingCommit(
+    RepoIdentity identity, {
+    required String head,
+    required bool headKnown,
+  }) {
+    switch (failure) {
+      case _Failure.markerSync:
+        throw Exception('disk full');
+      case _Failure.markerAsync:
+        return Future<void>.error(Exception('disk full'));
+      case _Failure.draftSync:
+        return super.writePendingCommit(
+          identity,
+          head: head,
+          headKnown: headKnown,
+        );
+    }
+  }
+
+  @override
+  Future<void> write(RepoIdentity identity, WorkingCopyDraft draft) {
+    draftWrites++;
+    // The round [commitSubmitted] drives is the one with the marker in it.
+    if (failure == _Failure.draftSync &&
+        !_committing &&
+        draft.pendingCommitSeq != null) {
+      _committing = true;
+      throw Exception('disk full');
+    }
+    return super.write(identity, draft);
+  }
+}

@@ -2251,6 +2251,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
   }
 
+  /// Logs that the commit box's draft could not be saved before a commit was
+  /// sent -- [submitCommit]'s one failure path that reaches no other screen.
+  void recordDraftNotSaved() =>
+      _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
+
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.

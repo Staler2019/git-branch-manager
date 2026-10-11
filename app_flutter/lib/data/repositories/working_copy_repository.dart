@@ -95,6 +95,9 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
   // The pending-commit marker reaches disk before the commit is sent, so a
   // crash after it lands cannot bring the committed message back (Slice D
   // R1). The button, shortcut and menu need only "accepted", hence the bool.
+  // A failed write still sends the commit -- losing only that crash
+  // protection for this one commit -- and says so in the log (Slice E D2).
+  void send() => sender.commit(message, amend: amend);
   unawaited(
     ref
         .read(workingCopyDraftProvider(identity).notifier)
@@ -103,7 +106,14 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
           head: session.refs.head.target,
           headKnown: session.refsEpoch > 0,
         )
-        .then((_) => sender.commit(message, amend: amend)),
+        .then(
+          (_) => send(),
+          onError: (Object error, StackTrace stack) {
+            if (error is! Exception) Error.throwWithStackTrace(error, stack);
+            send();
+            sender.recordDraftNotSaved();
+          },
+        ),
   );
   return true;
 }

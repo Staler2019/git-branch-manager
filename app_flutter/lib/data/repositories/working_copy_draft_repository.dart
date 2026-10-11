@@ -742,7 +742,26 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   /// episode written without its draft leaves the old text, which no longer
   /// matches the autofill and so counts as theirs; an episode deleted without
   /// its draft leaves the autofill text in the box, never an empty one.
+  /// Two functions on purpose (Slice E D2). The repository's writers are
+  /// plain Future-returning methods, so one can throw synchronously, before
+  /// any `await`. Inside one async function with a `try`/`finally`, that
+  /// `finally` would run before [_drain] had even returned -- before
+  /// [_persist]'s `_inFlight ??= _drain()` stored the future -- and the
+  /// assignment would then keep the errored future forever. Here the throw is
+  /// caught by [_drainRounds]'s own future, and `await` always suspends, so
+  /// the `finally` runs after the assignment.
   Future<void> _drain() async {
+    try {
+      await _drainRounds();
+    } finally {
+      // A failed write must not leave every later [_persist] waiting on a
+      // drain that will never run again. The error still reaches whoever
+      // awaits this drain ([commitSubmitted]).
+      _inFlight = null;
+    }
+  }
+
+  Future<void> _drainRounds() async {
     while (_dirty) {
       _dirty = false;
       if (state.preparedEpisodeActive && state.preparedFilled) {
@@ -763,10 +782,11 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       if (head != null && (!_markerOnDisk || _markerHead != head)) {
         _markerOnDisk = true;
         _markerHead = head;
+        final bool headKnown = state.pendingCommitHeadKnown;
         await _repo.writePendingCommit(
           _identity,
           head: head,
-          headKnown: state.pendingCommitHeadKnown,
+          headKnown: headKnown,
         );
       } else if (head == null && _markerOnDisk) {
         _markerOnDisk = false;
@@ -775,7 +795,6 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       }
       if (!mounted) break;
     }
-    _inFlight = null;
   }
 }
 

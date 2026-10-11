@@ -123,6 +123,20 @@ abstract final class AppLogEvents {
     );
   }
 
+  /// The commit box's draft could not be written before a commit was sent
+  /// (Slice E D2). The commit went out anyway; what is lost is the
+  /// pending-commit marker that brings the right text back after a crash.
+  /// Carries no detail: the failure text could quote the draft.
+  static AppLogEntry draftNotSaved({required int atEpochMs}) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.warning,
+      message:
+          'The commit message draft could not be saved; the commit was sent '
+          'anyway',
+    );
+  }
+
   /// An event whose data was not valid UTF-8 (or not valid JSON). Names the
   /// event type only -- the bytes themselves are whatever failed to decode,
   /// and could be anything, file content included.

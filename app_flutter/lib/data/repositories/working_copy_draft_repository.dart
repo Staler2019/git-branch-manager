@@ -553,10 +553,12 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         break;
       case PreparedMessageAction.checkHead:
         // The request is sent here, not by the caller, so its number is in
-        // hand when it is recorded. Without a sender (a caller with no
-        // session), any refs published from now on are newer than these.
+        // hand when it is recorded. Nothing sent -- no sender, or 0 from a
+        // refreshHistory() with no native session -- means no request refs
+        // could cover; wait for any published from now on instead.
+        final int sent = requestRefresh?.call() ?? 0;
         state = d.copyWith(
-          headCheckRequest: requestRefresh?.call() ?? refsCoverRequest + 1,
+          headCheckRequest: sent > 0 ? sent : refsCoverRequest + 1,
         );
       case PreparedMessageAction.checkParent:
         state = d.copyWith(

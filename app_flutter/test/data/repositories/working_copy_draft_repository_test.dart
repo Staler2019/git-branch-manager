@@ -678,6 +678,30 @@ void main() {
         );
       });
 
+      // Slice E verifier E2: with no native session refreshHistory() sends
+      // nothing and answers 0; that is not a request any refs could cover
+      // yet, so the check waits for refs published from now on.
+      test('a refresh that sent nothing waits for newer refs', () {
+        reconcile();
+        reconcile(reply: PreparedReplyStatus.message);
+        PreparedMessageAction end({required int cover}) =>
+            notifier.reconcilePreparedMessage(
+              pending: false,
+              reply: PreparedReplyStatus.message,
+              summary: "Merge branch 'topic'",
+              description: 'merged body',
+              raw: "Merge branch 'topic'\n\nmerged body",
+              head: 'deadbeef',
+              overwrite: true,
+              refsCoverRequest: cover,
+              requestRefresh: () => 0,
+            );
+        expect(end(cover: 3), PreparedMessageAction.checkHead);
+        expect(end(cover: 3), PreparedMessageAction.nothing);
+        expect(draft().summary, "Merge branch 'topic'");
+        expect(end(cover: 4), PreparedMessageAction.restoreAndEnd);
+      });
+
       // Slice E D3: refs published after the check was asked for but read
       // before it -- a load already running -- say nothing about HEAD now.
       test('refs read before the check was asked for decide nothing', () {

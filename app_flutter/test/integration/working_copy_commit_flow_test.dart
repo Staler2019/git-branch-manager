@@ -102,9 +102,28 @@ int _commits(PumpedWorkspace pumped) => pumped.controller.commandLog
     .where((FakeCommand c) => c.name == 'commit')
     .length;
 
+/// The commit's own outcome (`"kind":"commit"`), on top of the current state
+/// so the counters carry over, optionally with HEAD moved and an error.
+void _emitCommitOutcome(
+  PumpedWorkspace pumped, {
+  required bool succeeded,
+  String? head,
+  GitError? error,
+}) {
+  final RepoSessionState s = pumped.controller.state;
+  pumped.controller.emit(
+    s.copyWith(
+      commitOutcomeSeq: s.commitOutcomeSeq + 1,
+      lastCommitSucceeded: succeeded,
+      refs: head == null ? null : _refsAt(head),
+      lastError: error,
+    ),
+  );
+}
+
 void main() {
   group('the box clears on success, not on the press', () {
-    testWidgets('a submitted message stays put until HEAD moves', (
+    testWidgets('a submitted message stays put until its outcome', (
       WidgetTester tester,
     ) async {
       // The box used to clear on the press. A commit that failed -- nothing
@@ -129,7 +148,7 @@ void main() {
       WidgetTester tester,
     ) async {
       // Status refreshes republish the session constantly while a commit is
-      // in flight. Only HEAD actually *moving* means the commit landed.
+      // in flight. Only the commit's own outcome settles it.
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'fix: something');
       await tester.pump();
@@ -148,14 +167,14 @@ void main() {
       );
     });
 
-    testWidgets('HEAD moving clears it', (WidgetTester tester) async {
+    testWidgets('a successful outcome clears it', (WidgetTester tester) async {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'fix: something');
       await tester.pump();
       await tester.tap(find.widgetWithText(GbmButton, 'Commit'));
       await tester.pump();
 
-      pumped.controller.emit(_sessionAt('cafebabe'));
+      _emitCommitOutcome(pumped, succeeded: true, head: 'cafebabe');
       await tester.pumpAndSettle();
 
       expect(
@@ -164,31 +183,31 @@ void main() {
       );
     });
 
-    testWidgets('an error while the commit is outstanding stops the wait', (
-      WidgetTester tester,
-    ) async {
-      // Otherwise the *next* HEAD move -- another commit, a checkout --
-      // would clear a message written since.
+    testWidgets('a failed outcome stops the wait', (WidgetTester tester) async {
+      // Otherwise the *next* commit or checkout would clear a message
+      // written since.
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
       await tester.enterText(_summaryField, 'fix: something');
       await tester.pump();
       await tester.tap(find.widgetWithText(GbmButton, 'Commit'));
       await tester.pump();
 
-      pumped.controller.emit(
-        _sessionAt('deadbeef').copyWith(
-          lastError: const GitError(
-            code: 1,
-            codeName: 'GBM_ERR_GIT',
-            message: 'hook refused',
-            detail: '',
-            argv: <String>['git', 'commit'],
-            exitCode: 1,
-          ),
+      _emitCommitOutcome(
+        pumped,
+        succeeded: false,
+        error: const GitError(
+          code: 1,
+          codeName: 'GBM_ERR_GIT',
+          message: 'hook refused',
+          detail: '',
+          argv: <String>['git', 'commit'],
+          exitCode: 1,
         ),
       );
       await tester.pumpAndSettle();
-      pumped.controller.emit(_sessionAt('cafebabe'));
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(refs: _refsAt('cafebabe')),
+      );
       await tester.pumpAndSettle();
 
       expect(
@@ -291,7 +310,7 @@ void main() {
       await tester.tap(find.widgetWithText(GbmButton, 'Amend'));
       await tester.pump();
 
-      pumped.controller.emit(_sessionAt('cafe1234'));
+      _emitCommitOutcome(pumped, succeeded: true, head: 'cafe1234');
       await tester.pumpAndSettle();
 
       expect(find.widgetWithText(GbmButton, 'Amend'), findsOneWidget);
@@ -451,11 +470,32 @@ void main() {
   // 使用者 2026-10-10 ruled the keyboard and menu clear the box on success
   // like the button. The wait used to live in the view's private field, set
   // only by the button, so Cmd+Enter left a committed message in the box.
-  group('every commit path clears the box once HEAD moves', () {
+  // Slice D: the wait ends on this commit's own outcome (`"kind":"commit"`),
+  // never on HEAD moving or on an unrelated error.
+  group('every commit path settles on its own outcome', () {
     String draftSummary(PumpedWorkspace p) =>
         p.container.read(workingCopyDraftProvider(_identity)).summary;
-    String? pending(PumpedWorkspace p) =>
-        p.container.read(workingCopyDraftProvider(_identity)).pendingCommitFrom;
+    int? pending(PumpedWorkspace p) =>
+        p.container.read(workingCopyDraftProvider(_identity)).pendingCommitSeq;
+
+    Future<void> outcome(
+      WidgetTester tester,
+      PumpedWorkspace p, {
+      required bool succeeded,
+      String? head,
+    }) async {
+      _emitCommitOutcome(p, succeeded: succeeded, head: head);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> moveHead(
+      WidgetTester tester,
+      PumpedWorkspace p,
+      String head,
+    ) async {
+      p.controller.emit(p.controller.state.copyWith(refs: _refsAt(head)));
+      await tester.pumpAndSettle();
+    }
 
     testWidgets('Cmd/Ctrl+Enter', (WidgetTester tester) async {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
@@ -463,8 +503,7 @@ void main() {
       await tester.pump();
       await _pressCommitShortcut(tester);
 
-      pumped.controller.emit(_sessionAt('cafebabe'));
-      await tester.pumpAndSettle();
+      await outcome(tester, pumped, succeeded: true, head: 'cafebabe');
 
       expect(draftSummary(pumped), isEmpty);
       expect(
@@ -474,7 +513,75 @@ void main() {
       );
     });
 
-    testWidgets('HEAD moving while Working Copy is off screen still counts', (
+    // A1: a fetch failing mid-commit used to cancel the wait, so the merge
+    // ending looked like an Abort and the pre-merge text came back.
+    testWidgets('an unrelated error does not stop the wait', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(
+          lastError: const GitError(
+            code: 1,
+            codeName: 'ProcessFailed',
+            message: 'fetch failed',
+            detail: '',
+            argv: <String>['git', 'fetch'],
+            exitCode: 1,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(pending(pumped), isNotNull);
+
+      await outcome(tester, pumped, succeeded: true, head: 'cafebabe');
+      expect(draftSummary(pumped), isEmpty);
+    });
+
+    // A2: HEAD read before refs load is '', so refs arriving looked like the
+    // commit moving HEAD and cleared a commit that then failed.
+    testWidgets('refs arriving mid-commit are not the commit landing', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      pumped.controller.emit(
+        pumped.controller.state.copyWith(refs: RefSnapshot.empty),
+      );
+      await tester.pumpAndSettle();
+      await tester.enterText(_summaryField, 'fix: early');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+
+      await moveHead(tester, pumped, 'cafebabe');
+      expect(draftSummary(pumped), 'fix: early');
+
+      await outcome(tester, pumped, succeeded: false);
+      expect(draftSummary(pumped), 'fix: early');
+      expect(pending(pumped), isNull);
+    });
+
+    testWidgets('a failed commit keeps the text and stops waiting', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
+      await tester.enterText(_summaryField, 'fix: something');
+      await tester.pump();
+      await _pressCommitShortcut(tester);
+
+      await outcome(tester, pumped, succeeded: false);
+      expect(draftSummary(pumped), 'fix: something');
+      expect(pending(pumped), isNull);
+
+      // A later, unrelated commit outcome or HEAD move clears nothing.
+      await moveHead(tester, pumped, '0ddba11');
+      expect(draftSummary(pumped), 'fix: something');
+    });
+
+    testWidgets('an outcome while Working Copy is off screen still counts', (
       WidgetTester tester,
     ) async {
       final PumpedWorkspace pumped = await _pumpAtWorkingCopy(tester);
@@ -486,8 +593,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      pumped.controller.emit(_sessionAt('cafebabe'));
-      await tester.pumpAndSettle();
+      await outcome(tester, pumped, succeeded: true, head: 'cafebabe');
       pumped.router.go(
         RoutePaths.workingCopyFor(Uri.encodeComponent(_identity.workDir)),
       );
@@ -499,14 +605,59 @@ void main() {
       // A later, unrelated HEAD move must not clear what is typed next.
       await tester.enterText(_summaryField, 'next thought');
       await tester.pump();
-      pumped.controller.emit(_sessionAt('0ddba11'));
-      await tester.pumpAndSettle();
+      await moveHead(tester, pumped, '0ddba11');
       expect(draftSummary(pumped), 'next thought');
     });
 
     // The draft outlives the workspace shell; a shell that was not there
-    // when HEAD moved has to look at HEAD when it comes back.
-    testWidgets('HEAD moving while the repository is closed still counts', (
+    // when the outcome arrived settles it when it comes back.
+    for (final bool succeeded in <bool>[true, false]) {
+      testWidgets(
+        'an outcome while the repository is closed is settled on return '
+        '(succeeded: $succeeded)',
+        (WidgetTester tester) async {
+          final PumpedWorkspace pumped = await pumpWorkspace(
+            tester,
+            identity: _identity,
+            initialState: _sessionAt('deadbeef'),
+            workingCopyBuilder: (BuildContext context, _) =>
+                const WorkingCopyView(identity: _identity),
+            topLevelRoutes: <RouteBase>[
+              GoRoute(
+                path: '/elsewhere',
+                builder: (BuildContext context, _) => const Scaffold(),
+              ),
+            ],
+          );
+          final String wcPath = RoutePaths.workingCopyFor(
+            Uri.encodeComponent(_identity.workDir),
+          );
+          pumped.router.go(wcPath);
+          await tester.pumpAndSettle();
+          await tester.enterText(_summaryField, 'fix: something');
+          await tester.pump();
+          await _pressCommitShortcut(tester);
+          pumped.router.go('/elsewhere');
+          await tester.pumpAndSettle();
+
+          await outcome(
+            tester,
+            pumped,
+            succeeded: succeeded,
+            head: succeeded ? 'cafebabe' : null,
+          );
+          pumped.router.go(wcPath);
+          await tester.pumpAndSettle();
+
+          expect(draftSummary(pumped), succeeded ? isEmpty : 'fix: something');
+          expect(pending(pumped), isNull);
+        },
+      );
+    }
+
+    // No outcome yet: still waiting, whatever HEAD says -- the old rule read
+    // "HEAD unchanged on return" as abandoned.
+    testWidgets('a return before the outcome keeps waiting', (
       WidgetTester tester,
     ) async {
       final PumpedWorkspace pumped = await pumpWorkspace(
@@ -532,56 +683,12 @@ void main() {
       await _pressCommitShortcut(tester);
       pumped.router.go('/elsewhere');
       await tester.pumpAndSettle();
-
-      pumped.controller.emit(_sessionAt('cafebabe'));
-      await tester.pumpAndSettle();
       pumped.router.go(wcPath);
       await tester.pumpAndSettle();
 
+      expect(pending(pumped), isNotNull);
+      await outcome(tester, pumped, succeeded: true, head: 'cafebabe');
       expect(draftSummary(pumped), isEmpty);
-      expect(pending(pumped), isNull);
-      await tester.enterText(_summaryField, 'next thought');
-      await tester.pump();
-      pumped.controller.emit(_sessionAt('0ddba11'));
-      await tester.pumpAndSettle();
-      expect(draftSummary(pumped), 'next thought');
-    });
-
-    testWidgets('a reopen at the same HEAD stops waiting', (
-      WidgetTester tester,
-    ) async {
-      // The commit failed or its outcome is unknown: keep the user's text and
-      // stop waiting, so a later checkout does not wipe it.
-      final PumpedWorkspace pumped = await pumpWorkspace(
-        tester,
-        identity: _identity,
-        initialState: _sessionAt('deadbeef'),
-        workingCopyBuilder: (BuildContext context, _) =>
-            const WorkingCopyView(identity: _identity),
-        topLevelRoutes: <RouteBase>[
-          GoRoute(
-            path: '/elsewhere',
-            builder: (BuildContext context, _) => const Scaffold(),
-          ),
-        ],
-      );
-      final String wcPath = RoutePaths.workingCopyFor(
-        Uri.encodeComponent(_identity.workDir),
-      );
-      pumped.router.go(wcPath);
-      await tester.pumpAndSettle();
-      await tester.enterText(_summaryField, 'fix: something');
-      await tester.pump();
-      await _pressCommitShortcut(tester);
-      pumped.router.go('/elsewhere');
-      await tester.pumpAndSettle();
-      pumped.router.go(wcPath);
-      await tester.pumpAndSettle();
-
-      expect(pending(pumped), isNull);
-      pumped.controller.emit(_sessionAt('0ddba11'));
-      await tester.pumpAndSettle();
-      expect(draftSummary(pumped), 'fix: something');
     });
   });
 

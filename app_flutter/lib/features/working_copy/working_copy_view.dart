@@ -767,7 +767,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// Submits, through the one shared entry point the menu and the shortcut
   /// also use.
   /// Waiting for the commit to land is `WorkspaceScreen`'s job, for every
-  /// path alike (`WorkingCopyDraft.pendingCommitFrom`).
+  /// path alike (`WorkingCopyDraft.pendingCommitSeq`).
   void _onSubmit({required bool amend}) {
     wc.submitCommit(ref, widget.identity, amend: amend);
   }

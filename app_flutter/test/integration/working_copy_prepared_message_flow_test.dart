@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
@@ -337,6 +338,30 @@ void main() {
     });
   });
 
+  /// The commit's own outcome, published before RepoState is re-read (the
+  /// order `workingCopyOperationFinished` handles it in).
+  Future<void> commitOutcome(
+    WidgetTester tester,
+    PumpedWorkspace pumped, {
+    required bool succeeded,
+  }) async {
+    final RepoSessionState s = pumped.controller.state;
+    pumped.controller.emit(
+      s.copyWith(
+        commitOutcomeSeq: s.commitOutcomeSeq + 1,
+        lastCommitSucceeded: succeeded,
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> pressCommitShortcut(WidgetTester tester) async {
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
+    await tester.pump();
+  }
+
   // 使用者 2026-10-10: committing the unedited prepared message through the
   // keyboard used to put the pre-merge text back, because the merge ending
   // (pending -> false) looked exactly like an Abort.
@@ -348,30 +373,39 @@ void main() {
     await _setPending(tester, pumped, true);
     await _reply(tester, pumped);
 
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.control);
-    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.control);
-    await tester.pump();
-    // RepoState is re-read before refs: the merge ends first...
+    await pressCommitShortcut(tester);
+    await commitOutcome(tester, pumped, succeeded: true);
     await _setPending(tester, pumped, false);
-    expect(_summary(tester), isNot('mine'));
-    // ...then HEAD moves.
+
+    expect(_summary(tester), isEmpty);
+    expect(_description(tester), isEmpty);
+  });
+
+  // A1: an unrelated error mid-commit used to cancel the wait, and the merge
+  // ending then put the pre-merge text back over a merge that had landed.
+  testWidgets('an unrelated error mid-commit does not bring the pre-merge '
+      'text back', (WidgetTester tester) async {
+    final PumpedWorkspace pumped = await _pump(tester);
+    await _type(tester, 'mine', 'my body');
+    await _setPending(tester, pumped, true);
+    await _reply(tester, pumped);
+
+    await pressCommitShortcut(tester);
     pumped.controller.emit(
       pumped.controller.state.copyWith(
-        refs: const RefSnapshot(
-          head: HeadInfo(
-            kind: HeadKind.branch,
-            branchName: 'main',
-            fullRef: 'refs/heads/main',
-            target: 'cafebabe',
-          ),
-          refs: <RefInfo>[],
-          refCountGuardTripped: false,
-          totalRefCount: 0,
+        lastError: const GitError(
+          code: 1,
+          codeName: 'ProcessFailed',
+          message: 'fetch failed',
+          detail: '',
+          argv: <String>['git', 'fetch'],
+          exitCode: 1,
         ),
       ),
     );
     await tester.pumpAndSettle();
+    await commitOutcome(tester, pumped, succeeded: true);
+    await _setPending(tester, pumped, false);
 
     expect(_summary(tester), isEmpty);
     expect(_description(tester), isEmpty);

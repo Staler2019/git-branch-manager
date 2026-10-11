@@ -115,7 +115,7 @@ class WorkingCopyDraft {
     this.hasAutofill = false,
     this.autofilledSummary = '',
     this.autofilledDescription = '',
-    this.pendingCommitFrom,
+    this.pendingCommitSeq,
     this.episodeHead = '',
     this.autofilledRaw = '',
     this.needsRevalidation = false,
@@ -165,13 +165,16 @@ class WorkingCopyDraft {
   final String autofilledSummary;
   final String autofilledDescription;
 
-  /// HEAD's oid when a commit from this box was submitted, or null when none
-  /// is outstanding. The box is cleared when HEAD moves off it, **not** when
-  /// the commit is sent: a commit that failed -- nothing staged, a rejecting
-  /// hook, a bad identity -- would otherwise take the message with it.
-  /// Memory only; one place sets it ([submitCommit]) for the button, the
-  /// shortcut and the menu alike, and `WorkspaceScreen` watches HEAD for it.
-  final String? pendingCommitFrom;
+  /// `RepoSessionState.commitOutcomeSeq` when a commit from this box was
+  /// submitted, or null when none is outstanding. The box is cleared when the
+  /// count moves past it with a success, **not** when the commit is sent: a
+  /// commit that failed -- nothing staged, a rejecting hook, a bad identity
+  /// -- would otherwise take the message with it. A count rather than HEAD:
+  /// HEAD read before refs load is '', and an unrelated error is not this
+  /// commit failing (Slice D A1/A2). Memory only; one place sets it
+  /// ([submitCommit]) for the button, the shortcut and the menu alike, and
+  /// `WorkspaceScreen` settles it.
+  final int? pendingCommitSeq;
 
   /// The episode's same-merge key: HEAD when it was filled, and git's message
   /// then ('' when that read failed). Persisted with the episode, so a
@@ -198,7 +201,7 @@ class WorkingCopyDraft {
     bool? hasAutofill,
     String? autofilledSummary,
     String? autofilledDescription,
-    String? pendingCommitFrom,
+    int? pendingCommitSeq,
     bool clearPendingCommit = false,
     String? episodeHead,
     String? autofilledRaw,
@@ -222,9 +225,9 @@ class WorkingCopyDraft {
       autofilledSummary: autofilledSummary ?? this.autofilledSummary,
       autofilledDescription:
           autofilledDescription ?? this.autofilledDescription,
-      pendingCommitFrom: clearPendingCommit
+      pendingCommitSeq: clearPendingCommit
           ? null
-          : (pendingCommitFrom ?? this.pendingCommitFrom),
+          : (pendingCommitSeq ?? this.pendingCommitSeq),
       episodeHead: episodeHead ?? this.episodeHead,
       autofilledRaw: autofilledRaw ?? this.autofilledRaw,
       needsRevalidation: needsRevalidation ?? this.needsRevalidation,
@@ -336,7 +339,7 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         reply: reply,
         overwrite: overwrite,
         boxEmpty: d.summary.trim().isEmpty && d.description.trim().isEmpty,
-        commitInFlight: d.pendingCommitFrom != null,
+        commitInFlight: d.pendingCommitSeq != null,
         boxMatchesAutofill:
             d.hasAutofill &&
             d.summary == d.autofilledSummary &&
@@ -463,21 +466,22 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     revalidationRequested: false,
   );
 
-  /// A commit was sent from HEAD [head]; wait for HEAD to move off it.
-  void commitSubmitted(String head) {
-    state = state.copyWith(pendingCommitFrom: head);
+  /// A commit was sent while the session's commit count stood at [seq];
+  /// wait for the count to move past it.
+  void commitSubmitted(int seq) {
+    state = state.copyWith(pendingCommitSeq: seq);
   }
 
-  /// HEAD moved while a commit was outstanding: the message is a commit now.
+  /// This commit's outcome said it succeeded: the message is a commit now.
   void commitLanded() {
-    if (state.pendingCommitFrom == null) return;
+    if (state.pendingCommitSeq == null) return;
     reset();
   }
 
-  /// The commit failed, or its outcome can no longer be told: stop waiting
-  /// and keep the text, so a later checkout does not clear it.
+  /// This commit's outcome said it failed: stop waiting and keep the text,
+  /// so a later checkout does not clear it.
   void commitAbandoned() {
-    if (state.pendingCommitFrom == null) return;
+    if (state.pendingCommitSeq == null) return;
     state = state.copyWith(clearPendingCommit: true);
   }
 

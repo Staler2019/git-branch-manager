@@ -397,7 +397,7 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(prefs.ops.last, startsWith('set $_episodeKey'));
 
-      n.commitSubmitted('deadbeef');
+      n.commitSubmitted(0);
       n.commitLanded();
       final int resetAt = prefs.ops.length;
       final Completer<void> held = prefs.gate!;

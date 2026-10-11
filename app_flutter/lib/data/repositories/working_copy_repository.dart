@@ -87,7 +87,7 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
   ref
       .read(workingCopyDraftProvider(identity).notifier)
       .commitSubmitted(
-        ref.read(repoSessionProvider(identity)).refs.head.target,
+        ref.read(repoSessionProvider(identity)).commitOutcomeSeq,
       );
   commitChanges(ref, identity, message, amend: amend);
   return true;

@@ -13,7 +13,6 @@ import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
-import '../../data/models/git_error.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
@@ -190,50 +189,38 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
   }
 
-  /// A commit left outstanding while this shell was not mounted: HEAD moved
-  /// off it → it landed; HEAD still on it → it failed or its outcome cannot
-  /// be told, so stop waiting and keep the text (a later, unrelated HEAD move
-  /// must not clear what the user types next).
+  /// A commit left outstanding settles once the session's commit count has
+  /// moved past the one recorded at submit: its own outcome, by kind
+  /// (`RepoSessionState.commitOutcomeSeq`). Not yet moved → keep waiting --
+  /// the outcome is still coming. Also run on mount, for an outcome that
+  /// arrived while this shell was not there.
   void _settleOutstandingCommit(RepoIdentity identity) {
     if (!mounted) return;
+    final int? submittedAt = ref
+        .read(workingCopyDraftProvider(identity))
+        .pendingCommitSeq;
+    if (submittedAt == null) return;
+    final RepoSessionState session = ref.read(repoSessionProvider(identity));
+    if (session.commitOutcomeSeq <= submittedAt) return;
     final WorkingCopyDraftController draft = ref.read(
       workingCopyDraftProvider(identity).notifier,
     );
-    final String? from = ref
-        .read(workingCopyDraftProvider(identity))
-        .pendingCommitFrom;
-    if (from == null) return;
-    if (ref.read(repoSessionProvider(identity)).refs.head.target != from) {
+    if (session.lastCommitSucceeded) {
       draft.commitLanded();
     } else {
       draft.commitAbandoned();
     }
   }
 
-  /// Clears the commit box once HEAD actually moves off where it was when a
-  /// commit was submitted -- by the button, the shortcut or the menu alike.
-  /// Lives here rather than in `WorkingCopyView` because a commit can land
-  /// while Working Copy is off screen.
+  /// Clears the commit box once this commit's own outcome says it landed --
+  /// by the button, the shortcut or the menu alike -- and keeps it when the
+  /// outcome says it failed. Never on HEAD moving or an unrelated error
+  /// (Slice D A1/A2). Lives here rather than in `WorkingCopyView` because a
+  /// commit can land while Working Copy is off screen.
   void _watchCommitOutcome(RepoIdentity identity) {
-    // `select` notifies only when HEAD actually changes, so status refreshes
-    // that republish the session mid-commit are not mistaken for one. A
-    // commit -- amend included -- always makes a new oid.
-    ref.listen<String>(
-      repoSessionProvider(identity).select((s) => s.refs.head.target),
-      (_, _) =>
-          ref.read(workingCopyDraftProvider(identity).notifier).commitLanded(),
-    );
-    // Any error cancels the wait. **Not attributed to the commit** -- a fetch
-    // failing mid-commit cancels it too. Fail-safe in the direction that
-    // matters: a false cancel leaves a committed message in the box, while
-    // not cancelling would clear a message written *after* a failure the
-    // next time a checkout moves HEAD.
-    ref.listen<GitError?>(
-      repoSessionProvider(identity).select((s) => s.lastError),
-      (_, GitError? next) {
-        if (next == null) return;
-        ref.read(workingCopyDraftProvider(identity).notifier).commitAbandoned();
-      },
+    ref.listen<int>(
+      repoSessionProvider(identity).select((s) => s.commitOutcomeSeq),
+      (_, _) => _settleOutstandingCommit(identity),
     );
   }
 

@@ -492,6 +492,11 @@ const int _kDefaultMaxOperationLogEntries = 2000;
 /// session that never closes.
 const int _kMaxCommitMetaCacheEntries = 5000;
 
+/// The `"kind"` CommitOps.cpp's `CommitOperation::kind()` stamps on a commit
+/// outcome. Not a [PendingOperationKind]: nothing queues a commit request to
+/// match the outcome against -- [RepoSessionState.commitOutcomeSeq] counts.
+const String _commitOutcomeKind = 'commit';
+
 /// Caps [RepoSessionState.commitFileCountCache], for the same reason and by
 /// the same rule as [_kMaxCommitMetaCacheEntries] -- both are viewport-filled
 /// caches with no natural bound. Deliberately the same number rather than a
@@ -527,6 +532,10 @@ class RepoSessionState {
     this.operationLogRevision = 0,
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
+    this.commitMetaReplySeq = 0,
+    this.commitOutcomeSeq = 0,
+    this.lastCommitSucceeded = false,
+    this.refsEpoch = 0,
     this.commitFileCountCache = const <String, int>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
     this.commitFiles = const <ChangedFile>[],
@@ -609,6 +618,29 @@ class RepoSessionState {
   /// to this cache, not overwrite the rows fetched by an earlier one. See
   /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
   final Map<String, CommitMeta> commitMetaCache;
+
+  /// One per GBM_EVENT_COMMIT_META_READY, an empty reply included -- the
+  /// commit box's parent check (prepared-commit-message Slice D) reads "a
+  /// reply after my request still lacks the oid" as "no answer coming", which
+  /// [commitMetaCache] alone cannot say: a failed or cancelled read changes
+  /// nothing in it.
+  final int commitMetaReplySeq;
+
+  /// One per working-copy outcome stamped `"kind":"commit"` (CommitOps.cpp),
+  /// failed or not. The commit box settles its outstanding commit on this
+  /// count moving, never on HEAD or [lastError]: an unrelated error is not
+  /// the commit failing, and HEAD read before refs load is not a baseline.
+  final int commitOutcomeSeq;
+
+  /// The latest commit outcome's `succeeded`; meaningful once
+  /// [commitOutcomeSeq] is above zero. Published together with that outcome's
+  /// [lastError].
+  final bool lastCommitSucceeded;
+
+  /// One per [publishRefs], identical snapshots included, so a waiter can
+  /// tell "refs re-read since I asked" even when HEAD did not move -- the
+  /// in-app Abort case, where nothing else in the snapshot changes.
+  final int refsEpoch;
 
   /// How many files each commit changed, keyed by oid -- the History Changed
   /// files column's data. Merged rather than replaced on every reply, exactly
@@ -802,6 +834,10 @@ class RepoSessionState {
     int? operationLogRevision,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
+    int? commitMetaReplySeq,
+    int? commitOutcomeSeq,
+    bool? lastCommitSucceeded,
+    int? refsEpoch,
     Map<String, int>? commitFileCountCache,
     List<FileHistoryEntry>? lastFileHistory,
     List<ChangedFile>? commitFiles,
@@ -860,6 +896,10 @@ class RepoSessionState {
       operationLogRevision: operationLogRevision ?? this.operationLogRevision,
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
+      commitMetaReplySeq: commitMetaReplySeq ?? this.commitMetaReplySeq,
+      commitOutcomeSeq: commitOutcomeSeq ?? this.commitOutcomeSeq,
+      lastCommitSucceeded: lastCommitSucceeded ?? this.lastCommitSucceeded,
+      refsEpoch: refsEpoch ?? this.refsEpoch,
       commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
       commitFiles: commitFiles ?? this.commitFiles,
@@ -1330,12 +1370,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.workingCopyOperationFinished:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          if (payload['succeeded'] == false) {
-            final Object? error = payload['error'];
+          final bool succeeded = payload['succeeded'] != false;
+          final Object? error = payload['error'];
+          final bool isCommit = payload['kind'] == _commitOutcomeKind;
+          // One publish for the error and the commit count: a waiter on the
+          // count must see the failure in the same state (see
+          // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
+          // re-read below, so the commit is settled before its merge ends.
+          if (!succeeded || isCommit) {
             state = state.copyWith(
-              lastError: error is Map<String, dynamic>
-                  ? GitError.fromJson(error)
-                  : null,
+              lastError: succeeded
+                  ? null
+                  : (error is Map<String, dynamic>
+                        ? GitError.fromJson(error)
+                        : null),
+              commitOutcomeSeq: isCommit ? state.commitOutcomeSeq + 1 : null,
+              lastCommitSucceeded: isCommit ? succeeded : null,
             );
           }
           _handleWorkingCopyOutcomeKind(payload);
@@ -1433,12 +1483,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.commitMetaReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          final List<CommitMeta> metas = CommitMeta.listFromJson(payload);
-          if (metas.isNotEmpty) {
-            state = state.withCommitMeta(metas);
-          }
-        }
+        final List<CommitMeta> metas = payload is List<dynamic>
+            ? CommitMeta.listFromJson(payload)
+            : const <CommitMeta>[];
+        final RepoSessionState merged = metas.isEmpty
+            ? state
+            : state.withCommitMeta(metas);
+        // Counted even when empty: see [RepoSessionState.commitMetaReplySeq].
+        state = merged.copyWith(
+          commitMetaReplySeq: state.commitMetaReplySeq + 1,
+        );
       case GbmEventType.commitFileCountsReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
@@ -1654,7 +1708,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     final RefreshTimings timings = state.refreshTimings.stampRefsIfAbsent(
       DateTime.now(),
     );
-    state = state.copyWith(refs: refs, refreshTimings: timings);
+    state = state.copyWith(
+      refs: refs,
+      refreshTimings: timings,
+      refsEpoch: state.refsEpoch + 1,
+    );
     // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
     // on a later refs publish within the same sweep, and printing then would
     // just repeat the same numbers. See refreshTimingsLabel's doc comment

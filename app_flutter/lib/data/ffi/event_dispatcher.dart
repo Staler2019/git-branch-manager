@@ -55,11 +55,12 @@ class GbmSessionEvents {
     }
   }
 
-  /// Unregisters the native callback and closes the stream. Must be called
-  /// before the owning session handle is closed (see
-  /// `data/repositories/repo_session_repository.dart`'s `ref.onDispose`),
-  /// since a callback firing after this point would touch a closed
-  /// controller.
+  /// Closes the native callback and the stream. Must be called **after** the
+  /// owning session handle is closed (`RepoSessionController.dispose`):
+  /// closing the session drains core, a read still running may emit while it
+  /// does, and invoking a closed NativeCallable aborts the app. Once the
+  /// session is closed nothing emits. (This said "before" until 2026-10-11 --
+  /// the order that crashed `worktree_add_refresh_test.dart`.)
   void dispose() {
     _callable.close();
     unawaited(_controller.close());

@@ -31,6 +31,14 @@ typedef _EmitDart = void Function(
 class _DrainingBindings extends FakeGbmBindings {
   Pointer<NativeFunction<GbmEventCallbackNative>> registered = nullptr;
   bool emittedWhileClosing = false;
+  int payloadsSent = 0;
+  int payloadsFreed = 0;
+
+  @override
+  FreeEventPayloadDart get freeEventPayload => (Pointer<Uint8> payload) {
+    payloadsFreed++;
+    malloc.free(payload);
+  };
 
   @override
   SessionOpenDart get sessionOpen =>
@@ -50,11 +58,17 @@ class _DrainingBindings extends FakeGbmBindings {
   @override
   SessionCloseDart get sessionClose => (Pointer<Void> session) {
     // A closed NativeCallable aborts the test process right here.
+    // Carries a payload, as core's error event does: the receiver owns it
+    // and frees it with gbm_free_event_payload.
+    final Pointer<Uint8> payload = malloc<Uint8>(2)
+      ..[0] = 0x7b
+      ..[1] = 0x7d;
+    payloadsSent++;
     registered.asFunction<_EmitDart>()(
       session,
-      GbmEventType.worktreesUpdated,
-      nullptr,
-      0,
+      GbmEventType.errorOccurred,
+      payload,
+      2,
       nullptr,
     );
     emittedWhileClosing = true;
@@ -95,4 +109,27 @@ void main() {
 
     expect(bindings.emittedWhileClosing, isTrue);
   });
+
+  // The callback is a NativeCallable.listener: an emit during sessionClose is
+  // queued for the isolate, which is busy in dispose() until it returns. The
+  // queued event still has to be received, or its payload is never freed.
+  test(
+    'an event queued while the session closes still has its payload freed',
+    () async {
+      final _DrainingBindings bindings = _DrainingBindings();
+      final RepoSessionController controller = RepoSessionController(
+        bindings,
+        RepoIdentity.forWorkDir('/test/repo'),
+        _NoopRecents(),
+      );
+
+      controller.dispose();
+      for (int i = 0; i < 20 && bindings.payloadsFreed < 1; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(bindings.payloadsSent, 1);
+      expect(bindings.payloadsFreed, 1);
+    },
+  );
 }

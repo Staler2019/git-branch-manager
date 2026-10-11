@@ -536,6 +536,7 @@ class RepoSessionState {
     this.commitOutcomeSeq = 0,
     this.lastCommitSucceeded = false,
     this.refsEpoch = 0,
+    this.refsCoverRequest = 0,
     this.commitFileCountCache = const <String, int>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
     this.commitFiles = const <ChangedFile>[],
@@ -641,6 +642,16 @@ class RepoSessionState {
   /// tell "refs re-read since I asked" even when HEAD did not move -- the
   /// in-app Abort case, where nothing else in the snapshot changes.
   final int refsEpoch;
+
+  /// The highest [RepoSessionController.refreshHistory] request number any
+  /// refs publish so far was read after (GBM_EVENT_REFS_UPDATED's
+  /// `coversRequest`). Kept as a maximum: a walk superseded by a filter change
+  /// can report after the newer one. Unlike [refsEpoch], this says whether
+  /// the refs were read *for* a request, not merely published after it --
+  /// the commit box's head check (prepared-commit-message Slice E) needs the
+  /// former, since a load already running when it asked may predate the
+  /// commit it is looking for.
+  final int refsCoverRequest;
 
   /// How many files each commit changed, keyed by oid -- the History Changed
   /// files column's data. Merged rather than replaced on every reply, exactly
@@ -838,6 +849,7 @@ class RepoSessionState {
     int? commitOutcomeSeq,
     bool? lastCommitSucceeded,
     int? refsEpoch,
+    int? refsCoverRequest,
     Map<String, int>? commitFileCountCache,
     List<FileHistoryEntry>? lastFileHistory,
     List<ChangedFile>? commitFiles,
@@ -900,6 +912,7 @@ class RepoSessionState {
       commitOutcomeSeq: commitOutcomeSeq ?? this.commitOutcomeSeq,
       lastCommitSucceeded: lastCommitSucceeded ?? this.lastCommitSucceeded,
       refsEpoch: refsEpoch ?? this.refsEpoch,
+      refsCoverRequest: refsCoverRequest ?? this.refsCoverRequest,
       commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
       commitFiles: commitFiles ?? this.commitFiles,
@@ -1324,7 +1337,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void _handleEvent(GbmEvent event) {
     switch (event.type) {
       case GbmEventType.refsUpdated:
-        _readRefs();
+        final Object? payload = decodeEventPayload(event.payload);
+        final Object? covers = payload is Map<String, dynamic>
+            ? payload['coversRequest']
+            : null;
+        _readRefs(coversRequest: covers is int ? covers : null);
       case GbmEventType.graphUpdated:
         final Object? payload = decodeEventPayload(event.payload);
         final bool complete = payload is Map<String, dynamic>
@@ -1685,12 +1702,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  void _readRefs() {
+  void _readRefs({int? coversRequest}) {
     if (_bindings.refsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         publishRefs(
           RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
+          coversRequest: coversRequest,
         );
       }
     }
@@ -1703,7 +1721,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// fake seam can never exercise, and everything below is real state and
   /// therefore real to test.
   @visibleForTesting
-  void publishRefs(RefSnapshot refs) {
+  void publishRefs(RefSnapshot refs, {int? coversRequest}) {
     final bool isFirstStampOfSweep = state.refreshTimings.refsAt == null;
     final RefreshTimings timings = state.refreshTimings.stampRefsIfAbsent(
       DateTime.now(),
@@ -1712,6 +1730,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       refs: refs,
       refreshTimings: timings,
       refsEpoch: state.refsEpoch + 1,
+      refsCoverRequest:
+          coversRequest != null && coversRequest > state.refsCoverRequest
+          ? coversRequest
+          : null,
     );
     // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
     // on a later refs publish within the same sweep, and printing then would
@@ -2614,10 +2636,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Requests a refs + history refresh -- see gbm_history_refresh()'s doc
   /// comment in gbm_capi.h. Async: [state] updates as GBM_EVENT_* events
   /// arrive through [_onEvent].
-  void refreshHistory() {
-    if (_session == nullptr) return;
+  ///
+  /// Returns core's number for this request, 0 when no session is open (nothing
+  /// was sent): refs read for it are the first publish whose
+  /// [RepoSessionState.refsCoverRequest] reaches it.
+  int refreshHistory() {
+    if (_session == nullptr) return 0;
     state = state.copyWith(isRefreshing: true, clearError: true);
-    _bindings.historyRefresh(_session);
+    return _bindings.historyRefresh(_session);
   }
 
   /// Narrows every subsequent history walk. See gbm_history_set_filter()'s

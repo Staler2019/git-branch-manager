@@ -400,9 +400,14 @@ class FakeRepoSessionController extends RepoSessionController {
   /// the current snapshot, there being no separate cancel entry point in the
   /// capi. Without this override a test could not tell a dead Cancel button
   /// apart from a dispatched one.
+  /// Numbers requests the way core does, so a test can publish refs covering
+  /// a specific one (`publishRefs(..., coversRequest: n)`).
+  int refreshRequestSeq = 0;
+
   @override
-  void refreshHistory() {
+  int refreshHistory() {
     commandLog.add(const FakeCommand('refreshHistory'));
+    return ++refreshRequestSeq;
   }
 
   /// Same reasoning as [refreshHistory] above, for the other half of a

@@ -259,7 +259,8 @@ Plan readiness：三個 epoch。
 
 - **CONFIRMED**。重現結果：`flutter test` +3460 ~1、analyze 0、capi ctest 786／786（逐一跑）。
 - Advisory 的處置（P3／P4 預設延後，交使用者裁定）：
-  - E1（P3）：commit 路徑上若拋的是 `Error` 而不是 `Exception`，commit 不會送出、也不記 Log。只接 `Exception` 是計畫刻意的選擇（Dart 規則：不接 `Error`），但程式裡沒有註解說明。延後。
-  - E2（P4）：沒有 session 時 `refreshHistory()` 回 0，不是 null，所以 `?? refsCoverRequest + 1` 的 fallback 走不到，HEAD 檢查會用手上的 refs 立刻判斷；註解「a caller with no session」只說中了一半。要走到這裡得先在 view 還掛著時關掉 native session。延後。
+  - ~~E1（P3）：commit 路徑上若拋的是 `Error` 而不是 `Exception`，commit 不會送出、也不記 Log。只接 `Exception` 是計畫刻意的選擇（Dart 規則：不接 `Error`），但程式裡沒有註解說明。延後。~~ 使用者 2026-10-11 選「E1+E2 小修」：行為不變，補上理由註解（`73d1c70`）。Error 代表程式本身錯，不送出、讓錯誤浮現。改成「照樣送出再 rethrow」的話，在 widget 測試裡無法驗證。
+  - ~~E2（P4）：沒有 session 時 `refreshHistory()` 回 0，不是 null，所以 `?? refsCoverRequest + 1` 的 fallback 走不到，HEAD 檢查會用手上的 refs 立刻判斷；註解「a caller with no session」只說中了一半。要走到這裡得先在 view 還掛著時關掉 native session。延後。~~ 已修（`d3123cd`）：回 0 視為沒送出請求，改等之後的 refs。mutation「0 當成請求編號」紅 1。
   - E3（P4）：verifier 認為 header 寫「Not monotonic」太保守。駁回：`claimPublishLocked` 是在 `graphMutex_` 內做的，但 REFS_UPDATED 是在鎖外 emit。所以舊 generation 若先 claim、新的後 claim，舊的仍可能較晚 emit，到達順序確實可能倒過來，header 寫的沒錯。
   - E4（P4）：寫入失敗那一輪的 `_markerOnDisk` 等狀態在寫入之前就設好了，所以失敗後同一個 head 不會重寫 marker，直到 marker 被清掉；不會遺失資料。延後。
+- E1／E2 修正後重跑：`flutter test` +3461 ~1；裝置層 `prepared_message_flow` +5、`commit_flow` +1（`73d1c70`）。另派一次 verifier 只審這兩個 commit，判定 **CONFIRMED**。它確認開著 session 時 core 的請求編號從 1 開始、只增不減，不會回 0。它附帶一個 P4：uint64 超過 2^63 會在 Dart 變成負數，實際不可能發生，不處理。

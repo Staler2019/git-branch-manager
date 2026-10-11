@@ -610,6 +610,7 @@ void main() {
         String head = 'deadbeef',
         int cover = _refreshRequest,
         int replySeq = 0,
+        int requestSeq = 0,
         List<String>? parents,
         bool error = false,
       }) => notifier.reconcilePreparedMessage(
@@ -623,6 +624,7 @@ void main() {
         refsCoverRequest: cover,
         requestRefresh: () => _refreshRequest,
         commitMetaReplySeq: replySeq,
+        commitMetaRequestSeq: requestSeq,
         parentsOf: (String oid) => oid == head ? parents : null,
         lastErrorPresent: error,
       );
@@ -689,6 +691,37 @@ void main() {
         expect(draft().summary, "Merge branch 'topic'");
         expect(ended(), PreparedMessageAction.restoreAndEnd);
         expect(draft().summary, 'mine');
+      });
+
+      // Slice E D1: replies are not tied to requests, so an empty reply to
+      // someone else's request says nothing while any request is unanswered.
+      test(
+        'a reply without the commit waits while a request is unanswered',
+        () {
+          filledThenMovedTo('cafebabe');
+          expect(
+            ended(head: 'cafebabe', replySeq: 1, requestSeq: 2),
+            PreparedMessageAction.nothing,
+          );
+          expect(draft().summary, "Merge branch 'topic'");
+          expect(
+            ended(
+              head: 'cafebabe',
+              replySeq: 2,
+              requestSeq: 2,
+              parents: <String>['deadbeef', 'f00d'],
+            ),
+            PreparedMessageAction.clearAndEnd,
+          );
+        },
+      );
+
+      test('every request answered and still no commit is no answer', () {
+        filledThenMovedTo('cafebabe');
+        expect(
+          ended(head: 'cafebabe', replySeq: 2, requestSeq: 2),
+          PreparedMessageAction.restoreAndEnd,
+        );
       });
 
       test('a reply without the commit counts as no answer', () {

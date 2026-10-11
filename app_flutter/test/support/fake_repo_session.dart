@@ -977,11 +977,19 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(FakeCommand('requestReflog', <String, Object?>{'ref': ref}));
   }
 
+  int _fakeCommitMetaRequests = 0;
+
+  /// Counts like the real one, so a test's emitted replies can be compared
+  /// with the requests the code under test sent.
+  @override
+  int get commitMetaRequestSeq => _fakeCommitMetaRequests;
+
   @override
   void requestCommitMeta(List<String> oids) {
     commandLog.add(
       FakeCommand('requestCommitMeta', <String, Object?>{'oids': oids}),
     );
+    if (oids.isNotEmpty) _fakeCommitMetaRequests++;
   }
 
   /// Recorded, not no-opped: without this override the real method hits its

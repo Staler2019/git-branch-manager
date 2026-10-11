@@ -439,6 +439,7 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     int refsCoverRequest = 0,
     int Function()? requestRefresh,
     int commitMetaReplySeq = 0,
+    int commitMetaRequestSeq = 0,
     List<String>? Function(String oid)? parentsOf,
     bool lastErrorPresent = false,
     bool mounting = false,
@@ -476,7 +477,12 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         headMoved: head != d.episodeHead,
         checkFailed: checkRequest != null && lastErrorPresent,
         parentCheckRequested: d.parentCheckHead != null,
-        parent: _parentCheck(d, commitMetaReplySeq, parentsOf),
+        parent: _parentCheck(
+          d,
+          commitMetaReplySeq,
+          commitMetaRequestSeq,
+          parentsOf,
+        ),
         mounting: mounting,
       ),
     );
@@ -494,10 +500,14 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   }
 
   /// The asked-for commit's first parent against the episode's HEAD. A
-  /// root commit has none, and is not a commit of this merge.
+  /// root commit has none, and is not a commit of this merge. No answer is
+  /// coming only once a reply arrived since the ask and every request sent
+  /// so far is answered: replies are unordered and unlabelled, so a reply
+  /// lacking the oid while any request is outstanding may be someone else's.
   static ParentCheck _parentCheck(
     WorkingCopyDraft d,
     int replySeq,
+    int requestSeq,
     List<String>? Function(String oid)? parentsOf,
   ) {
     final String? asked = d.parentCheckHead;
@@ -508,7 +518,7 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
           ? ParentCheck.commit
           : ParentCheck.notCommit;
     }
-    return replySeq > (d.parentCheckSeq ?? replySeq)
+    return replySeq > (d.parentCheckSeq ?? replySeq) && replySeq >= requestSeq
         ? ParentCheck.noAnswer
         : ParentCheck.none;
   }

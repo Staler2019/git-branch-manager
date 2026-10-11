@@ -1499,17 +1499,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
         }
       case GbmEventType.commitMetaReady:
-        final Object? payload = decodeEventPayload(event.payload);
-        final List<CommitMeta> metas = payload is List<dynamic>
-            ? CommitMeta.listFromJson(payload)
-            : const <CommitMeta>[];
-        final RepoSessionState merged = metas.isEmpty
-            ? state
-            : state.withCommitMeta(metas);
-        // Counted even when empty: see [RepoSessionState.commitMetaReplySeq].
-        state = merged.copyWith(
-          commitMetaReplySeq: state.commitMetaReplySeq + 1,
-        );
+        // Counted even when empty, and even when the payload cannot be
+        // decoded (the FormatException still reaches [_onEvent]'s log row):
+        // a waiter compares this count with [commitMetaRequestSeq], and one
+        // reply going uncounted would leave it waiting for good. See
+        // [RepoSessionState.commitMetaReplySeq].
+        List<CommitMeta> metas = const <CommitMeta>[];
+        try {
+          final Object? payload = decodeEventPayload(event.payload);
+          if (payload is List<dynamic>) {
+            metas = CommitMeta.listFromJson(payload);
+          }
+        } finally {
+          final RepoSessionState merged = metas.isEmpty
+              ? state
+              : state.withCommitMeta(metas);
+          state = merged.copyWith(
+            commitMetaReplySeq: state.commitMetaReplySeq + 1,
+          );
+        }
       case GbmEventType.commitFileCountsReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
@@ -3761,6 +3769,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  int _commitMetaRequestSeq = 0;
+
+  /// How many [requestCommitMeta] calls reached core. Each gets exactly one
+  /// GBM_EVENT_COMMIT_META_READY (Session::requestCommitMeta always emits,
+  /// a cancelled read included), but replies are unordered and carry no
+  /// request id -- so "every request answered" is
+  /// `state.commitMetaReplySeq >= commitMetaRequestSeq`, which is how the
+  /// commit box's parent check tells "no answer is coming" from "the reply
+  /// so far was someone else's" (prepared-commit-message Slice E, D1).
+  ///
+  /// A field, not [RepoSessionState]: requests come from viewport
+  /// callbacks, and a state write per request would republish the session.
+  int get commitMetaRequestSeq => _commitMetaRequestSeq;
+
   /// Batch commit metadata for `oids` (e.g. a commit list's visible range).
   /// Async: fires GBM_EVENT_COMMIT_META_READY, merged into
   /// [RepoSessionState.commitMetaCache] rather than replacing it -- see that
@@ -3769,6 +3791,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// calling this.
   void requestCommitMeta(List<String> oids) {
     if (_session == nullptr || oids.isEmpty) return;
+    _commitMetaRequestSeq++;
     _withNativeStringArray(
       oids,
       (array, count) => _bindings.requestCommitMeta(_session, array, count),

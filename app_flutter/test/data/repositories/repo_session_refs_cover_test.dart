@@ -67,6 +67,13 @@ class _OpenBindings extends _RefsBindings {
     Pointer<Void> userData,
   ) {};
 
+  int metaRequestsSent = 0;
+
+  @override
+  RequestCommitMetaDart get requestCommitMeta =>
+      (Pointer<Void> session, Pointer<Pointer<Utf8>> oids, int oidCount) =>
+          metaRequestsSent++;
+
   @override
   SessionCloseDart get sessionClose => (Pointer<Void> session) {};
 
@@ -144,6 +151,30 @@ void main() {
     );
     addTearDown(c.dispose);
     expect(c.refreshHistory(), 42);
+  });
+
+  // Slice E D1 rides on the same open-session bindings: the commit box's
+  // parent check compares commit-meta replies against requests sent.
+  test('commitMetaRequestSeq counts the requests that reach core', () {
+    final _OpenBindings bindings = _OpenBindings();
+    final RepoSessionController c = RepoSessionController(
+      bindings,
+      _identity,
+      _NoopRecents(),
+    );
+    addTearDown(c.dispose);
+    c.requestCommitMeta(const <String>[]);
+    expect(c.commitMetaRequestSeq, 0, reason: 'an empty list sends nothing');
+    c.requestCommitMeta(const <String>['aaaa']);
+    c.requestCommitMeta(const <String>['bbbb', 'cccc']);
+    expect(c.commitMetaRequestSeq, 2);
+    expect(bindings.metaRequestsSent, 2);
+  });
+
+  test('commitMetaRequestSeq stays 0 without a native session', () {
+    final RepoSessionController c = _real();
+    c.requestCommitMeta(const <String>['aaaa']);
+    expect(c.commitMetaRequestSeq, 0);
   });
 
   test('refreshHistory without a native session sends nothing and is 0', () {

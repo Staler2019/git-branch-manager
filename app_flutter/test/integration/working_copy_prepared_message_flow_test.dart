@@ -393,6 +393,25 @@ void main() {
       expect(_description(tester), 'my own words');
     });
 
+    // Slice E D1: an empty reply to another surface's request (History's
+    // viewport, say) arriving first is not the answer about the new HEAD.
+    testWidgets('another request\'s empty reply does not end the wait', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await filledThenEnded(tester);
+      await _refsArrive(tester, pumped, head: 'cafebabe');
+      pumped.controller.requestCommitMeta(<String>['0ther']);
+      await _metaReply(tester, pumped);
+      expect(_summary(tester), "Merge branch 'topic'");
+      await _metaReply(
+        tester,
+        pumped,
+        oid: 'cafebabe',
+        parents: <String>['deadbeef', 'f00d'],
+      );
+      expect(_summary(tester), isEmpty);
+    });
+
     testWidgets('no answer about the new HEAD is an Abort', (
       WidgetTester tester,
     ) async {

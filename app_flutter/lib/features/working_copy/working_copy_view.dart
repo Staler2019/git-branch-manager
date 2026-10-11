@@ -746,6 +746,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
               .read(repoSessionProvider(widget.identity).notifier)
               .refreshHistory,
           commitMetaReplySeq: session.commitMetaReplySeq,
+          commitMetaRequestSeq: ref
+              .read(repoSessionProvider(widget.identity).notifier)
+              .commitMetaRequestSeq,
           parentsOf: (String oid) => session.commitMetaCache[oid]?.parents,
           lastErrorPresent: session.lastError != null,
           mounting: mounting,

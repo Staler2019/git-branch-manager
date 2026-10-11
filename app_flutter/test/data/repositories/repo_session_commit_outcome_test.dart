@@ -3,6 +3,7 @@
 // Each is a count rather than a value so a waiter can tell "something new
 // arrived since I asked" from "the same thing is still there".
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
@@ -130,6 +131,19 @@ void main() {
   });
 
   group('commit-meta replies', () {
+    // Slice E D1: a waiter compares replies with requests, so a reply that
+    // cannot be decoded must still be counted or the wait never ends.
+    test('an undecodable reply still counts', () {
+      final FakeRepoSessionController c = _controller();
+      c.debugHandleEvent(
+        GbmEvent(
+          GbmEventType.commitMetaReady,
+          Uint8List.fromList(<int>[0xff, 0xfe]),
+        ),
+      );
+      expect(c.state.commitMetaReplySeq, 1);
+    });
+
     test('an empty reply still counts', () {
       final FakeRepoSessionController c = _controller();
       c.debugHandleEvent(_commitMetaReady(const <String>[]));

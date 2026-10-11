@@ -40,3 +40,11 @@ Format: [README.md](../../docs/rules/README.md). Run steps and which native libr
 - **Rule**: [TEST-device-tier-not-in-ci]'s grep is necessary, not sufficient: a device test may reach the surface through `Actions.invoke(GbmActionIntent(...))` ([ACT-intent-layer] dispatch path 1; a macOS `PlatformMenuBar` cannot be tapped) and walk down fixture data, naming no widget or label the round edited.
 - **Do**: also grep the **`GbmActionId`** that opens the surface and its `GbmPanelKind`; then run the candidate (`worktree_pending_counts_test.dart` matched none of six label greps and runs 1/1 in 4 seconds) rather than argue it is unaffected.
 - **Evidence**: [ledger: worktree 五個回報](../../docs/ledger/2026-09-03-feat-p19-panel-template-conformance-review.md)
+
+## [TEST-no-dart-process-while-core-runs-git] A dart:io `Process` alive while the app's core runs git makes that git fail with exitCode -1
+
+- **Rule**: while any dart:io `Process` runs, dart:io reaps every exited child of the app, including git that core spawned with `posix_spawnp`; core's `waitpid` then gets ECHILD and reports `exitCode: -1` with an empty detail. Measured: 74/100 native `waitpid` calls failed with a Dart Process running, 0/100 without.
+- **Consequence**: a device test that polls git through `runGit`/`Process.runSync` while the app works fails at random somewhere unrelated (the prepared-message read failing → the box never filled); `debugPrint` tracing hides it by changing the timing.
+- **Do**: poll repository state by reading files (`.git/MERGE_HEAD`, `.git/HEAD` and its loose ref), and run git from the test only before the app opens or after it settles.
+- **Evidence**: `prepared_message_flow_test.dart`'s `_merging`/`_head`; [ledger: 裝置層隨機紅的根因](../../docs/ledger/2026-10-09-feature-prepared-commit-message.md)
+

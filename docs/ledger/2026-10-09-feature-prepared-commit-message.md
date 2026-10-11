@@ -139,12 +139,69 @@ Plan readiness：epoch 1、2、4、5 皆 plan-verifier REVISE，blocker 就地�
 
 殘留（報告，未裁定）：
 
-- `reset()` 與磁碟寫入之間仍有毫秒級的 crash 視窗：此時當掉，下次開啟可能看到剛 commit 的訊息。
-- app 開著時從外部 commit（終端機）：`pendingCommitFrom` 只由 app 內的 `submitCommit` 設定，外部 commit 結束 merge 時照 Abort 規則處理（框若仍是 autofill 會放回 merge 前的字）。
+- ~~`reset()` 與磁碟寫入之間仍有毫秒級的 crash 視窗：此時當掉，下次開啟可能看到剛 commit 的訊息。~~ 已修（Slice D `eb6a3a7`，R1）。
+- ~~app 開著時從外部 commit（終端機）：`pendingCommitFrom` 只由 app 內的 `submitCommit` 設定，外部 commit 結束 merge 時照 Abort 規則處理（框若仍是 autofill 會放回 merge 前的字）。~~ 已修（Slice D `53e9ac2`，R2）。
 
 最後 verifier（Slice C，HEAD `1377804`）：**CONFIRMED**。重跑 `flutter test` +3396 ~1、analyze 0、裝置層 `prepared_message_flow_test` +4、`commit_flow_test` +1；7 個 scratchpad probe 全綠。
 三個 P4 advisory，皆 defer（報告給使用者）：
 
-- A1：commit 進行中若剛好來了一個無關的 lastError（例如背景 fetch 失敗），`commitAbandoned` 先跑，merge 結束時框若仍是 autofill 會放回 merge 前的字。merge commit 已存在，無資料遺失。
-- A2：refs 載入前送出的 commit 記到的 HEAD 是 ''，第一次 refs 載入就被當成 HEAD 移動而清框，即使 commit 之後失敗。非本輪引入（舊 view 程式同樣讀法）。
-- A3：格式錯的 episode key 被 `read()` 忽略但不刪，直到下一個已填 episode 覆寫；不影響行為。
+- ~~A1：commit 進行中若剛好來了一個無關的 lastError（例如背景 fetch 失敗），`commitAbandoned` 先跑，merge 結束時框若仍是 autofill 會放回 merge 前的字。merge commit 已存在，無資料遺失。~~ 已修（Slice D `44dde6c`）。
+- ~~A2：refs 載入前送出的 commit 記到的 HEAD 是 ''，第一次 refs 載入就被當成 HEAD 移動而清框，即使 commit 之後失敗。非本輪引入（舊 view 程式同樣讀法）。~~ 已修（Slice D `44dde6c`）。
+- ~~A3：格式錯的 episode key 被 `read()` 忽略但不刪，直到下一個已填 episode 覆寫；不影響行為。~~ 已修（Slice D `6f350b7`）。
+
+## Slice D — advisories A1–A3 與兩個殘留（2026-10-11）
+
+### Task
+
+使用者 2026-10-10「這些都修掉」：A1、A2、A3、R1（reset 前當掉）、R2（app 開著時外部 commit）。
+R2 的非 commit HEAD 移動由使用者 2026-10-11 裁定「分辨 commit，其他照 Abort」：新 HEAD 的第一個 parent 是 episode 的 HEAD 才算 commit。
+
+Plan readiness：五個 epoch。epoch 1、2、3 皆 REVISE（未填 episode 被清框；commit 失敗後標記殘留；同 HEAD 的 Abort 不重跑 pass；非 commit 的 HEAD 移動被當成 commit）。
+epoch 3 是 closing review，REVISE 後暫停交使用者，取得上面的裁定。epoch 4 REVISE（meta 不回時沒有出口；root commit 的 `.first`）。
+使用者 2026-10-11「contiue & 再審一次」後，epoch 5 為 **READY**。
+
+### Action
+
+| commit | 內容 | mutations-run | tests-reddened |
+|---|---|---|---|
+| `da5f63b` E1 | `CommitOperation::kind()` 回 `"commit"` | 1 | 1 |
+| `b99ebde` E2 | session state：`commitOutcomeSeq`／`lastCommitSucceeded`、`refsEpoch`、`commitMetaReplySeq` | 6 | 各 1（另 1 個存活、屬等價） |
+| `44dde6c` E3 | A1＋A2：只看 commit 自己的 outcome | 6 | 1／1／2／10／4／12 |
+| `eb6a3a7` E4 | R1：送出前把在途 commit 標記寫入磁碟 | 8 | 1／3／1／1／3／1／2／1 |
+| `53e9ac2` E5 | R2：重讀 refs → HEAD 動了 → 查 parent | 10 | 1／1／4／1／5／2／5／2／1／3 |
+| `6f350b7` E6 | A3：開啟時刪除格式錯的 episode key | 3 | 各 1 |
+| `9481bf5` E7 | 裝置層：外部 commit 後框為空；輪詢改讀檔 | 1（parent 比對恆假） | 1（只紅外部 commit 案例） |
+
+偏離計畫與自己的錯：
+
+- E4 的標記存 `[headFrom, headKnown]`，不是計畫寫的 `[headFrom]`：refs 未載入時送出的 commit，HEAD 讀到 ''，重開時無法比較，改照「無法判斷 → 保留文字」。判斷集中在 `WorkingCopyDraftController.settleCommit`，`WorkspaceScreen` 只轉交 session 的值。
+- E5 掛載後的第一次 pass，只要 parent 還沒有答案就再問一次（計畫寫的是「請求之後沒有任何回覆」才再問）。回覆可能在 view 卸載期間到達又被淘汰，所以改成無條件再問。
+- E5 的 controller 層測試是在實作之後才寫的，沒有先紅。policy 測試是先紅的。這部分靠 10 個 mutation 補上檢查。
+- E2 的 M4／M5 第一次寫成計數加了兩次，紅得太廣，不算數；重寫後各紅 1。M4'（錯誤先發、計數後發）存活，這個順序本來就允許，屬等價。
+- E3 的 N2–N6 第一批無效：zsh 不會拆開未加引號的 `$T`，兩個測試檔被當成一個路徑，全部在載入時失敗。改用陣列後重跑。
+- E4 的 P2 第一次沒讓「app 內 commit 失敗會刪標記」那個測試變紅：測試之後又打了字，下一輪寫入順手把標記刪掉了。改成不打字（使用者保留原文字）後才紅。
+- E5 把舊測試的 `reconcile(pending: false)` 一律替換時，連 helper 自己那行也換掉了，變成無限遞迴（Stack Overflow），已修正。
+
+### Result
+
+- `flutter test` +3444 ~1、analyze 0；core 與 capi ctest 各 783／783。clang-format：本機 23 版對 HEAD 原檔就有違規，CI 用 18 版；本輪只檢查改動行（`git clang-format --diff`），0。
+
+### 裝置層：一個跑了 30 分鐘被砍、和一個隨機紅的根因
+
+- 第一次逐檔跑時，`prepared_message_flow_test` 30 分鐘內沒有任何測試行，被背景時限砍掉。
+  - pkill 後先跑 `commit_flow_test` 當對照：+1 綠。
+  - 再跑 `prepared_message_flow_test`：不再卡住，但 3 次中有 3 次隨機紅在第 2 或第 3 個案例（框是 `''` 或 `mine`，不是 merge 訊息）。
+  - 卡住那次之後沒有重現，記為「未重現」，不認定原因。
+- 用 `debugPrint` 追蹤時 3 次全綠：印出的字串拖慢了每次 pass，問題就消失，是時序問題。改成記進記憶體、測試結束才印，才抓到原因。
+  - 失敗那筆是 core 的 `git stripspace --strip-comments` 回傳 `exitCode: -1`，`detail` 是空的。
+  - 該讀取被當成失敗，框於是維持原狀（`keep`）。不是 Slice D 的 Abort 規則造成的。
+- `exitCode -1` 來自 `PosixChild::wait()` 的 `waitpid` 失敗（ECHILD）。原因：只要有 dart:io `Process` 在跑，dart:io 會回收**任何**結束的子行程，包括 core 用 `posix_spawnp` 起的 git。
+  - 實測 2026-10-11（`dart run`，FFI 呼叫 libc `system("sleep 0.01")`）：沒有 Dart Process 時 0/100 回傳 -1；有一個 `Process.start('sleep')` 在跑、同時 `Process.runSync('true')` 時，74/100 回傳 -1。
+- 測試端：`_merging`（`Process.runSync git rev-parse MERGE_HEAD`）與 `_git rev-parse HEAD` 會在 app 執行 git 的同時輪詢。
+  - 改成讀 `.git/MERGE_HEAD`，以及 `.git/HEAD` 加上它指向的 loose ref。
+  - 修正後連跑 3 次，3 次皆 +5 全綠（修正前 3 次皆紅）。剩下兩處 `git log -1` 在 `pumpAndSettle` 之後才讀。
+- 已知但未處理（報告給使用者，未裁定）：
+  - `real_repo_harness.dart` 的 `runGit` 被其他裝置層檔案在 app 執行中使用，同樣的隨機紅風險在全 repo 都存在。
+  - production 端：`update_installer.dart` 的 `Process.run` 在更新流程中跑時，core 的 git 可能拿到 -1。`desktop_launcher.dart` 用 `ProcessStartMode.detached`，不是 Dart 的子行程，不受影響。
+  - core 端要根治，需要不靠 `waitpid` 取得退出碼（例如 macOS 的 kqueue `EVFILT_PROC`/`NOTE_EXITSTATUS`）。這是行程管理的設計變更，需另行規劃。
+- 其他裝置層檔案逐檔重跑（2026-10-11，`lib` 未改動）：`commit_flow` +1、`conflict_flow` +1、`merge_current_flow` +1、`merge_squash_flow` +2，全綠。

@@ -166,7 +166,7 @@ class WorkingCopyDraft {
     this.autofilledRaw = '',
     this.needsRevalidation = false,
     this.revalidationRequested = false,
-    this.headCheckEpoch,
+    this.headCheckRequest,
     this.parentCheckHead,
     this.parentCheckSeq,
   });
@@ -243,13 +243,15 @@ class WorkingCopyDraft {
   final bool needsRevalidation;
   final bool revalidationRequested;
 
-  /// Slice D R2, memory only. `RepoSessionState.refsEpoch` when the merge
-  /// ended without an in-app commit and fresh refs were asked for; then the
-  /// new HEAD whose commit was asked for, and `commitMetaReplySeq` at that
-  /// moment. Here rather than in the view, so a wait survives Working Copy
+  /// Slice D R2, memory only. The refresh request number
+  /// (`RepoSessionController.refreshHistory()`) when the merge ended without
+  /// an in-app commit and fresh refs were asked for -- refs decide only once
+  /// `RepoSessionState.refsCoverRequest` reaches it, since a load already
+  /// running then may predate the commit (Slice E D3); then the new HEAD
+  /// whose commit was asked for, and `commitMetaReplySeq` at that moment. Here rather than in the view, so a wait survives Working Copy
   /// being unmounted. Cleared by the episode ending, or by a merge pending
   /// again.
-  final int? headCheckEpoch;
+  final int? headCheckRequest;
   final String? parentCheckHead;
   final int? parentCheckSeq;
 
@@ -277,7 +279,7 @@ class WorkingCopyDraft {
     String? autofilledRaw,
     bool? needsRevalidation,
     bool? revalidationRequested,
-    int? headCheckEpoch,
+    int? headCheckRequest,
     String? parentCheckHead,
     int? parentCheckSeq,
     bool clearEndChecks = false,
@@ -316,9 +318,9 @@ class WorkingCopyDraft {
       needsRevalidation: needsRevalidation ?? this.needsRevalidation,
       revalidationRequested:
           revalidationRequested ?? this.revalidationRequested,
-      headCheckEpoch: clearEndChecks
+      headCheckRequest: clearEndChecks
           ? null
-          : (headCheckEpoch ?? this.headCheckEpoch),
+          : (headCheckRequest ?? this.headCheckRequest),
       parentCheckHead: clearEndChecks
           ? null
           : (parentCheckHead ?? this.parentCheckHead),
@@ -434,7 +436,8 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     required String head,
     required bool overwrite,
     bool repoStateKnown = true,
-    int refsEpoch = 0,
+    int refsCoverRequest = 0,
+    int Function()? requestRefresh,
     int commitMetaReplySeq = 0,
     List<String>? Function(String oid)? parentsOf,
     bool lastErrorPresent = false,
@@ -442,11 +445,11 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   }) {
     // A merge pending again ends any wait on how the previous one ended.
     if (pending &&
-        (state.headCheckEpoch != null || state.parentCheckHead != null)) {
+        (state.headCheckRequest != null || state.parentCheckHead != null)) {
       state = state.copyWith(clearEndChecks: true);
     }
     final WorkingCopyDraft d = state;
-    final int? checkEpoch = d.headCheckEpoch;
+    final int? checkRequest = d.headCheckRequest;
     final PreparedMessageAction action = decidePreparedMessageAction(
       PreparedMessageContext(
         pending: pending,
@@ -468,10 +471,10 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
         revalidationRequested: d.revalidationRequested,
         sameMerge: _isSameMerge(d, reply: reply, raw: raw, head: head),
         episodeHeadKnown: d.episodeHead.isNotEmpty,
-        headCheckRequested: checkEpoch != null,
-        headCheckDone: checkEpoch != null && refsEpoch > checkEpoch,
+        headCheckRequested: checkRequest != null,
+        headCheckDone: checkRequest != null && refsCoverRequest >= checkRequest,
         headMoved: head != d.episodeHead,
-        checkFailed: checkEpoch != null && lastErrorPresent,
+        checkFailed: checkRequest != null && lastErrorPresent,
         parentCheckRequested: d.parentCheckHead != null,
         parent: _parentCheck(d, commitMetaReplySeq, parentsOf),
         mounting: mounting,
@@ -483,7 +486,8 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       description: description,
       raw: raw,
       head: head,
-      refsEpoch: refsEpoch,
+      refsCoverRequest: refsCoverRequest,
+      requestRefresh: requestRefresh,
       commitMetaReplySeq: commitMetaReplySeq,
     );
     return action;
@@ -529,7 +533,8 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
     required String description,
     required String raw,
     required String head,
-    required int refsEpoch,
+    required int refsCoverRequest,
+    required int Function()? requestRefresh,
     required int commitMetaReplySeq,
   }) {
     final WorkingCopyDraft d = state;
@@ -537,7 +542,12 @@ class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
       case PreparedMessageAction.nothing:
         break;
       case PreparedMessageAction.checkHead:
-        state = d.copyWith(headCheckEpoch: refsEpoch);
+        // The request is sent here, not by the caller, so its number is in
+        // hand when it is recorded. Without a sender (a caller with no
+        // session), any refs published from now on are newer than these.
+        state = d.copyWith(
+          headCheckRequest: requestRefresh?.call() ?? refsCoverRequest + 1,
+        );
       case PreparedMessageAction.checkParent:
         state = d.copyWith(
           parentCheckHead: head,

@@ -129,16 +129,21 @@ Future<void> _reply(
 }
 
 /// Refs re-read, as `publishRefs` publishes them: [head] (default: where
-/// they were) and one more `refsEpoch`.
+/// they were), one more `refsEpoch`, read for the latest refresh request
+/// unless [stale] (a load that was already running when it was asked for).
 Future<void> _refsArrive(
   WidgetTester tester,
   PumpedWorkspace pumped, {
   String? head,
+  bool stale = false,
 }) async {
   final RepoSessionState s = pumped.controller.state;
   pumped.controller.emit(
     s.copyWith(
       refsEpoch: s.refsEpoch + 1,
+      refsCoverRequest: stale
+          ? pumped.controller.refreshRequestSeq - 1
+          : pumped.controller.refreshRequestSeq,
       refs: head == null
           ? null
           : RefSnapshot(
@@ -310,6 +315,33 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(_summary(tester), 'mine');
+    });
+
+    // Slice E D3: a refs load already running when the check asked may have
+    // read HEAD before the external commit; only refs read for the request
+    // decide.
+    testWidgets('committed outside the app: stale refs decide nothing', (
+      WidgetTester tester,
+    ) async {
+      final PumpedWorkspace pumped = await _pump(tester);
+      // An earlier refresh, so the stale load's cover is a new, non-zero
+      // value that does reach the box's listener.
+      pumped.controller.refreshHistory();
+      await _type(tester, 'mine', 'my body');
+      await _setPending(tester, pumped, true);
+      await _reply(tester, pumped);
+      await _setPending(tester, pumped, false);
+      await _refsArrive(tester, pumped, stale: true);
+      expect(pumped.controller.state.refsCoverRequest, greaterThan(0));
+      expect(_summary(tester), "Merge branch 'topic'");
+      await _refsArrive(tester, pumped, head: 'cafebabe');
+      await _metaReply(
+        tester,
+        pumped,
+        oid: 'cafebabe',
+        parents: <String>['deadbeef', 'f00d'],
+      );
+      expect(_summary(tester), isEmpty);
     });
 
     testWidgets('committed outside the app: the box clears', (

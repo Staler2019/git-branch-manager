@@ -15,6 +15,9 @@ const RepoIdentity _repo2 = RepoIdentity(
   gitDir: '/repo2/.git',
 );
 
+/// What the fake refresh hands out when a head check asks for fresh refs.
+const int _refreshRequest = 5;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -452,7 +455,7 @@ void main() {
       bool pending = true,
       PreparedReplyStatus reply = PreparedReplyStatus.none,
       bool overwrite = true,
-      int refsEpoch = 0,
+      int refsCoverRequest = 0,
     }) => notifier.reconcilePreparedMessage(
       pending: pending,
       reply: reply,
@@ -461,14 +464,15 @@ void main() {
       raw: "Merge branch 'topic'\n\nmerged body",
       head: 'deadbeef',
       overwrite: overwrite,
-      refsEpoch: refsEpoch,
+      refsCoverRequest: refsCoverRequest,
+      requestRefresh: () => _refreshRequest,
     );
 
     /// The merge ended without an in-app commit, and fresh refs show HEAD
     /// where the episode left it: an Abort (Slice D R2).
     PreparedMessageAction endAtSameHead() {
       expect(reconcile(pending: false), PreparedMessageAction.checkHead);
-      return reconcile(pending: false, refsEpoch: 1);
+      return reconcile(pending: false, refsCoverRequest: _refreshRequest);
     }
 
     setUp(() {
@@ -604,7 +608,7 @@ void main() {
     group('ending without an in-app commit', () {
       PreparedMessageAction ended({
         String head = 'deadbeef',
-        int refsEpoch = 1,
+        int cover = _refreshRequest,
         int replySeq = 0,
         List<String>? parents,
         bool error = false,
@@ -616,7 +620,8 @@ void main() {
         raw: "Merge branch 'topic'\n\nmerged body",
         head: head,
         overwrite: true,
-        refsEpoch: refsEpoch,
+        refsCoverRequest: cover,
+        requestRefresh: () => _refreshRequest,
         commitMetaReplySeq: replySeq,
         parentsOf: (String oid) => oid == head ? parents : null,
         lastErrorPresent: error,
@@ -627,7 +632,7 @@ void main() {
       void filledThenMovedTo(String head) {
         reconcile();
         reconcile(reply: PreparedReplyStatus.message);
-        expect(ended(refsEpoch: 0), PreparedMessageAction.checkHead);
+        expect(ended(cover: 0), PreparedMessageAction.checkHead);
         expect(ended(head: head), PreparedMessageAction.checkParent);
       }
 
@@ -654,7 +659,7 @@ void main() {
         reconcile();
         reconcile(reply: PreparedReplyStatus.message);
         notifier.updateDescription('my own words');
-        ended(refsEpoch: 0);
+        ended(cover: 0);
         ended(head: '0ddba11');
         expect(
           ended(head: '0ddba11', parents: <String>['beefcafe']),
@@ -671,6 +676,21 @@ void main() {
         );
       });
 
+      // Slice E D3: refs published after the check was asked for but read
+      // before it -- a load already running -- say nothing about HEAD now.
+      test('refs read before the check was asked for decide nothing', () {
+        reconcile();
+        reconcile(reply: PreparedReplyStatus.message);
+        expect(ended(cover: 0), PreparedMessageAction.checkHead);
+        expect(
+          ended(cover: _refreshRequest - 1),
+          PreparedMessageAction.nothing,
+        );
+        expect(draft().summary, "Merge branch 'topic'");
+        expect(ended(), PreparedMessageAction.restoreAndEnd);
+        expect(draft().summary, 'mine');
+      });
+
       test('a reply without the commit counts as no answer', () {
         filledThenMovedTo('cafebabe');
         expect(ended(head: 'cafebabe'), PreparedMessageAction.nothing);
@@ -683,9 +703,9 @@ void main() {
       test('an error while waiting falls back to the Abort rule', () {
         reconcile();
         reconcile(reply: PreparedReplyStatus.message);
-        ended(refsEpoch: 0);
+        ended(cover: 0);
         expect(
-          ended(refsEpoch: 0, error: true),
+          ended(cover: 0, error: true),
           PreparedMessageAction.restoreAndEnd,
         );
         expect(draft().summary, 'mine');
@@ -694,11 +714,11 @@ void main() {
       test('a merge pending again ends the wait instead of the episode', () {
         reconcile();
         reconcile(reply: PreparedReplyStatus.message);
-        ended(refsEpoch: 0);
-        expect(draft().headCheckEpoch, 0);
+        ended(cover: 0);
+        expect(draft().headCheckRequest, _refreshRequest);
 
         expect(reconcile(), PreparedMessageAction.nothing);
-        expect(draft().headCheckEpoch, isNull);
+        expect(draft().headCheckRequest, isNull);
         expect(draft().preparedEpisodeActive, isTrue);
         expect(draft().summary, "Merge branch 'topic'");
       });
@@ -707,10 +727,7 @@ void main() {
       // "HEAD differs from ''" would wipe the user's text.
       test('an unfilled episode keeps the text with no HEAD check', () {
         reconcile();
-        expect(
-          ended(head: 'cafebabe', refsEpoch: 0),
-          PreparedMessageAction.end,
-        );
+        expect(ended(head: 'cafebabe', cover: 0), PreparedMessageAction.end);
         expect(draft().summary, 'mine');
       });
 
@@ -723,10 +740,7 @@ void main() {
             description: 'hb',
           );
           expect(reconcile(), PreparedMessageAction.cancelAmendAndStart);
-          expect(
-            ended(head: 'cafebabe', refsEpoch: 0),
-            PreparedMessageAction.end,
-          );
+          expect(ended(head: 'cafebabe', cover: 0), PreparedMessageAction.end);
           expect(draft().summary, 'mine');
           expect(draft().description, 'my body');
         },

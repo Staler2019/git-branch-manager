@@ -682,10 +682,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           // that records an episode is decided before either.
           s.refs.head.target,
           s.repoState == null,
-          // Slice D R2's waits: refs re-read with the same HEAD (an Abort
-          // changes nothing else), an error while waiting, and a
+          // Slice D R2's waits: refs read for the head check (an Abort
+          // changes nothing else in them), an error while waiting, and a
           // commit-meta reply -- empty ones included.
-          s.refsEpoch,
+          s.refsCoverRequest,
           s.lastError != null,
           s.commitMetaReplySeq,
         ),
@@ -741,7 +741,10 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           overwrite: ref
               .read(appPreferencesProvider)
               .overwriteWithPreparedMessage,
-          refsEpoch: session.refsEpoch,
+          refsCoverRequest: session.refsCoverRequest,
+          requestRefresh: ref
+              .read(repoSessionProvider(widget.identity).notifier)
+              .refreshHistory,
           commitMetaReplySeq: session.commitMetaReplySeq,
           parentsOf: (String oid) => session.commitMetaCache[oid]?.parents,
           lastErrorPresent: session.lastError != null,
@@ -756,14 +759,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         ref
             .read(repoSessionProvider(widget.identity).notifier)
             .requestPreparedMessage();
-      case PreparedMessageAction.checkHead:
-        ref
-            .read(repoSessionProvider(widget.identity).notifier)
-            .refreshHistory();
       case PreparedMessageAction.checkParent:
         ref
             .read(repoSessionProvider(widget.identity).notifier)
             .requestCommitMeta(<String>[session.refs.head.target]);
+      // Sent by the draft itself, which records the request number.
+      case PreparedMessageAction.checkHead:
       case PreparedMessageAction.replace:
       case PreparedMessageAction.restoreAndEnd:
       case PreparedMessageAction.nothing:

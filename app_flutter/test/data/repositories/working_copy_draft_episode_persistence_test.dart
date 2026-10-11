@@ -88,7 +88,7 @@ void main() {
     String head = 'deadbeef',
     bool overwrite = true,
     bool repoStateKnown = true,
-    int refsEpoch = 0,
+    int refsCoverRequest = 0,
   }) {
     final List<String> lines = raw.split('\n');
     return n.reconcilePreparedMessage(
@@ -100,7 +100,8 @@ void main() {
       head: head,
       overwrite: overwrite,
       repoStateKnown: repoStateKnown,
-      refsEpoch: refsEpoch,
+      refsCoverRequest: refsCoverRequest,
+      requestRefresh: () => 1,
     );
   }
 
@@ -114,7 +115,7 @@ void main() {
       pass(n, pending: false, head: head),
       PreparedMessageAction.checkHead,
     );
-    return pass(n, pending: false, head: head, refsEpoch: 1);
+    return pass(n, pending: false, head: head, refsCoverRequest: 1);
   }
 
   /// Settles every queued write.

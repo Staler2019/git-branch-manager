@@ -12,6 +12,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
+import 'package:gbm_flutter/features/status_bar/status_bar.dart';
+import 'package:gbm_flutter/features/workspace/widgets/workspace_action_shortcuts.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
 import 'package:gbm_flutter/features/workspace/workspace_screen.dart';
@@ -30,14 +33,24 @@ Finder _branchRow(String name) => find.byWidgetPredicate(
 String _git(String repoPath, List<String> args) =>
     runGit(repoPath, args).stdout.toString().trim();
 
+// Read from files, never through a dart:io Process: while one is running,
+// dart:io reaps *any* exited child, so a git the app's core spawned at the
+// same moment loses its exit status and fails with exitCode -1 (measured
+// 2026-10-11: 74 of 100 native waitpid calls failed while a Dart Process
+// ran, 0 of 100 without one). Polling git here made the app's own
+// `stripspace` fail at random.
 bool _merging(String repoPath) =>
-    Process.runSync('git', <String>[
-      'rev-parse',
-      '-q',
-      '--verify',
-      'MERGE_HEAD',
-    ], workingDirectory: repoPath).exitCode ==
-    0;
+    File('$repoPath/.git/MERGE_HEAD').existsSync();
+
+/// HEAD's oid from `.git/HEAD` and its loose ref -- a fresh fixture repo has
+/// no packed refs. Same reason as [_merging].
+String _head(String repoPath) {
+  final String head = File('$repoPath/.git/HEAD').readAsStringSync().trim();
+  if (!head.startsWith('ref: ')) return head;
+  return File('$repoPath/.git/${head.substring('ref: '.length)}')
+      .readAsStringSync()
+      .trim();
+}
 
 final Finder _fields = find.descendant(
   of: find.byType(CommitMessageBox),
@@ -188,7 +201,7 @@ void main() {
         reason: 'leaving for the resolve window does not refill or clear it',
       );
 
-      final String before = _git(repoPath, <String>['rev-parse', 'HEAD']);
+      final String before = _head(repoPath);
       await pumpUntil(
         tester,
         () =>
@@ -198,10 +211,7 @@ void main() {
             null,
       );
       await tester.tap(find.widgetWithText(GbmButton, 'Commit'));
-      await pumpUntil(
-        tester,
-        () => _git(repoPath, <String>['rev-parse', 'HEAD']) != before,
-      );
+      await pumpUntil(tester, () => _head(repoPath) != before);
       await tester.pumpAndSettle();
 
       expect(_merging(repoPath), isFalse);
@@ -229,7 +239,7 @@ void main() {
       await _conflictedMergeResolved(tester, repoPath);
       expect(_summary(tester), "Merge branch 'topic'");
 
-      final String before = _git(repoPath, <String>['rev-parse', 'HEAD']);
+      final String before = _head(repoPath);
       await pumpUntil(
         tester,
         () =>
@@ -243,10 +253,7 @@ void main() {
       await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
       await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
-      await pumpUntil(
-        tester,
-        () => _git(repoPath, <String>['rev-parse', 'HEAD']) != before,
-      );
+      await pumpUntil(tester, () => _head(repoPath) != before);
       await tester.pumpAndSettle(const Duration(seconds: 1));
 
       expect(_merging(repoPath), isFalse);
@@ -254,6 +261,44 @@ void main() {
         _git(repoPath, <String>['log', '-1', '--format=%B']),
         "Merge branch 'topic'",
       );
+      expect(_summary(tester), isEmpty, reason: "not the pre-merge 'mine'");
+      expect(_description(tester), isEmpty);
+    },
+  );
+
+  // Slice D R2: a merge committed from a terminal while the app is open. The
+  // pending flag drops on the next RepoState read, before refs move; the box
+  // must still end empty rather than take the pre-merge text back.
+  testWidgets(
+    'a merge committed outside the app empties the box on the next refresh',
+    (tester) async {
+      _conflictingBranches(repoPath);
+      await pumpRealAppOn(tester, repoPath);
+      await _openWorkingCopy(tester);
+      await tester.enterText(_fields.at(0), 'mine');
+      await tester.pump();
+
+      await _mergeFromRow(tester);
+      await pumpUntil(
+        tester,
+        () => _merging(repoPath) && _summary(tester) == "Merge branch 'topic'",
+      );
+      await tester.pumpAndSettle();
+
+      File('$repoPath/README.md').writeAsStringSync('# fixture\n\nresolved.\n');
+      runGit(repoPath, <String>['add', 'README.md']);
+      runGit(repoPath, <String>['commit', '--no-edit']);
+      expect(_merging(repoPath), isFalse);
+
+      // Dispatched from below WorkspaceActionShortcuts, since Actions.invoke
+      // searches upwards.
+      Actions.invoke(
+        tester.element(find.byType(StatusBar)),
+        const GbmActionIntent(GbmActionId.viewRefresh),
+      );
+      await pumpUntil(tester, () => _summary(tester).isEmpty);
+      await tester.pumpAndSettle();
+
       expect(_summary(tester), isEmpty, reason: "not the pre-merge 'mine'");
       expect(_description(tester), isEmpty);
     },

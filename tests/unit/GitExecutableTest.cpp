@@ -9,6 +9,7 @@
 // be probed last.
 #include "core/git/GitExecutable.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -92,6 +93,36 @@ TEST_F(GitExecutableTest, DetectAggregatesEveryFailedCandidateInsteadOfOnlyTheLa
     EXPECT_NE(notExecutableProbe.error().message.find(notExecutable.string()), std::string::npos);
     EXPECT_NE(missingProbe.error().message, notExecutableProbe.error().message)
         << "each candidate must carry its own distinct reason, not a shared/overwritten one";
+}
+#endif
+
+#ifndef _WIN32
+// A relative PATH entry resolves against whatever directory the app happens
+// to run in, so a `git` planted there -- a cloned repository's own `./git`,
+// say -- would be picked ahead of the real one. Only absolute entries count.
+TEST_F(GitExecutableTest, SearchPathSkipsARelativePathEntry) {
+    const auto relativeDir = std::filesystem::path("planted");
+    const auto absoluteDir = root_ / "real";
+    std::filesystem::create_directories(root_ / relativeDir);
+    std::filesystem::create_directories(absoluteDir);
+    { std::ofstream(root_ / relativeDir / "git") << "planted"; }
+    { std::ofstream(absoluteDir / "git") << "real"; }
+
+    const std::string savedPath = std::getenv("PATH") != nullptr ? std::getenv("PATH") : "";
+    const auto savedCwd = std::filesystem::current_path();
+    std::filesystem::current_path(root_);
+    ::setenv("PATH", (relativeDir.string() + ":" + absoluteDir.string()).c_str(), 1);
+
+    const auto candidates = GitExecutable::searchPath();
+
+    ::setenv("PATH", savedPath.c_str(), 1);
+    std::filesystem::current_path(savedCwd);
+
+    ASSERT_FALSE(candidates.empty());
+    EXPECT_EQ(candidates.front(), absoluteDir / "git");
+    for (const auto& candidate : candidates) {
+        EXPECT_TRUE(candidate.is_absolute()) << candidate;
+    }
 }
 #endif
 

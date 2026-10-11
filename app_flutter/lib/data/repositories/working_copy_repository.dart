@@ -109,6 +109,11 @@ bool submitCommit(WidgetRef ref, RepoIdentity identity, {bool amend = false}) {
         .then(
           (_) => send(),
           onError: (Object error, StackTrace stack) {
+            // An Exception is the disk refusing a write (SharedPreferences
+            // fails with PlatformException), which the commit can outlive.
+            // An Error is this code being wrong -- the draft is in a state
+            // nothing anticipated -- so nothing is sent and the bug surfaces
+            // instead of committing from that state.
             if (error is! Exception) Error.throwWithStackTrace(error, stack);
             send();
             sender.recordDraftNotSaved();

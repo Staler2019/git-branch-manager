@@ -254,3 +254,12 @@ Plan readiness：三個 epoch。
   - 對照：在本輪之前的 `d59a3be` 上跑 3 次，綠 1、紅 2（都是 tearDownAll 沒跑完）。所以不穩是本輪之前就有的。那次卡住只在 `879eba2` 出現過一次、沒有重現，記為「未重現」，不認定原因。沒有開 issue。
 - 逐 commit 檢查（另開 worktree）：F1–F4 每個中間 commit 都是 analyze 0，`flutter test` 依序 +3444／+3449／+3451／+3457，全綠。
 - 新增欄位與函式都有讀取者或呼叫者：`coversRequest`、`refsCoverRequest`、`commitMetaRequestSeq`、`recordDraftNotSaved`、`headCheckRequest`；`headCheckEpoch` 已完全移除。
+
+### Slice E 最後 verifier（2026-10-11，`d59a3be..f638588`）
+
+- **CONFIRMED**。重現結果：`flutter test` +3460 ~1、analyze 0、capi ctest 786／786（逐一跑）。
+- Advisory 的處置（P3／P4 預設延後，交使用者裁定）：
+  - E1（P3）：commit 路徑上若拋的是 `Error` 而不是 `Exception`，commit 不會送出、也不記 Log。只接 `Exception` 是計畫刻意的選擇（Dart 規則：不接 `Error`），但程式裡沒有註解說明。延後。
+  - E2（P4）：沒有 session 時 `refreshHistory()` 回 0，不是 null，所以 `?? refsCoverRequest + 1` 的 fallback 走不到，HEAD 檢查會用手上的 refs 立刻判斷；註解「a caller with no session」只說中了一半。要走到這裡得先在 view 還掛著時關掉 native session。延後。
+  - E3（P4）：verifier 認為 header 寫「Not monotonic」太保守。駁回：`claimPublishLocked` 是在 `graphMutex_` 內做的，但 REFS_UPDATED 是在鎖外 emit。所以舊 generation 若先 claim、新的後 claim，舊的仍可能較晚 emit，到達順序確實可能倒過來，header 寫的沒錯。
+  - E4（P4）：寫入失敗那一輪的 `_markerOnDisk` 等狀態在寫入之前就設好了，所以失敗後同一個 head 不會重寫 marker，直到 marker 被清掉；不會遺失資料。延後。

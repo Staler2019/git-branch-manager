@@ -54,7 +54,7 @@
   - `dart::Assert::Fail` ← `DLRT_GetFfiCallbackMetadata`
   - ← `Session::requestWorktreePendingCounts()` ~~的 emit（`Session.cpp:1065`／`1079`）~~ 裡的 callback 呼叫（更正，verifier P4）：
     - 1079 是 `emitEmpty(WORKTREES_UPDATED)`。
-    - 1065 是 `if (!result)`，不是 emit。這一幀直接接 Dart trampoline，中間是被內聯的呼叫，而這個範圍內唯一的 callback 呼叫是 1066 的 `emit(ERROR_OCCURRED)`。推論：`~Session` 先 cancel `readCancel_`，`list()` 因此失敗，送出錯誤事件。
+    - ~~1065 是 `if (!result)`，不是 emit。~~ 1065 是 `worktreeStore_->list(...)`，不是 emit（再次更正，第二輪 verifier F1：上一句差一行）。這一幀直接接 Dart trampoline，中間是被內聯的呼叫，而這個範圍內唯一的 callback 呼叫是 ~~1066~~ 1067 的 `emit(ERROR_OCCURRED)`。推論：`~Session` 先 cancel `readCancel_`，`list()` 因此失敗，送出錯誤事件。
     - Session.cpp 從 12:05（`4c60e76e`）之後沒改過，6 份 crash 都在那之後，所以行號對得上現在的原始碼。
 - 原因：`RepoSessionController.dispose()` 先 `_events?.dispose()`（`NativeCallable.close()`），再 `closeNativeSession()`。
   - core 要到 `~Session` 才 drain，這段期間仍在跑的 pending counts（每個 worktree 跑一次 git）會 emit。
@@ -92,5 +92,6 @@
   - 修法：`GbmSessionEvents.dispose()` 不立刻 close，改成經由自己的 callable 送出哨兵（eventType -1）。listener 的訊息依序送達，哨兵抵達時前面的事件都已經收到、payload 也已釋放，`_onEvent` 這時才 close。
   - 新增 `@visibleForTesting isNativeCallbackClosed` 與 `test/data/ffi/event_dispatcher_test.dart`。原因：「永遠不關」這個 mutation 第一次沒有被任何測試擋下，而沒關的 listener 會讓 isolate 一直活著。
   - mutation 3 次（立刻 close、永遠不關、不送哨兵），各紅 1。
-- **ledger 行號**：見上方 Action 的原處更正。
+- **ledger 行號**：見上方 Action 的原處更正。第一次更正自己又差一行（第二輪 verifier REFUTED，F1），已再更正。
+- 第二輪 verifier 另提 P4：新加的 typedef 插在 `GbmSessionEvents` 的 doc comment 與 class 之間，已移到 doc comment 上方。
 

@@ -15,14 +15,6 @@ class GbmEvent {
   final Uint8List? payload;
 }
 
-/// Bridges one open session's native events into a broadcast [Stream].
-///
-/// Registers a [NativeCallable.listener] with `gbm_capi` -- the only
-/// `NativeCallable` variant safe to invoke from a thread other than the one
-/// that created it, which matters here because `gbm_capi` calls back from a
-/// `ThreadPool` worker or the operation runner's serial thread, never from
-/// the Dart isolate that opened the session (see gbm_capi.h's doc comment
-/// and the plan's "async/callback design" section).
 typedef _EmitDart = void Function(
   Pointer<Void> session,
   int eventType,
@@ -31,6 +23,14 @@ typedef _EmitDart = void Function(
   Pointer<Void> userData,
 );
 
+/// Bridges one open session's native events into a broadcast [Stream].
+///
+/// Registers a [NativeCallable.listener] with `gbm_capi` -- the only
+/// `NativeCallable` variant safe to invoke from a thread other than the one
+/// that created it, which matters here because `gbm_capi` calls back from a
+/// `ThreadPool` worker or the operation runner's serial thread, never from
+/// the Dart isolate that opened the session (see gbm_capi.h's doc comment
+/// and the plan's "async/callback design" section).
 class GbmSessionEvents {
   GbmSessionEvents(this._bindings, this._session) {
     _callable = NativeCallable<GbmEventCallbackNative>.listener(_onEvent);

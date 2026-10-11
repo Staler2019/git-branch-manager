@@ -65,7 +65,8 @@
 ## Result
 
 - `flutter test` +3462 ~1、analyze 0、format 0。
-- core ctest：第一次 `-j8` 跑的時候有一條紅，`ProcessRunnerTimeout.ProgressOnStderrAloneKeepsAChildAlive`。當時裝置測試正在編譯，第一個 drip 沒在 500 ms 的閒置期限內到。單獨重跑 5/5 綠，與本輪改動無關。最後的全套結果見下方「推送前」。
+- core ctest：第一次 `-j8` 跑的時候~~有一條紅~~有兩條紅（更正：只讀了畫面最後一行，漏了一條；`LastTestsFailed.log` 列了兩條）：`ProcessRunnerTimeout.ProgressOnStderrAloneKeepsAChildAlive` 與 `ProcessRunnerTimeout.AChildStillDrippingOutputOutlivesTheIdleDeadline`。當時裝置測試正在編譯，第一個 drip 沒在 500 ms 的閒置期限內到。前者單獨重跑 5/5 綠，與本輪改動無關。
+- 推送前在空閒的機器上重跑：core ctest 787/787、capi ctest 787/787，0 失敗。
 - 裝置層 `worktree_add_refresh`，修正後共 8 次：
   - 7 次直接綠（約 35 秒）。
   - 1 次停了約 4 分 48 秒，最後通過。卡住期間：

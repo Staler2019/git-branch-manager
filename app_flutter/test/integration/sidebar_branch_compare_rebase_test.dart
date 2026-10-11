@@ -65,8 +65,12 @@ late GoRouter _router;
 /// as the base path.
 String? _rebaseTarget;
 
+/// Same idea for the merge route's `source`.
+String? _mergeSource;
+
 Future<void> _pump(WidgetTester tester) async {
   _rebaseTarget = null;
+  _mergeSource = null;
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
@@ -90,6 +94,13 @@ Future<void> _pump(WidgetTester tester) async {
       GoRoute(
         path: RoutePaths.compare,
         builder: (_, _) => const Scaffold(body: Text('compare-page')),
+      ),
+      GoRoute(
+        path: RoutePaths.mergeDialog,
+        builder: (_, GoRouterState state) {
+          _mergeSource = state.uri.queryParameters['source'];
+          return const Scaffold(body: Text('merge-dialog'));
+        },
       ),
       GoRoute(
         path: RoutePaths.rebaseOntoDialog,
@@ -166,5 +177,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('rebase-dialog'), findsNothing);
+  });
+
+  testWidgets('Merge into current opens the merge dialog with that branch '
+      'as its source, instead of an empty picker', (tester) async {
+    await _pump(tester);
+    await _openMenuOn(tester, 'feature');
+
+    await tester.tap(find.text('Merge into current'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('merge-dialog'), findsOneWidget);
+    expect(
+      _mergeSource,
+      'feature',
+      reason: 'the source query parameter is what locks the dialog on it',
+    );
   });
 }

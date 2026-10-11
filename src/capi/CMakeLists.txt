@@ -25,6 +25,7 @@ add_library(gbm_capi SHARED
     Lfs.cpp
     Merge.cpp
     OriginalOperationMessage.cpp
+    PreparedMessage.cpp
     Patch.cpp
     Rebase.cpp
     Reflog.cpp
@@ -33,6 +34,7 @@ add_library(gbm_capi SHARED
     ResetRestore.cpp
     Revert.cpp
     Session.cpp
+    SquashMessage.cpp
     Stash.cpp
     Submodules.cpp
     Tags.cpp

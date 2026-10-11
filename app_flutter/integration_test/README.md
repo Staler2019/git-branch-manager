@@ -42,6 +42,10 @@ flutter test integration_test/rename_branch_flow_test.dart -d macos
 flutter test integration_test/multi_push_flow_test.dart -d macos
 flutter test integration_test/commit_file_counts_test.dart -d macos
 flutter test integration_test/update_check_flow_test.dart -d macos
+flutter test integration_test/merge_current_flow_test.dart -d macos
+flutter test integration_test/merge_squash_flow_test.dart -d macos
+flutter test integration_test/rebase_onto_flow_test.dart -d macos
+flutter test integration_test/revert_commit_flow_test.dart -d macos
 ```
 
 `update_check_flow_test.dart` is the one file here that **needs network**:

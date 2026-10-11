@@ -15,7 +15,10 @@ enum class MergeMode : std::uint8_t {
     /// possible. What most teams mean by "merge" in the Fork sense.
     NoFastForward,
     /// `--squash`: stages the combined diff with no merge commit and no
-    /// parent link, then leaves it to the caller to commit. Never leaves a
+    /// parent link. With a MergeRequest::message and no conflict, it is then
+    /// committed as one ordinary commit -- unless the index already differed
+    /// from HEAD before it, which stays staged rather than be swept into that
+    /// commit; without one, it stays staged for the caller. Never leaves a
     /// MERGE_HEAD behind, so RepoState::Merge never applies to a squash.
     Squash,
 };
@@ -23,8 +26,9 @@ enum class MergeMode : std::uint8_t {
 struct MergeRequest {
     std::string target;  ///< Branch, tag or commit to merge into HEAD.
     MergeMode mode = MergeMode::NoFastForward;
-    /// Overrides the default merge commit message. Ignored for Squash, which
-    /// never commits on its own -- see CommitOps for that follow-up step.
+    /// Overrides the default merge commit message. For Squash it is the
+    /// commit message of the follow-up commit -- empty leaves the squash
+    /// staged and uncommitted, as before.
     std::string message;
     /// Set after the user picks "Stash and merge" in response to a
     /// DirtyWorkTree failure -- see CheckoutRequest::stashFirst, same idea.

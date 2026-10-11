@@ -43,10 +43,12 @@
 #include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/PatchOps.h"
+#include "core/git/ops/PreparedMessageOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
 #include "core/git/ops/RevertOps.h"
+#include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
 #include "core/git/ops/SubmoduleOps.h"
@@ -129,8 +131,9 @@ public:
     /// already running. An operation that has already finished is simply absent.
     std::size_t cancelOperations(std::uint64_t id);
 
-    /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h.
-    void refreshHistory();
+    /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h. Returns
+    /// this request's number (refreshRequestSeq_).
+    std::uint64_t refreshHistory();
 
     /// Narrows every subsequent history walk, including the ones an operation
     /// or an auto-fetch resync triggers on their own -- the filter is session
@@ -227,6 +230,13 @@ public:
 
     /// Async: see gbm_request_original_operation_message()'s doc comment.
     void requestOriginalOperationMessage();
+
+    /// Async: see gbm_request_squash_message()'s doc comment. `source` is
+    /// echoed back so a reply can be matched to the pick it answers.
+    void requestSquashMessage(std::string source);
+
+    /// Async: see gbm_request_prepared_message()'s doc comment.
+    void requestPreparedMessage();
 
     /// Async: see gbm_request_working_tree_content()'s doc comment.
     void requestWorkingTreeContent(std::string path);
@@ -508,7 +518,13 @@ private:
     /// Posts the actual refs + history read for the dispatch identified by
     /// `generation` onto sharedReadPool(), and guarantees exactly one
     /// finishRefresh(generation) on every terminal path the read can take.
-    void dispatchRefresh(RefreshCoalescer::Generation generation, CancellationToken token);
+    /// `coversRequest` is refreshRequestSeq_ as read under refreshMutex_ in
+    /// the same critical section as the caller's takePending(), i.e. before
+    /// this read's refs load starts; GBM_EVENT_REFS_UPDATED carries it. No
+    /// default, so a new dispatch site cannot forget to capture it.
+    void dispatchRefresh(RefreshCoalescer::Generation generation,
+                         CancellationToken token,
+                         std::uint64_t coversRequest);
 
     /// Reports the dispatch identified by `generation` as complete, and
     /// re-drives the timer immediately when a request folded in while it was
@@ -621,6 +637,8 @@ private:
     std::unique_ptr<WorktreeStore> worktreeStore_;
     std::unique_ptr<RemoteStore> remoteStore_;
     std::unique_ptr<CompareStore> compareStore_;
+    std::unique_ptr<SquashMessageStore> squashMessageStore_;
+    std::unique_ptr<PreparedMessageStore> preparedMessageStore_;
     std::unique_ptr<BlobStore> blobStore_;
     std::unique_ptr<BlameStore> blameStore_;
     std::unique_ptr<CommitMetaStore> commitMetaStore_;
@@ -681,6 +699,13 @@ private:
     /// refreshHistory() for why this replaced "cancel whatever is running,
     /// then start mine".
     RefreshCoalescer refreshCoalescer_;
+
+    /// One per refreshHistory() call, returned to the caller. Guarded by
+    /// refreshMutex_: both dispatch sites (onRefreshTimerFired() and
+    /// setHistoryFilter()) read it in the critical section that takes the
+    /// pending batch, so every request numbered at or below the value they
+    /// read was made before the dispatched refs load began.
+    std::uint64_t refreshRequestSeq_ = 0;
 
     /// Cancels the in-flight history walk. Only two callers cancel it now:
     /// setHistoryFilter(), which genuinely supersedes a walk whose filter is

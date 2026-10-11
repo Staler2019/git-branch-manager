@@ -696,5 +696,31 @@ void main() {
 
       expect(find.text('從 .gitconfig 匯入'), findsNothing);
     });
+
+    // Ruling ⑪: overwriting the box with git's prepared message is the
+    // default, and the switch that turns it off flips only that preference.
+    testWidgets('turning off the prepared-message overwrite flips only it', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Git');
+      const String title = '（預設）merge／squash 時用 git 準備好的訊息覆蓋 commit 框';
+      expect(
+        result.container
+            .read(appPreferencesProvider)
+            .overwriteWithPreparedMessage,
+        isTrue,
+      );
+
+      await tester.ensureVisible(find.text(title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(title));
+      await tester.pumpAndSettle();
+
+      final AppPreferences prefs = result.container.read(
+        appPreferencesProvider,
+      );
+      expect(prefs.overwriteWithPreparedMessage, isFalse);
+      expect(prefs.cherryPickAddsSourceLine, isTrue);
+    });
   });
 }

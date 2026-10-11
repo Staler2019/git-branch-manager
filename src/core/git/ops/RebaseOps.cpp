@@ -1,6 +1,7 @@
 #include "core/git/ops/RebaseOps.h"
 
 #include "core/base/FsUtil.h"
+#include "core/git/RefStore.h"
 
 #include <atomic>
 #include <chrono>
@@ -103,7 +104,7 @@ public:
 
     std::string describe() const override {
         return "Interactive rebase onto " +
-               (request_.onto.empty() ? request_.upstream : request_.onto);
+               refDisplayName(request_.onto.empty() ? request_.upstream : request_.onto);
     }
 
     bool killableMidFlight() const override { return false; }
@@ -169,7 +170,8 @@ public:
         if (result) {
             outcome.succeeded = true;
             outcome.summary =
-                "Rebased onto " + (request_.onto.empty() ? request_.upstream : request_.onto);
+                "Rebased onto " +
+                refDisplayName(request_.onto.empty() ? request_.upstream : request_.onto);
             return outcome;
         }
 
@@ -202,7 +204,8 @@ public:
     explicit RebaseOperation(RebaseRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return "Rebase onto " + (request_.onto.empty() ? request_.upstream : request_.onto);
+        return "Rebase onto " +
+               refDisplayName(request_.onto.empty() ? request_.upstream : request_.onto);
     }
 
     bool killableMidFlight() const override { return false; }
@@ -261,7 +264,8 @@ public:
         if (result) {
             outcome.succeeded = true;
             outcome.summary =
-                "Rebased onto " + (request_.onto.empty() ? request_.upstream : request_.onto);
+                "Rebased onto " +
+                refDisplayName(request_.onto.empty() ? request_.upstream : request_.onto);
             return outcome;
         }
 

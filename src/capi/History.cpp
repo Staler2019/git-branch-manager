@@ -3,8 +3,8 @@
 
 using namespace gbm::capi;
 
-GBM_API void gbm_history_refresh(GbmSessionHandle session) {
-    toSession(session)->refreshHistory();
+GBM_API uint64_t gbm_history_refresh(GbmSessionHandle session) {
+    return toSession(session)->refreshHistory();
 }
 
 GBM_API void gbm_history_set_filter(GbmSessionHandle session,

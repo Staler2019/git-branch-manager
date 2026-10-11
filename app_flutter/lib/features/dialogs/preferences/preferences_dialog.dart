@@ -910,11 +910,19 @@ class _GitSection extends ConsumerWidget {
         const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('COMMIT 訊息'),
         _SettingSwitch(
-          title: 'cherry-pick 時加上「(cherry picked from commit …)」',
+          title: '（預設）cherry-pick 時加上「(cherry picked from commit …)」',
           subtitle: '會附加在原始 commit 內文的最後一行。',
           value: prefs.cherryPickAddsSourceLine,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(cherryPickAddsSourceLine: v),
+          ),
+        ),
+        _SettingSwitch(
+          title: '（預設）merge／squash 時用 git 準備好的訊息覆蓋 commit 框',
+          subtitle: '關閉時，只有 commit 框是空的才會帶入。',
+          value: prefs.overwriteWithPreparedMessage,
+          onChanged: (bool v) => notifier.update(
+            (AppPreferences p) => p.copyWith(overwriteWithPreparedMessage: v),
           ),
         ),
       ],

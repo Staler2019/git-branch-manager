@@ -47,6 +47,13 @@ public:
         std::vector<std::string> args{"revert"};
         if (request_.noCommit) {
             args.emplace_back("--no-commit");
+        } else {
+            // git opens an editor for the message whenever it believes it
+            // was run from a terminal, and on Windows an inherited stdin was
+            // enough for that -- it opened VS Code (使用者回報 2026-10-08).
+            // Neither an editor nor a terminal is ours to offer; git's own
+            // `Revert "<subject>"` is the message, as with MergeOps' --no-ff.
+            args.emplace_back("--no-edit");
         }
         for (const ObjectId& commit : request_.commits) {
             args.push_back(commit.hex());

@@ -143,6 +143,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // after the first frame rather than here, so the dispatch does not land
     // mid-build.
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncHistoryFilter());
+    // Same reason for an outstanding commit: the draft outlives this shell, so
+    // HEAD may have moved while it was gone (`_settleOutstandingCommit`).
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _settleOutstandingCommit(widget.identity),
+    );
 
     // Nothing in this app used to react to the window regaining focus, so
     // coming back from an editor or a terminal left both the working-copy
@@ -172,6 +177,50 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     _focusRefreshCooldown = Timer(kFocusRefreshThrottle, () {});
 
     refreshRepoStatus(ref, widget.identity);
+  }
+
+  @override
+  void didUpdateWidget(WorkspaceScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.identity != widget.identity) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _settleOutstandingCommit(widget.identity),
+      );
+    }
+  }
+
+  /// Settles a commit left outstanding (`WorkingCopyDraftController
+  /// .settleCommit`): by its own outcome in this session, or by HEAD once
+  /// refs load for one read back from disk. Also run on mount, for an
+  /// outcome that arrived while this shell was not there.
+  void _settleOutstandingCommit(RepoIdentity identity) {
+    if (!mounted) return;
+    final RepoSessionState session = ref.read(repoSessionProvider(identity));
+    ref
+        .read(workingCopyDraftProvider(identity).notifier)
+        .settleCommit(
+          outcomeSeq: session.commitOutcomeSeq,
+          lastSucceeded: session.lastCommitSucceeded,
+          refsLoaded: session.refsEpoch > 0,
+          head: session.refs.head.target,
+        );
+  }
+
+  /// Clears the commit box once this commit's own outcome says it landed --
+  /// by the button, the shortcut or the menu alike -- and keeps it when the
+  /// outcome says it failed. Never on HEAD moving or an unrelated error
+  /// (Slice D A1/A2). Lives here rather than in `WorkingCopyView` because a
+  /// commit can land while Working Copy is off screen.
+  void _watchCommitOutcome(RepoIdentity identity) {
+    ref.listen<int>(
+      repoSessionProvider(identity).select((s) => s.commitOutcomeSeq),
+      (_, _) => _settleOutstandingCommit(identity),
+    );
+    // A commit read back from disk waits for refs, not for an outcome.
+    ref.listen<int>(
+      repoSessionProvider(identity).select((s) => s.refsEpoch),
+      (_, _) => _settleOutstandingCommit(identity),
+    );
   }
 
   @override
@@ -337,6 +386,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     // widget.isMacOS's doc comment for why this can't just be
     // Platform.isMacOS directly.
     final bool isMacOS = widget.isMacOS ?? Platform.isMacOS;
+
+    _watchCommitOutcome(identity);
 
     // Times the history scan for the status bar's elapsed figure. Recorded
     // on the false -> true edge and closed on true -> false, so a rebuild
@@ -1624,7 +1675,6 @@ class ConflictBanner extends StatelessWidget {
     final GbmColors colors = context.gbmColors;
     final String statusText = _getStatusText();
     final SequencerOperationKind? kind = _kind;
-    final bool isRevert = kind == SequencerOperationKind.revert;
 
     return Container(
       width: double.infinity,
@@ -1675,82 +1725,52 @@ class ConflictBanner extends StatelessWidget {
             runSpacing: GbmSpacing.space1,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: <Widget>[
-              // Abort button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canAbort
-                      ? ''
-                      : 'Revert has no abort (use Resolve…)',
-                  child: TextButton(
-                    onPressed: kind.canAbort ? onAbort : null,
-                    child: Text(
-                      'Abort',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
-              // Skip button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canSkip
-                      ? ''
-                      : 'Skip not available for ${isRevert ? 'revert' : 'merge'}',
-                  child: TextButton(
-                    onPressed: kind.canSkip ? onSkip : null,
-                    child: Text(
-                      'Skip',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
-              // Continue button
-              if (kind != null)
-                Tooltip(
-                  message: kind.canContinue
-                      ? ''
-                      : 'Continue not available for '
-                            '${isRevert ? 'revert' : 'merge'} yet -- resolve via '
-                            'Resolve…',
-                  child: TextButton(
-                    onPressed: kind.canContinue ? onContinue : null,
-                    child: Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textSm,
-                        color: colors.diffDelText,
-                        fontWeight: GbmTypography.weightSemibold,
-                      ),
-                    ),
-                  ),
-                ),
+              // Ruling ⑥⑩ (prepared-commit-message-spec.html): a control
+              // the operation cannot use is not drawn at all -- merge shows
+              // Abort, revert none of the three. Resolve… below is the way
+              // forward either way.
+              if (kind != null && kind.canAbort)
+                _BannerButton(label: 'Abort', onPressed: onAbort),
+              if (kind != null && kind.canSkip)
+                _BannerButton(label: 'Skip', onPressed: onSkip),
+              if (kind != null && kind.canContinue)
+                _BannerButton(label: 'Continue', onPressed: onContinue),
               // Resolve… button -- the actual route into ConflictResolveWindow's
               // three-pane editor. Independent of [kind] so it's reachable
               // during a real rebase/cherry-pick/merge/revert conflict, not
               // just the git-apply --3way edge case that has no sequencer
               // state; only Abort/Skip/Continue are sequencer-gated.
               if (session.workingCopyStatus.conflicted.isNotEmpty)
-                TextButton(
+                _BannerButton(
+                  label: 'Resolve…',
                   onPressed: () => context.go(RoutePaths.conflictsFor(repoId)),
-                  child: Text(
-                    'Resolve…',
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      color: colors.diffDelText,
-                      fontWeight: GbmTypography.weightSemibold,
-                    ),
-                  ),
                 ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// One of [ConflictBanner]'s text controls, in the banner's own colours.
+class _BannerButton extends StatelessWidget {
+  const _BannerButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextButton(
+      onPressed: onPressed,
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: GbmTypography.textSm,
+          color: context.gbmColors.diffDelText,
+          fontWeight: GbmTypography.weightSemibold,
+        ),
       ),
     );
   }

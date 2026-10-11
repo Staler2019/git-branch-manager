@@ -145,5 +145,57 @@ void main() {
 
       expect(snapshot.remoteBranches, [remote1, remote2]);
     });
+
+    group('findBranch', () {
+      RefInfo branch(String full, String short, RefKind kind) => RefInfo(
+        fullName: full,
+        shortName: short,
+        kind: kind,
+        target: short,
+        upstream: '',
+        ahead: 0,
+        behind: 0,
+        hasTrackingInfo: false,
+        isGone: false,
+        isHead: false,
+        isSymbolic: false,
+        worktreePath: '',
+      );
+
+      // A local branch literally named "origin/x" beside the remote one.
+      final RefSnapshot snapshot = RefSnapshot(
+        head: HeadInfo.fromJson({
+          'kind': 0,
+          'branchName': 'main',
+          'fullRef': 'refs/heads/main',
+          'target': 'abc123',
+        }),
+        refs: [
+          branch('refs/tags/origin/x', 'origin/x', RefKind.tag),
+          branch('refs/remotes/origin/x', 'origin/x', RefKind.remoteBranch),
+          branch('refs/heads/origin/x', 'origin/x', RefKind.localBranch),
+        ],
+        refCountGuardTripped: false,
+        totalRefCount: 3,
+      );
+
+      test('no kind prefers the local branch, never the tag', () {
+        expect(
+          snapshot.findBranch('origin/x')?.fullName,
+          'refs/heads/origin/x',
+        );
+      });
+
+      test('a kind searches only that kind', () {
+        expect(
+          snapshot.findBranch('origin/x', kind: RefKind.remoteBranch)?.fullName,
+          'refs/remotes/origin/x',
+        );
+      });
+
+      test('an unknown name or a commit oid finds nothing', () {
+        expect(snapshot.findBranch('a1b2c3d4'), isNull);
+      });
+    });
   });
 }

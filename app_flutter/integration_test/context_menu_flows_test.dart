@@ -267,14 +267,6 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  /// The export round-trips through a real FFI event, which `pumpAndSettle`
-  /// has no way to wait for -- it settles animations, not native callbacks.
-  Future<void> pumpUntil(WidgetTester tester, bool Function() done) async {
-    for (int i = 0; i < 60 && !done(); i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-  }
-
   testWidgets(
     '05-K: Open file at this revision writes the commit\'s bytes, not the '
     'working copy\'s, and hands that file to the OS',

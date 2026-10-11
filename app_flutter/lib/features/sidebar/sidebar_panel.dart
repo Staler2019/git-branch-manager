@@ -666,7 +666,7 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
               : () => actions.createBranchFrom(context, node.ref),
           onMerge: isRemoteOnly || node.ref.isHead
               ? null
-              : () => actions.openMergeDialog(context),
+              : () => actions.openMergeDialog(context, node.ref),
           onDeleteOnRemote: isRemoteOnly
               ? () => actions.openDeleteRemoteBranchDialog(context, node.ref)
               : null,

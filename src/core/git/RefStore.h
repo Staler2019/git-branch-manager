@@ -10,6 +10,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -72,6 +73,13 @@ using RefSnapshotPtr = std::shared_ptr<const RefSnapshot>;
 /// Ahead/behind counts come from `%(upstream:track)` in the same invocation.
 /// Computing them per branch with `rev-list --count` would mean one process per
 /// branch, which is minutes on a repository with thousands of refs.
+/// The name a person reads for a ref the app hands git: `refs/heads/x` is
+/// `x`, `refs/remotes/origin/x` is `origin/x`, `refs/tags/v1` is `v1`; an
+/// oid or any other string is returned as it is. For text the app composes
+/// (undo list, summaries, stash messages) -- never for git argv, where the
+/// full ref is what keeps a same-named tag from winning.
+std::string refDisplayName(std::string_view ref);
+
 class RefStore {
 public:
     RefStore(IProcessRunner& runner, RepoPaths paths);

@@ -29,6 +29,7 @@ class AppPreferences {
     this.globalGitignorePath = '',
     this.globalGitignoreSource = '',
     this.cherryPickAddsSourceLine = true,
+    this.overwriteWithPreparedMessage = true,
     this.confirmForcePush = true,
     this.logMemoryLimit = 2000,
     this.logRetentionDays = 7,
@@ -89,6 +90,11 @@ class AppPreferences {
   /// Git. Spec page 07's `MSGS` table, Cherry-pick row: the trailing
   /// "(cherry picked from commit …)" line "可在 Preferences 關閉".
   final bool cherryPickAddsSourceLine;
+
+  /// Git. Ruling ⑪ (`prepared-commit-message-spec.html` section 04): when a
+  /// merge or squash leaves git a prepared message, it replaces whatever the
+  /// commit box holds by default. Off, it fills the box only when it is empty.
+  final bool overwriteWithPreparedMessage;
 
   /// Advanced. Spec page 06's Force push row: "可在 Preferences 關閉此確認".
   final bool confirmForcePush;
@@ -190,6 +196,7 @@ class AppPreferences {
     String? globalGitignorePath,
     String? globalGitignoreSource,
     bool? cherryPickAddsSourceLine,
+    bool? overwriteWithPreparedMessage,
     bool? confirmForcePush,
     int? logMemoryLimit,
     int? logRetentionDays,
@@ -216,6 +223,8 @@ class AppPreferences {
           globalGitignoreSource ?? this.globalGitignoreSource,
       cherryPickAddsSourceLine:
           cherryPickAddsSourceLine ?? this.cherryPickAddsSourceLine,
+      overwriteWithPreparedMessage:
+          overwriteWithPreparedMessage ?? this.overwriteWithPreparedMessage,
       confirmForcePush: confirmForcePush ?? this.confirmForcePush,
       logMemoryLimit: logMemoryLimit ?? this.logMemoryLimit,
       logRetentionDays: logRetentionDays ?? this.logRetentionDays,
@@ -271,6 +280,9 @@ class AppPreferencesRepository {
       cherryPickAddsSourceLine:
           _prefs.getBool('${_kPrefix}cherryPickAddsSourceLine') ??
           defaults.cherryPickAddsSourceLine,
+      overwriteWithPreparedMessage:
+          _prefs.getBool('${_kPrefix}overwriteWithPreparedMessage') ??
+          defaults.overwriteWithPreparedMessage,
       confirmForcePush:
           _prefs.getBool('${_kPrefix}confirmForcePush') ??
           defaults.confirmForcePush,
@@ -329,6 +341,10 @@ class AppPreferencesRepository {
     await _prefs.setBool(
       '${_kPrefix}cherryPickAddsSourceLine',
       p.cherryPickAddsSourceLine,
+    );
+    await _prefs.setBool(
+      '${_kPrefix}overwriteWithPreparedMessage',
+      p.overwriteWithPreparedMessage,
     );
     await _prefs.setBool('${_kPrefix}confirmForcePush', p.confirmForcePush);
     await _prefs.setInt('${_kPrefix}logMemoryLimit', p.logMemoryLimit);

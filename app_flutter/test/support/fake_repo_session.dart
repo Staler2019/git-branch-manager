@@ -115,8 +115,13 @@ class FakeRepoSessionController extends RepoSessionController {
   /// Recorded, not left to the null-session guard: an unoverridden method
   /// no-ops silently, so a test could not tell a dead Commit button from a
   /// dispatched one.
+  /// Runs as [commit] is dispatched, so a test can look at what was already
+  /// on disk at that moment (the pending-commit marker must be).
+  void Function()? onCommit;
+
   @override
   void commit(String message, {bool amend = false, bool signOff = false}) {
+    onCommit?.call();
     commandLog.add(
       FakeCommand('commit', <String, Object?>{
         'message': message,
@@ -308,6 +313,31 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
+  void requestSquashMessage(String source) {
+    noteSquashMessageRequested(source);
+    commandLog.add(
+      FakeCommand('requestSquashMessage', <String, Object?>{'source': source}),
+    );
+  }
+
+  @override
+  void mergeBranch(
+    String target,
+    MergeMode mode, {
+    String message = '',
+    bool stashFirst = false,
+  }) {
+    commandLog.add(
+      FakeCommand('mergeBranch', <String, Object?>{
+        'target': target,
+        'mode': mode,
+        'message': message,
+        'stashFirst': stashFirst,
+      }),
+    );
+  }
+
+  @override
   void abortRebase() {
     abortRebaseCalled = true;
     commandLog.add(const FakeCommand('abortRebase'));
@@ -321,6 +351,14 @@ class FakeRepoSessionController extends RepoSessionController {
   @override
   void skipRebase() {
     commandLog.add(const FakeCommand('skipRebase'));
+  }
+
+  /// Records the request only: a test plays the reply by emitting a state
+  /// with [RepoSessionState.preparedMessage] set, the way core would.
+  @override
+  void requestPreparedMessage() {
+    commandLog.add(const FakeCommand('requestPreparedMessage'));
+    state = state.copyWith(clearPreparedMessage: true);
   }
 
   @override
@@ -362,9 +400,14 @@ class FakeRepoSessionController extends RepoSessionController {
   /// the current snapshot, there being no separate cancel entry point in the
   /// capi. Without this override a test could not tell a dead Cancel button
   /// apart from a dispatched one.
+  /// Numbers requests the way core does, so a test can publish refs covering
+  /// a specific one (`publishRefs(..., coversRequest: n)`).
+  int refreshRequestSeq = 0;
+
   @override
-  void refreshHistory() {
+  int refreshHistory() {
     commandLog.add(const FakeCommand('refreshHistory'));
+    return ++refreshRequestSeq;
   }
 
   /// Same reasoning as [refreshHistory] above, for the other half of a
@@ -934,11 +977,19 @@ class FakeRepoSessionController extends RepoSessionController {
     commandLog.add(FakeCommand('requestReflog', <String, Object?>{'ref': ref}));
   }
 
+  int _fakeCommitMetaRequests = 0;
+
+  /// Counts like the real one, so a test's emitted replies can be compared
+  /// with the requests the code under test sent.
+  @override
+  int get commitMetaRequestSeq => _fakeCommitMetaRequests;
+
   @override
   void requestCommitMeta(List<String> oids) {
     commandLog.add(
       FakeCommand('requestCommitMeta', <String, Object?>{'oids': oids}),
     );
+    if (oids.isNotEmpty) _fakeCommitMetaRequests++;
   }
 
   /// Recorded, not no-opped: without this override the real method hits its

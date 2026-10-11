@@ -54,7 +54,7 @@ void main() {
     final Map<String, dynamic> json = jsonDecode(
       '{"flags":0,"isClean":true,"isSequencerOperation":false,"rebaseStep":0,'
       '"rebaseTotal":0,"rebaseOntoLabel":"","indexLocked":false,'
-      '"indexLockAgeSeconds":null,"describe":"Clean"}',
+      '"indexLockAgeSeconds":null,"preparedMessagePending":false,"describe":"Clean"}',
     );
     final model.RepoState state = model.RepoState.fromJson(json);
 

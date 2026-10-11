@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
+import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
 import '../../../support/pump_app.dart';
@@ -284,6 +285,75 @@ void main() {
       await tester.pump();
 
       expect(find.byType(CommitMessageBox), findsOneWidget);
+    });
+  });
+
+  // Ruling ⑫ (prepared-commit-message-spec.html 02-D): the box is a kit
+  // `.gbm-input` -- the app's own helpers, not Material's bare outline.
+  group('CommitMessageBox kit styling', () {
+    Future<GbmColors> pump(WidgetTester tester) async {
+      await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 200,
+          child: CommitMessageBox(
+            summaryController: TextEditingController(),
+            descriptionController: TextEditingController(),
+            onSummaryChanged: (_) {},
+            onDescriptionChanged: (_) {},
+          ),
+        ),
+      );
+      return tester.element(find.byType(CommitMessageBox)).gbmColors;
+    }
+
+    TextField field(WidgetTester tester, int i) =>
+        tester.widget<TextField>(find.byType(TextField).at(i));
+
+    void expectKitBox(InputDecoration d, GbmColors colors) {
+      final OutlineInputBorder resting = d.enabledBorder! as OutlineInputBorder;
+      final OutlineInputBorder focused = d.focusedBorder! as OutlineInputBorder;
+      expect(resting.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
+      expect(
+        resting.borderSide.color.toARGB32(),
+        colors.borderDefault.toARGB32(),
+      );
+      expect(focused.borderSide.color.toARGB32(), colors.accent.toARGB32());
+      expect(d.filled, isTrue);
+      expect(d.fillColor!.toARGB32(), colors.surfacePanel.toARGB32());
+    }
+
+    testWidgets('the summary is a 30px text-sm kit input', (tester) async {
+      final GbmColors colors = await pump(tester);
+
+      expectKitBox(field(tester, 0).decoration!, colors);
+      expect(field(tester, 0).style?.fontSize, GbmTypography.textSm);
+      expect(
+        tester.getSize(find.byType(TextField).at(0)).height,
+        GbmSpacing.inputHeight,
+      );
+    });
+
+    testWidgets('the description is a kit multiline input', (tester) async {
+      final GbmColors colors = await pump(tester);
+
+      expectKitBox(field(tester, 1).decoration!, colors);
+    });
+
+    // The ruler sits 72 monospace columns in from the text's left edge,
+    // which moved with the new content padding.
+    testWidgets('the 72 ruler follows the space3 content padding', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      final Positioned ruler = tester.widget<Positioned>(
+        find.byWidgetPredicate(
+          (Widget w) => w is Positioned && w.left != null && w.left! > 0,
+        ),
+      );
+      expect(ruler.left, GbmSpacing.space3 + 72 * 8.0);
     });
   });
 }

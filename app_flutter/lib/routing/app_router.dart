@@ -181,7 +181,11 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           final RepoIdentity identity = repoIdentityFromRouteParam(
             state.pathParameters['repoId']!,
           );
-          return MergeDialogContent(identity: identity);
+          final String source = state.uri.queryParameters['source'] ?? '';
+          return MergeDialogContent(
+            identity: identity,
+            source: source.isEmpty ? null : source,
+          );
         },
       ),
       dialogRoute(

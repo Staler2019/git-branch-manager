@@ -242,6 +242,81 @@ class StashDiffReply {
   final ParsedDiff diff;
 }
 
+/// A [RepoSessionController.requestPreparedMessage] reply: the commit
+/// message git prepared for the merge or squash in progress, comment lines
+/// already stripped by core (`PreparedMessageStore`).
+class PreparedMessageReply {
+  const PreparedMessageReply({required this.message, required this.failed});
+
+  factory PreparedMessageReply.fromJson(Map<String, dynamic> json) =>
+      PreparedMessageReply(
+        message: json['message'] as String? ?? '',
+        failed: json['error'] != null,
+      );
+
+  /// Empty when git prepared none, or when [failed].
+  final String message;
+
+  /// The read failed (the reason went to `lastError` through
+  /// GBM_EVENT_ERROR_OCCURRED). Kept apart from an empty [message] because
+  /// the Working Copy box replaces its text on a reply, and a failure must
+  /// not clear it.
+  final bool failed;
+}
+
+/// Reply to [RepoSessionController.requestSquashMessage]: mirrors
+/// GBM_EVENT_SQUASH_MESSAGE_READY -- the text `git merge --squash <source>`
+/// would write to SQUASH_MSG (merge-rebase-dialogs-spec.html 02-C, ruling ⑨).
+///
+/// **Not a cache.** The session keeps only the latest reply, and the Merge
+/// dialog asks again on every open and every pick. What makes a reply usable
+/// is [isCurrentFor]: the text lists the commits in `headOid..sourceOid`, so
+/// it is right only while HEAD and the source still point there. Missing
+/// that check writes the wrong commit list into a permanent commit message.
+class SquashMessagePreview {
+  const SquashMessagePreview({
+    required this.source,
+    required this.headOid,
+    required this.sourceOid,
+    required this.message,
+    required this.failed,
+  });
+
+  factory SquashMessagePreview.fromJson(Map<String, dynamic> json) =>
+      SquashMessagePreview(
+        source: json['source'] as String? ?? '',
+        headOid: json['headOid'] as String? ?? '',
+        sourceOid: json['sourceOid'] as String? ?? '',
+        message: json['message'] as String? ?? '',
+        failed: json['error'] != null,
+      );
+
+  final String source;
+  final String headOid;
+  final String sourceOid;
+
+  /// Empty when the source adds nothing to HEAD, or when [failed].
+  final String message;
+
+  /// The preview could not be built (an unknown source, a git failure).
+  final bool failed;
+
+  /// Whether this reply answers a request for [requestedRef] -- the full
+  /// ref the dialog handed git, e.g. `refs/heads/x` -- against [refs] as
+  /// they are now: same ref, and neither HEAD nor that ref's tip moved.
+  bool isCurrentFor(String requestedRef, RefSnapshot refs) {
+    if (failed || source != requestedRef) return false;
+    if (headOid != refs.head.target) return false;
+    for (final RefInfo ref in <RefInfo>[
+      ...refs.localBranches,
+      ...refs.remoteBranches,
+    ]) {
+      if (ref.fullName == requestedRef) return ref.target == sourceOid;
+    }
+    return false;
+  }
+}
+
 /// Reply to [RepoSessionController.requestCompareRefs]: mirrors
 /// GBM_EVENT_COMPARE_READY's payload shape. left/right/threeDot are echoed
 /// back from the request, since several Compare tabs can be open at once
@@ -417,6 +492,11 @@ const int _kDefaultMaxOperationLogEntries = 2000;
 /// session that never closes.
 const int _kMaxCommitMetaCacheEntries = 5000;
 
+/// The `"kind"` CommitOps.cpp's `CommitOperation::kind()` stamps on a commit
+/// outcome. Not a [PendingOperationKind]: nothing queues a commit request to
+/// match the outcome against -- [RepoSessionState.commitOutcomeSeq] counts.
+const String _commitOutcomeKind = 'commit';
+
 /// Caps [RepoSessionState.commitFileCountCache], for the same reason and by
 /// the same rule as [_kMaxCommitMetaCacheEntries] -- both are viewport-filled
 /// caches with no natural bound. Deliberately the same number rather than a
@@ -452,6 +532,11 @@ class RepoSessionState {
     this.operationLogRevision = 0,
     this.lastBlame,
     this.commitMetaCache = const <String, CommitMeta>{},
+    this.commitMetaReplySeq = 0,
+    this.commitOutcomeSeq = 0,
+    this.lastCommitSucceeded = false,
+    this.refsEpoch = 0,
+    this.refsCoverRequest = 0,
     this.commitFileCountCache = const <String, int>{},
     this.lastFileHistory = const <FileHistoryEntry>[],
     this.commitFiles = const <ChangedFile>[],
@@ -480,6 +565,8 @@ class RepoSessionState {
     this.compareWithWorkingCopyResults =
         const <String, CompareWithWorkingCopyResult>{},
     this.originalOperationMessage,
+    this.squashMessagePreview,
+    this.preparedMessage,
     this.refreshTimings = const RefreshTimings(),
   });
 
@@ -532,6 +619,39 @@ class RepoSessionState {
   /// to this cache, not overwrite the rows fetched by an earlier one. See
   /// history_repository.dart's `commitMetaProvider`/`requestCommitMeta`.
   final Map<String, CommitMeta> commitMetaCache;
+
+  /// One per GBM_EVENT_COMMIT_META_READY, an empty reply included -- the
+  /// commit box's parent check (prepared-commit-message Slice D) reads "a
+  /// reply after my request still lacks the oid" as "no answer coming", which
+  /// [commitMetaCache] alone cannot say: a failed or cancelled read changes
+  /// nothing in it.
+  final int commitMetaReplySeq;
+
+  /// One per working-copy outcome stamped `"kind":"commit"` (CommitOps.cpp),
+  /// failed or not. The commit box settles its outstanding commit on this
+  /// count moving, never on HEAD or [lastError]: an unrelated error is not
+  /// the commit failing, and HEAD read before refs load is not a baseline.
+  final int commitOutcomeSeq;
+
+  /// The latest commit outcome's `succeeded`; meaningful once
+  /// [commitOutcomeSeq] is above zero. Published together with that outcome's
+  /// [lastError].
+  final bool lastCommitSucceeded;
+
+  /// One per [publishRefs], identical snapshots included, so a waiter can
+  /// tell "refs re-read since I asked" even when HEAD did not move -- the
+  /// in-app Abort case, where nothing else in the snapshot changes.
+  final int refsEpoch;
+
+  /// The highest [RepoSessionController.refreshHistory] request number any
+  /// refs publish so far was read after (GBM_EVENT_REFS_UPDATED's
+  /// `coversRequest`). Kept as a maximum: a walk superseded by a filter change
+  /// can report after the newer one. Unlike [refsEpoch], this says whether
+  /// the refs were read *for* a request, not merely published after it --
+  /// the commit box's head check (prepared-commit-message Slice E) needs the
+  /// former, since a load already running when it asked may predate the
+  /// commit it is looking for.
+  final int refsCoverRequest;
 
   /// How many files each commit changed, keyed by oid -- the History Changed
   /// files column's data. Merged rather than replaced on every reply, exactly
@@ -670,6 +790,17 @@ class RepoSessionState {
   /// request is in flight can't be mistaken for a stale previous reply.
   final String? originalOperationMessage;
 
+  /// The latest [RepoSessionController.requestSquashMessage] reply -- see
+  /// [SquashMessagePreview]'s doc comment for why it is never trusted
+  /// without [SquashMessagePreview.isCurrentFor]. Nulled when a new request
+  /// goes out.
+  final SquashMessagePreview? squashMessagePreview;
+
+  /// The latest [RepoSessionController.requestPreparedMessage] reply. Null
+  /// while a request is in flight (the request clears it first) and before
+  /// the first one.
+  final PreparedMessageReply? preparedMessage;
+
   /// The current focus-regain sweep's stamps -- see [RefreshTimings]'s own
   /// doc comment. Reset to a fresh instance at the start of every
   /// [RepoSessionController.refreshRepoStatus] call.
@@ -714,6 +845,11 @@ class RepoSessionState {
     int? operationLogRevision,
     BlameResult? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
+    int? commitMetaReplySeq,
+    int? commitOutcomeSeq,
+    bool? lastCommitSucceeded,
+    int? refsEpoch,
+    int? refsCoverRequest,
     Map<String, int>? commitFileCountCache,
     List<FileHistoryEntry>? lastFileHistory,
     List<ChangedFile>? commitFiles,
@@ -742,6 +878,10 @@ class RepoSessionState {
     Map<String, CompareWithWorkingCopyResult>? compareWithWorkingCopyResults,
     String? originalOperationMessage,
     bool clearOriginalOperationMessage = false,
+    SquashMessagePreview? squashMessagePreview,
+    bool clearSquashMessagePreview = false,
+    PreparedMessageReply? preparedMessage,
+    bool clearPreparedMessage = false,
     RefreshTimings? refreshTimings,
   }) {
     return RepoSessionState(
@@ -768,6 +908,11 @@ class RepoSessionState {
       operationLogRevision: operationLogRevision ?? this.operationLogRevision,
       lastBlame: lastBlame ?? this.lastBlame,
       commitMetaCache: commitMetaCache ?? this.commitMetaCache,
+      commitMetaReplySeq: commitMetaReplySeq ?? this.commitMetaReplySeq,
+      commitOutcomeSeq: commitOutcomeSeq ?? this.commitOutcomeSeq,
+      lastCommitSucceeded: lastCommitSucceeded ?? this.lastCommitSucceeded,
+      refsEpoch: refsEpoch ?? this.refsEpoch,
+      refsCoverRequest: refsCoverRequest ?? this.refsCoverRequest,
       commitFileCountCache: commitFileCountCache ?? this.commitFileCountCache,
       lastFileHistory: lastFileHistory ?? this.lastFileHistory,
       commitFiles: commitFiles ?? this.commitFiles,
@@ -803,6 +948,12 @@ class RepoSessionState {
       originalOperationMessage: clearOriginalOperationMessage
           ? null
           : (originalOperationMessage ?? this.originalOperationMessage),
+      squashMessagePreview: clearSquashMessagePreview
+          ? null
+          : (squashMessagePreview ?? this.squashMessagePreview),
+      preparedMessage: clearPreparedMessage
+          ? null
+          : (preparedMessage ?? this.preparedMessage),
       refreshTimings: refreshTimings ?? this.refreshTimings,
     );
   }
@@ -1186,7 +1337,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void _handleEvent(GbmEvent event) {
     switch (event.type) {
       case GbmEventType.refsUpdated:
-        _readRefs();
+        final Object? payload = decodeEventPayload(event.payload);
+        final Object? covers = payload is Map<String, dynamic>
+            ? payload['coversRequest']
+            : null;
+        _readRefs(coversRequest: covers is int ? covers : null);
       case GbmEventType.graphUpdated:
         final Object? payload = decodeEventPayload(event.payload);
         final bool complete = payload is Map<String, dynamic>
@@ -1232,16 +1387,31 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.workingCopyOperationFinished:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          if (payload['succeeded'] == false) {
-            final Object? error = payload['error'];
+          final bool succeeded = payload['succeeded'] != false;
+          final Object? error = payload['error'];
+          final bool isCommit = payload['kind'] == _commitOutcomeKind;
+          // One publish for the error and the commit count: a waiter on the
+          // count must see the failure in the same state (see
+          // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
+          // re-read below, so the commit is settled before its merge ends.
+          if (!succeeded || isCommit) {
             state = state.copyWith(
-              lastError: error is Map<String, dynamic>
-                  ? GitError.fromJson(error)
-                  : null,
+              lastError: succeeded
+                  ? null
+                  : (error is Map<String, dynamic>
+                        ? GitError.fromJson(error)
+                        : null),
+              commitOutcomeSeq: isCommit ? state.commitOutcomeSeq + 1 : null,
+              lastCommitSucceeded: isCommit ? succeeded : null,
             );
           }
           _handleWorkingCopyOutcomeKind(payload);
         }
+        // A commit finishes here, not on operationFinished, and a commit is
+        // what concludes a merge or a squash: without this read `isMerging`
+        // stayed true until the next focus or F5. Cheap -- gbm_repo_state_json
+        // only stats a handful of paths.
+        _readRepoState();
         _readUndoJournal();
       case GbmEventType.workingCopyDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1329,12 +1499,24 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
         }
       case GbmEventType.commitMetaReady:
-        final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          final List<CommitMeta> metas = CommitMeta.listFromJson(payload);
-          if (metas.isNotEmpty) {
-            state = state.withCommitMeta(metas);
+        // Counted even when empty, and even when the payload cannot be
+        // decoded (the FormatException still reaches [_onEvent]'s log row):
+        // a waiter compares this count with [commitMetaRequestSeq], and one
+        // reply going uncounted would leave it waiting for good. See
+        // [RepoSessionState.commitMetaReplySeq].
+        List<CommitMeta> metas = const <CommitMeta>[];
+        try {
+          final Object? payload = decodeEventPayload(event.payload);
+          if (payload is List<dynamic>) {
+            metas = CommitMeta.listFromJson(payload);
           }
+        } finally {
+          final RepoSessionState merged = metas.isEmpty
+              ? state
+              : state.withCommitMeta(metas);
+          state = merged.copyWith(
+            commitMetaReplySeq: state.commitMetaReplySeq + 1,
+          );
         }
       case GbmEventType.commitFileCountsReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1448,6 +1630,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
             originalOperationMessage: payload['message'] as String? ?? '',
           );
         }
+      case GbmEventType.preparedMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            preparedMessage: PreparedMessageReply.fromJson(payload),
+          );
+        }
+      case GbmEventType.squashMessageReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          publishSquashMessagePreview(SquashMessagePreview.fromJson(payload));
+        }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
@@ -1516,12 +1710,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  void _readRefs() {
+  void _readRefs({int? coversRequest}) {
     if (_bindings.refsJson(_session) == 0) {
       final String json = readLastResultJson(_bindings);
       if (json.isNotEmpty) {
         publishRefs(
           RefSnapshot.fromJson(jsonDecode(json) as Map<String, dynamic>),
+          coversRequest: coversRequest,
         );
       }
     }
@@ -1534,12 +1729,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// fake seam can never exercise, and everything below is real state and
   /// therefore real to test.
   @visibleForTesting
-  void publishRefs(RefSnapshot refs) {
+  void publishRefs(RefSnapshot refs, {int? coversRequest}) {
     final bool isFirstStampOfSweep = state.refreshTimings.refsAt == null;
     final RefreshTimings timings = state.refreshTimings.stampRefsIfAbsent(
       DateTime.now(),
     );
-    state = state.copyWith(refs: refs, refreshTimings: timings);
+    state = state.copyWith(
+      refs: refs,
+      refreshTimings: timings,
+      refsEpoch: state.refsEpoch + 1,
+      refsCoverRequest:
+          coversRequest != null && coversRequest > state.refsCoverRequest
+          ? coversRequest
+          : null,
+    );
     // One line per sweep, not per event -- stampRefsIfAbsent silently no-ops
     // on a later refs publish within the same sweep, and printing then would
     // just repeat the same numbers. See refreshTimingsLabel's doc comment
@@ -2048,6 +2251,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
   }
 
+  /// Logs that the commit box's draft could not be saved before a commit was
+  /// sent -- [submitCommit]'s one failure path that reaches no other screen.
+  void recordDraftNotSaved() =>
+      _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
+
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.
@@ -2441,10 +2649,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Requests a refs + history refresh -- see gbm_history_refresh()'s doc
   /// comment in gbm_capi.h. Async: [state] updates as GBM_EVENT_* events
   /// arrive through [_onEvent].
-  void refreshHistory() {
-    if (_session == nullptr) return;
+  ///
+  /// Returns core's number for this request, 0 when no session is open (nothing
+  /// was sent): refs read for it are the first publish whose
+  /// [RepoSessionState.refsCoverRequest] reaches it.
+  int refreshHistory() {
+    if (_session == nullptr) return 0;
     state = state.copyWith(isRefreshing: true, clearError: true);
-    _bindings.historyRefresh(_session);
+    return _bindings.historyRefresh(_session);
   }
 
   /// Narrows every subsequent history walk. See gbm_history_set_filter()'s
@@ -2859,6 +3071,50 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     if (_session == nullptr) return;
     state = state.copyWith(clearOriginalOperationMessage: true);
     _bindings.requestOriginalOperationMessage(_session);
+  }
+
+  /// Async: fires GBM_EVENT_PREPARED_MESSAGE_READY into
+  /// [RepoSessionState.preparedMessage], which this nulls first so a request
+  /// in flight cannot be mistaken for the previous reply.
+  void requestPreparedMessage() {
+    if (_session == nullptr) return;
+    state = state.copyWith(clearPreparedMessage: true);
+    _bindings.requestPreparedMessage(_session);
+  }
+
+  /// The source of the latest [requestSquashMessage]. Replies are posted to
+  /// the front of a multi-worker pool, so two quick picks can answer out of
+  /// order; a reply for any other source is an earlier pick answering late.
+  String? _awaitedSquashSource;
+
+  /// Records which source the next squash reply must be for, and clears the
+  /// previous reply. Shared with the test fake, whose request never reaches
+  /// FFI but whose replies go through the same [publishSquashMessagePreview].
+  @protected
+  void noteSquashMessageRequested(String source) {
+    _awaitedSquashSource = source;
+    state = state.copyWith(clearSquashMessagePreview: true);
+  }
+
+  /// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY into
+  /// [RepoSessionState.squashMessagePreview], nulled first so an in-flight
+  /// request is never answered by the previous reply.
+  void requestSquashMessage(String source) {
+    if (_session == nullptr) return;
+    noteSquashMessageRequested(source);
+    final Pointer<Utf8> sourcePtr = source.toNativeUtf8();
+    try {
+      _bindings.requestSquashMessage(_session, sourcePtr);
+    } finally {
+      malloc.free(sourcePtr);
+    }
+  }
+
+  /// The FFI-free half of the squash reply, split out so tests can drive it.
+  @visibleForTesting
+  void publishSquashMessagePreview(SquashMessagePreview preview) {
+    if (preview.source != _awaitedSquashSource) return;
+    state = state.copyWith(squashMessagePreview: preview);
   }
 
   void cherryPickSkip() {
@@ -3518,6 +3774,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  int _commitMetaRequestSeq = 0;
+
+  /// How many [requestCommitMeta] calls reached core. Each gets exactly one
+  /// GBM_EVENT_COMMIT_META_READY (Session::requestCommitMeta always emits,
+  /// a cancelled read included), but replies are unordered and carry no
+  /// request id -- so "every request answered" is
+  /// `state.commitMetaReplySeq >= commitMetaRequestSeq`, which is how the
+  /// commit box's parent check tells "no answer is coming" from "the reply
+  /// so far was someone else's" (prepared-commit-message Slice E, D1).
+  ///
+  /// A field, not [RepoSessionState]: requests come from viewport
+  /// callbacks, and a state write per request would republish the session.
+  int get commitMetaRequestSeq => _commitMetaRequestSeq;
+
   /// Batch commit metadata for `oids` (e.g. a commit list's visible range).
   /// Async: fires GBM_EVENT_COMMIT_META_READY, merged into
   /// [RepoSessionState.commitMetaCache] rather than replacing it -- see that
@@ -3526,6 +3796,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// calling this.
   void requestCommitMeta(List<String> oids) {
     if (_session == nullptr || oids.isEmpty) return;
+    _commitMetaRequestSeq++;
     _withNativeStringArray(
       oids,
       (array, count) => _bindings.requestCommitMeta(_session, array, count),

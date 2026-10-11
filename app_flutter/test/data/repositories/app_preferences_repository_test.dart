@@ -48,6 +48,9 @@ void main() {
       // LOG group: both off, like the timing readout beside them.
       expect(p.showLogTimeouts, isFalse);
       expect(p.showLogColumnHeaders, isFalse);
+      // Ruling ⑪ (prepared-commit-message-spec.html): git's prepared message
+      // replaces whatever the commit box holds, unless the user turns it off.
+      expect(p.overwriteWithPreparedMessage, isTrue);
     });
 
     test('round-trips every field through SharedPreferences', () async {
@@ -76,6 +79,7 @@ void main() {
         tieredRefresh: false,
         showLogTimeouts: true,
         showLogColumnHeaders: true,
+        overwriteWithPreparedMessage: false,
       );
       await repo.write(written);
 
@@ -100,6 +104,7 @@ void main() {
       expect(read.tieredRefresh, isFalse);
       expect(read.showLogTimeouts, isTrue);
       expect(read.showLogColumnHeaders, isTrue);
+      expect(read.overwriteWithPreparedMessage, isFalse);
     });
 
     // Written with the two LOG flags set differently, each way round: with

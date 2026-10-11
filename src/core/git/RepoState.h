@@ -53,6 +53,14 @@ struct RepoState {
     /// Age of that lock, used to decide whether to offer removal at all.
     std::optional<std::int64_t> indexLockAgeSeconds;
 
+    /// git has a commit message waiting for the Working Copy box: a merge is
+    /// in progress (MERGE_HEAD) or a squash is (SQUASH_MSG; a squash writes
+    /// no MERGE_HEAD). Bare MERGE_MSG does not count -- a cherry-pick or
+    /// revert conflict writes one too, and those finish through the conflict
+    /// window's Continue, not the box. Deliberately not a flag: it would make
+    /// a staged squash read as "not clean" to every isClean() caller.
+    bool preparedMessagePending = false;
+
     bool isClean() const noexcept { return flags == None; }
 
     bool inProgress() const noexcept { return flags != None; }

@@ -379,6 +379,35 @@ TEST_F(WorkingCopyApiTest, StageFilesMovesFileIntoStagedState) {
     EXPECT_NE(json.find("\"staged\":true"), std::string::npos) << json;
 }
 
+// The commit box waits on its own commit's outcome (prepared-commit-message
+// Slice D): only an outcome stamped "commit" may clear the box, so a stage or
+// any other working-copy operation finishing must stay unattributed.
+TEST_F(WorkingCopyApiTest, CommitOutcomeIsStampedCommitAndStageOutcomeIsNot) {
+    const char* paths[] = {"committed.txt"};
+    gbm_stage_files(session_, paths, 1);
+    gbm_commit_changes(session_, "Second commit", /*amend=*/0, /*signOff=*/0);
+    gbm_commit_changes(session_, "   ", /*amend=*/0, /*signOff=*/0);
+
+    std::vector<std::string> outcomes;
+    ASSERT_TRUE(log_.waitFor(
+        [&outcomes](const auto& events) {
+            outcomes.clear();
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) outcomes.push_back(payload);
+            }
+            return outcomes.size() >= 3;  // stage + commit + refused commit
+        },
+        std::chrono::seconds(10)));
+
+    EXPECT_EQ(outcomes[0].find("\"kind\""), std::string::npos) << outcomes[0];
+    EXPECT_NE(outcomes[1].find("\"succeeded\":true"), std::string::npos) << outcomes[1];
+    EXPECT_NE(outcomes[1].find("\"kind\":\"commit\""), std::string::npos) << outcomes[1];
+    // A refused commit is still this commit's outcome: the box must stop
+    // waiting on it rather than on some later HEAD move.
+    EXPECT_NE(outcomes[2].find("\"succeeded\":false"), std::string::npos) << outcomes[2];
+    EXPECT_NE(outcomes[2].find("\"kind\":\"commit\""), std::string::npos) << outcomes[2];
+}
+
 TEST_F(WorkingCopyApiTest, CommitChangesCreatesCommitAndRefreshesGraph) {
     const char* paths[] = {"committed.txt"};
     gbm_stage_files(session_, paths, 1);

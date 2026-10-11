@@ -51,8 +51,12 @@ class BranchRowActions {
         RoutePaths.newBranchDialogFor(_repoId, startPoint: branch.shortName),
       );
 
-  void openMergeDialog(BuildContext context) =>
-      pushDialogRoute(context, RoutePaths.mergeDialogFor(_repoId));
+  /// 05-B "Merge into current" -- the clicked branch is the source, so the
+  /// dialog opens locked on it rather than on an empty picker.
+  void openMergeDialog(BuildContext context, RefInfo branch) => pushDialogRoute(
+    context,
+    RoutePaths.mergeDialogFor(_repoId, source: branch.shortName),
+  );
 
   /// 05-B's "Rename branch". Unlike the Branch menu and F2, this names the
   /// clicked branch rather than letting the dialog fall back to HEAD.

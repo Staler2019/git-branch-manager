@@ -77,8 +77,13 @@ enum GbmErrorCode {
 // defined so far; later milestones extend this enum, never renumber it.
 
 enum GbmEventType {
-    GBM_EVENT_GRAPH_UPDATED = 0,   ///< payload: {"complete": bool}
-    GBM_EVENT_REFS_UPDATED = 1,    ///< no payload
+    GBM_EVENT_GRAPH_UPDATED = 0,  ///< payload: {"complete": bool}
+    /// payload: {"coversRequest": uint64} -- every gbm_history_refresh()
+    /// request numbered at or below it was made before this refs load began.
+    /// Not monotonic across events: a walk superseded by
+    /// gbm_history_set_filter() may report after the newer one, so a reader
+    /// keeps the maximum.
+    GBM_EVENT_REFS_UPDATED = 1,
     GBM_EVENT_ERROR_OCCURRED = 2,  ///< payload: GitError JSON
     /// payload: OperationOutcome JSON: {"succeeded": bool, "error": GitError
     /// JSON | null, "choices": OperationChoice[], "summary": string,
@@ -230,6 +235,26 @@ enum GbmEventType {
     /// tell "changed nothing" from "not answered" and cache only the former.
     /// The array is **not** in the order requested.
     GBM_EVENT_COMMIT_FILE_COUNTS_READY = 35,
+    /// payload: {"source": string, "headOid": string, "sourceOid": string,
+    /// "message": string, "error": GitError JSON (only on failure)}. Reply
+    /// to gbm_request_squash_message(): the text `git merge --squash
+    /// <source>` would write to SQUASH_MSG. "message" is empty when the
+    /// source adds nothing to HEAD, and on failure (with "error" set). A
+    /// failure also fires GBM_EVENT_ERROR_OCCURRED with the same GitError,
+    /// before this reply.
+    /// The two oids are the commits the text describes: it is right only
+    /// while HEAD and the source still point there, so a caller adopts a
+    /// reply only while both match its own current refs.
+    GBM_EVENT_SQUASH_MESSAGE_READY = 36,
+    /// payload: {"message": string, "error": GitError JSON (only on
+    /// failure)}. Reply to gbm_request_prepared_message(): the commit message
+    /// git has prepared for the merge or squash in progress, as `git commit`
+    /// would commit it -- SQUASH_MSG then MERGE_MSG, comment lines stripped
+    /// by `git stripspace --strip-comments` (so core.commentChar decides what
+    /// a comment is). "message" is empty when git prepared none, and on
+    /// failure (with "error" set); a failure also fires
+    /// GBM_EVENT_ERROR_OCCURRED with the same GitError, before this reply.
+    GBM_EVENT_PREPARED_MESSAGE_READY = 37,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -330,7 +355,12 @@ GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id);
 /// are read, then one or more GBM_EVENT_GRAPH_UPDATED as the walk streams
 /// (the last has payload {"complete": true}), or GBM_EVENT_ERROR_OCCURRED on
 /// failure.
-GBM_API void gbm_history_refresh(GbmSessionHandle session);
+///
+/// Returns this request's number, rising per call. Refs read for it -- not
+/// merely after it -- are the first GBM_EVENT_REFS_UPDATED whose
+/// `coversRequest` is at or above it; a request made while a refs load is
+/// already running is covered by the follow-up walk, not that one.
+GBM_API uint64_t gbm_history_refresh(GbmSessionHandle session);
 
 /// Narrows every subsequent history walk, then triggers the same refresh
 /// gbm_history_refresh() would. The filter is session state, so an
@@ -524,8 +554,11 @@ GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t 
 
 /// `mode`: 0 = fast-forward-only, 1 = no-fast-forward, 2 = squash
 /// (MergeMode's ordinal order: FastForwardOnly, NoFastForward, Squash).
-/// `message` overrides the default merge commit message (ignored for
-/// squash); pass "" to use git's default. Async: fires
+/// `message` overrides the default merge commit message; pass "" to use
+/// git's default. For squash, a non-empty `message` commits the squash with
+/// it when it lands without conflict (nothing staged -> no commit, reported
+/// as succeeded; the user already had staged changes -> staged, not
+/// committed, reported as succeeded); "" leaves it staged and uncommitted. Async: fires
 /// GBM_EVENT_OPERATION_FINISHED. A conflicting merge is reported with
 /// `succeeded: false` and `error.code` == GBM_ERR_CONFLICT, exactly like any
 /// other outcome -- it is not a crash or an exceptional case, see
@@ -609,6 +642,17 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
 /// gbm_cherry_pick_continue_with_message()/gbm_rebase_continue_with_message().
 /// Async: fires GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY.
 GBM_API void gbm_request_original_operation_message(GbmSessionHandle session);
+
+/// Requests the squash message preview for merging `source` into HEAD.
+/// Async: fires GBM_EVENT_SQUASH_MESSAGE_READY (see its payload doc),
+/// including on failure.
+GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source);
+
+/// Requests the commit message git has prepared for the merge or squash in
+/// progress, for the Working Copy box (RepoState's preparedMessagePending says
+/// when there is one). Async: fires GBM_EVENT_PREPARED_MESSAGE_READY (see its
+/// payload doc), including on failure.
+GBM_API void gbm_request_prepared_message(GbmSessionHandle session);
 
 /// Reads a conflicted path's raw on-disk content (conflict markers and all)
 /// for the resolve editor -- a conflicted path has no stage 0, so it cannot

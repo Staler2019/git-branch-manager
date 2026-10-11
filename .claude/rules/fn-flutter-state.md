@@ -37,3 +37,9 @@ Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md). Rules a test
 - **Consequence**: the status-bar badge compares the revision, not the list's length — a replacement leaves the length alone, and so does an append once the log is at its cap.
 - **Do**: anything that must notice a log change reads `operationLogRevision`; a new log producer goes through `withOperationRecord`, never `copyWith(operationLog: …)`.
 - **Evidence**: [ledger: slow-machine-log-and-timeouts](../../docs/ledger/2026-10-07-fix-slow-machine-log-and-timeouts.md)
+
+## [FLU-close-session-before-callable] Close the native session before the NativeCallable its events arrive on
+
+- **Rule**: `gbm_session_close` drains core, and a read still running then (`requestWorktreePendingCounts` runs git per worktree) emits once more through the registered callback; invoking a closed `NativeCallable` aborts the app with "Callback invoked after it has been deleted".
+- **Do**: `RepoSessionController.dispose()` calls `closeNativeSession()` before `_events?.dispose()`; once the session is closed nothing emits. `repo_session_dispose_order_test.dart` emits from inside `sessionClose` and reddens the reversed order with the same VM abort.
+- **Evidence**: [ledger: worktree_add_refresh 的崩潰](../../docs/ledger/2026-10-11-fix-path-relative-and-worktree-flake.md)

@@ -13,6 +13,7 @@
 #include "capi/gbm_capi.h"
 #include "support/GitCli.h"
 
+#include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -34,6 +35,9 @@ struct EventLog {
     std::mutex mutex;
     std::condition_variable cv;
     std::vector<std::pair<int32_t, std::string>> events;
+    /// Runs on the emitting thread before the event is logged, outside
+    /// `mutex` -- lets a test act at an exact point inside a walk.
+    std::function<void(int32_t, const std::string&)> hook;
 
     void add(int32_t eventType, std::string payload) {
         std::lock_guard<std::mutex> lock(mutex);
@@ -99,6 +103,20 @@ struct EventLog {
         return cv.wait_for(lock, timeout, [&] { return pred(events); });
     }
 
+    /// Every GBM_EVENT_REFS_UPDATED's `coversRequest`, in arrival order; 0
+    /// for a payload without one. Caller must hold `mutex`.
+    std::vector<std::uint64_t> refsCoversLocked() const {
+        static const std::string kKey = "\"coversRequest\":";
+        std::vector<std::uint64_t> out;
+        for (const auto& [type, payload] : events) {
+            if (type != GBM_EVENT_REFS_UPDATED) continue;
+            const std::size_t at = payload.find(kKey);
+            out.push_back(at == std::string::npos ? 0
+                                                  : std::stoull(payload.substr(at + kKey.size())));
+        }
+        return out;
+    }
+
     /// Operation-log records (event 12) for the combined HEAD-resolving
     /// invocation (`rev-parse --revs-only HEAD --symbolic-full-name HEAD`) --
     /// RefStore::readHead()'s doc comment explains why that's one process,
@@ -129,6 +147,9 @@ void logCallback(GbmSessionHandle,
     if (payload != nullptr) {
         body.assign(reinterpret_cast<const char*>(payload), static_cast<std::size_t>(payloadLen));
         gbm_free_event_payload(payload);
+    }
+    if (log->hook) {
+        log->hook(eventType, body);
     }
     log->add(eventType, std::move(body));
 }
@@ -353,6 +374,69 @@ TEST_F(HistoryRefreshApiTest, ALoadFailureDuringRefreshEmitsAnErrorAndRecoversNe
 
     EXPECT_TRUE(log_.waitForCompletedWalks(before + 1))
         << "a refresh after a load() failure never recovered";
+}
+
+// gbm_history_refresh() returns a request number, and every
+// GBM_EVENT_REFS_UPDATED says the highest request its refs load covers -- the
+// commit box's head check waits for refs read *after* its own request, which
+// a bare "refs arrived" event cannot say (prepared-commit-message Slice E, D3).
+TEST_F(HistoryRefreshApiTest, RefreshReturnsARisingRequestNumberThatItsRefsUpdateCovers) {
+    const std::uint64_t first = gbm_history_refresh(session_);
+    const std::uint64_t second = gbm_history_refresh(session_);
+    EXPECT_GT(first, 0u);
+    EXPECT_GT(second, first);
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(1));
+    log_.waitUntilQuiet();
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    const std::vector<std::uint64_t> covers = log_.refsCoversLocked();
+    ASSERT_FALSE(covers.empty());
+    EXPECT_GE(covers.back(), second);
+}
+
+// The covered number is captured before the refs load starts. A request made
+// while that load is running (here: from inside it, on the running record of
+// its for-each-ref) cannot be covered by it -- those refs may predate whatever
+// the request was made to observe -- and is covered by the follow-up walk.
+TEST_F(HistoryRefreshApiTest, ARequestMadeDuringTheRefsLoadIsCoveredOnlyByTheFollowUp) {
+    std::atomic<std::uint64_t> during{0};
+    log_.hook = [this, &during](int32_t type, const std::string& payload) {
+        if (type == GBM_EVENT_OPERATION_LOG_RECORD && during.load() == 0 &&
+            payload.find("\"running\":true") != std::string::npos &&
+            payload.find("\"for-each-ref\"") != std::string::npos) {
+            during.store(gbm_history_refresh(session_));
+        }
+    };
+    const std::uint64_t before = gbm_history_refresh(session_);
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(2)) << "no follow-up walk for the mid-load request";
+    log_.waitUntilQuiet();
+    log_.hook = nullptr;
+
+    ASSERT_GT(during.load(), before);
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    const std::vector<std::uint64_t> covers = log_.refsCoversLocked();
+    ASSERT_GE(covers.size(), 2u);
+    EXPECT_EQ(covers.front(), before)
+        << "the running walk claimed a request made after its load began";
+    EXPECT_GE(covers.back(), during.load());
+}
+
+// setHistoryFilter() dispatches through fireNow(), which absorbs a request
+// still waiting in the delay window and leaves no follow-up for it -- so its
+// walk is the only one that will ever cover that request, and must say so.
+TEST_F(HistoryRefreshApiTest, AFilterChangeCoversARefreshItAbsorbed) {
+    const std::uint64_t pending = gbm_history_refresh(session_);
+    gbm_history_set_filter(session_, nullptr, 0, 0, 0);
+
+    ASSERT_TRUE(log_.waitForCompletedWalks(1));
+    log_.waitUntilQuiet();
+
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    const std::vector<std::uint64_t> covers = log_.refsCoversLocked();
+    ASSERT_FALSE(covers.empty());
+    EXPECT_GE(covers.front(), pending);
 }
 
 }  // namespace

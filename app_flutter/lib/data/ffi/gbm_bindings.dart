@@ -112,8 +112,8 @@ typedef RepoStateJsonDart = int Function(Pointer<Void> session);
 typedef _RemoveStaleIndexLockNative = Int32 Function(Pointer<Void> session);
 typedef RemoveStaleIndexLockDart = int Function(Pointer<Void> session);
 
-typedef _HistoryRefreshNative = Void Function(Pointer<Void> session);
-typedef HistoryRefreshDart = void Function(Pointer<Void> session);
+typedef _HistoryRefreshNative = Uint64 Function(Pointer<Void> session);
+typedef HistoryRefreshDart = int Function(Pointer<Void> session);
 typedef _HistorySetFilterNative = Void Function(
   Pointer<Void> session,
   Pointer<Pointer<Utf8>> includeRefs,

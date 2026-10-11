@@ -30,8 +30,10 @@ class _OpenRecordingBindings extends FakeGbmBindings {
   ) {};
 
   @override
-  HistoryRefreshDart get historyRefresh =>
-      (Pointer<Void> session) => calls.add('historyRefresh');
+  HistoryRefreshDart get historyRefresh => (Pointer<Void> session) {
+    calls.add('historyRefresh');
+    return 0;
+  };
 
   @override
   WorkingCopyRefreshDart get workingCopyRefresh =>

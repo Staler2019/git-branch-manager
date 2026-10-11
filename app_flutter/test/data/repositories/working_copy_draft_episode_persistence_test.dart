@@ -345,6 +345,25 @@ void main() {
       prefs.lists[_episodeKey] = valid()..[2] = 'x';
       expect(reopened().preparedEpisodeActive, isFalse);
     });
+
+    // Slice D A3: ignored is not enough -- it sat there until a later filled
+    // episode happened to overwrite it.
+    test('is deleted on open', () async {
+      prefs.lists[_episodeKey] = valid().sublist(0, 6);
+      prefs.lists[_draftKey] = <String>['mine', 'my body'];
+      open();
+      await flush();
+      expect(prefs.lists[_episodeKey], isNull);
+      expect(prefs.lists[_draftKey], <String>['mine', 'my body']);
+    });
+
+    test('a valid one is left alone on open', () async {
+      prefs.lists[_episodeKey] = valid();
+      open();
+      await flush();
+      expect(prefs.lists[_episodeKey], valid());
+      expect(prefs.ops, isEmpty);
+    });
   });
 
   test('a two-entry draft from before still reads', () {

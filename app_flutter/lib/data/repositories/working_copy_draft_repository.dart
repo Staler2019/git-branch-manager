@@ -111,6 +111,11 @@ class WorkingCopyDraftRepository {
   Future<void> clearEpisode(RepoIdentity identity) =>
       _prefs.remove(_episodeKey(identity));
 
+  /// Whether the episode key holds anything, well-formed or not: a
+  /// malformed one is read as none and must still be deleted (Slice D A3).
+  bool hasEpisode(RepoIdentity identity) =>
+      _prefs.getStringList(_episodeKey(identity)) != null;
+
   /// Whether the marker key holds anything, well-formed or not: a malformed
   /// one is read as none and must still be deleted.
   bool hasPendingCommitMarker(RepoIdentity identity) =>
@@ -329,11 +334,16 @@ class WorkingCopyDraft {
 class WorkingCopyDraftController extends StateNotifier<WorkingCopyDraft> {
   WorkingCopyDraftController(this._repo, this._identity)
     : super(_repo.read(_identity)) {
-    _episodeOnDisk = state.preparedEpisodeActive;
+    _episodeOnDisk = _repo.hasEpisode(_identity);
     _markerOnDisk = _repo.hasPendingCommitMarker(_identity);
     _markerHead = state.pendingCommitHead;
-    // A malformed marker was read as none; the next round deletes it.
-    if (_markerOnDisk && state.pendingCommitHead == null) _persist();
+    // A malformed episode or marker was read as none; the next round
+    // deletes it rather than leaving it until something overwrites it.
+    final bool malformedEpisode =
+        _episodeOnDisk && !state.preparedEpisodeActive;
+    final bool malformedMarker =
+        _markerOnDisk && state.pendingCommitHead == null;
+    if (malformedEpisode || malformedMarker) _persist();
   }
 
   final WorkingCopyDraftRepository _repo;

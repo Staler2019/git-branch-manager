@@ -205,3 +205,11 @@ epoch 3 是 closing review，REVISE 後暫停交使用者，取得上面的裁�
   - production 端：`update_installer.dart` 的 `Process.run` 在更新流程中跑時，core 的 git 可能拿到 -1。`desktop_launcher.dart` 用 `ProcessStartMode.detached`，不是 Dart 的子行程，不受影響。
   - core 端要根治，需要不靠 `waitpid` 取得退出碼（例如 macOS 的 kqueue `EVFILT_PROC`/`NOTE_EXITSTATUS`）。這是行程管理的設計變更，需另行規劃。
 - 其他裝置層檔案逐檔重跑（2026-10-11，`lib` 未改動）：`commit_flow` +1、`conflict_flow` +1、`merge_current_flow` +1、`merge_squash_flow` +2，全綠。
+
+### Slice D 最後 verifier（2026-10-11，`e6f1e49..0195db5`）
+
+- **CONFIRMED**。重現：`flutter test` +3444 ~1、analyze 0、capi ctest 783／783（序列跑）。並行跑時 `graph_matches_git_on_generated_history` 紅過一次，單獨重跑綠，verifier 判定是兩個 ctest 同時跑造成，本輪未動 graph。
+- 未處理的 advisory（P3／P4 預設延後，交使用者裁定）：
+  - D1（P3）：`commitMetaReplySeq` 每個 `COMMIT_META_READY` 都加一，包括 History 列先前的請求。這種回覆若在 checkParent 之後到、又不含新 HEAD 的 oid，真的 app 外 merge commit 會被判為 noAnswer，框回到 merge 前的文字，而不是清空。不會遺失資料。
+  - D2（P3）：`submitCommit` 中 prefs 寫入若丟例外，`.then` 不會執行，commit 不送出也沒有錯誤顯示。`_drain` 丟例外會卡住 `_inFlight` 是本輪之前就有的；本輪新增的影響是連 commit 也被擋下。
+  - D3（P4，未重現）：checkHead 之前就開始讀、之後才發佈的 refs 會被當成新的，看到 HEAD 未動 → Abort 規則。

@@ -251,7 +251,7 @@ Plan readiness：三個 epoch。
 - 裝置層：20 個檔案逐檔跑（`879eba2`，`lib` 未改動），18 個綠，包括 `prepared_message_flow` +5、`stage_lines_flow` +9、`history_filter` +2。
   - `update_check_flow` 紅 2：GitHub API 回 403，是外部網路因素。
   - `worktree_add_refresh` 不穩：在 `879eba2` 上共跑 4 次，綠 1 次。紅的 3 次中，1 次第二個測試沒跑完，1 次 tearDownAll 沒跑完，1 次第一個測試卡到 900 秒 timeout。
-  - 對照：在本輪之前的 `d59a3be` 上跑 3 次，綠 1、紅 2（都是 tearDownAll 沒跑完）。所以不穩是本輪之前就有的。那次卡住只在 `879eba2` 出現過一次、沒有重現，記為「未重現」，不認定原因。沒有開 issue。
+  - 對照：在本輪之前的 `d59a3be` 上跑 3 次，綠 1、紅 2（都是 tearDownAll 沒跑完）。所以不穩是本輪之前就有的。那次卡住只在 `879eba2` 出現過一次、沒有重現，記為「未重現」，不認定原因。沒有開 issue。（2026-10-11 補：紅的那幾次是 app 在 dispose 時崩潰——先關了事件 callback 才關 session；根因與修正見 [2026-10-11 ledger](2026-10-11-fix-path-relative-and-worktree-flake.md)。卡住那次的原因仍未證實。）
 - 逐 commit 檢查（另開 worktree）：F1–F4 每個中間 commit 都是 analyze 0，`flutter test` 依序 +3444／+3449／+3451／+3457，全綠。
 - 新增欄位與函式都有讀取者或呼叫者：`coversRequest`、`refsCoverRequest`、`commitMetaRequestSeq`、`recordDraftNotSaved`、`headCheckRequest`；`headCheckEpoch` 已完全移除。
 

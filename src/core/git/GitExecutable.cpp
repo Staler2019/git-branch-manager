@@ -77,7 +77,10 @@ std::vector<std::filesystem::path> fromEnvironmentPath() {
     while (!remaining.empty()) {
         const std::size_t split = remaining.find(kSeparator);
         const std::string_view entry = remaining.substr(0, split);
-        if (!entry.empty()) {
+        // A relative entry (an empty one means "."; it is skipped too) would
+        // resolve against the app's current directory, so a `git` planted
+        // there -- a cloned repository's own -- would win over the real one.
+        if (!entry.empty() && std::filesystem::path(entry).is_absolute()) {
             std::error_code ec;
             std::filesystem::path candidate = std::filesystem::path(entry) / kExeName;
             if (std::filesystem::exists(candidate, ec) && !looksLikeWslShim(candidate)) {

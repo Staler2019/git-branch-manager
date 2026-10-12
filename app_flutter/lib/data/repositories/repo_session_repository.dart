@@ -4632,8 +4632,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void dispose() {
     _openSessions?.unregister(this);
     unawaited(_subscription?.cancel());
-    _events?.dispose();
+    // Session first: closing it drains core, and a read still running then
+    // may emit one last event, which must find a live callback -- calling a
+    // closed NativeCallable aborts the app. Nothing emits once it returns.
     closeNativeSession();
+    _events?.dispose();
     // Without this, a pending fallback or fast-dispatch timer would fire
     // after disposal and write to `state` on a StateNotifier that is gone --
     // the guard each refresh* member already has

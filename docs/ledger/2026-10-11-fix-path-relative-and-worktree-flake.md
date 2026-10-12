@@ -95,3 +95,12 @@
 - **ledger 行號**：見上方 Action 的原處更正。第一次更正自己又差一行（第二輪 verifier REFUTED，F1），已再更正。
 - 第二輪 verifier 另提 P4：新加的 typedef 插在 `GbmSessionEvents` 的 doc comment 與 class 之間，已移到 doc comment 上方。
 
+
+## 追加：PR #185 的 CI（2026-10-11～12）
+
+- #182 合入後，#185 的 base 自動改成 `main`，完整 CI 第一次跑。13 項中 12 項綠，包括 Windows：`SearchPathSkipsARelativePathEntry` 在 MSVC `/WX` 下編譯通過，也跑過。
+- 紅 1 項：Sanitizers (asan+ubsan) 的 `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`。第二個操作 `unstage_hunk` 在 preflight 時看到 `.git/index.lock` 存在，回報 `LockHeld`（run 38126494972）。
+  - 本 PR 的 C++ 改動只有 `GitExecutable` 的 PATH 判斷，這條測試走不到。main 最近的 CI 都是綠的。
+  - `gh run rerun --failed` 重跑後 13/13 綠。
+  - 這與 `GitCommand.h` 的 `worktreeReadFlags()` doc 記錄的「`index.lock` 偶發，holder 從未找到」同形。不同的是這次發生在**沒有 fsmonitor 的 CI 機器、ASan build** 上，以前的紀錄都是開了 fsmonitor 的本機。
+  - 本輪沒有追 holder，也沒有開 issue。

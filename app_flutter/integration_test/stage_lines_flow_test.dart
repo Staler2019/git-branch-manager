@@ -22,10 +22,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/key_shortcuts.dart';
 import 'support/real_repo_harness.dart';
 
 const String _committed = 'alpha\nbravo\ncharlie\ndelta\necho\n';
@@ -227,12 +229,8 @@ void main() {
     // inside that frame reaches a null handler. A human never does.
     await tester.pumpAndSettle();
 
-    // Cmd+Alt+S on macOS (`gbm_shortcuts.dart`); the device tier runs there.
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    // Cmd+Alt+S on macOS, Ctrl+Alt+S elsewhere (`gbm_shortcuts.dart`).
+    await pressActionShortcut(tester, GbmActionId.repositoryStageSelectedLines);
     await tester.pumpAndSettle(const Duration(seconds: 2));
 
     final String staged = _stagedDiff(repo);

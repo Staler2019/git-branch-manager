@@ -10,7 +10,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/features/status_bar/status_bar.dart';
@@ -22,6 +21,7 @@ import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/widgets/gbm_dialog_shell.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/key_shortcuts.dart';
 import 'support/real_repo_harness.dart';
 
 const String _source = 'topic';
@@ -250,9 +250,7 @@ void main() {
       );
       await tester.tap(_fields.at(0));
       await tester.pump();
-      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
-      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await pressActionShortcut(tester, GbmActionId.repositoryCommit);
       await pumpUntil(tester, () => _head(repoPath) != before);
       await tester.pumpAndSettle(const Duration(seconds: 1));
 

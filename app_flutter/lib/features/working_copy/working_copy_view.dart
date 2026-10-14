@@ -362,6 +362,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     required Map<String, WorkingCopyDiffReply> diffs,
   }) {
     final GbmColors colors = context.gbmColors;
+    final StateController<void Function()?> scopeSubmit = ref.read(
+      temporaryScopeSubmitProvider.notifier,
+    );
 
     if (_selectedPath == null) {
       return Center(
@@ -419,9 +422,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
           _discardLines(hunkIndex, lineIndices),
       // Already inside a post-frame callback when it arrives (see
       // ScopedDiffView.onTemporaryScopeChanged), so this is not a provider
-      // write from build().
+      // write from build(). The notifier is taken now, not in the callback:
+      // ScopedDiffView.dispose() reports `null` a frame later, and when this
+      // whole view leaves in the same frame `ref` is already unusable by
+      // then. The provider is app-scoped, so the notifier outlives the view.
       onTemporaryScopeChanged: (void Function()? submit) {
-        ref.read(temporaryScopeSubmitProvider.notifier).state = submit;
+        scopeSubmit.state = submit;
       },
     );
   }

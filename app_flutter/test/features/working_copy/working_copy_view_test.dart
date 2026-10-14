@@ -8,6 +8,7 @@ import 'package:flutter/gestures.dart' show PointerDeviceKind;
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
+import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
@@ -16,6 +17,7 @@ import 'package:gbm_flutter/data/repositories/working_copy_draft_repository.dart
     show workingCopyDraftProvider;
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
     as wc;
+import 'package:gbm_flutter/features/diff/temporary_scope_provider.dart';
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/commit_message_box.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -880,5 +882,113 @@ void main() {
         }
       },
     );
+
+    // Device tier, Windows: stage_lines_flow_test logged `Cannot use "ref"
+    // after the widget was disposed` from this view's onTemporaryScopeChanged.
+    // ScopedDiffView.dispose() reports `null` post-frame, so when the whole
+    // view goes in the same frame -- leaving the Working Copy tab with a
+    // selection still framed -- the report lands after this State is gone.
+    testWidgets('leaving the view with a framed selection clears the '
+        'shortcut submitter without touching a disposed ref', (tester) async {
+      String lineText(int i) => 'line_$i = $i';
+      final DiffFile file = DiffFile(
+        oldPath: 'lib/main.dart',
+        newPath: 'lib/main.dart',
+        kind: FileChangeKind.modified,
+        oldMode: '',
+        newMode: '',
+        oldBlob: '',
+        newBlob: '',
+        binary: false,
+        similarity: 0,
+        addedLines: 3,
+        removedLines: 0,
+        displayPath: 'lib/main.dart',
+        hunks: <DiffHunk>[
+          DiffHunk(
+            oldStart: 1,
+            oldCount: 6,
+            newStart: 1,
+            newCount: 6,
+            heading: '',
+            lines: <DiffLine>[
+              for (int i = 0; i < 6; i++)
+                DiffLine(
+                  kind: i.isEven ? DiffLineKind.context : DiffLineKind.added,
+                  oldLine: i + 1,
+                  newLine: i + 1,
+                  text: lineText(i),
+                ),
+            ],
+          ),
+        ],
+      );
+
+      final ProviderContainer container = await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(WorkingCopyStatus(entries: [unstagedEntry])),
+          wc.repoWorkingCopyDiffsProvider(identity).overrideWithValue(
+            <String, WorkingCopyDiffReply>{
+              'false:lib/main.dart': WorkingCopyDiffReply(
+                path: 'lib/main.dart',
+                staged: false,
+                diff: ParsedDiff(
+                  files: <DiffFile>[file],
+                  truncated: false,
+                  inputBytes: 0,
+                ),
+              ),
+            },
+          ),
+        ],
+      );
+
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+
+      final Rect from = tester.getRect(find.text(lineText(0)));
+      final Rect to = tester.getRect(find.text(lineText(2)));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(from.left + 1, from.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(to.right - 1, to.center.dy));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+      expect(
+        container.read(temporaryScopeSubmitProvider),
+        isNotNull,
+        reason:
+            'the drag must register a submitter, or there is nothing '
+            'for dispose to clear',
+      );
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: SizedBox()),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(container.read(temporaryScopeSubmitProvider), isNull);
+    });
   });
 }

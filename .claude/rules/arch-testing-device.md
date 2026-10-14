@@ -48,3 +48,9 @@ Format: [README.md](../../docs/rules/README.md). Run steps and which native libr
 - **Do**: poll repository state by reading files (`.git/MERGE_HEAD`, `.git/HEAD` and its loose ref), and run git from the test only before the app opens or after it settles.
 - **Evidence**: `prepared_message_flow_test.dart`'s `_merging`/`_head`; [ledger: 裝置層隨機紅的根因](../../docs/ledger/2026-10-09-feature-prepared-commit-message.md)
 
+## [TEST-device-keys-via-binding] A device test presses an action's binding, never a hand-written modifier
+
+- **Rule**: `pressActionShortcut(tester, GbmActionId)` (`support/key_shortcuts.dart`) reads `gbmActionShortcuts(Platform.isMacOS)`; a literal `metaLeft` presses the Windows key on Windows and the shortcut never fires.
+- **Do**: fixture repos also switch `commit.gpgsign`/`tag.gpgsign` off locally (`createTempGitRepo`) — a global signing setting reaches every commit the test and the app make.
+- **Evidence**: [ledger: fix/windows-device-tier](../../docs/ledger/2026-10-14-fix-windows-device-tier.md)
+

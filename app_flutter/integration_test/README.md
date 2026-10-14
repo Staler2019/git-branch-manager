@@ -33,20 +33,19 @@ warning below.
 
 Each file must be run **individually**, not as a directory:
 
+~~A hand-kept list of twelve files used to stand here; by 2026-10-14 the
+directory held twenty and the list had silently stopped being "all of them".~~
+Loop over the directory instead, so a new file cannot be left out:
+
 ```bash
-flutter test integration_test/repo_lifecycle_test.dart -d macos
-flutter test integration_test/commit_flow_test.dart -d macos
-flutter test integration_test/conflict_flow_test.dart -d macos
-flutter test integration_test/context_menu_flows_test.dart -d macos
-flutter test integration_test/rename_branch_flow_test.dart -d macos
-flutter test integration_test/multi_push_flow_test.dart -d macos
-flutter test integration_test/commit_file_counts_test.dart -d macos
-flutter test integration_test/update_check_flow_test.dart -d macos
-flutter test integration_test/merge_current_flow_test.dart -d macos
-flutter test integration_test/merge_squash_flow_test.dart -d macos
-flutter test integration_test/rebase_onto_flow_test.dart -d macos
-flutter test integration_test/revert_commit_flow_test.dart -d macos
+for f in integration_test/*_test.dart; do flutter test "$f" -d macos; done
 ```
+
+A keyboard shortcut is pressed through `support/key_shortcuts.dart`'s
+`pressActionShortcut`, never a hand-written `metaLeft`: Cmd exists only on
+macOS, and on Windows the shortcut simply never fires. Fixture repos switch
+`commit.gpgsign`/`tag.gpgsign` off locally, because a developer's global
+signing setting otherwise reaches every commit the test and the app make.
 
 `update_check_flow_test.dart` is the one file here that **needs network**:
 it hits the real GitHub Releases API and downloads the real ~24MB asset for
@@ -56,7 +55,9 @@ skipping when offline -- a network test that passes with no network reports
 nothing, and its whole job is to catch the live release drifting away from
 what `assetSuffixForAbi` expects. It stops at `readyToInstall` and never
 presses "Install and restart"; the self-install pass is manual-only, against
-a throwaway pre-release tag.
+a throwaway pre-release tag. It is unauthenticated, so it also fails with
+`GitHub returned 403` once the host's 60-requests-per-hour budget is spent
+(`curl https://api.github.com/rate_limit` shows `remaining: 0`).
 
 ### `Failed to foreground app; open returned 1` is not always fatal
 

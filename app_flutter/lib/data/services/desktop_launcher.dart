@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'detached_process.dart';
+
 /// Starts a detached OS process. Injected rather than calling
 /// [Process.start] directly so the platform-specific candidate chains below
 /// can be widget/unit-tested without actually spawning a terminal -- the
@@ -55,24 +57,24 @@ class DesktopLauncher {
 
   String get _os => operatingSystem ?? Platform.operatingSystem;
 
+  /// [startDetachedProcess], which on Windows relays through
+  /// `Start-Process` because a console program started detached there never
+  /// runs -- `cmd /c start` and the `powershell.exe` fallback both opened
+  /// nothing. The window is shown: everything here is something the user
+  /// asked to see. A missing executable is a failed start, which is what
+  /// moves the caller to the next candidate in the chain.
   static Future<bool> _startDetached(
     String executable,
     List<String> arguments, {
     String? workingDirectory,
   }) async {
-    try {
-      await Process.start(
-        executable,
-        arguments,
-        workingDirectory: workingDirectory,
-        mode: ProcessStartMode.detached,
-      );
-      return true;
-    } on ProcessException {
-      // Executable not on PATH -- the caller falls through to the next
-      // candidate in the chain.
-      return false;
-    }
+    final DetachedStart outcome = await startDetachedProcess(
+      executable,
+      arguments,
+      workingDirectory: workingDirectory,
+      window: RelayWindow.normal,
+    );
+    return outcome.started;
   }
 
   /// The ordered candidate chain for [_os], per the spec's `TERMINALS` table.
@@ -81,11 +83,10 @@ class DesktopLauncher {
       case 'windows':
         return <_TerminalCandidate>[
           _TerminalCandidate('wt.exe', <String>['-d', path]),
-          _TerminalCandidate('powershell.exe', <String>[
-            '-NoExit',
-            '-Command',
-            'cd "$path"',
-          ]),
+          // No `cd` command: a path inside a double-quoted PowerShell
+          // string is interpolated, so a folder named `$(calc)` would be
+          // run. The inherited workingDirectory is the directory.
+          const _TerminalCandidate('powershell.exe', <String>['-NoExit']),
         ];
       case 'macos':
         return <_TerminalCandidate>[
@@ -132,7 +133,9 @@ class DesktopLauncher {
   Future<bool> openInFileManager(String path) async {
     switch (_os) {
       case 'windows':
-        return _start('explorer.exe', <String>['/select,${_windows(path)}']);
+        // Two arguments, so only the path is ever quoted: explorer handed
+        // `"/select,C:\a b\f.txt"` quoted whole opens Documents instead.
+        return _start('explorer.exe', <String>['/select,', _windows(path)]);
       case 'macos':
         return _start('open', <String>['-R', path]);
       default:
@@ -151,9 +154,8 @@ class DesktopLauncher {
   Future<bool> openFile(String path) async {
     switch (_os) {
       case 'windows':
-        // Same empty-title argument as openUrl -- `start` would otherwise
-        // consume the path as the window title.
-        return _start('cmd', <String>['/c', 'start', '', _windows(path)]);
+        // The path itself, opened by its association -- see openUrl.
+        return _start(_windows(path), const <String>[]);
       case 'macos':
         return _start('open', <String>[path]);
       default:
@@ -177,10 +179,10 @@ class DesktopLauncher {
   Future<bool> openUrl(String url) async {
     switch (_os) {
       case 'windows':
-        // `start` is a cmd builtin, so it needs cmd itself as the
-        // executable. The empty string is `start`'s title argument -- without
-        // it, a quoted URL would be consumed as the window title.
-        return _start('cmd', <String>['/c', 'start', '', url]);
+        // Handed to `Start-Process` as the program to start, which opens it
+        // with whatever is associated -- the default browser here. It used
+        // to be `cmd /c start`, and cmd, a console program, never ran.
+        return _start(url, const <String>[]);
       case 'macos':
         return _start('open', <String>[url]);
       default:

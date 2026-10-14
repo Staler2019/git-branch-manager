@@ -123,16 +123,21 @@ const Duration _kRelayDeadline = Duration(seconds: 15);
 /// is empty or holds a space or tab -- what `Process.start` itself does --
 /// because a quoted switch is not a switch to every program: `cmd.exe`
 /// given `"/c"` runs nothing (measured). A Windows path cannot contain `"`,
-/// and [startDetachedProcess] refuses any argument that does.
+/// and [startDetachedProcess] refuses any argument that does. Backslashes
+/// that end a quoted argument are doubled, also as `Process.start` does:
+/// otherwise the last one escapes the closing quote and every argument after
+/// it is swallowed into this one.
+///
+/// `-WorkingDirectory` is resolved as a wildcard pattern -- there is no
+/// literal form -- so a repository under `br[1]` started nothing until the
+/// path went through `[WildcardPattern]::Escape` (measured).
 List<String> windowsRelayArguments(
   String executable,
   List<String> arguments, {
   required String workingDirectory,
   RelayWindow window = RelayWindow.hidden,
 }) {
-  final String joined = arguments
-      .map((String a) => a.isEmpty || a.contains(RegExp(r'[ \t]')) ? '"$a"' : a)
-      .join(' ');
+  final String joined = arguments.map(_relayQuote).join(' ');
   final String style = switch (window) {
     RelayWindow.hidden => 'Hidden',
     RelayWindow.normal => 'Normal',
@@ -145,9 +150,19 @@ List<String> windowsRelayArguments(
     '-Command',
     'Start-Process -WindowStyle $style '
         '-FilePath ${psQuote(executable)} '
-        '-WorkingDirectory ${psQuote(workingDirectory)}'
+        '-WorkingDirectory '
+        '([WildcardPattern]::Escape(${psQuote(workingDirectory)}))'
         '${arguments.isEmpty ? '' : ' -ArgumentList ${psQuote(joined)}'}',
   ];
+}
+
+String _relayQuote(String a) {
+  if (a.isNotEmpty && !a.contains(RegExp(r'[ \t]'))) return a;
+  final String body = a.replaceAllMapped(
+    RegExp(r'\\+$'),
+    (Match m) => '${m[0]}${m[0]}',
+  );
+  return '"$body"';
 }
 
 /// How the relayed program's window starts: hidden for the updater's own

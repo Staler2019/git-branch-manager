@@ -45,7 +45,32 @@ void main() {
 
       expect(c, startsWith('Start-Process -WindowStyle Hidden '));
       expect(c, contains("-FilePath '$shell'"));
-      expect(c, contains(r"-WorkingDirectory 'C:\Temp'"));
+      expect(
+        c,
+        contains(r"-WorkingDirectory ([WildcardPattern]::Escape('C:\Temp'))"),
+      );
+    });
+
+    // Start-Process resolves -WorkingDirectory as a wildcard: a repository
+    // under `br[1] b` failed to start anything until the brackets were
+    // escaped (measured, verifier F1).
+    test('escapes wildcards in the working directory', () {
+      expect(
+        command(<String>['-NoExit'], dir: r'C:\dev\br[1] b'),
+        contains(
+          r"-WorkingDirectory ([WildcardPattern]::Escape('C:\dev\br[1] b'))",
+        ),
+      );
+    });
+
+    // A backslash before the closing quote would escape it: `"C:\a b\"`
+    // swallowed every argument after it into one (measured, verifier F2).
+    // Doubled, as `Process.start` does.
+    test('doubles the backslashes that end a quoted argument', () {
+      expect(
+        command(<String>['-d', r'C:\a b\', 'next']),
+        contains(r"""-ArgumentList '-d "C:\a b\\" next'"""),
+      );
     });
 
     // Start-Process joins an argument array with spaces and quotes nothing,
@@ -90,7 +115,12 @@ void main() {
         r"C:\Users\o'brien $(calc)\gbm-update.ps1",
       ], dir: r"C:\Users\o'brien $(calc)");
 
-      expect(c, contains(r"-WorkingDirectory 'C:\Users\o''brien $(calc)'"));
+      expect(
+        c,
+        contains(
+          r"-WorkingDirectory ([WildcardPattern]::Escape('C:\Users\o''brien $(calc)'))",
+        ),
+      );
       expect(
         c,
         contains(r"""'-File "C:\Users\o''brien $(calc)\gbm-update.ps1"'"""),
@@ -146,6 +176,25 @@ void main() {
   // started detached, never ran either.
   test('a console program that is not PowerShell actually runs', () async {
     final Directory dir = Directory.systemTemp.createTempSync('gbm relay ');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final String mark = '${dir.path}\\ran.txt';
+
+    final DetachedStart outcome = await startDetachedProcess(
+      '${Platform.environment['SystemRoot']}\\System32\\cmd.exe',
+      <String>['/c', 'echo ok>ran.txt'],
+      workingDirectory: dir.path,
+    );
+
+    expect(outcome.started, isTrue, reason: outcome.error);
+    final DateTime deadline = DateTime.now().add(const Duration(seconds: 20));
+    while (!File(mark).existsSync() && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    }
+    expect(File(mark).existsSync(), isTrue, reason: 'cmd.exe never ran');
+  }, skip: Platform.isWindows ? false : 'Windows only');
+
+  test('a working directory with brackets in it still starts', () async {
+    final Directory dir = Directory.systemTemp.createTempSync('gbm br[1] ');
     addTearDown(() => dir.deleteSync(recursive: true));
     final String mark = '${dir.path}\\ran.txt';
 

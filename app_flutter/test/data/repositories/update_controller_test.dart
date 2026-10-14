@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi' show Abi;
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
+import 'package:gbm_flutter/data/models/downloaded_asset.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
@@ -60,17 +63,26 @@ class _FakeGateway implements GithubReleaseGateway {
 /// Replays a scripted download: progress ticks, then either the file, or a
 /// throw. Records the arguments so "verified the right asset against the
 /// right manifest" is assertable.
+/// The SHA-256 of the bytes [_FakeDownloader] writes.
+final String _bundleDigest = sha256.convert(utf8.encode('bundle')).toString();
+
 class _FakeDownloader implements UpdateDownloader {
-  _FakeDownloader({this.error, this.ticks = const <int>[]});
+  _FakeDownloader({this.error, this.ticks = const <int>[], this.digest});
 
   final Object? error;
   final List<int> ticks;
+
+  /// What the fake reports having verified against. Null means the true
+  /// digest of what it wrote; anything else makes the file on disk disagree
+  /// with the digest carried forward, as a file replaced after verification
+  /// would.
+  final String? digest;
   ReleaseAsset? requestedAsset;
   ReleaseAsset? requestedManifest;
   int calls = 0;
 
   @override
-  Future<File> download({
+  Future<DownloadedAsset> download({
     required ReleaseAsset asset,
     required ReleaseAsset manifest,
     required Directory into,
@@ -97,7 +109,7 @@ class _FakeDownloader implements UpdateDownloader {
       // `into` that has been deleted throws. A fixture that recreates the
       // directory would repair the very defect it is meant to catch.
       ..writeAsStringSync('bundle');
-    return file;
+    return DownloadedAsset(file: file, sha256: digest ?? _bundleDigest);
   }
 
   @override
@@ -422,10 +434,11 @@ void main() {
     Future<UpdateController> ready({
       bool startSucceeds = true,
       ProcessRunResult unpack = const ProcessRunResult(0, ''),
+      String? digest,
     }) async {
       final UpdateController c = _controller(
         result: _release('v9.9.9'),
-        downloader: _FakeDownloader(ticks: <int>[50, 100]),
+        downloader: _FakeDownloader(ticks: <int>[50, 100], digest: digest),
         installer: _installableInstaller(
           events: events,
           startSucceeds: startSucceeds,
@@ -489,6 +502,20 @@ void main() {
       );
     });
 
+    // The bundle waits in a temp directory for as long as the user leaves
+    // the dialog at "ready to install". The digest verified at download time
+    // travels with the state so the file is checked again right before it
+    // is unpacked -- and a mismatch stops everything, unpacking included.
+    test('a bundle changed after verification is refused unread', () async {
+      final UpdateController c = await ready(digest: 'f' * 64);
+
+      await c.install(beforeExit: () async => events.add('beforeExit'));
+
+      expect(c.state.status, UpdateStatus.failed);
+      expect(c.state.errorMessage, contains('changed since it was verified'));
+      expect(events, isEmpty);
+    });
+
     test('an updater that will not start leaves the app running', () async {
       final UpdateController c = await ready(startSucceeds: false);
 
@@ -542,6 +569,16 @@ void main() {
       expect(c.state.status, UpdateStatus.readyToInstall);
       expect(c.state.downloadedPath, endsWith('-macos-arm64.dmg'));
       expect(File(c.state.downloadedPath!).existsSync(), isTrue);
+    });
+
+    test('carries the verified digest into readyToInstall', () async {
+      final UpdateController c = await available(
+        downloader: _FakeDownloader(digest: 'a' * 64),
+      );
+
+      await c.download();
+
+      expect(c.state.sha256, 'a' * 64);
     });
 
     test('verifies the platform asset against the release manifest', () async {
@@ -841,6 +878,7 @@ void main() {
       unawaited(c.install(beforeExit: () async {}));
       await pumpEventQueue();
       expect(c.state.status, UpdateStatus.installing);
+      expect(c.state.sha256, _bundleDigest);
 
       c.cancel();
 

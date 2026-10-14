@@ -77,6 +77,7 @@ class UpdateState {
     this.downloadedPath,
     this.errorMessage,
     this.blockedReason,
+    this.sha256,
   });
 
   /// Nothing checked yet, or a pending result dismissed.
@@ -145,22 +146,26 @@ class UpdateState {
     required LatestRelease release,
     required ReleaseAsset asset,
     required String downloadedPath,
+    required String sha256,
   }) : this._(
          status: UpdateStatus.readyToInstall,
          release: release,
          asset: asset,
          downloadedPath: downloadedPath,
+         sha256: sha256,
        );
 
   const UpdateState.installing({
     required LatestRelease release,
     required ReleaseAsset asset,
     required String downloadedPath,
+    required String sha256,
   }) : this._(
          status: UpdateStatus.installing,
          release: release,
          asset: asset,
          downloadedPath: downloadedPath,
+         sha256: sha256,
        );
 
   final UpdateStatus status;
@@ -178,6 +183,14 @@ class UpdateState {
   /// Where the verified bundle is on disk, set from
   /// [UpdateStatus.verifying] onward.
   final String? downloadedPath;
+
+  /// The SHA-256 the bundle at [downloadedPath] matched when it was
+  /// verified, set from [UpdateStatus.readyToInstall] onward.
+  ///
+  /// Kept so the installer can check the file again right before using it:
+  /// between verification and install the bundle sits in a temp directory
+  /// for as long as the user leaves the dialog open.
+  final String? sha256;
 
   /// Set only when [status] is [UpdateStatus.failed].
   final String? errorMessage;
@@ -204,6 +217,7 @@ class UpdateState {
       downloadedPath: downloadedPath,
       errorMessage: errorMessage,
       blockedReason: blockedReason,
+      sha256: sha256,
     );
   }
 

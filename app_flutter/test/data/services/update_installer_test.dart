@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/prepared_update.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
@@ -230,6 +232,53 @@ void main() {
 
     setUp(() => ran = <List<String>>[]);
 
+    /// A real file at [name] and the digest of what it holds, since
+    /// [UpdateInstaller.stage] reads the bundle back before using it.
+    File bundle(String name) =>
+        File('${root.path}/$name')..writeAsStringSync('bundle');
+    final String digest = sha256.convert(utf8.encode('bundle')).toString();
+
+    // The bundle sits in a temp directory between download and install, for
+    // as long as the user leaves it there. Unpacking a file that is no
+    // longer the one verified would hand the updater whatever replaced it.
+    for (final String os in <String>['linux', 'macos', 'windows']) {
+      test('refuses a bundle changed since verification on $os', () async {
+        final UpdateInstaller installer = UpdateInstaller(
+          operatingSystem: os,
+          run: recorder(),
+        );
+
+        await expectLater(
+          installer.stage(bundle: bundle('x'), into: root, sha256: 'f' * 64),
+          throwsA(
+            isA<UpdateInstallException>().having(
+              (UpdateInstallException e) => e.message,
+              'message',
+              contains('changed since it was verified'),
+            ),
+          ),
+        );
+        expect(ran, isEmpty, reason: 'nothing may be run on a stale bundle');
+      });
+    }
+
+    test('refuses a bundle that has gone missing', () async {
+      final UpdateInstaller installer = UpdateInstaller(
+        operatingSystem: 'linux',
+        run: recorder(),
+      );
+
+      await expectLater(
+        installer.stage(
+          bundle: File('${root.path}/swept'),
+          into: root,
+          sha256: digest,
+        ),
+        throwsA(isA<UpdateInstallException>()),
+      );
+      expect(ran, isEmpty);
+    });
+
     test('descends the Linux tarball\'s single wrapper directory', () async {
       final UpdateInstaller installer = UpdateInstaller(
         operatingSystem: 'linux',
@@ -244,8 +293,9 @@ void main() {
       );
 
       final PreparedUpdate staged = await installer.stage(
-        bundle: File('${root.path}/x.tar.gz'),
+        bundle: bundle('x.tar.gz'),
         into: root,
+        sha256: digest,
       );
 
       expect(ran.single.take(2), <String>['tar', 'xzf']);
@@ -270,8 +320,9 @@ void main() {
       );
 
       final PreparedUpdate staged = await installer.stage(
-        bundle: File('${root.path}/x.tar.gz'),
+        bundle: bundle('x.tar.gz'),
         into: root,
+        sha256: digest,
       );
 
       expect((staged as PreparedDirectory).directory.path, endsWith('payload'));
@@ -290,8 +341,9 @@ void main() {
       );
 
       final PreparedUpdate staged = await installer.stage(
-        bundle: File('${root.path}/x.zip'),
+        bundle: bundle('x.zip'),
         into: root,
+        sha256: digest,
       );
 
       expect(ran.single.take(2), <String>['tar', '-xf']);
@@ -311,7 +363,11 @@ void main() {
         ),
       );
 
-      await installer.stage(bundle: File('${root.path}/x.dmg'), into: root);
+      await installer.stage(
+        bundle: bundle('x.dmg'),
+        into: root,
+        sha256: digest,
+      );
 
       expect(ran.map((c) => c.first), <String>[
         'hdiutil', // attach
@@ -335,7 +391,7 @@ void main() {
       );
 
       expect(
-        () => installer.stage(bundle: File('${root.path}/x'), into: root),
+        () => installer.stage(bundle: bundle('x'), into: root, sha256: digest),
         throwsA(
           isA<UpdateInstallException>().having(
             (UpdateInstallException e) => e.message,
@@ -368,7 +424,11 @@ void main() {
 
         // Returns normally: a mount that would not release is not a reason to
         // fail an update whose payload is already staged.
-        await installer.stage(bundle: File('${root.path}/x.dmg'), into: root);
+        await installer.stage(
+          bundle: bundle('x.dmg'),
+          into: root,
+          sha256: digest,
+        );
 
         expect(detachAttempts, greaterThan(1));
       },

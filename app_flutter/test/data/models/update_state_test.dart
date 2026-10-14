@@ -9,6 +9,9 @@ const ReleaseAsset _asset = ReleaseAsset(
   sizeBytes: 16000000,
 );
 
+const String _digest =
+    '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
+
 final LatestRelease _release = LatestRelease(
   version: const AppVersion(9, 9, 9),
   tagName: 'v9.9.9',
@@ -41,17 +44,27 @@ final Map<UpdateStatus, UpdateState> _oneOfEach = <UpdateStatus, UpdateState>{
     release: _release,
     asset: _asset,
     downloadedPath: '/tmp/x.zip',
+    sha256: _digest,
   ),
   UpdateStatus.installing: UpdateState.installing(
     release: _release,
     asset: _asset,
     downloadedPath: '/tmp/x.zip',
+    sha256: _digest,
   ),
   UpdateStatus.developmentBuild: const UpdateState.developmentBuild(),
   UpdateStatus.failed: const UpdateState.failed('offline'),
 };
 
 void main() {
+  // The installer re-checks the bundle against this right before it is
+  // used, so the two states that lead into the handover must both hold it.
+  test('readyToInstall and installing carry the verified digest', () {
+    expect(_oneOfEach[UpdateStatus.readyToInstall]!.sha256, _digest);
+    expect(_oneOfEach[UpdateStatus.installing]!.sha256, _digest);
+    expect(_oneOfEach[UpdateStatus.verifying]!.sha256, isNull);
+  });
+
   group('UpdateState.wantsFreshCheck', () {
     test('covers every status, so a new one cannot slip through untested', () {
       expect(_oneOfEach.keys.toSet(), UpdateStatus.values.toSet());

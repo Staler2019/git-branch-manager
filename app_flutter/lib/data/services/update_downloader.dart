@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/downloaded_asset.dart';
 import '../models/release_asset.dart';
 
 /// A streaming response: the status code, the declared length when the
@@ -132,12 +133,12 @@ class UpdateDownloader {
 
   /// Fetches [asset] into [into] and verifies it against [manifest].
   ///
-  /// Returns the verified file. Throws [UpdateDownloadException] on any
+  /// Returns the verified file and the digest it matched. Throws [UpdateDownloadException] on any
   /// failure and [UpdateDownloadCancelled] when [isCancelled] turns true.
   /// In every failing case the partial or unverified file is deleted before
   /// returning — an unverified bundle must never be left somewhere the
   /// installer could later find it.
-  Future<File> download({
+  Future<DownloadedAsset> download({
     required ReleaseAsset asset,
     required ReleaseAsset manifest,
     required Directory into,
@@ -214,7 +215,7 @@ class UpdateDownloader {
       );
     }
 
-    return file;
+    return DownloadedAsset(file: file, sha256: expected);
   }
 
   Future<String> _getText(String url) async {

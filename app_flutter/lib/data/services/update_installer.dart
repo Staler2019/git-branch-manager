@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/prepared_update.dart';
@@ -542,10 +543,18 @@ class UpdateInstaller {
   /// steps): the DMG mounts with the `.app` at its volume root, the Windows
   /// zip is flat with no wrapper directory, and the Linux tarball has exactly
   /// one wrapper directory that has to be descended through.
+  ///
+  /// [sha256] is the digest the bundle matched when it was downloaded. It is
+  /// checked again here, before anything reads the bundle, because the file
+  /// has been sitting in a temp directory since then -- for as long as the
+  /// user left the dialog at "ready to install" -- and the sweep or anything
+  /// else running as this user could have replaced or removed it.
   Future<PreparedUpdate> stage({
     required File bundle,
     required Directory into,
+    required String sha256,
   }) async {
+    await _verifyUnchanged(bundle, sha256);
     final Directory payload = Directory(
       '${into.path}${Platform.pathSeparator}payload',
     )..createSync(recursive: true);
@@ -562,6 +571,24 @@ class UpdateInstaller {
       default:
         await _extract('tar', <String>['xzf', bundle.path, '-C', payload.path]);
         return PreparedDirectory(_descendWrapper(payload));
+    }
+  }
+
+  static Future<void> _verifyUnchanged(File bundle, String expected) async {
+    final String actual;
+    try {
+      actual = (await sha256.bind(bundle.openRead()).first).toString();
+    } on FileSystemException catch (e) {
+      throw UpdateInstallException(
+        'The downloaded update is no longer where it was saved '
+        '(${e.message}). Download it again.',
+      );
+    }
+    if (actual != expected.toLowerCase()) {
+      throw const UpdateInstallException(
+        'The downloaded update has changed since it was verified, so it was '
+        'not installed. Download it again.',
+      );
     }
   }
 

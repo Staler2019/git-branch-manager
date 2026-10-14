@@ -121,6 +121,10 @@ Future<_PumpedDialog> _pumpDialog(
   return (fake: fake, container: container);
 }
 
+/// Any well-formed digest: no test here re-reads the bundle.
+const String _digest =
+    '0000000000000000000000000000000000000000000000000000000000000000';
+
 void main() {
   group('UpdateDialogContent', () {
     testWidgets('checks once when opened with nothing in flight', (
@@ -197,6 +201,7 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
         ),
       );
 
@@ -212,6 +217,7 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
         ),
       )).fake;
 
@@ -347,6 +353,7 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
         ),
         sessions: sessions,
       )).fake;
@@ -416,6 +423,7 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
         ),
       )).fake;
 
@@ -479,6 +487,7 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
         ),
       );
 
@@ -525,11 +534,13 @@ void main() {
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x',
+          sha256: _digest,
         ),
         UpdateState.installing(
           release: _release,
           asset: _asset,
           downloadedPath: '/tmp/x',
+          sha256: _digest,
         ),
         const UpdateState.failed('boom'),
       ];

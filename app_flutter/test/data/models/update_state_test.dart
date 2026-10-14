@@ -4,8 +4,8 @@ import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/models/update_state.dart';
 
 const ReleaseAsset _asset = ReleaseAsset(
-  name: 'git-branch-manager-9.9.9-windows-x64.zip',
-  downloadUrl: 'https://example.test/windows.zip',
+  name: 'git-branch-manager-9.9.9-windows-x64.msi',
+  downloadUrl: 'https://example.test/windows.msi',
   sizeBytes: 16000000,
 );
 
@@ -38,18 +38,18 @@ final Map<UpdateStatus, UpdateState> _oneOfEach = <UpdateStatus, UpdateState>{
   UpdateStatus.verifying: UpdateState.verifying(
     release: _release,
     asset: _asset,
-    downloadedPath: '/tmp/x.zip',
+    downloadedPath: '/tmp/x.msi',
   ),
   UpdateStatus.readyToInstall: UpdateState.readyToInstall(
     release: _release,
     asset: _asset,
-    downloadedPath: '/tmp/x.zip',
+    downloadedPath: '/tmp/x.msi',
     sha256: _digest,
   ),
   UpdateStatus.installing: UpdateState.installing(
     release: _release,
     asset: _asset,
-    downloadedPath: '/tmp/x.zip',
+    downloadedPath: '/tmp/x.msi',
     sha256: _digest,
   ),
   UpdateStatus.developmentBuild: const UpdateState.developmentBuild(),

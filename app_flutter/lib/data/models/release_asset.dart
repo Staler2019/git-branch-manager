@@ -71,6 +71,11 @@ class LatestRelease {
 /// each platform (`arm64` on macOS, `x64` on Windows, `x86_64` on Linux).
 /// Deriving them would be a guess that happens to work for one platform.
 ///
+/// Windows is an `.msi` rather than the portable zip earlier releases
+/// shipped: Windows Installer, not this app, replaces a Windows install. A
+/// release that still lists only the zip therefore has nothing a current
+/// build can install, and says so through the null below.
+///
 /// Three entries, because release.yml has three matrix legs. An Intel Mac,
 /// an ARM Linux box or an ARM Windows machine gets null and must be told
 /// there is nothing to install — never handed another platform's bundle.
@@ -79,7 +84,7 @@ String? assetSuffixForAbi(Abi abi) {
     return '-macos-arm64.dmg';
   }
   if (abi == Abi.windowsX64) {
-    return '-windows-x64.zip';
+    return '-windows-x64.msi';
   }
   if (abi == Abi.linuxX64) {
     return '-linux-x86_64.tar.gz';

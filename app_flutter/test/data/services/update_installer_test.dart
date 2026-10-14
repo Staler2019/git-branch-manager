@@ -201,12 +201,12 @@ void main() {
       );
     });
 
-    // A copy the MSI installer put in place is registered with Windows
-    // Installer. Swapping its directory underneath that registration would
-    // leave the Apps list, the upgrade detection and uninstall all
-    // describing files that are no longer there -- so a registered copy
-    // never takes the directory-swap path, whatever else is true.
-    group('a copy registered by the installer', () {
+    // On Windows the release ships as an MSI, and only the copy Windows
+    // Installer manages may update itself: msiexec is handed the folder the
+    // installer recorded, so a copy anywhere else -- a portable zip from an
+    // older release, or the installed folder copied elsewhere -- would have
+    // the upgrade land on top of some *other* folder.
+    group('on Windows', () {
       UpdateInstaller windowsInstaller(
         Directory install, {
         required String? registered,
@@ -220,31 +220,49 @@ void main() {
         );
       }
 
-      test('is not offered the directory swap', () {
+      test('the installed copy may update itself', () {
+        final Directory install = Directory('${root.path}/Programs/gbm')
+          ..createSync(recursive: true);
+
+        expect(
+          windowsInstaller(
+            install,
+            registered: '${install.path.toUpperCase()}\\',
+          ).selfInstallBlocker(),
+          isNull,
+          reason:
+              'the installer records the folder with a trailing '
+              'backslash, and Windows paths compare case-insensitively',
+        );
+      });
+
+      test('a copy the installer never registered is sent to the page', () {
         final Directory install = Directory('${root.path}/Programs/gbm')
           ..createSync(recursive: true);
 
         final String? reason = windowsInstaller(
           install,
-          registered: install.path,
+          registered: null,
         ).selfInstallBlocker();
 
-        expect(reason, isNotNull);
         expect(reason, contains('installer'));
+        expect(reason, contains('releases page'));
       });
 
-      test('an unregistered copy is unaffected', () {
-        final Directory install = Directory('${root.path}/Programs/gbm')
+      test('a copy of the installed folder elsewhere is sent there too', () {
+        final Directory install = Directory('${root.path}/Desktop/gbm')
           ..createSync(recursive: true);
 
-        expect(
-          windowsInstaller(install, registered: null).selfInstallBlocker(),
-          isNull,
-        );
+        final String? reason = windowsInstaller(
+          install,
+          registered: '${root.path}/Programs/gbm',
+        ).selfInstallBlocker();
+
+        expect(reason, contains('releases page'));
       });
 
-      // Only Windows has an installer registration to protect; the seam is
-      // never even consulted elsewhere.
+      // Only Windows has an installer registration; the seam is never even
+      // consulted elsewhere.
       test('is never asked on another platform', () {
         final Directory install = Directory('${root.path}/opt/gbm')
           ..createSync(recursive: true);
@@ -391,26 +409,23 @@ void main() {
       expect((staged as PreparedDirectory).directory.path, endsWith('payload'));
     });
 
-    // The Windows zip is flat (`Compress-Archive .../Release/*`), so the
-    // payload directory is the swap unit as-is.
-    test('unpacks the Windows zip with tar and does not descend', () async {
+    // Windows Installer does the replacing, so there is nothing to unpack:
+    // the verified package itself is what the updater hands to msiexec.
+    test('hands the Windows installer package over unopened', () async {
       final UpdateInstaller installer = UpdateInstaller(
         operatingSystem: 'windows',
-        run: recorder(
-          onRun: (String exe, List<String> args) {
-            File('${args.last}/gbm_flutter.exe').writeAsStringSync('');
-          },
-        ),
+        run: recorder(),
       );
+      final File msi = bundle('x.msi');
 
-      final PreparedUpdate staged = await installer.stage(
-        bundle: bundle('x.zip'),
+      final PreparedUpdate prepared = await installer.stage(
+        bundle: msi,
         into: root,
         sha256: digest,
       );
 
-      expect(ran.single.take(2), <String>['tar', '-xf']);
-      expect((staged as PreparedDirectory).directory.path, endsWith('payload'));
+      expect(prepared, PreparedInstallerPackage(package: msi, sha256: digest));
+      expect(ran, isEmpty, reason: 'an MSI is never extracted');
     });
 
     test('mounts, dittos out of, and unmounts the macOS disk image', () async {
@@ -502,12 +517,17 @@ void main() {
     late List<String> events;
     late List<String?> startedIn;
     late Directory staged;
+    late PreparedInstallerPackage package;
     late Directory scriptDir;
 
     setUp(() {
       events = <String>[];
       startedIn = <String?>[];
       staged = Directory('${root.path}/staged')..createSync(recursive: true);
+      package = PreparedInstallerPackage(
+        package: File('${root.path}/download/x.msi'),
+        sha256: 'ab' * 32,
+      );
       scriptDir = Directory('${root.path}/script')..createSync(recursive: true);
     });
 
@@ -521,7 +541,8 @@ void main() {
         operatingSystem: os,
         executablePath: '${root.path}/install/gbm_flutter',
         systemRoot: systemRoot,
-        readInstallLocation: () => null,
+        readInstallLocation: () =>
+            os == 'windows' ? '${root.path}/install' : null,
         exitProcess: (int code) => events.add('exit:$code'),
         armWatchdog: (Duration after) async {
           events.add('watchdog:${after.inSeconds}s');
@@ -538,8 +559,12 @@ void main() {
       );
     }
 
+    /// The shape each platform's [UpdateInstaller.stage] really produces.
+    PreparedUpdate preparedFor(String? os) =>
+        os == 'windows' ? package : PreparedDirectory(staged);
+
     Future<String?> run(UpdateInstaller installer) => installer.launchUpdater(
-      staged: PreparedDirectory(staged),
+      staged: preparedFor(installer.operatingSystem),
       scriptDir: scriptDir,
       processId: 999999,
       beforeExit: () async => events.add('beforeExit'),
@@ -658,10 +683,11 @@ void main() {
       );
     });
 
-    // The same refusal again at the last moment, because `launchUpdater` is
-    // what actually writes the swap script: a registered copy must not get
-    // one even if something upstream let it through.
-    test('writes no swap script for an installer-registered copy', () async {
+    // Windows only ever updates through the installer now. A directory swap
+    // reaching `launchUpdater` there would be a bug upstream, and the swap
+    // script it would write is exactly what an installer-managed copy must
+    // never get -- so it is refused here too, before anything is written.
+    test('writes no swap script on Windows', () async {
       final List<String> started = <String>[];
       final String? reason =
           await UpdateInstaller(
@@ -685,6 +711,68 @@ void main() {
       expect(started, isEmpty);
       expect(events, isEmpty);
       expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isFalse);
+    });
+
+    // The folder msiexec installs into is the one the installer recorded,
+    // re-read at the last moment rather than trusted from the check.
+    test('refuses when the installer registration has gone', () async {
+      final String? reason =
+          await UpdateInstaller(
+            operatingSystem: 'windows',
+            executablePath: '${root.path}/install/gbm_flutter.exe',
+            readInstallLocation: () => null,
+            exitProcess: (int code) => events.add('exit:$code'),
+            start: (
+              String e,
+              List<String> a, {
+              String? workingDirectory,
+            }) async => const DetachedStart.ok(),
+          ).launchUpdater(
+            staged: package,
+            scriptDir: scriptDir,
+            processId: 999999,
+            beforeExit: () async => events.add('beforeExit'),
+          );
+
+      expect(reason, contains('installer'));
+      expect(events, isEmpty);
+      expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isFalse);
+    });
+
+    // msiexec installs into the recorded folder, so a registration naming a
+    // folder other than the one running would upgrade that other folder.
+    test('refuses when the registration names another folder', () async {
+      final String? reason =
+          await UpdateInstaller(
+            operatingSystem: 'windows',
+            executablePath: '${root.path}/install/gbm_flutter.exe',
+            readInstallLocation: () => '${root.path}/elsewhere',
+            exitProcess: (int code) => events.add('exit:$code'),
+            start: (
+              String e,
+              List<String> a, {
+              String? workingDirectory,
+            }) async => const DetachedStart.ok(),
+          ).launchUpdater(
+            staged: package,
+            scriptDir: scriptDir,
+            processId: 999999,
+            beforeExit: () async => events.add('beforeExit'),
+          );
+
+      expect(reason, contains('installer'));
+      expect(events, isEmpty);
+      expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isFalse);
+    });
+
+    test('hands msiexec the recorded folder and the verified digest', () async {
+      await run(installerWith(startSucceeds: true, os: 'windows'));
+
+      final String script = File('${scriptDir.path}/gbm-update.ps1')
+          .readAsStringSync();
+      expect(script, contains("\$target = '${root.path}/install'"));
+      expect(script, contains("\$package = '${root.path}/download/x.msi'"));
+      expect(script, contains("\$expectedHash = '${'ab' * 32}'"));
     });
 
     test('does not exit when the script could not be started', () async {
@@ -806,6 +894,7 @@ void main() {
         operatingSystem: 'windows',
         executablePath: '${root.path}/install/gbm_flutter.exe',
         systemRoot: r'C:\Windows',
+        readInstallLocation: () => '${root.path}/install',
         exitProcess: (int code) => events.add('exit:$code'),
         armWatchdog: (Duration after) async => true,
         start:
@@ -818,7 +907,7 @@ void main() {
                   : const DetachedStart.failed('not found');
             },
       ).launchUpdater(
-        staged: PreparedDirectory(staged),
+        staged: package,
         scriptDir: scriptDir,
         processId: 999999,
         beforeExit: () async {},
@@ -898,6 +987,7 @@ void main() {
       await UpdateInstaller(
         operatingSystem: 'windows',
         executablePath: '${nonAscii.path}/gbm_flutter.exe',
+        readInstallLocation: () => nonAscii.path,
         exitProcess: (int code) => events.add('exit:$code'),
         start: (
           String exe,
@@ -905,7 +995,7 @@ void main() {
           String? workingDirectory,
         }) async => const DetachedStart.ok(),
       ).launchUpdater(
-        staged: PreparedDirectory(staged),
+        staged: package,
         scriptDir: scriptDir,
         processId: 999999,
         beforeExit: () async {},
@@ -924,15 +1014,20 @@ void main() {
     // nothing at all and baked the whole path into `Join-Path $target '...'`.
     group('the executable name in the relaunch command', () {
       Future<String> scriptFor(String os, String exe) async {
-        await UpdateInstaller(
+        // Registered at wherever this executable resolves to, so the
+        // installer-registration gate is out of the way of what is asserted.
+        late final UpdateInstaller installer;
+        installer = UpdateInstaller(
           operatingSystem: os,
           executablePath: exe,
+          readInstallLocation: () => installer.installTarget().path,
           exitProcess: (int code) => events.add('exit:$code'),
           armWatchdog: (Duration after) async => true,
           start: (String e, List<String> a, {String? workingDirectory}) async =>
               const DetachedStart.ok(),
-        ).launchUpdater(
-          staged: PreparedDirectory(staged),
+        );
+        await installer.launchUpdater(
+          staged: preparedFor(os),
           scriptDir: scriptDir,
           processId: 999999,
           beforeExit: () async {},
@@ -987,26 +1082,40 @@ void main() {
     );
   });
 
-  // No Windows machine runs this suite, so this half is text only and the
-  // manual pre-release pass is what actually covers it. Asserted anyway,
-  // because release.yml compiles `windows/runner/` solely on tag -- nothing
-  // else in CI would notice this drifting.
-  group('the Windows script', () {
-    String script({String target = r'C:\Program Files\gbm'}) =>
-        buildWindowsUpdaterScript(
-          pid: 4242,
-          targetPath: target,
-          stagedPath: r'C:\Temp\staged',
-          relaunchCommand: 'Start-Process x',
-          waitTimeout: const Duration(seconds: 30),
-        );
+  // The script runs after the app has exited, so nothing in the app can
+  // report what it did; its arms are pinned here as text, `cq.yml`'s
+  // `powershell-parse` job parses the golden, and the round's manual pass on
+  // a real Windows machine is what executes it end to end.
+  group('the Windows MSI script', () {
+    const String digest =
+        '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
 
-    // Belt and braces behind the `workingDirectory` fix above. `Set-Location`
-    // alone is NOT enough: it moves PowerShell's *provider* location while
-    // the Win32 process directory -- the one holding the handle that blocks
-    // the rename -- stays where the process was created. Only assigning
-    // [System.Environment]::CurrentDirectory calls SetCurrentDirectory and
-    // releases it.
+    String script({
+      String installFolder =
+          r'C:\Users\jane\AppData\Local\Programs\Git Branch Manager',
+      String packagePath =
+          r'C:\Users\jane\AppData\Local\Temp\gbm-update-x\a.msi',
+    }) => buildWindowsMsiUpdaterScript(
+      pid: 4242,
+      installFolder: installFolder,
+      packagePath: packagePath,
+      sha256: digest,
+      relaunchCommand: 'Start-Process x',
+      waitTimeout: const Duration(seconds: 30),
+    );
+
+    /// The text of the `if (...) {` block opening at [opening], up to its
+    /// first closing brace at the same indent.
+    String block(String text, String opening) {
+      final int at = text.indexOf(opening);
+      expect(at, greaterThanOrEqualTo(0), reason: 'no "$opening"');
+      final int close = text.indexOf('\n}', at);
+      return text.substring(at, close);
+    }
+
+    // `Set-Location` alone moves PowerShell's provider location while the
+    // Win32 process directory stays where the process was created; only
+    // assigning CurrentDirectory releases it.
     test('steps out of whatever directory it inherited', () {
       expect(script(), contains(r'Set-Location -LiteralPath $PSScriptRoot'));
       expect(
@@ -1015,38 +1124,120 @@ void main() {
       );
     });
 
-    // Same three arms the executed sh tests pin, asserted as text because no
-    // Windows machine runs this suite. Every arm reached after the app has
-    // exited must put a working build back -- a script that simply gives up
-    // is what turned a failed rename into "the app closed and never came
-    // back".
-    test('puts a build back on every arm that runs after the app exits', () {
-      final String s = script();
-
-      expect(s, contains('function Restart-App'));
-      expect(
-        'Restart-App'.allMatches(s).length,
-        4,
-        reason: 'one definition plus the rename, success and rollback arms',
-      );
-      expect(s, contains('if (-not \$renamed) {'));
+    test('never assigns PowerShell\'s read-only \$pid', () {
+      expect(script(), contains(r'$parentPid = 4242'));
+      expect(script(), isNot(contains(r'$pid =')));
     });
 
-    // Nothing in the app can report what the script did -- it runs after the
-    // process has exited -- so the transcript is the only channel a failed
-    // update has. Every exit goes through Stop-Updater so no arm can leave
-    // without recording its code.
+    // Timing out must leave everything untouched -- and nothing relaunched,
+    // because the app is by definition still on screen.
+    test('gives up without installing or relaunching at the deadline', () {
+      final String s = script();
+      final String wait = block(s, r'while (Get-Process -Id $parentPid');
+
+      expect(s, contains('AddSeconds(30)'));
+      expect(wait, contains('Stop-Updater 2'));
+      expect(wait, isNot(contains('Restart-App')));
+      expect(s.indexOf('Stop-Updater 2'), lessThan(s.indexOf('Get-FileHash')));
+    });
+
+    // The package waited in a temp directory for as long as the user left
+    // the dialog open; it is checked again right before msiexec gets it.
+    test('re-checks the package digest before msiexec is started', () {
+      final String s = script();
+
+      expect(s, contains("\$expectedHash = '$digest'"));
+      expect(
+        s,
+        contains('Get-FileHash -LiteralPath \$package -Algorithm SHA256'),
+      );
+      expect(
+        s.indexOf('Get-FileHash'),
+        lessThan(s.indexOf(r'Start-Process -FilePath $msiexec')),
+      );
+    });
+
+    test('a digest mismatch installs nothing and relaunches the old build', () {
+      final String mismatch = block(
+        script(),
+        r'if ($actualHash -ne $expectedHash) {',
+      );
+
+      expect(mismatch, contains('Stop-Updater 6'));
+      expect(mismatch, contains('Restart-App'));
+      expect(mismatch, isNot(contains('Start-Process')));
+    });
+
+    // A bare `msiexec.exe` is resolved by searching, and the script stands
+    // in the temp directory -- the same reason the updater itself starts
+    // PowerShell by absolute path.
+    test('starts msiexec by its absolute path', () {
+      final String s = script();
+
+      expect(
+        s,
+        contains(
+          r"$msiexec = Join-Path $env:SystemRoot 'System32\msiexec.exe'",
+        ),
+      );
+      expect(
+        s,
+        contains(r'Start-Process -FilePath $msiexec -ArgumentList $arguments'),
+      );
+    });
+
+    test('runs a passive, logged install into the recorded folder', () {
+      final String s = script();
+
+      expect(
+        s,
+        contains(
+          r"""$arguments = '/i "' + $package + '" /passive /norestart """
+          r"""INSTALLFOLDER="' + $target + '" /l*v "' + $msiLog + '"'""",
+        ),
+      );
+      expect(s, contains('-Wait -PassThru'));
+    });
+
+    test('only exit code 0 counts as installed', () {
+      final String s = script();
+      final String installed = block(s, r'if ($code -eq 0) {');
+
+      expect(installed, contains('Restart-App'));
+      expect(installed, contains('Stop-Updater 0'));
+      expect(
+        'Stop-Updater 0'.allMatches(s),
+        hasLength(1),
+        reason: 'no other arm may report success',
+      );
+    });
+
+    // 3010/1641 mean files are queued for replacement at the next Windows
+    // restart: relaunching now would start a mix of old and new DLLs.
+    test('a reboot-required install exits 7 without relaunching', () {
+      final String reboot = block(
+        script(),
+        r'if ($code -eq 3010 -or $code -eq 1641) {',
+      );
+
+      expect(reboot, contains('Stop-Updater 7'));
+      expect(reboot, isNot(contains('Restart-App')));
+    });
+
+    test('a failed install exits 5 and relaunches the rolled-back build', () {
+      final String s = script();
+      final String tail = s.substring(s.lastIndexOf('Stop-Updater 7'));
+
+      expect(tail, contains('Restart-App'));
+      expect(tail, contains('Stop-Updater 5'));
+    });
+
     test('records every arm it can end on', () {
       final String s = script();
 
       expect(s, contains("Join-Path \$PSScriptRoot '$kUpdateLogName'"));
-      expect(s, contains('function Stop-Updater'));
-      for (final int code in <int>[0, 2, 3, 4]) {
-        expect(
-          s,
-          contains('Stop-Updater $code'),
-          reason: 'exit $code must be recorded, not silent',
-        );
+      for (final int code in <int>[0, 2, 5, 6, 7]) {
+        expect(s, contains('Stop-Updater $code'), reason: 'exit $code');
       }
       expect(
         RegExp(r'^\s*exit \d', multiLine: true).hasMatch(s),
@@ -1055,54 +1246,75 @@ void main() {
       );
     });
 
-    // With \$ErrorActionPreference = 'Stop', a rollback whose own Move-Item
-    // throws would leave the catch block with no handler: the install gone
-    // and the script dead.
-    test('cannot be killed by its own rollback failing', () {
-      expect(script(), contains('catch { }'));
+    // msiexec normalises a directory property to end in a backslash, and a
+    // backslash right before the closing quote reads as an escaped quote to
+    // anything parsing the command line the CommandLineToArgvW way.
+    test('drops the recorded folder\'s trailing separator', () {
+      expect(
+        script(installFolder: r'C:\Programs\Git Branch Manager\'),
+        contains(r"$target = 'C:\Programs\Git Branch Manager'"),
+      );
     });
 
-    test('never assigns PowerShell\'s read-only \$pid', () {
-      // `$pid` is an automatic variable; assigning it fails at runtime, and
-      // the failure would land after the app has already exited.
-      expect(script(), contains(r'$parentPid = 4242'));
-      expect(script(), isNot(contains(r'$pid =')));
-    });
+    // Every value baked into the script reaches PowerShell only as a
+    // single-quoted literal, which interpolates nothing. Anything else --
+    // a double-quoted string, a bare word -- would let a folder name run
+    // code or add msiexec properties of its own.
+    group('a hostile path', () {
+      const List<String> hostile = <String>[
+        r"C:\Users\o'brien\HOSTILE",
+        r'C:\Users\$(calc)\HOSTILE',
+        r'C:\Users\$env:TEMP\HOSTILE',
+        r'C:\Users\back`tick\HOSTILE',
+        r'C:\Users\a & b; c\HOSTILE',
+        r'C:\Users\(paren)\HOSTILE',
+        r'C:\Users\TRANSFORMS=x.mst HOSTILE',
+        r'C:\Users\使用者 名\HOSTILE',
+      ];
 
-    test('aborts rather than swapping when the app outlives the deadline', () {
-      expect(script(), contains(r'AddSeconds(30)'));
-      expect(script(), contains('Stop-Updater 2'));
-    });
+      String withoutLiterals(String text) =>
+          text.replaceAll(RegExp(r"'(?:[^']|'')*'"), "''");
 
-    test('retries the rename against a lingering antivirus handle', () {
-      expect(script(), contains(r'for ($i = 0; $i -lt 20; $i++)'));
-      expect(script(), contains('Move-Item'));
-    });
+      for (final String path in hostile) {
+        test('stays inside single quotes: $path', () {
+          final String s = script(
+            installFolder: path,
+            packagePath: '$path\\x.msi',
+          );
 
-    test('restores the backup when the copy throws', () {
-      final String text = script();
-      final int copyAt = text.indexOf('Copy-Item');
-      final int restoreAt = text.indexOf(r'Move-Item -LiteralPath $backup');
-      expect(copyAt, greaterThan(0));
-      expect(restoreAt, greaterThan(copyAt));
-      expect(text, contains('Stop-Updater 4'));
-    });
+          expect(s, contains("'${path.replaceAll("'", "''")}'"));
+          expect(
+            withoutLiterals(s),
+            isNot(contains('HOSTILE')),
+            reason: 'the path appears outside a single-quoted literal',
+          );
+        });
+      }
 
-    test(
-      'doubles an embedded quote instead of escaping it backslash-style',
-      () {
-        expect(
-          script(target: r"C:\Users\o'brien\gbm"),
-          contains(r"'C:\Users\o''brien\gbm'"),
-        );
-      },
-    );
+      // The text assertions above cannot see a syntax error; PowerShell's
+      // own parser can, and every Windows host running this suite has it.
+      test('parses cleanly in Windows PowerShell', () {
+        final Directory dir = Directory.systemTemp.createTempSync('gbm-ps');
+        addTearDown(() => dir.deleteSync(recursive: true));
+        for (int i = 0; i < hostile.length; i++) {
+          File('${dir.path}\\s$i.ps1').writeAsStringSync(
+            '\uFEFF${script(installFolder: hostile[i], packagePath: '${hostile[i]}\\x.msi')}',
+          );
+        }
+        final ProcessResult result = Process.runSync('powershell.exe', <String>[
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          r"$bad = 0; Get-ChildItem -LiteralPath '"
+              '${dir.path}'
+              r"' -Filter *.ps1 | ForEach-Object { $t = $null; $e = $null; "
+              r'[void][System.Management.Automation.Language.Parser]::ParseFile('
+              r'$_.FullName, [ref]$t, [ref]$e); if ($e.Count -gt 0) { '
+              r'Write-Output "$($_.Name): $($e[0].Message)"; $bad++ } }; exit $bad',
+        ]);
 
-    test('passes paths as -LiteralPath so a bracket is not a wildcard', () {
-      // PowerShell's -Path globs; `C:\gbm [1]` would match nothing and the
-      // update would silently do nothing at all.
-      expect(script(), isNot(contains('-Path \$target')));
-      expect(script(), contains(r'-LiteralPath $target'));
+        expect(result.exitCode, 0, reason: '${result.stdout}${result.stderr}');
+      }, skip: !Platform.isWindows ? 'needs Windows PowerShell' : false);
     });
   });
 }

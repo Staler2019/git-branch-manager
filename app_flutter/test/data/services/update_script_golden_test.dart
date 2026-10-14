@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/prepared_update.dart';
+import 'package:gbm_flutter/data/services/detached_process.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 /// Keeps a checked-in copy of the generated PowerShell updater in step with
@@ -40,7 +42,9 @@ void main() {
   // injects a POSIX `executablePath`. The script only ever quotes them as
   // literals, so their shape does not change what is being parsed.
   const String executable = '/opt/gbm-example/gbm_flutter.exe';
-  const String staged = '/tmp/gbm-update-example/payload';
+  const String package = '/tmp/gbm-update-example/git-branch-manager.msi';
+  const String digest =
+      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824';
 
   test('the generated Windows updater matches the checked-in golden', () async {
     final Directory scriptDir = Directory.systemTemp.createTempSync(
@@ -52,12 +56,13 @@ void main() {
       operatingSystem: 'windows',
       executablePath: executable,
       systemRoot: r'C:\Windows',
+      readInstallLocation: () => '/opt/gbm-example',
       exitProcess: (int code) {},
       armWatchdog: (Duration after) async => true,
       start: (String e, List<String> a, {String? workingDirectory}) async =>
           const DetachedStart.ok(),
     ).launchUpdater(
-      staged: Directory(staged),
+      staged: PreparedInstallerPackage(package: File(package), sha256: digest),
       scriptDir: scriptDir,
       processId: 4242,
       beforeExit: () async {},

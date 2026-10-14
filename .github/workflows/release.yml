@@ -4,10 +4,11 @@ name: release
 # active UI since src/app (Qt) was removed once feature parity was reached
 # (see docs/ARCHITECTURE.md). The Linux leg is verified end to end in this
 # repository's own sandbox (a real `flutter build linux --release` producing
-# a bundle with libgbm_capi.so inside it); the macOS and Windows legs are
-# NOT -- there is no real macOS or Windows machine available where this was
-# written, so treat their first real run with extra care and be ready to
-# fix forward rather than assume they work as written.
+# a bundle with libgbm_capi.so inside it). The Windows leg's MSI packaging
+# (app_flutter/scripts/build_msi.ps1) and the in-app upgrade it feeds were
+# run end to end on a real Windows machine when they were introduced; the
+# macOS leg has not been, so treat its runs with extra care and be ready to
+# fix forward rather than assume it works as written.
 
 on:
   push:
@@ -92,6 +93,18 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # Pinned, and to 5.x: WiX 6 requires accepting the Open Source
+      # Maintenance Fee EULA, and an unpinned install would pick it up the
+      # day it became latest. app_flutter/scripts/build_msi.ps1 is written
+      # against this version.
+      - name: Install WiX Toolset
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 5.0.2
+          # Global tools land here; not every runner image has it on PATH.
+          "$env:USERPROFILE\.dotnet\tools" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
       - name: flutter pub get
         working-directory: app_flutter
         run: flutter pub get
@@ -152,8 +165,9 @@ jobs:
 
       # --- Windows: Phase B (windows/CMakeLists.txt) builds and bundles
       # gbm_capi automatically as part of `flutter build windows`, mirroring
-      # the Linux integration -- unverified on a real Windows machine (see
-      # this file's header comment). -------------------------------------
+      # the Linux integration. Verified on a real Windows machine: the
+      # bundle carries gbm_capi.dll, which build_msi.ps1 refuses to package
+      # without. ------------------------------------------------------------
       - name: flutter build windows
         if: runner.os == 'Windows'
         working-directory: app_flutter
@@ -163,15 +177,20 @@ jobs:
           --build-number="${{ github.run_number }}"
           --dart-define=GBM_VERSION="${{ needs.tag.outputs.new_version }}"
 
-      # Signed before packaging, not after: the zip just archives whatever is
-      # on disk, so the binary has to already be signed for the zip to carry
-      # a signed copy too.
+      # Signed before packaging, not after: the MSI embeds whatever is on
+      # disk, so the binary has to already be signed for the installed copy
+      # to be a signed one too. The MSI itself is signed after it is built.
       #
       # Skipped when the secrets are absent, so a fork's CI still goes green
       # instead of failing on something it cannot do -- same reasoning as the
       # macOS signing step below. The emptiness check lives in the script,
       # not `if`, since neither `secrets` nor `env` is available to a step's
       # own `if` condition.
+      #
+      # The decoded certificate goes to RUNNER_TEMP, never the workspace, and
+      # the trap deletes it on every exit: the workspace is what gets
+      # packaged and uploaded, and a signtool failure would otherwise leave
+      # the private key on disk past this step.
       - name: Sign the application (Windows)
         if: runner.os == 'Windows'
         shell: bash
@@ -183,26 +202,60 @@ jobs:
             echo "No signing certificate configured; shipping an unsigned build."
             exit 0
           fi
-          echo "$WINDOWS_CERT_PFX" | base64 --decode > cert.pfx
-          signtool sign /f cert.pfx /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
+          pfx="$RUNNER_TEMP/cert.pfx"
+          trap 'rm -f "$pfx"' EXIT
+          echo "$WINDOWS_CERT_PFX" | base64 --decode > "$pfx"
+          signtool sign /f "$pfx" /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
             /tr http://timestamp.digicert.com /td SHA256 \
             "app_flutter/build/windows/x64/runner/Release/gbm_flutter.exe"
-          rm -f cert.pfx
         continue-on-error: true
 
-      # No NSIS installer yet, unlike the retired Qt pipeline -- authoring one
-      # against Flutter's bundle layout needs a real Windows machine to
-      # verify, which this was written without (see this file's header
-      # comment). A plain zip matches Flutter's own documented distribution
-      # guidance in the meantime.
+      # A per-user Windows Installer package (app_flutter/windows/installer/
+      # Package.wxs), replacing the portable zip earlier releases shipped:
+      # the app's own updater hands this file to msiexec, which replaces the
+      # install and rolls a failure back in one transaction.
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $version = "${{ needs.tag.outputs.new_version }}"
           $name = "git-branch-manager-$version-windows-${{ matrix.arch }}"
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path "app_flutter/build/windows/x64/runner/Release/*" -DestinationPath "dist/$name.zip"
+          ./app_flutter/scripts/build_msi.ps1 -Version $version -OutFile "dist/$name.msi"
+
+      - name: Sign the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          WINDOWS_CERT_PFX: ${{ secrets.WINDOWS_CERT_PFX }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if [ -z "$WINDOWS_CERT_PFX" ]; then
+            echo "No signing certificate configured; shipping an unsigned installer."
+            exit 0
+          fi
+          pfx="$RUNNER_TEMP/cert.pfx"
+          trap 'rm -f "$pfx"' EXIT
+          echo "$WINDOWS_CERT_PFX" | base64 --decode > "$pfx"
+          signtool sign /f "$pfx" /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
+            /tr http://timestamp.digicert.com /td SHA256 dist/*.msi
+        continue-on-error: true
+
+      # Everything in dist/ is uploaded and then attached to a public
+      # release, so the Windows leg checks it holds the one installer and
+      # nothing else -- a stray certificate or build file must fail the job,
+      # not ship.
+      - name: Check what is about to be published (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist
+          unexpected=$(find dist -type f ! -name '*-windows-x64.msi')
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected files in dist/: $unexpected"
+            exit 1
+          fi
+          [ "$(find dist -type f -name '*.msi' | wc -l)" -eq 1 ]
 
       # --- macOS: no Phase B (the Xcode-based runner has no CMake build to
       # hook into the way linux/CMakeLists.txt and windows/CMakeLists.txt do

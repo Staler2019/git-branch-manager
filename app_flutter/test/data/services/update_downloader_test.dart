@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/downloaded_asset.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/services/update_downloader.dart';
 
@@ -131,12 +132,29 @@ void main() {
         manifest: '$_helloDigest  ${_asset.name}',
       );
 
-      final File file = await UpdateDownloader(get: transport.call)
-          .download(asset: _asset, manifest: _manifestAsset, into: tempDir);
+      final DownloadedAsset downloaded = await UpdateDownloader(
+        get: transport.call,
+      ).download(asset: _asset, manifest: _manifestAsset, into: tempDir);
 
-      expect(file.existsSync(), isTrue);
-      expect(file.readAsStringSync(), 'hello');
-      expect(file.path, endsWith(_asset.name));
+      expect(downloaded.file.existsSync(), isTrue);
+      expect(downloaded.file.readAsStringSync(), 'hello');
+      expect(downloaded.file.path, endsWith(_asset.name));
+    });
+
+    // Carried forward so the installer can check the file again right
+    // before it is used: the bundle sits in a temp directory for as long as
+    // the user leaves the dialog at "ready to install".
+    test('returns the digest it verified against', () async {
+      final _FakeTransport transport = _transportServing(
+        utf8.encode('hello'),
+        manifest: '${_helloDigest.toUpperCase()}  ${_asset.name}',
+      );
+
+      final DownloadedAsset downloaded = await UpdateDownloader(
+        get: transport.call,
+      ).download(asset: _asset, manifest: _manifestAsset, into: tempDir);
+
+      expect(downloaded.sha256, _helloDigest);
     });
 
     // The assertion the whole feature rests on. A corrupted or substituted

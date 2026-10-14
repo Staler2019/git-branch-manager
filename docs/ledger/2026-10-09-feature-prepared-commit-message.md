@@ -202,7 +202,7 @@ epoch 3 是 closing review，REVISE 後暫停交使用者，取得上面的裁�
   - 修正後連跑 3 次，3 次皆 +5 全綠（修正前 3 次皆紅）。剩下兩處 `git log -1` 在 `pumpAndSettle` 之後才讀。
 - 已知但未處理（報告給使用者，未裁定）：
   - `real_repo_harness.dart` 的 `runGit` 被其他裝置層檔案在 app 執行中使用，同樣的隨機紅風險在全 repo 都存在。
-  - production 端：`update_installer.dart` 的 `Process.run` 在更新流程中跑時，core 的 git 可能拿到 -1。`desktop_launcher.dart` 用 `ProcessStartMode.detached`，不是 Dart 的子行程，不受影響。
+  - production 端：`update_installer.dart` 的 `Process.run` 在更新流程中跑時，core 的 git 可能拿到 -1。`desktop_launcher.dart` 用 `ProcessStartMode.detached`，不是 Dart 的子行程，不受影響。（2026-10-14 補註：Windows 上 `desktop_launcher.dart` 改走 `Process.run` 的 Start-Process relay；回收問題只在 POSIX，macOS／Linux 仍是 detached，此句結論不變。見 [ledger: Release 改發 MSI](2026-10-14-feat-release-msi-installer.md)。）
   - core 端要根治，需要不靠 `waitpid` 取得退出碼（例如 macOS 的 kqueue `EVFILT_PROC`/`NOTE_EXITSTATUS`）。這是行程管理的設計變更，需另行規劃。
 - 其他裝置層檔案逐檔重跑（2026-10-11，`lib` 未改動）：`commit_flow` +1、`conflict_flow` +1、`merge_current_flow` +1、`merge_squash_flow` +2，全綠。
 

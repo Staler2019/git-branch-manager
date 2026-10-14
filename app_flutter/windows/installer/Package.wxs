@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Windows Installer package for git-branch-manager (WiX Toolset 5).
+  Built by ../../scripts/build_msi.ps1, locally and in release.yml alike.
+
+  Per user, never per machine: installs into %LocalAppData%\Programs with no
+  UAC prompt, so the app's own updater can run msiexec silently. A per-machine
+  install whose source or folder a user can write is the classic
+  repair-as-SYSTEM escalation, which is why Scope is perUser and not the
+  dual-purpose scope, and why this package carries no custom action at all.
+
+  The HKCU InstallFolder value is read by the app
+  (lib/data/services/install_location_registry.dart) to decide whether the
+  copy running is the one this package manages, and by this package itself
+  (the RegistrySearch below) so an upgrade lands in the same folder. Its key
+  and value names are pinned against the Dart side by
+  test/data/services/install_location_registry_test.dart.
+
+  Uninstall removes the program files, the shortcut and the HKCU key. It
+  deliberately leaves the user's settings (%AppData%\dev.gitbranchmanager),
+  which belong to the user rather than to this install.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Git Branch Manager"
+      Manufacturer="dev.gitbranchmanager"
+      Version="$(Version)"
+      UpgradeCode="71808038-0C38-43C1-A351-AEEDB6ED92C4"
+      Scope="perUser"
+      Language="1033"
+      Compressed="yes">
+
+    <!-- Upgrades replace the previous version in one transaction; installing
+         an older package over a newer one is refused rather than performed. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed. Uninstall it first to install this one." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="$(sys.SOURCEFILEDIR)..\runner\resources\app_icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- Remember-property: where the previous version went, if any. -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Root="HKCU" Key="Software\Git Branch Manager" Name="InstallFolder" Type="raw" />
+    </Property>
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UserProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Git Branch Manager" />
+      </Directory>
+    </StandardDirectory>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(ReleaseDir)\**" />
+    </ComponentGroup>
+
+    <Component Id="InstallLocation" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKCU" Key="Software\Git Branch Manager" ForceDeleteOnUninstall="yes">
+        <RegistryValue Name="InstallFolder" Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />
+      </RegistryKey>
+      <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+      <RemoveFolder Id="RemoveUserProgramsFolder" Directory="UserProgramsFolder" On="uninstall" />
+    </Component>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcut">
+        <Shortcut
+            Id="AppShortcut"
+            Name="Git Branch Manager"
+            Target="[INSTALLFOLDER]gbm_flutter.exe"
+            WorkingDirectory="INSTALLFOLDER"
+            Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\Git Branch Manager" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="InstallLocation" />
+      <ComponentRef Id="StartMenuShortcut" />
+    </Feature>
+  </Package>
+</Wix>

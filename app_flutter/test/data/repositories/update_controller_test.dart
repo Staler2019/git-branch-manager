@@ -12,6 +12,7 @@ import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_downloader.dart';
+import 'package:gbm_flutter/data/services/detached_process.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 LatestRelease _release(String tag, {List<ReleaseAsset>? assets}) {

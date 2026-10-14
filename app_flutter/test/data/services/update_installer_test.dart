@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/prepared_update.dart';
+import 'package:gbm_flutter/data/services/detached_process.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 /// The half of the installer that must not be executed: platform derivation,

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/prepared_update.dart';
+import 'package:gbm_flutter/data/services/detached_process.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 /// Keeps a checked-in copy of the generated PowerShell updater in step with

@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gbm_flutter/data/services/update_installer.dart';
+import 'package:gbm_flutter/data/services/detached_process.dart';
 
 /// How the updater script is started on Windows.
 ///
@@ -81,7 +81,7 @@ void main() {
     final String shell =
         '${Platform.environment['SystemRoot']}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 
-    final DetachedStart outcome = await startUpdaterProcess(shell, <String>[
+    final DetachedStart outcome = await startDetachedProcess(shell, <String>[
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
@@ -99,7 +99,7 @@ void main() {
   }, skip: Platform.isWindows ? false : 'Windows only');
 
   test('a shell that is not there is reported, not swallowed', () async {
-    final DetachedStart outcome = await startUpdaterProcess(
+    final DetachedStart outcome = await startDetachedProcess(
       r'C:\nowhere\powershell.exe',
       <String>['-File', 'x.ps1'],
       workingDirectory: Directory.systemTemp.path,

@@ -3,15 +3,17 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/detached_process.dart';
 
-/// How the updater script is started on Windows.
+/// How the updater script, and everything `DesktopLauncher` opens, is
+/// started on Windows.
 ///
 /// `Process.start(mode: ProcessStartMode.detached)` returns a pid there and
-/// reports success, and the child never runs a single instruction: measured
-/// with `powershell.exe -File` and with `cmd.exe /c`, from `dart run`, from
-/// an AOT executable and from a process WMI created outside any job, with
-/// the parent alive for ten seconds afterwards. That is the whole of the
-/// reported "a gbm-update.ps1 in temp and no gbm-update.log" -- the script
-/// was written and never ran.
+/// reports success, and a console program never runs a single instruction:
+/// measured with `powershell.exe -File` and with `cmd.exe /c`, from `dart
+/// run`, from an AOT executable and from a process WMI created outside any
+/// job, with the parent alive for ten seconds afterwards (GUI programs --
+/// `charmap.exe`, `wt.exe` -- do run). That is the whole of the reported "a
+/// gbm-update.ps1 in temp and no gbm-update.log" -- the script was written
+/// and never ran.
 void main() {
   group('windowsRelayArguments', () {
     const String shell =

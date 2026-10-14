@@ -40,12 +40,16 @@ Windows 上由 PowerShell 腳本做「rename `.gbm-old` → `Copy-Item` → 失�
 | 6 | `build: WiX 5 安裝檔與 build_msi.ps1` | 2 | 3 |
 | 7 | `ci: release Windows leg 改發 MSI` | — | — |
 | 8 | 本檔與規則 | — | — |
+| 9 | `refactor: Windows relay 移至 detached_process.dart` | — | — |
+| 10 | `fix: Windows relay 一律由 PowerShell 啟動目標` | 7 | 8 |
+| 11 | `fix: DesktopLauncher 在 Windows 改走 Start-Process relay` | 7 | 7 |
+| 12 | 規則、本檔與註解的 console／GUI 更正 | — | — |
 
 Commit 4 的 mutation h（launch 時只檢查「有登錄」不比對資料夾）一開始 **0 紅**——補上 `refuses when the registration names another folder` 後才 1 紅。Commit 3 刻意與 MSI 切換分開：revert 4+7 時它留著，已用 MSI 安裝的副本因此被導向 release 頁，不會被目錄置換弄壞 Windows Installer 的註冊。
 
 本機 Flutter 是 3.47.5（CI pin 3.47.4），依 [CI-formatter-version-drift] 只格式化動到的檔案，每次核對 diff。
 
-### 實機發現一：Windows 上 `ProcessStartMode.detached` 的子行程從來沒跑
+### 實機發現一：Windows 上 `ProcessStartMode.detached` 的~~子行程~~ console 子行程從來沒跑
 
 E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-update.ps1` 寫在 temp，`gbm-update.log` 之後**一行都沒有**，0.0.1 沒被升級。同一支 `.ps1` 前景執行 → exit 0、升到 0.0.2、app 重啟。
 
@@ -61,9 +65,23 @@ E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-u
 | 父行程是否在 job object | 否（`IsProcessInJob` = False） |
 | `tasklist` 追 detached 回傳的 pid | t+0s 起就不存在 |
 | `normal` / `inheritStdio` | 是 |
+| AOT exe，detached GUI 程式（`charmap.exe`、`wt.exe`、`explorer.exe`）（追加量測） | **是** |
 | normal 啟動 PowerShell，由 `Start-Process -WindowStyle Hidden` 啟動真正的腳本，父行程 1.5 秒後結束 | 是，且活過父行程 |
 
-這就是 2026-09-01 那份 Windows 回報的全貌——「temp 裡有 `gbm-update.ps1`、旁邊沒有 `gbm-update.log`、app 還在」——當時歸因於 app 沒走到啟動那一步，實際上是**啟動了、子行程沒跑**。修法：`startUpdaterProcess` 在 Windows 改用 Start-Process 轉接並**等轉接結束**，非 0 結束或 15 秒逾時都算啟動失敗，帶 PowerShell 自己的訊息。`update_detached_start_test.dart` 的 `a started updater actually runs` 要求腳本留下標記檔，舊實作在 Windows 主機上紅。
+這就是 2026-09-01 那份 Windows 回報的全貌——「temp 裡有 `gbm-update.ps1`、旁邊沒有 `gbm-update.log`、app 還在」——當時歸因於 app 沒走到啟動那一步，實際上是**啟動了、子行程沒跑**。~~（任何子行程）~~ 追加量測更正：失敗的是 console 程式（`powershell.exe`、`cmd.exe`），GUI 程式照常執行。修法：`startUpdaterProcess`（後改名 `startDetachedProcess`，移到 `detached_process.dart`）在 Windows 改用 Start-Process 轉接並**等轉接結束**，非 0 結束或 15 秒逾時都算啟動失敗，帶 PowerShell 自己的訊息。`update_detached_start_test.dart`（後改名 `detached_process_test.dart`）的 `a started updater actually runs` 要求腳本留下標記檔，舊實作在 Windows 主機上紅。
+
+### 實機發現三：DesktopLauncher 在 Windows 上開檔、開網址、PowerShell 終端機從未執行
+
+發現一之後追量：`DesktopLauncher` 的預設 starter 也是 detached。AOT 探針結果：`cmd /c start` **否**、`powershell.exe` 備援 **否**、`wt.exe` 是。受影響的是 Open file（05-F）、Help → Documentation／Report an issue，以及更新對話框的「到 release 頁」——三者都回報成功、什麼都沒開。使用者裁定「本分支一併修」。
+
+- relay 原本是「目標自己 `Start-Process` 自己」，只對 PowerShell 成立。改為一律由 `%SystemRoot%` 的 Windows PowerShell 啟動目標，新增 `RelayWindow`（更新腳本 hidden，使用者要看的東西 normal）。
+- 量到兩件 relay 引號的事：`cmd.exe` 收到 `"/c"` 什麼都不執行，所以參數只在空字串或含空白時加引號（與 `Process.start` 相同規則）；explorer 收到整段加引號的 `"/select,C:\a b\f.txt"` 會開「文件」資料夾、不選任何東西——舊的 detached 版本對含空白的路徑**本來就壞**，relay 讓不含空白的也壞了。改為 `/select,` 與路徑兩個參數，兩種路徑都選中檔案。
+- `openFile`／`openUrl` 直接把路徑或 URL 交給 `Start-Process`，依關聯開啟，不再經 `cmd`。PowerShell 備援拿掉 `-Command 'cd "$path"'`：雙引號字串會插值，資料夾名 `$(calc)` 會被執行；改用 working directory。
+- 實機 E2E（真的 `DesktopLauncher`，路徑 `gbm e2e o'b $(calc) & x`，以可見視窗 handle 計數）：wt 終端機、PowerShell 備援終端機各出現一個新視窗；Open file 以關聯程式開啟（`/` 分隔的路徑）；file manager 開在該資料夾並選中 `note.txt`；URL 在 Firefox 開出 release 頁；不存在的檔案回 `false`。
+- 視窗樣式 normal→hidden 的 mutation 單元測試看不到（m1 存活），只有上面的視窗計數證明。
+- #184（dart:io 回收子行程）只發生在 POSIX 的 `waitpid`；relay 的 `Process.run` 只在 Windows 執行，macOS／Linux 仍是 detached，不受影響。2026-10-09 ledger 的對應句已原地加註。
+- relay 需要 PowerShell 冷啟動，每次開啟多約 1 秒（未精確量測）。
+- 未處理：路徑含逗號時 explorer `/select,` 的行為未量測。
 
 ### 實機發現二：per-user MSI 的「解除安裝」項目在 HKLM
 

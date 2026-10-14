@@ -41,7 +41,10 @@ typedef DetachedProcessStarter = Future<DetachedStart> Function(
 /// with the parent alive for ten seconds after the start. It is the whole of
 /// the earlier Windows report: a `gbm-update.ps1` in temp, no
 /// `gbm-update.log` beside it, and the app still on screen. The script had
-/// been written and never ran; nothing in the app could tell.
+/// been written and never ran; nothing in the app could tell. It is
+/// console programs that fail: `charmap.exe`, `wt.exe` and `explorer.exe`,
+/// started the same way, run. Every Windows start goes through the relay
+/// anyway, so no caller has to know which kind it is starting.
 ///
 /// So on Windows PowerShell ([windowsRelayShell]) is started normally, and
 /// asked to start [executable] through `Start-Process`

@@ -24,7 +24,7 @@ _start('powershell', ...)       ← 候選二
 一顆按鈕都沒有**，候選二出局。
 
 > **更正（2026-10-14）**：「候選二失敗會 `return` 一段理由」只對拋 `ProcessException` 的失敗成立。
-> 實測 Windows 上 `ProcessStartMode.detached` 回報成功、子行程卻一行都沒跑，這種失敗**不會**
+> 實測 Windows 上 `ProcessStartMode.detached` 回報成功、~~子行程~~ console 子行程（PowerShell、cmd）卻一行都沒跑，這種失敗**不會**
 > 出現在畫面上。本輪的卡住仍是候選一（同步阻塞的 `gbm_session_close`），但候選二同時也壞著，
 > 只是被候選一擋在前面。見 [ledger: Release 改發 MSI](2026-10-14-feat-release-msi-installer.md)。
 

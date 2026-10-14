@@ -48,9 +48,9 @@ or test now enforces live at that site, with the reason in its comment; history 
 - **Do**: verify include paths from `compile_commands.json`, not a probe with hand-fed `-I` (`tests/CMakeLists.txt`'s `gbm_spawn_cost` comment is the worked case).
 - **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 
-## [CI-windows-detached-never-runs] On Windows, `ProcessStartMode.detached` reports success and the child never runs
+## [CI-windows-detached-never-runs] On Windows, `ProcessStartMode.detached` reports success and ~~the child~~ a console program never runs
 
-- **Rule**: `Process.start` returns a pid that is already gone; measured with `powershell.exe -File` and `cmd.exe /c`, from `dart run`, an AOT exe and a WMI-created process, outside any job.
-- **Consequence**: nothing in the app can tell; the updater's `.ps1` sat in temp with no log beside it.
-- **Do**: start anything that must outlive the app through `startUpdaterProcess` (`update_installer.dart`), which relays via `Start-Process` and waits for the relay; prove a start with a mark the child writes itself (`update_detached_start_test.dart`).
+- **Rule**: `Process.start` returns a pid that is already gone; measured with `powershell.exe -File` and `cmd.exe /c`, from `dart run`, an AOT exe and a WMI-created process, outside any job. ~~(any child)~~ GUI programs (`charmap.exe`, `wt.exe`, `explorer.exe`) do run (2026-10-14).
+- **Consequence**: nothing in the app can tell; the updater's `.ps1` sat in temp with no log beside it, and `DesktopLauncher`'s `cmd /c start` and `powershell.exe` opened nothing.
+- **Do**: start every external program through `startDetachedProcess` (`detached_process.dart`; ~~`startUpdaterProcess` in `update_installer.dart`~~), which relays via `Start-Process` and waits for the relay; prove a start with a mark the child writes itself (`detached_process_test.dart`). A relayed argument is quoted only when it holds whitespace: `cmd.exe` given `"/c"` runs nothing.
 - **Evidence**: [ledger: Release 改發 MSI](../../docs/ledger/2026-10-14-feat-release-msi-installer.md)

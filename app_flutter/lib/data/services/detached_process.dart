@@ -31,7 +31,7 @@ typedef DetachedProcessStarter = Future<DetachedStart> Function(
   String? workingDirectory,
 });
 
-/// Starts the updater so that it outlives this process.
+/// Starts [executable] so that it outlives this process.
 ///
 /// On macOS and Linux that is `ProcessStartMode.detached`. **On Windows it
 /// is not, because there it does not work**: `Process.start` returns a pid
@@ -43,15 +43,18 @@ typedef DetachedProcessStarter = Future<DetachedStart> Function(
 /// `gbm-update.log` beside it, and the app still on screen. The script had
 /// been written and never ran; nothing in the app could tell.
 ///
-/// So on Windows the same shell is started normally, and asked to start the
-/// real one through `Start-Process` ([windowsRelayArguments]): that child
-/// belongs to no console and no pipe of this process, and survives its exit.
-/// The relay is waited for, which turns "reported started" into "started":
-/// a nonzero exit, with PowerShell's own message, is a failed start.
+/// So on Windows PowerShell ([windowsRelayShell]) is started normally, and
+/// asked to start [executable] through `Start-Process`
+/// ([windowsRelayArguments]): that child belongs to no console and no pipe
+/// of this process, and survives its exit. The relay is waited for, which
+/// turns "reported started" into "started": a nonzero exit, with
+/// PowerShell's own message, is a failed start. [window] is ignored
+/// elsewhere.
 Future<DetachedStart> startDetachedProcess(
   String executable,
   List<String> arguments, {
   String? workingDirectory,
+  RelayWindow window = RelayWindow.hidden,
 }) async {
   try {
     if (!Platform.isWindows) {
@@ -63,12 +66,18 @@ Future<DetachedStart> startDetachedProcess(
       );
       return const DetachedStart.ok();
     }
+    if (arguments.any((String a) => a.contains('"'))) {
+      return const DetachedStart.failed(
+        'an argument contains a double quote, which the relay cannot carry',
+      );
+    }
     final ProcessResult relay = await Process.run(
-      executable,
+      windowsRelayShell(),
       windowsRelayArguments(
         executable,
         arguments,
         workingDirectory: workingDirectory ?? Directory.systemTemp.path,
+        window: window,
       ),
       workingDirectory: workingDirectory,
     ).timeout(_kRelayDeadline);
@@ -98,31 +107,59 @@ Future<DetachedStart> startDetachedProcess(
 /// the app is still the user's to use if this gives up.
 const Duration _kRelayDeadline = Duration(seconds: 15);
 
-/// The relay's own command line: [executable] asked to `Start-Process`
-/// itself with [arguments], hidden, in [workingDirectory].
+/// The relay's own command line: PowerShell asked to `Start-Process`
+/// [executable] with [arguments] in [workingDirectory]. With no arguments
+/// the parameter is left out -- `Start-Process` refuses an empty one, and a
+/// URL or document handed to it on its own (opened by its association) has
+/// none.
 ///
 /// `Start-Process -ArgumentList` joins an array with spaces and quotes
-/// nothing, so the arguments travel as **one** string with each one
-/// double-quoted (a Windows path cannot contain `"`), and that string, like
+/// nothing, so the arguments travel as **one** string, and that string, like
 /// every other value, reaches PowerShell as a single-quoted literal, which
-/// interpolates nothing.
+/// interpolates nothing. Inside it an argument is double-quoted only when it
+/// is empty or holds a space or tab -- what `Process.start` itself does --
+/// because a quoted switch is not a switch to every program: `cmd.exe`
+/// given `"/c"` runs nothing (measured). A Windows path cannot contain `"`,
+/// and [startDetachedProcess] refuses any argument that does.
 List<String> windowsRelayArguments(
   String executable,
   List<String> arguments, {
   required String workingDirectory,
+  RelayWindow window = RelayWindow.hidden,
 }) {
-  final String joined = arguments.map((String a) => '"$a"').join(' ');
+  final String joined = arguments
+      .map((String a) => a.isEmpty || a.contains(RegExp(r'[ \t]')) ? '"$a"' : a)
+      .join(' ');
+  final String style = switch (window) {
+    RelayWindow.hidden => 'Hidden',
+    RelayWindow.normal => 'Normal',
+  };
   return <String>[
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy',
     'Bypass',
     '-Command',
-    'Start-Process -WindowStyle Hidden '
+    'Start-Process -WindowStyle $style '
         '-FilePath ${psQuote(executable)} '
-        '-WorkingDirectory ${psQuote(workingDirectory)} '
-        '-ArgumentList ${psQuote(joined)}',
+        '-WorkingDirectory ${psQuote(workingDirectory)}'
+        '${arguments.isEmpty ? '' : ' -ArgumentList ${psQuote(joined)}'}',
   ];
+}
+
+/// How the relayed program's window starts: hidden for the updater's own
+/// script, normal for a terminal, browser or document the user asked for.
+enum RelayWindow { hidden, normal }
+
+/// The relay itself: Windows PowerShell by absolute path, because a bare
+/// name is resolved by walking `PATH`, and a mangled `PATH` would take out
+/// every start this app makes on Windows for a file that is always in the
+/// same place.
+String windowsRelayShell({String? systemRoot}) {
+  final String root = systemRoot ?? Platform.environment['SystemRoot'] ?? '';
+  return root.isEmpty
+      ? 'powershell.exe'
+      : '$root\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';
 }
 
 /// PowerShell's single-quoted strings escape a quote by doubling it and

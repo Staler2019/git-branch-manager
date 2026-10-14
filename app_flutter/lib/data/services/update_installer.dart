@@ -306,6 +306,100 @@ typedef DetachedProcessStarter = Future<DetachedStart> Function(
   String? workingDirectory,
 });
 
+/// Starts the updater so that it outlives this process.
+///
+/// On macOS and Linux that is `ProcessStartMode.detached`. **On Windows it
+/// is not, because there it does not work**: `Process.start` returns a pid
+/// and reports success, and the child never runs a single instruction --
+/// measured with `powershell.exe -File` and `cmd.exe /c`, from `dart run`,
+/// from an AOT executable and from a process WMI created outside any job,
+/// with the parent alive for ten seconds after the start. It is the whole of
+/// the earlier Windows report: a `gbm-update.ps1` in temp, no
+/// `gbm-update.log` beside it, and the app still on screen. The script had
+/// been written and never ran; nothing in the app could tell.
+///
+/// So on Windows the same shell is started normally, and asked to start the
+/// real one through `Start-Process` ([windowsRelayArguments]): that child
+/// belongs to no console and no pipe of this process, and survives its exit.
+/// The relay is waited for, which turns "reported started" into "started":
+/// a nonzero exit, with PowerShell's own message, is a failed start.
+Future<DetachedStart> startUpdaterProcess(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+}) async {
+  try {
+    if (!Platform.isWindows) {
+      await Process.start(
+        executable,
+        arguments,
+        workingDirectory: workingDirectory,
+        mode: ProcessStartMode.detached,
+      );
+      return const DetachedStart.ok();
+    }
+    final ProcessResult relay = await Process.run(
+      executable,
+      windowsRelayArguments(
+        executable,
+        arguments,
+        workingDirectory: workingDirectory ?? Directory.systemTemp.path,
+      ),
+      workingDirectory: workingDirectory,
+    ).timeout(_kRelayDeadline);
+    if (relay.exitCode != 0) {
+      final String why = '${relay.stderr}'.trim();
+      return DetachedStart.failed(
+        why.isEmpty ? 'the relay exited with ${relay.exitCode}' : why,
+      );
+    }
+    return const DetachedStart.ok();
+  } on ProcessException catch (e) {
+    // Kept rather than collapsed to a bool: "The system cannot find the
+    // file specified" and "Access is denied" send the user to completely
+    // different places, and the old bool sent them to neither.
+    return DetachedStart.failed(e.message);
+  } on TimeoutException {
+    return DetachedStart.failed(
+      'the relay did not finish within ${_kRelayDeadline.inSeconds}s',
+    );
+  } on Object catch (e) {
+    return DetachedStart.failed('$e');
+  }
+}
+
+/// Generous, because a cold PowerShell start on a busy machine takes
+/// seconds; short of the watchdog, because nothing has been closed yet and
+/// the app is still the user's to use if this gives up.
+const Duration _kRelayDeadline = Duration(seconds: 15);
+
+/// The relay's own command line: [executable] asked to `Start-Process`
+/// itself with [arguments], hidden, in [workingDirectory].
+///
+/// `Start-Process -ArgumentList` joins an array with spaces and quotes
+/// nothing, so the arguments travel as **one** string with each one
+/// double-quoted (a Windows path cannot contain `"`), and that string, like
+/// every other value, reaches PowerShell as a single-quoted literal, which
+/// interpolates nothing.
+List<String> windowsRelayArguments(
+  String executable,
+  List<String> arguments, {
+  required String workingDirectory,
+}) {
+  final String joined = arguments.map((String a) => '"$a"').join(' ');
+  return <String>[
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    'Start-Process -WindowStyle Hidden '
+        '-FilePath ${_psQuote(executable)} '
+        '-WorkingDirectory ${_psQuote(workingDirectory)} '
+        '-ArgumentList ${_psQuote(joined)}',
+  ];
+}
+
 /// Arms a deadline after which the process exits whatever else is happening.
 /// Returns whether it was armed.
 typedef UpdateWatchdog = Future<bool> Function(Duration after);
@@ -324,7 +418,7 @@ class UpdateInstaller {
     this.systemRoot,
     this.sessionCloseDeadline = kSessionCloseDeadline,
     this.watchdogDeadline = kUpdateWatchdogDeadline,
-  }) : _start = start ?? _startDetached,
+  }) : _start = start ?? startUpdaterProcess,
        _run = run ?? _runToCompletion,
        _armWatchdog = armWatchdog ?? _spawnWatchdog,
        _exitProcess = exitProcess ?? _realExit,
@@ -375,29 +469,6 @@ class UpdateInstaller {
   String? get _home =>
       homeDirectory ??
       Platform.environment[_os == 'windows' ? 'USERPROFILE' : 'HOME'];
-
-  static Future<DetachedStart> _startDetached(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) async {
-    try {
-      await Process.start(
-        executable,
-        arguments,
-        workingDirectory: workingDirectory,
-        mode: ProcessStartMode.detached,
-      );
-      return const DetachedStart.ok();
-    } on ProcessException catch (e) {
-      // Kept rather than collapsed to a bool: "The system cannot find the
-      // file specified" and "Access is denied" send the user to completely
-      // different places, and the old bool sent them to neither.
-      return DetachedStart.failed(e.message);
-    } on Object catch (e) {
-      return DetachedStart.failed('$e');
-    }
-  }
 
   /// Spawns [updateWatchdogEntryPoint]. Its failure is reported rather than
   /// thrown: a watchdog that could not be armed is a diagnostic loss, not a

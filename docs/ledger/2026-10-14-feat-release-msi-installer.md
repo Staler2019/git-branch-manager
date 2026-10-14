@@ -125,7 +125,7 @@ E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-u
 
 `shared_preferences.json` 的雜湊在 E2E 過程中有變——是執行中的各版本 app 自己寫入設定，不是安裝或升級造成；檔案全程存在。
 
-延後與觀察（未在本輪處理，需使用者決定是否開 issue）：
+延後與觀察（未在本輪處理，需使用者決定是否開 issue）。使用者 2026-10-14 裁定以下各項「維持defer」（含 reg.exe 編碼 P4）：
 
 - F4 後半：下載目錄與腳本改放 `%LocalAppData%`。
 - F7：設定憑證後在腳本加 `Get-AuthenticodeSignature` 釘 thumbprint。
@@ -133,3 +133,5 @@ E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-u
 - `ci.yml` 不建 MSI：`Package.wxs` 或 `build_msi.ps1` 壞掉，要到 merge 後 release 才會發現。
 - 觀察到 `update_controller_test.dart` 的 install 測試會把行寫進**真的** `<systemTemp>/gbm-update.log`（`UpdateController.install` 固定用 `Directory.systemTemp`）。
 - 下一次真正 release 後，以 GitHub 上的 N → N+1 做一次 app 內更新（gateway 寫死 GitHub API，merge 前做不到）。
+- reg.exe 輸出編碼（第一次 verifier P4）：未實測，fail-safe。
+- 第四次 verifier（`de66cee..f1eb0fb`）**CONFIRMED**；advisory A1（P4）：路徑含 `[ ]` 時 PowerShell 備援終端機落在 `$PSHOME`，是 Windows PowerShell 5.1 自己的行為（不經 relay 也重現），主要候選 wt.exe 落點正確。

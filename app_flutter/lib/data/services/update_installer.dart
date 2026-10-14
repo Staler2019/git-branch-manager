@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/prepared_update.dart';
 import '../models/release_asset.dart';
 import 'desktop_launcher.dart';
+import 'install_location_registry.dart';
 import 'update_watchdog.dart';
 
 /// The outcome of a process run to completion.
@@ -309,6 +310,7 @@ class UpdateInstaller {
     ProcessRunner? run,
     UpdateWatchdog? armWatchdog,
     void Function(int code)? exitProcess,
+    InstallLocationReader? readInstallLocation,
     this.operatingSystem,
     this.executablePath,
     this.abi,
@@ -319,7 +321,9 @@ class UpdateInstaller {
   }) : _start = start ?? _startDetached,
        _run = run ?? _runToCompletion,
        _armWatchdog = armWatchdog ?? _spawnWatchdog,
-       _exitProcess = exitProcess ?? _realExit;
+       _exitProcess = exitProcess ?? _realExit,
+       _readInstallLocation =
+           readInstallLocation ?? readInstallLocationFromRegistry;
 
   final DetachedProcessStarter _start;
   final ProcessRunner _run;
@@ -330,6 +334,10 @@ class UpdateInstaller {
   /// through an un-substituted seam would take the test runner down with it
   /// rather than fail.
   final void Function(int code) _exitProcess;
+
+  /// Injected so no test reads the registry of the machine running it.
+  /// Consulted on Windows only.
+  final InstallLocationReader _readInstallLocation;
 
   /// Overridden in tests; null means [Platform.operatingSystem].
   final String? operatingSystem;
@@ -490,6 +498,10 @@ class UpdateInstaller {
       return 'No build is published for this platform ($_abi). '
           'Download from the releases page instead.';
     }
+    final String? registered = _registeredCopyBlocker();
+    if (registered != null) {
+      return registered;
+    }
     final Directory target = installTarget();
     // macOS runs a quarantined app from a read-only random mount point until
     // it is moved to /Applications. Replacing that is meaningless -- the copy
@@ -513,6 +525,27 @@ class UpdateInstaller {
           'by this user. Download from the releases page instead.';
     }
     return null;
+  }
+
+  /// Why a directory swap must not touch this copy, or null.
+  ///
+  /// A copy the Windows installer put in place is registered with Windows
+  /// Installer: the Apps list, the upgrade detection and uninstall all
+  /// describe its files. Swapping the directory underneath that leaves all
+  /// three describing files that are gone, so such a copy is only ever
+  /// updated by the installer. Only *this* copy counts -- a portable copy
+  /// elsewhere on a machine that also has an installed one is unaffected.
+  String? _registeredCopyBlocker() {
+    if (_os != 'windows') {
+      return null;
+    }
+    final String? registered = _readInstallLocation();
+    if (registered == null ||
+        !sameInstallLocation(registered, installTarget().path)) {
+      return null;
+    }
+    return 'This copy was installed with the installer, so it is updated by '
+        'the installer. Download the new version from the releases page.';
   }
 
   /// Probes by actually writing, not by reading a permission bit: the
@@ -712,6 +745,12 @@ class UpdateInstaller {
     final Directory payload = switch (staged) {
       PreparedDirectory(:final Directory directory) => directory,
     };
+    // Asked again here, where the swap script is actually written, rather
+    // than trusting that every caller asked [selfInstallBlocker] first.
+    final String? registered = _registeredCopyBlocker();
+    if (registered != null) {
+      return registered;
+    }
     final File script = File(
       '${scriptDir.path}${Platform.pathSeparator}'
       'gbm-update.${isWindows ? 'ps1' : 'sh'}',

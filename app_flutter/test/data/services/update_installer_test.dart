@@ -201,6 +201,69 @@ void main() {
       );
     });
 
+    // A copy the MSI installer put in place is registered with Windows
+    // Installer. Swapping its directory underneath that registration would
+    // leave the Apps list, the upgrade detection and uninstall all
+    // describing files that are no longer there -- so a registered copy
+    // never takes the directory-swap path, whatever else is true.
+    group('a copy registered by the installer', () {
+      UpdateInstaller windowsInstaller(
+        Directory install, {
+        required String? registered,
+      }) {
+        return UpdateInstaller(
+          operatingSystem: 'windows',
+          executablePath: '${install.path}/gbm_flutter.exe',
+          abi: Abi.windowsX64,
+          homeDirectory: '${root.path}/home',
+          readInstallLocation: () => registered,
+        );
+      }
+
+      test('is not offered the directory swap', () {
+        final Directory install = Directory('${root.path}/Programs/gbm')
+          ..createSync(recursive: true);
+
+        final String? reason = windowsInstaller(
+          install,
+          registered: install.path,
+        ).selfInstallBlocker();
+
+        expect(reason, isNotNull);
+        expect(reason, contains('installer'));
+      });
+
+      test('an unregistered copy is unaffected', () {
+        final Directory install = Directory('${root.path}/Programs/gbm')
+          ..createSync(recursive: true);
+
+        expect(
+          windowsInstaller(install, registered: null).selfInstallBlocker(),
+          isNull,
+        );
+      });
+
+      // Only Windows has an installer registration to protect; the seam is
+      // never even consulted elsewhere.
+      test('is never asked on another platform', () {
+        final Directory install = Directory('${root.path}/opt/gbm')
+          ..createSync(recursive: true);
+        bool asked = false;
+
+        UpdateInstaller(
+          operatingSystem: 'linux',
+          executablePath: '${install.path}/gbm_flutter',
+          abi: Abi.linuxX64,
+          readInstallLocation: () {
+            asked = true;
+            return install.path;
+          },
+        ).selfInstallBlocker();
+
+        expect(asked, isFalse);
+      });
+    });
+
     test('leaves no probe file behind', () {
       final Directory install = Directory('${root.path}/opt/gbm')
         ..createSync(recursive: true);
@@ -458,6 +521,7 @@ void main() {
         operatingSystem: os,
         executablePath: '${root.path}/install/gbm_flutter',
         systemRoot: systemRoot,
+        readInstallLocation: () => null,
         exitProcess: (int code) => events.add('exit:$code'),
         armWatchdog: (Duration after) async {
           events.add('watchdog:${after.inSeconds}s');
@@ -592,6 +656,35 @@ void main() {
         File('${scriptDir.path}/$kUpdateLogName').readAsStringSync(),
         contains('the watchdog could not be armed'),
       );
+    });
+
+    // The same refusal again at the last moment, because `launchUpdater` is
+    // what actually writes the swap script: a registered copy must not get
+    // one even if something upstream let it through.
+    test('writes no swap script for an installer-registered copy', () async {
+      final List<String> started = <String>[];
+      final String? reason =
+          await UpdateInstaller(
+            operatingSystem: 'windows',
+            executablePath: '${root.path}/install/gbm_flutter.exe',
+            readInstallLocation: () => '${root.path}/install',
+            exitProcess: (int code) => events.add('exit:$code'),
+            start:
+                (String e, List<String> a, {String? workingDirectory}) async {
+                  started.add(e);
+                  return const DetachedStart.ok();
+                },
+          ).launchUpdater(
+            staged: PreparedDirectory(staged),
+            scriptDir: scriptDir,
+            processId: 999999,
+            beforeExit: () async => events.add('beforeExit'),
+          );
+
+      expect(reason, contains('installer'));
+      expect(started, isEmpty);
+      expect(events, isEmpty);
+      expect(File('${scriptDir.path}/gbm-update.ps1').existsSync(), isFalse);
     });
 
     test('does not exit when the script could not be started', () async {

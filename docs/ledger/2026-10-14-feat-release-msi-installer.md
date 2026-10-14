@@ -36,6 +36,7 @@ Windows 上由 PowerShell 腳本做「rename `.gbm-old` → `Copy-Item` → 失�
 | 3 | `feat: 由安裝檔登錄的副本絕不走目錄置換` | 5 | 5 |
 | 4 | `feat: Windows app 內更新改由 MSI 與 msiexec 完成` | 8 | 21 |
 | 5 | `fix: detached 啟動的腳本從未執行，改 Start-Process 轉接` | 2 | 4 |
+| 5a | `test: 等 stage() 讀完 bundle 再結束 installing 測試`（verifier A1） | — | — |
 | 6 | `build: WiX 5 安裝檔與 build_msi.ps1` | 2 | 3 |
 | 7 | `ci: release Windows leg 改發 MSI` | — | — |
 | 8 | 本檔與規則 | — | — |

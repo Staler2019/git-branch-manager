@@ -172,14 +172,26 @@ UpdateInstaller _blockedInstaller() {
 /// Like [_installableInstaller], but its unpack step does not return until
 /// [unpack] completes -- the only way to observe [UpdateStatus.installing]
 /// from outside, since `install()` otherwise runs straight through.
-UpdateInstaller _blockingInstaller(Future<ProcessRunResult> unpack) {
+///
+/// [reached] completes when the unpack step is entered -- after `stage()`
+/// has finished re-hashing the bundle and closed it. Waiting for that rather
+/// than for a pumped event queue matters on Windows: a tearDown that deletes
+/// the directory while the hash still holds the file open fails with a
+/// sharing violation (errno 32), measured 2 runs in 15.
+UpdateInstaller _blockingInstaller(
+  Future<ProcessRunResult> unpack, {
+  Completer<void>? reached,
+}) {
   final Directory install = Directory('${_tempDir().path}/opt/gbm')
     ..createSync(recursive: true);
   return UpdateInstaller(
     operatingSystem: 'linux',
     executablePath: '${install.path}/gbm_flutter',
     abi: Abi.linuxX64,
-    run: (String exe, List<String> args) => unpack,
+    run: (String exe, List<String> args) {
+      reached?.complete();
+      return unpack;
+    },
     start: (String e, List<String> a, {String? workingDirectory}) async =>
         const DetachedStart.ok(),
     armWatchdog: (Duration after) async => true,
@@ -866,17 +878,18 @@ void main() {
       // directly, so nothing here depends on a test-only hook.
       final Completer<ProcessRunResult> unpacking =
           Completer<ProcessRunResult>();
+      final Completer<void> unpackReached = Completer<void>();
       final UpdateController c = _controller(
         result: _release('v9.9.9'),
         downloader: _FakeDownloader(),
         createDownloadDir: () => dir,
-        installer: _blockingInstaller(unpacking.future),
+        installer: _blockingInstaller(unpacking.future, reached: unpackReached),
       );
       await c.check();
       await c.download();
       final String bundle = c.state.downloadedPath!;
       unawaited(c.install(beforeExit: () async {}));
-      await pumpEventQueue();
+      await unpackReached.future;
       expect(c.state.status, UpdateStatus.installing);
       expect(c.state.sha256, _bundleDigest);
 

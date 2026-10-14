@@ -44,6 +44,9 @@ Windows 上由 PowerShell 腳本做「rename `.gbm-old` → `Copy-Item` → 失�
 | 10 | `fix: Windows relay 一律由 PowerShell 啟動目標` | 7 | 8 |
 | 11 | `fix: DesktopLauncher 在 Windows 改走 Start-Process relay` | 7 | 7 |
 | 12 | 規則、本檔與註解的 console／GUI 更正 | — | — |
+| 13 | `fix: relay 的工作目錄跳脫萬用字元，引號內結尾反斜線加倍`（verifier F1/F2） | 2 | 5 |
+| 14 | `test: relay 測試的暫存目錄改為重試刪除` | — | — |
+| 15 | 本檔 F3 更正與第三次 verifier 紀錄 | — | — |
 
 Commit 4 的 mutation h（launch 時只檢查「有登錄」不比對資料夾）一開始 **0 紅**——補上 `refuses when the registration names another folder` 後才 1 紅。Commit 3 刻意與 MSI 切換分開：revert 4+7 時它留著，已用 MSI 安裝的副本因此被導向 release 頁，不會被目錄置換弄壞 Windows Installer 的註冊。
 
@@ -80,8 +83,15 @@ E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-u
 - 實機 E2E（真的 `DesktopLauncher`，路徑 `gbm e2e o'b $(calc) & x`，以可見視窗 handle 計數）：wt 終端機、PowerShell 備援終端機各出現一個新視窗；Open file 以關聯程式開啟（`/` 分隔的路徑）；file manager 開在該資料夾並選中 `note.txt`；URL 在 Firefox 開出 release 頁；不存在的檔案回 `false`。
 - 視窗樣式 normal→hidden 的 mutation 單元測試看不到（m1 存活），只有上面的視窗計數證明。
 - #184（dart:io 回收子行程）只發生在 POSIX 的 `waitpid`；relay 的 `Process.run` 只在 Windows 執行，macOS／Linux 仍是 detached，不受影響。2026-10-09 ledger 的對應句已原地加註。
-- relay 需要 PowerShell 冷啟動，每次開啟多約 1 秒（未精確量測）。
+- ~~relay 需要 PowerShell 冷啟動，每次開啟多約 1 秒（未精確量測）。~~ 量測更正（verifier F3）：`startDetachedProcess(cmd.exe /c exit)` 連續 8 次，中位數 264 ms、第一次（冷）942 ms；直接 detached 啟動中位數 2 ms。本機、n=8。
 - 未處理：路徑含逗號時 explorer `/select,` 的行為未量測。
+
+### 第三次 verifier（`ca8f44f..de66cee`）：REFUTED，三項
+
+- **F1（P2，38920c9 引入）**：`Start-Process -WorkingDirectory` 以萬用字元解析、沒有 literal 形式，repo 路徑含 `[1]` 時 wt 與 PowerShell 兩個候選都失敗，Open in terminal 回 `false`。FIX：路徑先經 `[WildcardPattern]::Escape`；實測 `br[1] b`、``tick`x [z]``、`o'b $(x)` 三個目錄未跳脫時前兩個 exit 1、跳脫後全部執行。
+- **F2（P3）**：加引號的參數以 `\` 結尾時，最後一個反斜線跳脫了收尾引號，後面的參數全被併入。FIX：結尾反斜線加倍（同 `Process.start`）。
+- **F3（P4）**：上面那句未量測的「約 1 秒」，已量測並原地更正。
+- 修 F1/F2 時重現了 `a started updater actually runs` 的偶發紅（6 次 1 次）：tearDown 刪暫存目錄時，被啟動的 PowerShell 仍以它為工作目錄（errno 32）。測試來自 commit 5，非本次修正引入；teardown 改為 15 秒內重試刪除；修正前 6 次 1 紅，修正後 15 次 0 紅。
 
 ### 實機發現二：per-user MSI 的「解除安裝」項目在 HKLM
 

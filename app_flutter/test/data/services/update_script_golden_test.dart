@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/prepared_update.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 /// Keeps a checked-in copy of the generated PowerShell updater in step with
@@ -57,7 +58,7 @@ void main() {
       start: (String e, List<String> a, {String? workingDirectory}) async =>
           const DetachedStart.ok(),
     ).launchUpdater(
-      staged: Directory(staged),
+      staged: PreparedDirectory(Directory(staged)),
       scriptDir: scriptDir,
       processId: 4242,
       beforeExit: () async {},

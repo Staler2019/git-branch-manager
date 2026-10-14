@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_version.dart';
+import '../models/prepared_update.dart';
 import '../models/release_asset.dart';
 import '../models/update_state.dart';
 import '../services/github_release_gateway.dart';
@@ -352,7 +353,7 @@ class UpdateController extends StateNotifier<UpdateState> {
       // report, rather than a broken install found when nothing is left
       // running to report it.
       log.write('unpacking $bundlePath');
-      final Directory staged = await _installer.stage(
+      final PreparedUpdate staged = await _installer.stage(
         bundle: File(bundlePath),
         into: dir,
       );

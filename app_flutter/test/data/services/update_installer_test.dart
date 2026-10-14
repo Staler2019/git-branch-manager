@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/prepared_update.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 
 /// The half of the installer that must not be executed: platform derivation,
@@ -242,14 +243,14 @@ void main() {
         ),
       );
 
-      final Directory staged = await installer.stage(
+      final PreparedUpdate staged = await installer.stage(
         bundle: File('${root.path}/x.tar.gz'),
         into: root,
       );
 
       expect(ran.single.take(2), <String>['tar', 'xzf']);
       expect(
-        staged.path,
+        (staged as PreparedDirectory).directory.path,
         endsWith('git-branch-manager-0.31.0-linux-x86_64'),
         reason:
             'swapping the wrapper in would nest the install one level '
@@ -268,12 +269,12 @@ void main() {
         ),
       );
 
-      final Directory staged = await installer.stage(
+      final PreparedUpdate staged = await installer.stage(
         bundle: File('${root.path}/x.tar.gz'),
         into: root,
       );
 
-      expect(staged.path, endsWith('payload'));
+      expect((staged as PreparedDirectory).directory.path, endsWith('payload'));
     });
 
     // The Windows zip is flat (`Compress-Archive .../Release/*`), so the
@@ -288,13 +289,13 @@ void main() {
         ),
       );
 
-      final Directory staged = await installer.stage(
+      final PreparedUpdate staged = await installer.stage(
         bundle: File('${root.path}/x.zip'),
         into: root,
       );
 
       expect(ran.single.take(2), <String>['tar', '-xf']);
-      expect(staged.path, endsWith('payload'));
+      expect((staged as PreparedDirectory).directory.path, endsWith('payload'));
     });
 
     test('mounts, dittos out of, and unmounts the macOS disk image', () async {
@@ -414,7 +415,7 @@ void main() {
     }
 
     Future<String?> run(UpdateInstaller installer) => installer.launchUpdater(
-      staged: staged,
+      staged: PreparedDirectory(staged),
       scriptDir: scriptDir,
       processId: 999999,
       beforeExit: () async => events.add('beforeExit'),
@@ -479,7 +480,7 @@ void main() {
       );
 
       final String? reason = await installer.launchUpdater(
-        staged: staged,
+        staged: PreparedDirectory(staged),
         scriptDir: scriptDir,
         processId: 999999,
         beforeExit: () => Completer<void>().future,
@@ -664,7 +665,7 @@ void main() {
                   : const DetachedStart.failed('not found');
             },
       ).launchUpdater(
-        staged: staged,
+        staged: PreparedDirectory(staged),
         scriptDir: scriptDir,
         processId: 999999,
         beforeExit: () async {},
@@ -751,7 +752,7 @@ void main() {
           String? workingDirectory,
         }) async => const DetachedStart.ok(),
       ).launchUpdater(
-        staged: staged,
+        staged: PreparedDirectory(staged),
         scriptDir: scriptDir,
         processId: 999999,
         beforeExit: () async {},
@@ -778,7 +779,7 @@ void main() {
           start: (String e, List<String> a, {String? workingDirectory}) async =>
               const DetachedStart.ok(),
         ).launchUpdater(
-          staged: staged,
+          staged: PreparedDirectory(staged),
           scriptDir: scriptDir,
           processId: 999999,
           beforeExit: () async {},

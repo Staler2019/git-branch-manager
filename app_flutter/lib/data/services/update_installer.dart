@@ -5,6 +5,7 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/prepared_update.dart';
 import '../models/release_asset.dart';
 import 'desktop_launcher.dart';
 import 'update_watchdog.dart';
@@ -529,15 +530,19 @@ class UpdateInstaller {
     }
   }
 
-  /// Unpacks [bundle] into [into] and returns the directory to swap into
-  /// place -- shaped exactly like [installTarget], so the script's job is a
-  /// plain directory-for-directory replacement on every platform.
+  /// Prepares [bundle] for the updater script, inside [into].
+  ///
+  /// The factory for [PreparedUpdate]: which shape comes back is decided by
+  /// the operating system being updated, and every shape is something the
+  /// script can apply without having to inspect the download itself. A
+  /// [PreparedDirectory] is shaped exactly like [installTarget], so its
+  /// script's job is a plain directory-for-directory replacement.
   ///
   /// The three release artifacts unpack differently (`release.yml`'s Package
   /// steps): the DMG mounts with the `.app` at its volume root, the Windows
   /// zip is flat with no wrapper directory, and the Linux tarball has exactly
   /// one wrapper directory that has to be descended through.
-  Future<Directory> stage({
+  Future<PreparedUpdate> stage({
     required File bundle,
     required Directory into,
   }) async {
@@ -547,14 +552,16 @@ class UpdateInstaller {
 
     switch (_os) {
       case 'macos':
-        return _stageDmg(bundle: bundle, into: into, payload: payload);
+        return PreparedDirectory(
+          await _stageDmg(bundle: bundle, into: into, payload: payload),
+        );
       case 'windows':
         // Windows 10+ ships bsdtar as `tar`, which reads zip archives.
         await _extract('tar', <String>['-xf', bundle.path, '-C', payload.path]);
-        return payload;
+        return PreparedDirectory(payload);
       default:
         await _extract('tar', <String>['xzf', bundle.path, '-C', payload.path]);
-        return _descendWrapper(payload);
+        return PreparedDirectory(_descendWrapper(payload));
     }
   }
 
@@ -668,13 +675,16 @@ class UpdateInstaller {
   /// Returns a reason string if the update could not be launched. On success
   /// it does not return: the process is gone.
   Future<String?> launchUpdater({
-    required Directory staged,
+    required PreparedUpdate staged,
     required Directory scriptDir,
     required Future<void> Function() beforeExit,
     int? processId,
   }) async {
     final Directory target = installTarget();
     final bool isWindows = _os == 'windows';
+    final Directory payload = switch (staged) {
+      PreparedDirectory(:final Directory directory) => directory,
+    };
     final File script = File(
       '${scriptDir.path}${Platform.pathSeparator}'
       'gbm-update.${isWindows ? 'ps1' : 'sh'}',
@@ -684,13 +694,13 @@ class UpdateInstaller {
         ? buildWindowsUpdaterScript(
             pid: processId ?? pid,
             targetPath: target.path,
-            stagedPath: staged.path,
+            stagedPath: payload.path,
             relaunchCommand: _windowsRelaunch(),
           )
         : buildUnixUpdaterScript(
             pid: processId ?? pid,
             targetPath: target.path,
-            stagedPath: staged.path,
+            stagedPath: payload.path,
             copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
             relaunchCommand: _unixRelaunch(),
           );
@@ -698,7 +708,7 @@ class UpdateInstaller {
     final UpdateLog log = UpdateLog(scriptDir);
     log.write('os=$_os');
     log.write('target=${target.path}');
-    log.write('staged=${staged.path}');
+    log.write('staged=${payload.path}');
     log.write('script=${script.path}');
 
     // UTF-8 with a BOM on Windows, without one everywhere else, and the

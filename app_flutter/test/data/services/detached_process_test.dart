@@ -133,7 +133,7 @@ void main() {
   // this file never appeared.
   test('a started updater actually runs', () async {
     final Directory dir = Directory.systemTemp.createTempSync('gbm relay ');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    addTearDown(() => _deleteEventually(dir));
     final File script = File('${dir.path}\\probe.ps1')
       ..writeAsStringSync(
         "Set-Content -LiteralPath (Join-Path \$PSScriptRoot 'ran.txt') -Value ok\n",
@@ -176,7 +176,7 @@ void main() {
   // started detached, never ran either.
   test('a console program that is not PowerShell actually runs', () async {
     final Directory dir = Directory.systemTemp.createTempSync('gbm relay ');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    addTearDown(() => _deleteEventually(dir));
     final String mark = '${dir.path}\\ran.txt';
 
     final DetachedStart outcome = await startDetachedProcess(
@@ -195,7 +195,7 @@ void main() {
 
   test('a working directory with brackets in it still starts', () async {
     final Directory dir = Directory.systemTemp.createTempSync('gbm br[1] ');
-    addTearDown(() => dir.deleteSync(recursive: true));
+    addTearDown(() => _deleteEventually(dir));
     final String mark = '${dir.path}\\ran.txt';
 
     final DetachedStart outcome = await startDetachedProcess(
@@ -236,4 +236,22 @@ void main() {
     expect(outcome.started, isFalse);
     expect(outcome.error, isNotEmpty);
   }, skip: Platform.isWindows ? false : 'Windows only');
+}
+
+/// The started child can still be standing in [dir] -- its working
+/// directory -- when the test ends, and Windows refuses to delete a
+/// directory a live process has as its current one (errno 32; 1 in 6 runs
+/// of `a started updater actually runs`). The child exits by itself within
+/// moments, so keep trying for a while instead of failing the teardown.
+Future<void> _deleteEventually(Directory dir) async {
+  final DateTime deadline = DateTime.now().add(const Duration(seconds: 15));
+  while (true) {
+    try {
+      dir.deleteSync(recursive: true);
+      return;
+    } on FileSystemException {
+      if (DateTime.now().isAfter(deadline)) rethrow;
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    }
+  }
 }

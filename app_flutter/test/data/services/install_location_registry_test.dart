@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/install_location_registry.dart';
 
@@ -52,6 +54,48 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  // The key and value are written by the installer and read here, in two
+  // languages that share no symbol. A rename on one side only would leave
+  // every installed copy reporting "not installed with the installer".
+  group('the installer source', () {
+    final String wxs = File('windows/installer/Package.wxs').readAsStringSync();
+    final String key = kInstallLocationRegistryKey.replaceFirst(r'HKCU\', '');
+
+    test('writes the folder under the key and value this reads', () {
+      expect(
+        wxs,
+        contains(
+          '<RegistryKey Root="HKCU" Key="$key" ForceDeleteOnUninstall="yes">',
+        ),
+      );
+      expect(
+        wxs,
+        contains(
+          '<RegistryValue Name="$kInstallLocationRegistryValue" '
+          'Type="string" Value="[INSTALLFOLDER]" KeyPath="yes" />',
+        ),
+      );
+    });
+
+    // Read back by the installer itself, so an upgrade started by hand from
+    // the .msi lands in the same folder the app reports.
+    test('remembers the folder across upgrades', () {
+      expect(
+        wxs,
+        contains(
+          '<RegistrySearch Root="HKCU" Key="$key" '
+          'Name="$kInstallLocationRegistryValue" Type="raw" />',
+        ),
+      );
+    });
+
+    test('installs per user, never per machine', () {
+      expect(wxs, contains('Scope="perUser"'));
+      expect(wxs, isNot(contains('perUserOrMachine')));
+      expect(wxs, isNot(contains('CustomAction')));
     });
   });
 

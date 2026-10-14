@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/app_version.dart';
+import '../models/downloaded_asset.dart';
+import '../models/prepared_update.dart';
 import '../models/release_asset.dart';
 import '../models/update_state.dart';
 import '../services/github_release_gateway.dart';
@@ -261,7 +263,7 @@ class UpdateController extends StateNotifier<UpdateState> {
 
     try {
       final Directory into = _downloadDir ??= _createDownloadDir();
-      final File file = await _downloader.download(
+      final DownloadedAsset downloaded = await _downloader.download(
         asset: asset,
         manifest: manifest,
         into: into,
@@ -284,7 +286,8 @@ class UpdateController extends StateNotifier<UpdateState> {
       state = UpdateState.readyToInstall(
         release: release,
         asset: asset,
-        downloadedPath: file.path,
+        downloadedPath: downloaded.file.path,
+        sha256: downloaded.sha256,
       );
     } on UpdateDownloadCancelled {
       // Not an error: back to the offer, which is where the user was.
@@ -312,6 +315,7 @@ class UpdateController extends StateNotifier<UpdateState> {
     final LatestRelease? release = current.release;
     final ReleaseAsset? asset = current.asset;
     final String? bundlePath = current.downloadedPath;
+    final String? digest = current.sha256;
     final Directory? dir = _downloadDir;
 
     // The script, the transcript and the path the dialog shows the user all
@@ -324,6 +328,7 @@ class UpdateController extends StateNotifier<UpdateState> {
         release == null ||
         asset == null ||
         bundlePath == null ||
+        digest == null ||
         dir == null) {
       // Appended rather than begun: this attempt never started, and blanking
       // the transcript would take the previous one's evidence with it. It
@@ -338,6 +343,7 @@ class UpdateController extends StateNotifier<UpdateState> {
       release: release,
       asset: asset,
       downloadedPath: bundlePath,
+      sha256: digest,
     );
 
     // One install attempt, one transcript. Opened here rather than inside
@@ -352,9 +358,10 @@ class UpdateController extends StateNotifier<UpdateState> {
       // report, rather than a broken install found when nothing is left
       // running to report it.
       log.write('unpacking $bundlePath');
-      final Directory staged = await _installer.stage(
+      final PreparedUpdate staged = await _installer.stage(
         bundle: File(bundlePath),
         into: dir,
+        sha256: digest,
       );
       // The script lives in system temp, never in the directory it is about
       // to move aside -- it would be renamed out from under itself mid-run.

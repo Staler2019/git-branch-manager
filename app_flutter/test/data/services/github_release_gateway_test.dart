@@ -171,10 +171,17 @@ void main() {
           downloadUrl: 'https://example.test/macos.dmg',
           sizeBytes: 24403102,
         ),
+        // Both Windows shapes, so the test below can say which one wins: a
+        // release carries one or the other, never both.
         const ReleaseAsset(
           name: 'git-branch-manager-0.30.0-windows-x64.zip',
           downloadUrl: 'https://example.test/windows.zip',
           sizeBytes: 16194816,
+        ),
+        const ReleaseAsset(
+          name: 'git-branch-manager-0.50.0-windows-x64.msi',
+          downloadUrl: 'https://example.test/windows.msi',
+          sizeBytes: 16300000,
         ),
         const ReleaseAsset(
           name: 'sha256sums.txt',
@@ -191,11 +198,21 @@ void main() {
       );
     });
 
-    test('picks the .zip on Windows x64', () {
+    test('picks the .msi on Windows x64, never the old zip', () {
       expect(
         selectAssetFor(assets, Abi.windowsX64)?.name,
-        endsWith('-windows-x64.zip'),
+        endsWith('-windows-x64.msi'),
       );
+    });
+
+    // An older release still lists only the portable zip. The installer
+    // cannot apply a zip, so there is nothing this build can install from
+    // it -- the release page stays the way forward.
+    test('finds nothing for Windows in a zip-only release', () {
+      final List<ReleaseAsset> zipOnly = assets
+          .where((ReleaseAsset a) => !a.name.endsWith('.msi'))
+          .toList();
+      expect(selectAssetFor(zipOnly, Abi.windowsX64), isNull);
     });
 
     test('picks the .tar.gz on Linux x64', () {

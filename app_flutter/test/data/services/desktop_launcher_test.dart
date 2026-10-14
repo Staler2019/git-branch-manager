@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 
@@ -51,11 +53,24 @@ void main() {
 
       expect(await launcher.openTerminal(r'C:\dev\repo'), isTrue);
       expect(starter.attempted, <String>['wt.exe', 'powershell.exe']);
-      expect(starter.args.last, <String>[
-        '-NoExit',
-        '-Command',
-        'cd "C:\\dev\\repo"',
-      ]);
+      expect(starter.args.last, <String>['-NoExit']);
+      expect(starter.workingDirs.last, r'C:\dev\repo');
+    });
+
+    // `cd "$path"` was a double-quoted PowerShell string: a folder named
+    // `$(calc)` was run, not entered. The directory now travels only as the
+    // working directory.
+    test('Windows never puts the path into a PowerShell command', () async {
+      final _RecordingStarter starter = _RecordingStarter(
+        available: <String>{'powershell.exe'},
+      );
+      final DesktopLauncher launcher = DesktopLauncher(
+        start: starter.call,
+        operatingSystem: 'windows',
+      );
+
+      await launcher.openTerminal(r'C:\dev\$(calc)');
+      expect(starter.args.last, isNot(contains(contains('calc'))));
     });
 
     test('macOS opens Terminal.app', () async {
@@ -165,22 +180,21 @@ void main() {
       expect(starter.attempted, <String>['xdg-open']);
     });
 
-    test('Windows passes an empty title before the URL', () async {
+    // `cmd /c start` is a console program, and started detached on Windows
+    // it never ran: Help's links and the update dialog's release page opened
+    // nothing. The URL itself is handed over, opened by its association.
+    test('Windows hands the URL itself over, with no cmd', () async {
       final _RecordingStarter starter = _RecordingStarter(
-        available: <String>{'cmd'},
+        available: <String>{'https://example.com'},
       );
       final DesktopLauncher launcher = DesktopLauncher(
         start: starter.call,
         operatingSystem: 'windows',
       );
 
-      await launcher.openUrl('https://example.com');
-      expect(starter.args.single, <String>[
-        '/c',
-        'start',
-        '',
-        'https://example.com',
-      ], reason: 'without the title argument, start consumes the URL as one');
+      expect(await launcher.openUrl('https://example.com'), isTrue);
+      expect(starter.attempted, <String>['https://example.com']);
+      expect(starter.args.single, isEmpty);
     });
   });
 
@@ -212,24 +226,33 @@ void main() {
       expect(starter.attempted, <String>['xdg-open']);
     });
 
-    test('Windows normalizes separators before handing the path to start', () {
+    test('Windows hands the normalized path itself over, with no cmd', () {
       final _RecordingStarter starter = _RecordingStarter(
-        available: <String>{'cmd'},
+        available: <String>{r'C:\dev\repo\lib\main.dart'},
       );
       final DesktopLauncher launcher = DesktopLauncher(
         start: starter.call,
         operatingSystem: 'windows',
       );
 
-      return launcher.openFile('C:/dev/repo/lib/main.dart').then((_) {
-        expect(starter.args.single, <String>[
-          '/c',
-          'start',
-          '',
-          r'C:\dev\repo\lib\main.dart',
-        ]);
+      return launcher.openFile('C:/dev/repo/lib/main.dart').then((bool ok) {
+        expect(ok, isTrue);
+        expect(starter.attempted, <String>[r'C:\dev\repo\lib\main.dart']);
+        expect(starter.args.single, isEmpty);
       });
     });
+
+    // The real starter, not a recording: `cmd /c start` started detached
+    // reported success for anything, including this, and ran nothing.
+    test('Windows reports a file that is not there as not opened', () async {
+      final Directory dir = Directory.systemTemp.createTempSync('gbm open ');
+      addTearDown(() => dir.deleteSync(recursive: true));
+
+      expect(
+        await const DesktopLauncher().openFile('${dir.path}\\absent.txt'),
+        isFalse,
+      );
+    }, skip: Platform.isWindows ? false : 'Windows only');
 
     test('returns false when the launcher executable is missing', () async {
       final _RecordingStarter starter = _RecordingStarter(
@@ -288,7 +311,31 @@ void main() {
 
         await launcher.openInFileManager('C:/dev/repo/lib/main.dart');
         expect(starter.args.single, <String>[
-          r'/select,C:\dev\repo\lib\main.dart',
+          '/select,',
+          r'C:\dev\repo\lib\main.dart',
+        ]);
+      },
+    );
+
+    // Measured: explorer handed `"/select,C:\a b\f.txt"` -- one argument,
+    // quoted whole because of the space -- opens Documents and selects
+    // nothing. `/select, "C:\a b\f.txt"` selects the file, so the path is its
+    // own argument and only it is quoted.
+    test(
+      'Windows passes the path as its own argument after /select,',
+      () async {
+        final _RecordingStarter starter = _RecordingStarter(
+          available: <String>{'explorer.exe'},
+        );
+        final DesktopLauncher launcher = DesktopLauncher(
+          start: starter.call,
+          operatingSystem: 'windows',
+        );
+
+        await launcher.openInFileManager(r'C:\Users\Jane Doe\repo\a.txt');
+        expect(starter.args.single, <String>[
+          '/select,',
+          r'C:\Users\Jane Doe\repo\a.txt',
         ]);
       },
     );

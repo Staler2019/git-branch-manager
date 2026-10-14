@@ -3,10 +3,14 @@ import 'dart:ffi';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/prepared_update.dart';
 import '../models/release_asset.dart';
 import 'desktop_launcher.dart';
+import 'detached_process.dart';
+import 'install_location_registry.dart';
 import 'update_watchdog.dart';
 
 /// The outcome of a process run to completion.
@@ -52,10 +56,9 @@ class UpdateInstallException implements Exception {
 /// being replaced), started detached, and left to run once this process has
 /// exited.
 ///
-/// The script's shape is the same on all three platforms:
+/// On macOS and Linux the script swaps directories itself:
 ///
-/// 1. step out of whatever directory it inherited -- on Windows, standing in
-///    the install directory is by itself enough to make step 2 impossible;
+/// 1. step out of whatever directory it inherited;
 /// 2. wait for this process to exit -- and **abort if it never does**, since
 ///    swapping underneath a live app leaves two instances over a
 ///    half-replaced install;
@@ -65,6 +68,12 @@ class UpdateInstallException implements Exception {
 /// 5. on any failure past the wait, put a working build back -- undoing the
 ///    rename where one happened -- so the user is never left without an
 ///    application.
+///
+/// On Windows steps 3-5 belong to Windows Installer: the release is an MSI,
+/// and the script hands it to msiexec, which replaces the files and rolls a
+/// failure back inside one transaction ([buildWindowsMsiUpdaterScript]).
+/// Steps 1 and 2 are the same -- on Windows, standing in the install
+/// directory is by itself enough to make the install fail.
 ///
 /// Extraction deliberately happens **before** the app quits ([stage]), not
 /// inside the script: an archive that will not open is then an error the
@@ -80,13 +89,14 @@ const String kUpdateDownloadDirPrefix = 'gbm-update-';
 /// Folders a user keeps other things in, which an install must therefore
 /// never *be*.
 ///
-/// Windows is the live risk: its release artifact is a **flat** zip
-/// (`release.yml`'s `Compress-Archive .../Release/*`), so extracting it
-/// straight into Downloads puts `gbm_flutter.exe` directly there and makes
-/// Downloads the install directory -- which the updater would then rename to
-/// `Downloads.gbm-old` wholesale. macOS cannot reach this, because the
-/// target is the `.app` bundle itself, and the Linux tarball carries its own
-/// wrapper directory.
+/// Guards the directory swap, which renames the whole install directory
+/// aside. It was written for the flat Windows zip earlier releases shipped
+/// -- extracted straight into Downloads, that made Downloads the install
+/// directory -- and Windows no longer takes the swap at all (it updates
+/// through the installer, see [UpdateInstaller.selfInstallBlocker]). It
+/// stays for Linux, where a tarball's wrapper can still be unpacked
+/// somewhere shared; macOS cannot reach it, because the target is the `.app`
+/// bundle itself.
 const List<String> kSharedUserFolders = <String>[
   'Desktop',
   'Documents',
@@ -267,36 +277,6 @@ const Duration kSessionCloseDeadline = Duration(seconds: 10);
 /// the bug being fixed.
 const Duration kUpdateWatchdogDeadline = Duration(seconds: 20);
 
-/// The outcome of trying to start a detached process, with the reason it
-/// did not start.
-///
-/// A third seam alongside [ProcessStarter] and [ProcessRunner] rather than a
-/// widening of either, for the reason [ProcessRunner]'s own doc comment
-/// gives: `ProcessStarter` answers a bare bool and that bool is what drives
-/// `DesktopLauncher`'s terminal fallback chains, while this one has to carry
-/// the `ProcessException` message across -- which is the single most useful
-/// string there is when an update fails to hand over, and which the bool
-/// threw away.
-class DetachedStart {
-  const DetachedStart({required this.started, this.error});
-
-  const DetachedStart.ok() : started = true, error = null;
-
-  const DetachedStart.failed(String this.error) : started = false;
-
-  final bool started;
-
-  /// Null exactly when [started]; the platform's own message otherwise.
-  final String? error;
-}
-
-/// Starts a process detached and says why it could not be started.
-typedef DetachedProcessStarter = Future<DetachedStart> Function(
-  String executable,
-  List<String> arguments, {
-  String? workingDirectory,
-});
-
 /// Arms a deadline after which the process exits whatever else is happening.
 /// Returns whether it was armed.
 typedef UpdateWatchdog = Future<bool> Function(Duration after);
@@ -307,6 +287,7 @@ class UpdateInstaller {
     ProcessRunner? run,
     UpdateWatchdog? armWatchdog,
     void Function(int code)? exitProcess,
+    InstallLocationReader? readInstallLocation,
     this.operatingSystem,
     this.executablePath,
     this.abi,
@@ -314,10 +295,12 @@ class UpdateInstaller {
     this.systemRoot,
     this.sessionCloseDeadline = kSessionCloseDeadline,
     this.watchdogDeadline = kUpdateWatchdogDeadline,
-  }) : _start = start ?? _startDetached,
+  }) : _start = start ?? startDetachedProcess,
        _run = run ?? _runToCompletion,
        _armWatchdog = armWatchdog ?? _spawnWatchdog,
-       _exitProcess = exitProcess ?? _realExit;
+       _exitProcess = exitProcess ?? _realExit,
+       _readInstallLocation =
+           readInstallLocation ?? readInstallLocationFromRegistry;
 
   final DetachedProcessStarter _start;
   final ProcessRunner _run;
@@ -328,6 +311,10 @@ class UpdateInstaller {
   /// through an un-substituted seam would take the test runner down with it
   /// rather than fail.
   final void Function(int code) _exitProcess;
+
+  /// Injected so no test reads the registry of the machine running it.
+  /// Consulted on Windows only.
+  final InstallLocationReader _readInstallLocation;
 
   /// Overridden in tests; null means [Platform.operatingSystem].
   final String? operatingSystem;
@@ -359,29 +346,6 @@ class UpdateInstaller {
   String? get _home =>
       homeDirectory ??
       Platform.environment[_os == 'windows' ? 'USERPROFILE' : 'HOME'];
-
-  static Future<DetachedStart> _startDetached(
-    String executable,
-    List<String> arguments, {
-    String? workingDirectory,
-  }) async {
-    try {
-      await Process.start(
-        executable,
-        arguments,
-        workingDirectory: workingDirectory,
-        mode: ProcessStartMode.detached,
-      );
-      return const DetachedStart.ok();
-    } on ProcessException catch (e) {
-      // Kept rather than collapsed to a bool: "The system cannot find the
-      // file specified" and "Access is denied" send the user to completely
-      // different places, and the old bool sent them to neither.
-      return DetachedStart.failed(e.message);
-    } on Object catch (e) {
-      return DetachedStart.failed('$e');
-    }
-  }
 
   /// Spawns [updateWatchdogEntryPoint]. Its failure is reported rather than
   /// thrown: a watchdog that could not be armed is a diagnostic loss, not a
@@ -488,6 +452,12 @@ class UpdateInstaller {
       return 'No build is published for this platform ($_abi). '
           'Download from the releases page instead.';
     }
+    // Windows updates through the installer, which owns every check below
+    // for itself; all this app has to establish is that the copy running is
+    // the one the installer manages.
+    if (_os == 'windows') {
+      return _installerBlocker();
+    }
     final Directory target = installTarget();
     // macOS runs a quarantined app from a read-only random mount point until
     // it is moved to /Applications. Replacing that is meaningless -- the copy
@@ -496,10 +466,8 @@ class UpdateInstaller {
       return 'This app is running from a temporary location. Move it to your '
           'Applications folder first, then check again.';
     }
-    // Not the reported failure -- that install was in a folder of its own --
-    // but the same flat Windows zip makes this one plausible, and its blast
-    // radius is the user's whole Downloads folder rather than a failed
-    // update.
+    // Its blast radius would be the user's whole Downloads folder rather
+    // than a failed update.
     if (isSharedUserFolder(target.path, _home)) {
       return 'This app is installed directly in ${target.path}, alongside '
           'whatever else is in there. Updating replaces the whole folder, so '
@@ -511,6 +479,30 @@ class UpdateInstaller {
           'by this user. Download from the releases page instead.';
     }
     return null;
+  }
+
+  /// Why Windows Installer cannot update this copy, or null when it can.
+  ///
+  /// msiexec is handed the folder the installer recorded, so only the copy
+  /// running from that folder may start it. Anything else -- a portable zip
+  /// from an earlier release, the installed folder copied somewhere -- would
+  /// have the upgrade land on some *other* folder while this one stayed as
+  /// it was. Both are pointed at the installer instead.
+  ///
+  /// The mirror rule matters as much: a copy the installer *does* manage is
+  /// registered with Windows Installer (the Apps list, upgrade detection,
+  /// uninstall), and is never given the directory swap, which would leave
+  /// all three describing files that are gone. [launchUpdater] refuses that
+  /// shape on Windows outright.
+  String? _installerBlocker() {
+    final String? registered = _readInstallLocation();
+    if (registered != null &&
+        sameInstallLocation(registered, installTarget().path)) {
+      return null;
+    }
+    return 'This copy was not installed with the installer, so it cannot '
+        'update itself. Download the .msi from the releases page and install '
+        'it once; later updates then install themselves.';
   }
 
   /// Probes by actually writing, not by reading a permission bit: the
@@ -529,32 +521,65 @@ class UpdateInstaller {
     }
   }
 
-  /// Unpacks [bundle] into [into] and returns the directory to swap into
-  /// place -- shaped exactly like [installTarget], so the script's job is a
-  /// plain directory-for-directory replacement on every platform.
+  /// Prepares [bundle] for the updater script, inside [into].
   ///
-  /// The three release artifacts unpack differently (`release.yml`'s Package
-  /// steps): the DMG mounts with the `.app` at its volume root, the Windows
-  /// zip is flat with no wrapper directory, and the Linux tarball has exactly
-  /// one wrapper directory that has to be descended through.
-  Future<Directory> stage({
+  /// The factory for [PreparedUpdate]: which shape comes back is decided by
+  /// the operating system being updated, and every shape is something the
+  /// script can apply without having to inspect the download itself. A
+  /// [PreparedDirectory] is shaped exactly like [installTarget], so its
+  /// script's job is a plain directory-for-directory replacement; a
+  /// [PreparedInstallerPackage] goes to Windows Installer unopened.
+  ///
+  /// The three release artifacts are prepared differently (`release.yml`'s
+  /// Package steps): the DMG mounts with the `.app` at its volume root, the
+  /// Linux tarball has exactly one wrapper directory that has to be
+  /// descended through, and the Windows `.msi` is not opened at all.
+  ///
+  /// [sha256] is the digest the bundle matched when it was downloaded. It is
+  /// checked again here, before anything reads the bundle, because the file
+  /// has been sitting in a temp directory since then -- for as long as the
+  /// user left the dialog at "ready to install" -- and the sweep or anything
+  /// else running as this user could have replaced or removed it.
+  Future<PreparedUpdate> stage({
     required File bundle,
     required Directory into,
+    required String sha256,
   }) async {
+    await _verifyUnchanged(bundle, sha256);
+    if (_os == 'windows') {
+      return PreparedInstallerPackage(
+        package: bundle,
+        sha256: sha256.toLowerCase(),
+      );
+    }
     final Directory payload = Directory(
       '${into.path}${Platform.pathSeparator}payload',
     )..createSync(recursive: true);
 
-    switch (_os) {
-      case 'macos':
-        return _stageDmg(bundle: bundle, into: into, payload: payload);
-      case 'windows':
-        // Windows 10+ ships bsdtar as `tar`, which reads zip archives.
-        await _extract('tar', <String>['-xf', bundle.path, '-C', payload.path]);
-        return payload;
-      default:
-        await _extract('tar', <String>['xzf', bundle.path, '-C', payload.path]);
-        return _descendWrapper(payload);
+    if (_os == 'macos') {
+      return PreparedDirectory(
+        await _stageDmg(bundle: bundle, into: into, payload: payload),
+      );
+    }
+    await _extract('tar', <String>['xzf', bundle.path, '-C', payload.path]);
+    return PreparedDirectory(_descendWrapper(payload));
+  }
+
+  static Future<void> _verifyUnchanged(File bundle, String expected) async {
+    final String actual;
+    try {
+      actual = (await sha256.bind(bundle.openRead()).first).toString();
+    } on FileSystemException catch (e) {
+      throw UpdateInstallException(
+        'The downloaded update is no longer where it was saved '
+        '(${e.message}). Download it again.',
+      );
+    }
+    if (actual != expected.toLowerCase()) {
+      throw const UpdateInstallException(
+        'The downloaded update has changed since it was verified, so it was '
+        'not installed. Download it again.',
+      );
     }
   }
 
@@ -668,47 +693,76 @@ class UpdateInstaller {
   /// Returns a reason string if the update could not be launched. On success
   /// it does not return: the process is gone.
   Future<String?> launchUpdater({
-    required Directory staged,
+    required PreparedUpdate staged,
     required Directory scriptDir,
     required Future<void> Function() beforeExit,
     int? processId,
   }) async {
-    final Directory target = installTarget();
     final bool isWindows = _os == 'windows';
+    final _UpdaterPlan plan;
+    switch (staged) {
+      // Asked again here, where the script is actually written, rather than
+      // trusting that every caller asked [selfInstallBlocker] first: the
+      // registration can have changed since the check, and the folder handed
+      // to msiexec is read from it.
+      case PreparedInstallerPackage(:final File package, :final String sha256)
+          when isWindows:
+        final String? registered = _readInstallLocation();
+        if (registered == null ||
+            !sameInstallLocation(registered, installTarget().path)) {
+          return _installerBlocker();
+        }
+        plan = _UpdaterPlan(
+          target: registered,
+          source: package.path,
+          body: buildWindowsMsiUpdaterScript(
+            pid: processId ?? pid,
+            installFolder: registered,
+            packagePath: package.path,
+            sha256: sha256,
+            relaunchCommand: _windowsRelaunch(),
+          ),
+        );
+      case PreparedDirectory(:final Directory directory) when !isWindows:
+        final Directory target = installTarget();
+        plan = _UpdaterPlan(
+          target: target.path,
+          source: directory.path,
+          body: buildUnixUpdaterScript(
+            pid: processId ?? pid,
+            targetPath: target.path,
+            stagedPath: directory.path,
+            copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
+            relaunchCommand: _unixRelaunch(),
+          ),
+        );
+      // A directory swap on Windows would leave an installer-managed copy's
+      // registration describing files that are gone; an installer package
+      // anywhere else has nothing to run it. Neither is reachable through
+      // [stage], and neither gets a script.
+      case PreparedDirectory() || PreparedInstallerPackage():
+        return 'This update cannot be applied here: Windows updates only '
+            'through the installer. Download the new version from the '
+            'releases page.';
+    }
     final File script = File(
       '${scriptDir.path}${Platform.pathSeparator}'
       'gbm-update.${isWindows ? 'ps1' : 'sh'}',
     );
-
-    final String body = isWindows
-        ? buildWindowsUpdaterScript(
-            pid: processId ?? pid,
-            targetPath: target.path,
-            stagedPath: staged.path,
-            relaunchCommand: _windowsRelaunch(),
-          )
-        : buildUnixUpdaterScript(
-            pid: processId ?? pid,
-            targetPath: target.path,
-            stagedPath: staged.path,
-            copyCommand: _os == 'macos' ? 'ditto' : 'cp -a',
-            relaunchCommand: _unixRelaunch(),
-          );
+    final String body = plan.body;
 
     final UpdateLog log = UpdateLog(scriptDir);
     log.write('os=$_os');
-    log.write('target=${target.path}');
-    log.write('staged=${staged.path}');
+    log.write('target=${plan.target}');
+    log.write('${isWindows ? 'package' : 'staged'}=${plan.source}');
     log.write('script=${script.path}');
 
     // UTF-8 with a BOM on Windows, without one everywhere else, and the
     // asymmetry is not cosmetic. `powershell.exe` -- Windows PowerShell 5.1,
     // which is what `-File` resolves to on a stock machine -- reads a
-    // BOM-less .ps1 as ANSI rather than UTF-8. All three paths are baked
-    // into the script as literals, so a user name in Chinese is enough to
-    // mojibake every one of them and leave the rename and the copy pointing
-    // nowhere: the same silent exit 3 an inherited working directory
-    // produced. `sh` has the opposite requirement -- a BOM on the first line
+    // BOM-less .ps1 as ANSI rather than UTF-8. Every path is baked into the
+    // script as a literal, so a user name in Chinese is enough to mojibake
+    // them and leave msiexec pointed at nothing. `sh` has the opposite requirement -- a BOM on the first line
     // is a syntax error, not a hint.
     script.writeAsStringSync(isWindows ? '\uFEFF$body' : body);
 
@@ -957,38 +1011,70 @@ finish 4
 ''';
 }
 
-/// The PowerShell updater, same control flow as [buildUnixUpdaterScript].
+/// Name of msiexec's own verbose log, written beside the updater script.
+const String kUpdateMsiLogName = 'gbm-update-msi.log';
+
+/// The PowerShell updater for Windows: once this process has exited, hand
+/// the verified package to Windows Installer and relaunch.
 ///
-/// Not executed by this project's test suite -- `ci.yml`'s Windows leg runs
-/// the Dart tests but never this script, and `cq.yml`'s `powershell-parse`
-/// job only parses its golden -- so this half is text-asserted and
-/// covered for real only by the manual pre-release pass.
-String buildWindowsUpdaterScript({
+/// Windows Installer does what the Unix script does by hand -- replacing the
+/// files, and putting the old ones back when that fails -- inside one
+/// transaction, so this script only has to wait, re-check, run and report.
+///
+/// Every value is baked in as a single-quoted PowerShell literal, which
+/// interpolates nothing, and msiexec's command line is concatenated from
+/// those variables as **one** string: `Start-Process -ArgumentList` joins an
+/// array with spaces and quotes nothing, so a folder name with a space in it
+/// -- the default install folder has two -- would otherwise reach msiexec
+/// as several arguments.
+///
+/// Exit codes:
+///
+/// | code | meaning                                              | relaunch |
+/// |------|------------------------------------------------------|----------|
+/// | 0    | installed                                            | yes      |
+/// | 2    | the app never exited; nothing was changed            | no       |
+/// | 5    | msiexec failed or would not start; it rolled back    | yes      |
+/// | 6    | the package no longer matches its verified digest    | yes      |
+/// | 7    | installed, but Windows must restart to finish        | no       |
+///
+/// 2 relaunches nothing because the app is still on screen. 7 relaunches
+/// nothing because files are queued for replacement at the next restart, and
+/// starting the app now would load a mix of old and new DLLs.
+///
+/// Not executed by this project's test suite -- see `update_installer_test`
+/// for what is asserted as text, and `cq.yml`'s `powershell-parse` job for
+/// the golden that is parsed.
+String buildWindowsMsiUpdaterScript({
   required int pid,
-  required String targetPath,
-  required String stagedPath,
+  required String installFolder,
+  required String packagePath,
+  required String sha256,
   required String relaunchCommand,
   Duration waitTimeout = const Duration(seconds: 60),
 }) {
+  // msiexec normalises a directory property to end in a backslash, and a
+  // backslash right before a closing quote is an escaped quote to anything
+  // that parses a command line the CommandLineToArgvW way.
+  final String target = installFolder.replaceAll(RegExp(r'[\\/]+$'), '');
   // NOTE: `$pid` is an automatic read-only variable in PowerShell, so the
   // parameter below cannot be named that -- it would fail at assignment.
   return '''
-# Generated by git-branch-manager. Replaces the installation this script's
-# parent process was running from, once that process has exited.
+# Generated by git-branch-manager. Upgrades the installation the parent process of this
+# script was running from with a Windows Installer package, once that
+# process has exited.
 \$ErrorActionPreference = 'Stop'
 
-# Both lines, not just the first. `Set-Location` moves PowerShell's provider
-# location while the Win32 process directory -- the one holding the handle
-# that blocks renaming it -- stays where the process was created. Only
-# assigning CurrentDirectory calls SetCurrentDirectory and releases it.
+# Both lines, not just the first. `Set-Location` moves the PowerShell provider
+# location while the Win32 process directory stays where the process was
+# created. Only assigning CurrentDirectory calls SetCurrentDirectory.
 Set-Location -LiteralPath \$PSScriptRoot
 [System.Environment]::CurrentDirectory = \$PSScriptRoot
 
 # Beside the script, appended to: the app truncated it when this install
 # began and has already written everything that happened before the handover
-# (see UpdateLog). Truncating here would delete exactly the half that says
-# why the app never got this far. Failures to write are swallowed -- losing
-# the log must never be what fails the update.
+# (see UpdateLog). Failures to write are swallowed -- losing the log must
+# never be what fails the update.
 \$log = Join-Path \$PSScriptRoot '$kUpdateLogName'
 function Write-Log(\$message) {
   try {
@@ -1000,8 +1086,6 @@ function Stop-Updater(\$code) {
   exit \$code
 }
 
-# Everything past the wait runs with the app already gone, so every arm has
-# to put a working build back -- including the ones that change nothing.
 # Wrapped in its own try: with ErrorActionPreference = 'Stop' a relaunch of
 # something that is not there would otherwise take the script down before it
 # could set an exit code.
@@ -1010,12 +1094,16 @@ function Restart-App {
 }
 
 \$parentPid = $pid
-\$target = ${_psQuote(targetPath)}
-\$staged = ${_psQuote(stagedPath)}
-\$backup = ${_psQuote('$targetPath.gbm-old')}
+\$target = ${psQuote(target)}
+\$package = ${psQuote(packagePath)}
+\$expectedHash = ${psQuote(sha256.toLowerCase())}
+\$msiLog = Join-Path \$PSScriptRoot '$kUpdateMsiLogName'
+# By absolute path: a bare name is resolved by searching, and this script
+# stands in the temp directory.
+\$msiexec = Join-Path \$env:SystemRoot 'System32\\msiexec.exe'
 
 Write-Log "target=\$target"
-Write-Log "staged=\$staged"
+Write-Log "package=\$package"
 
 # Polled rather than Wait-Process, whose timeout surfaces as an error record
 # rather than a distinguishable exception type.
@@ -1028,50 +1116,46 @@ while (Get-Process -Id \$parentPid -ErrorAction SilentlyContinue) {
   Start-Sleep -Milliseconds 200
 }
 
-# Antivirus and Explorer routinely keep a handle open for a moment after the
-# process itself has gone, so the rename is retried rather than trusted.
-\$renamed = \$false
-\$lastError = 'no attempt was made'
-for (\$i = 0; \$i -lt 20; \$i++) {
-  try {
-    if (Test-Path -LiteralPath \$backup) {
-      Remove-Item -LiteralPath \$backup -Recurse -Force
-    }
-    Move-Item -LiteralPath \$target -Destination \$backup -Force
-    \$renamed = \$true
-    break
-  } catch {
-    # Kept, not just slept on: all twenty retries used to swallow this, so
-    # exit 3 named the step that failed and nothing about why -- and a
-    # sharing violation, an access denial and a missing path each send the
-    # user somewhere different.
-    \$lastError = "\$_"
-    Start-Sleep -Milliseconds 500
-  }
+# The package waited in a temp directory for as long as the update dialog
+# stayed open. Checked once more, right before Windows Installer reads it.
+try {
+  \$actualHash = (Get-FileHash -LiteralPath \$package -Algorithm SHA256).Hash.ToLowerInvariant()
+} catch {
+  \$actualHash = "unreadable: \$_"
 }
-if (-not \$renamed) {
-  Write-Log "could not rename the install aside; nothing was changed: \$lastError"
+if (\$actualHash -ne \$expectedHash) {
+  Write-Log "the package no longer matches its verified SHA-256 (\$actualHash); nothing was installed"
   Restart-App
-  Stop-Updater 3
+  Stop-Updater 6
 }
 
+\$arguments = '/i "' + \$package + '" /passive /norestart INSTALLFOLDER="' + \$target + '" /l*v "' + \$msiLog + '"'
+Write-Log "running \$msiexec \$arguments"
 try {
-  Copy-Item -LiteralPath \$staged -Destination \$target -Recurse -Force
-  Remove-Item -LiteralPath \$staged -Recurse -Force -ErrorAction SilentlyContinue
+  \$process = Start-Process -FilePath \$msiexec -ArgumentList \$arguments -Wait -PassThru
+  \$code = \$process.ExitCode
+} catch {
+  Write-Log "msiexec could not be started: \$_"
+  Restart-App
+  Stop-Updater 5
+}
+Write-Log "msiexec exited with \$code"
+
+if (\$code -eq 0) {
+  Remove-Item -LiteralPath \$package -Force -ErrorAction SilentlyContinue
   Restart-App
   Stop-Updater 0
-} catch {
-  Write-Log "the copy failed: \$_"
-
-  # The restore is itself guarded: an unhandled throw here would end the
-  # script with the install gone and nothing running.
-  try {
-    Remove-Item -LiteralPath \$target -Recurse -Force -ErrorAction SilentlyContinue
-    Move-Item -LiteralPath \$backup -Destination \$target -Force
-  } catch { }
-  Restart-App
-  Stop-Updater 4
 }
+if (\$code -eq 3010 -or \$code -eq 1641) {
+  Write-Log 'installed; Windows must restart to finish, so the app is not relaunched'
+  Stop-Updater 7
+}
+
+# Windows Installer rolls a failed install back by itself, so the build
+# relaunched here is the one that was running before.
+Write-Log "the install failed and was rolled back; see \$msiLog"
+Restart-App
+Stop-Updater 5
 ''';
 }
 
@@ -1081,9 +1165,19 @@ try {
 /// error at best and a wrong-path delete at worst.
 String _shQuote(String value) => "'${value.replaceAll("'", r"'\''")}'";
 
-/// PowerShell's single-quoted strings escape a quote by doubling it and
-/// interpolate nothing -- which is also what keeps a literal `$` in a path.
-String _psQuote(String value) => "'${value.replaceAll("'", "''")}'";
+/// What [UpdateInstaller.launchUpdater] decided to run: the script body and
+/// the two locations it names, for the transcript.
+class _UpdaterPlan {
+  const _UpdaterPlan({
+    required this.target,
+    required this.source,
+    required this.body,
+  });
+
+  final String target;
+  final String source;
+  final String body;
+}
 
 /// Overridden in tests with an installer built from recording seams, exactly
 /// as `desktopLauncherProvider` is.

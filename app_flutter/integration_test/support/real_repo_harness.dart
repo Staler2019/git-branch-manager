@@ -49,6 +49,12 @@ String createTempGitRepo({String prefix = 'gbm_e2e_'}) {
   runGit(path, <String>['init', '--initial-branch=main']);
   runGit(path, <String>['config', 'user.name', 'GBM E2E']);
   runGit(path, <String>['config', 'user.email', 'gbm-e2e@example.com']);
+  // A developer's global `commit.gpgsign=true` would otherwise reach both
+  // this fixture's commits and the app's own: with no pinentry to answer,
+  // `git commit` fails with "gpg failed to sign the data" before any test
+  // starts.
+  runGit(path, <String>['config', 'commit.gpgsign', 'false']);
+  runGit(path, <String>['config', 'tag.gpgsign', 'false']);
   File('$path/README.md').writeAsStringSync('# gbm e2e fixture\n');
   runGit(path, <String>['add', 'README.md']);
   runGit(path, <String>['commit', '-m', 'Initial commit']);

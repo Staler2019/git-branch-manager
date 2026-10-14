@@ -23,6 +23,11 @@ _start('powershell', ...)       ← 候選二
 警告列。所以問使用者「對話框變成什麼樣子」就能二選一 —— 答案是**卡在 Installing…、
 一顆按鈕都沒有**，候選二出局。
 
+> **更正（2026-10-14）**：「候選二失敗會 `return` 一段理由」只對拋 `ProcessException` 的失敗成立。
+> 實測 Windows 上 `ProcessStartMode.detached` 回報成功、子行程卻一行都沒跑，這種失敗**不會**
+> 出現在畫面上。本輪的卡住仍是候選一（同步阻塞的 `gbm_session_close`），但候選二同時也壞著，
+> 只是被候選一擋在前面。見 [ledger: Release 改發 MSI](2026-10-14-feat-release-msi-installer.md)。
+
 `installing` 不畫任何按鈕是刻意的，理由寫在 `update_state.dart` 的
 doc comment 裡：「the detached updater script is already running and this process is
 on its way out, so there is nothing left to cancel」。**這一輪打掉的就是那個括號裡的

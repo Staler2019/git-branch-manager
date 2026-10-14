@@ -47,3 +47,10 @@ or test now enforces live at that site, with the reason in its comment; history 
 - **Do**: after the second round-trip, type-check locally: a signature-only `windows.h` stub plus a wrapper that includes std headers *before* `#define _WIN32`, then `c++ -fsyntax-only`; mutation-check with a Win32 call first. MSVC `/W4 /WX` (e.g. C4774) still needs a CI run.
 - **Do**: verify include paths from `compile_commands.json`, not a probe with hand-fed `-I` (`tests/CMakeLists.txt`'s `gbm_spawn_cost` comment is the worked case).
 - **Evidence**: [ledger: 追加五](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+
+## [CI-windows-detached-never-runs] On Windows, `ProcessStartMode.detached` reports success and the child never runs
+
+- **Rule**: `Process.start` returns a pid that is already gone; measured with `powershell.exe -File` and `cmd.exe /c`, from `dart run`, an AOT exe and a WMI-created process, outside any job.
+- **Consequence**: nothing in the app can tell; the updater's `.ps1` sat in temp with no log beside it.
+- **Do**: start anything that must outlive the app through `startUpdaterProcess` (`update_installer.dart`), which relays via `Start-Process` and waits for the relay; prove a start with a mark the child writes itself (`update_detached_start_test.dart`).
+- **Evidence**: [ledger: Release 改發 MSI](../../docs/ledger/2026-10-14-feat-release-msi-installer.md)

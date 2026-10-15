@@ -21,15 +21,16 @@ bool recordBelongsToSession(const std::string& recordRepoDir,
     }
     // Same directory, different bytes: git reports a worktree by its resolved
     // path, while a session holds the one it was opened with (/var vs
-    // /private/var on macOS, an 8.3 alias on Windows). Only reached when no
+    // /private/var on macOS, an 8.3 alias on Windows, a session opened through
+    // a link to the repository itself). Only reached when no
     // string matched, so the common case costs no filesystem call.
-    const std::optional<fsutil::FileId> recordId = fsutil::fileIdOf(recordDir);
+    const std::optional<fsutil::FileId> recordId = fsutil::resolvedDirId(recordDir);
     if (!recordId) {
         return false;
     }
     return std::any_of(
         sessionDirs.begin(), sessionDirs.end(), [&](const std::filesystem::path& dir) {
-            return fsutil::fileIdOf(dir) == recordId;
+            return fsutil::resolvedDirId(dir) == recordId;
         });
 }
 

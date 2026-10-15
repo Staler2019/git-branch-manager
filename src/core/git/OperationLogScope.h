@@ -17,9 +17,10 @@ namespace gbm {
 ///
 /// Compared through `fsutil::canonicalKey`, so a trailing separator or, on a
 /// case-insensitive filesystem, a case difference is still the same
-/// directory. When no string matches, `fsutil::fileIdOf` decides, so a path
-/// reached through a symlinked parent (macOS /var vs /private/var) or an 8.3
-/// alias names the directory git reports by its resolved path.
+/// directory. When no string matches, `fsutil::resolvedDirId` decides, so a
+/// path reached through a symlinked parent (macOS /var vs /private/var), a
+/// link to the directory itself, or an 8.3 alias names the directory git
+/// reports by its resolved path.
 ///
 /// An empty `recordRepoDir` belongs to no session: clone, init and the
 /// git-version probe run with no directory, and clone's argv carries the

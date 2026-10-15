@@ -108,6 +108,24 @@ TEST_F(OperationLogScopeOnDisk, ADirectoryReachedThroughASymlinkedParentIsClaime
     EXPECT_TRUE(recordBelongsToSession(fsutil::utf8FromPath(real), sessionViaLink));
 }
 
+// A repository opened through a link to the repository itself: the session
+// holds the link, git runs and reports in the target.
+TEST_F(OperationLogScopeOnDisk, ARepositoryOpenedThroughALinkToItIsClaimed) {
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(
+        root_ / "real directory" / "repo", root_ / "linked-repo", ec);
+    if (ec) {
+        GTEST_SKIP() << "symlink creation unavailable: " << ec.message();
+    }
+    const std::filesystem::path real = root_ / "real directory" / "repo";
+    const std::filesystem::path link = root_ / "linked-repo";
+
+    const std::vector<std::filesystem::path> sessionViaLink{link};
+    EXPECT_TRUE(recordBelongsToSession(fsutil::utf8FromPath(real), sessionViaLink));
+    const std::vector<std::filesystem::path> session{real};
+    EXPECT_TRUE(recordBelongsToSession(fsutil::utf8FromPath(link), session));
+}
+
 // A different directory that exists is still another directory.
 TEST_F(OperationLogScopeOnDisk, AnotherExistingDirectoryIsNotClaimed) {
     std::filesystem::create_directories(root_ / "other");

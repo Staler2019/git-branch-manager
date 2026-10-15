@@ -219,7 +219,6 @@ private:
     std::deque<QueuedOperation> queue_;
     std::thread worker_;
     std::vector<UndoEntry> undoJournal_;
-    std::uint64_t nextId_ = 1;
     /// The operation workerLoop() is running, set and cleared under mutex_
     /// together with busy_ (see cancel()'s invariant 1). 0 when idle.
     std::uint64_t runningId_ = 0;

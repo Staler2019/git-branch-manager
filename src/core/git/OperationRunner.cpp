@@ -2,6 +2,7 @@
 
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/git/OperationId.h"
 #include "core/git/RefStore.h"
 
 #include <chrono>
@@ -38,7 +39,7 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     Handle handle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        handle.id = nextId_++;
+        handle.id = nextQueuedOperationId();
         QueuedOperation queued{handle.id, std::move(operation), std::move(onDone), handle.cancel};
         queue_.push_back(std::move(queued));
     }
@@ -176,6 +177,7 @@ void OperationRunner::workerLoop() {
             recordUndoPoint(*queued.operation);
             logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
             try {
+                const QueuedOperationScope scope(queued.id);
                 outcome = queued.operation->run(runner_, paths_, queued.source.token());
             } catch (const std::exception& ex) {
                 // A throwing operation must not take the process down while the

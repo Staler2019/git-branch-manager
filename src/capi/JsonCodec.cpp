@@ -698,6 +698,8 @@ std::string toJson(const OperationRecord& record) {
     jsonAppendInt(out, record.timeoutMs);
     out += ",\"idleTimeoutMs\":";
     jsonAppendInt(out, record.idleTimeoutMs);
+    out += ",\"queuedOperationId\":";
+    jsonAppendInt(out, static_cast<std::int64_t>(record.queuedOperationId));
     out += '}';
     return out;
 }

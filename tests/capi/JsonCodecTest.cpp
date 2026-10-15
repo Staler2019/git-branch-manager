@@ -275,6 +275,14 @@ TEST(JsonCodecTest, OperationRecordCarriesItsIdAndWhetherItIsRunning) {
     EXPECT_NE(toJson(record).find("\"running\":false"), std::string::npos);
 }
 
+// The queued operation a row belongs to, which is what a user's Cancel names.
+TEST(JsonCodecTest, OperationRecordCarriesItsQueuedOperationId) {
+    OperationRecord record;
+    record.queuedOperationId = 77;
+    const std::string json = toJson(record);
+    EXPECT_NE(json.find("\"queuedOperationId\":77"), std::string::npos) << json;
+}
+
 TEST(JsonCodecTest, OperationRecordCarriesTheDeadlinesItRanUnder) {
     OperationRecord record;
     record.timeoutMs = 120000;

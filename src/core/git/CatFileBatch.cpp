@@ -504,6 +504,7 @@ void CatFileBatch::recordTimeoutLocked(std::string_view revision,
                                        std::chrono::steady_clock::time_point started) const {
     OperationRecord record;
     record.id = nextOperationId();
+    record.queuedOperationId = currentQueuedOperationId();
     record.when = std::chrono::system_clock::now();
     record.repoDir = fsutil::utf8FromPath(paths_.commandDir());
     record.argv = impl_->argv();

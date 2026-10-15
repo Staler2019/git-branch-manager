@@ -51,6 +51,10 @@ struct OperationRecord {
     /// in the log so a TIMEOUT row says how long it was allowed.
     std::int64_t timeoutMs = 0;
     std::int64_t idleTimeoutMs = 0;
+    /// The queued operation (one capi unit) this invocation ran for, 0 when
+    /// none -- a read, a probe, anything not submitted to an OperationRunner.
+    /// What a user's Cancel names; see OperationRunner::cancel().
+    std::uint64_t queuedOperationId = 0;
 
     /// argv rendered for display, quoting only arguments that need it.
     std::string commandLine() const;

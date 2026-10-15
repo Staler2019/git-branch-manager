@@ -9,6 +9,7 @@
 // The operations here run no git at all -- each blocks on a latch the test
 // controls -- so "queued" and "running" are states the test holds the runner
 // in, not races it has to win.
+#include "core/git/OperationId.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RepoPaths.h"
 #include "support/FakeProcessRunner.h"
@@ -194,6 +195,62 @@ TEST_F(OperationRunnerCancelTest, AnUnknownOrFinishedIdIsNotFound) {
 
     EXPECT_EQ(operations.cancel(handle.id), OperationRunner::CancelResult::NotFound);
     EXPECT_EQ(operations.cancel(handle.id + 1000), OperationRunner::CancelResult::NotFound);
+}
+
+// The id a user's Cancel names is the one a log row carries, and a log row can
+// reach every session open on the same directories -- so two runners must
+// never hand out the same id.
+TEST_F(OperationRunnerCancelTest, IdsAreUniqueAcrossRunners) {
+    // One fake each: FakeProcessRunner is not thread-safe, and both workers
+    // reach it at once through recordUndoPoint()'s RefStore.
+    testing::FakeProcessRunner otherFake;
+    OperationRunner first(fake_, paths_);
+    OperationRunner second(otherFake, paths_);
+    Latch gate;
+    gate.release();
+
+    const auto a = first.submit(std::make_unique<BlockingOperation>(false, gate, nullptr, nullptr),
+                                [](OperationOutcome) {});
+    const auto b = second.submit(std::make_unique<BlockingOperation>(false, gate, nullptr, nullptr),
+                                 [](OperationOutcome) {});
+    first.drain();
+    second.drain();
+
+    EXPECT_NE(a.id, b.id);
+    EXPECT_EQ(second.cancel(a.id), OperationRunner::CancelResult::NotFound);
+}
+
+class ReadsItsQueuedId final : public Operation {
+public:
+    explicit ReadsItsQueuedId(std::uint64_t& seen) : seen_(seen) {}
+
+    std::string describe() const override { return "Reads its queued id"; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        seen_ = currentQueuedOperationId();
+        OperationOutcome outcome;
+        outcome.succeeded = true;
+        return outcome;
+    }
+
+private:
+    std::uint64_t& seen_;
+};
+
+TEST_F(OperationRunnerCancelTest, AnOperationSeesItsOwnIdOnlyWhileItRuns) {
+    OperationRunner operations(fake_, paths_);
+    std::uint64_t first = 0;
+    std::uint64_t second = 0;
+
+    const auto a =
+        operations.submit(std::make_unique<ReadsItsQueuedId>(first), [](OperationOutcome) {});
+    const auto b =
+        operations.submit(std::make_unique<ReadsItsQueuedId>(second), [](OperationOutcome) {});
+    operations.drain();
+
+    EXPECT_EQ(first, a.id);
+    EXPECT_EQ(second, b.id);
+    EXPECT_EQ(currentQueuedOperationId(), 0U) << "not on the worker thread";
 }
 
 }  // namespace

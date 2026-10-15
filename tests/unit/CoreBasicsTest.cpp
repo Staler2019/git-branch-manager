@@ -43,6 +43,67 @@ TEST(FsUtilUtf8, AnEmptyPathIsAnEmptyString) {
     EXPECT_EQ(fsutil::utf8FromPath({}), "");
 }
 
+// --- resolvedDirId -----------------------------------------------------------
+
+// Real directories: identity is whatever the filesystem says, so a fake path
+// has none and would make every equality below pass or fail for nothing.
+class FsUtilResolvedDirId : public ::testing::Test {
+protected:
+    void SetUp() override {
+        const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+        root_ = std::filesystem::temp_directory_path() /
+                ("gbm-resolved-id-" + std::string(info->name()));
+        std::filesystem::remove_all(root_);
+        std::filesystem::create_directories(root_ / "real" / "repo");
+    }
+
+    void TearDown() override {
+        std::error_code ec;
+        std::filesystem::remove_all(root_, ec);
+    }
+
+    /// Links [link] to [target], or skips the test where links cannot be made.
+    bool link(const std::filesystem::path& target, const std::filesystem::path& link) {
+        std::error_code ec;
+        std::filesystem::create_directory_symlink(target, link, ec);
+        return !ec;
+    }
+
+    std::filesystem::path root_;
+};
+
+TEST_F(FsUtilResolvedDirId, ATerminalSymlinkIsTheDirectoryItPointsAt) {
+    if (!link(root_ / "real" / "repo", root_ / "linked-repo")) {
+        GTEST_SKIP() << "symlink creation unavailable";
+    }
+    const auto real = fsutil::resolvedDirId(root_ / "real" / "repo");
+    ASSERT_TRUE(real.has_value());
+    EXPECT_EQ(fsutil::resolvedDirId(root_ / "linked-repo"), real);
+    // fileIdOf keeps naming the link itself: the scanner's cycle guard.
+    EXPECT_NE(fsutil::fileIdOf(root_ / "linked-repo"), fsutil::fileIdOf(root_ / "real" / "repo"));
+}
+
+TEST_F(FsUtilResolvedDirId, ASymlinkedParentIsTheSameDirectory) {
+    if (!link(root_ / "real", root_ / "via")) {
+        GTEST_SKIP() << "symlink creation unavailable";
+    }
+    const auto real = fsutil::resolvedDirId(root_ / "real" / "repo");
+    ASSERT_TRUE(real.has_value());
+    EXPECT_EQ(fsutil::resolvedDirId(root_ / "via" / "repo"), real);
+}
+
+TEST_F(FsUtilResolvedDirId, TwoDirectoriesAreNotTheSame) {
+    std::filesystem::create_directories(root_ / "other");
+    const auto real = fsutil::resolvedDirId(root_ / "real" / "repo");
+    ASSERT_TRUE(real.has_value());
+    EXPECT_NE(fsutil::resolvedDirId(root_ / "other"), real);
+}
+
+TEST_F(FsUtilResolvedDirId, NothingThereHasNoIdentity) {
+    EXPECT_FALSE(fsutil::resolvedDirId(root_ / "missing").has_value());
+    EXPECT_FALSE(fsutil::resolvedDirId({}).has_value());
+}
+
 TEST(ObjectId, ParsesSha1AndSha256) {
     const std::string sha1 = "0123456789abcdef0123456789abcdef01234567";
     ObjectId id;

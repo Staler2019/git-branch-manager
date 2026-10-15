@@ -1395,12 +1395,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
           // re-read below, so the commit is settled before its merge ends.
           if (!succeeded || isCommit) {
+            final GitError? failure =
+                succeeded || error is! Map<String, dynamic>
+                ? null
+                : GitError.fromJson(error);
             state = state.copyWith(
-              lastError: succeeded
-                  ? null
-                  : (error is Map<String, dynamic>
-                        ? GitError.fromJson(error)
-                        : null),
+              lastError: _isUserCancel(failure) ? null : failure,
               commitOutcomeSeq: isCommit ? state.commitOutcomeSeq + 1 : null,
               lastCommitSucceeded: isCommit ? succeeded : null,
             );
@@ -2193,10 +2193,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // Suppression means "do not write", not "write null": an unrelated
     // failure already on screen must survive a background prune failing
     // behind it -- the same rule the automatic preview's suppressor follows.
-    if (error != null && !_isSuppressedAutoPruneWorktreesError(error)) {
+    if (error != null &&
+        !_isUserCancel(error) &&
+        !_isSuppressedAutoPruneWorktreesError(error)) {
       state = state.copyWith(lastError: error);
     }
   }
+
+  /// A cancelled operation is not a refused one: spec page 10 LOGRULES keeps
+  /// error for a refusal, and the log already carries the CANCELLED row, so a
+  /// user's Cancel must not raise the error banner. The opposite case -- core
+  /// refusing the cancel (NotCancellable) -- arrives on errorOccurred and is
+  /// shown, because it is how the user hears the operation kept running.
+  static bool _isUserCancel(GitError? error) => error?.codeName == 'Cancelled';
 
   /// Remote name -> how many automatic post-fetch prune previews for that
   /// remote are still awaiting a reply.

@@ -52,12 +52,11 @@ Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec 
 - **Do**: leave both English until a menu-bar localisation ruling; `dialog_copy_test.dart`'s 'Preferences' group pins the English header.
 - **Evidence**: [ledger: G1i](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
 
-## [DRIFT-cancel-capi-unwired] `gbm_cancel_operation` exists with no Dart caller, by decision
+## [DRIFT-cancel-capi-unwired] ~~`gbm_cancel_operation` exists with no Dart caller, by decision~~ Closed 2026-10-15: wired, core decides per unit
 
-- **Rule**: 使用者裁定「開 capi cancellation token 然後先不接線」: capi + C++ registration only (`Session::cancelOperations`, `CancelOperationApiTest.cpp`); no `CancelOperationDart`, no UI. `~Session()`'s own `cancelOperations(0)` is C++-internal and does not close this.
-- **Consequence**: a git command still making progress has no user-reachable stop; ~~`GitCommand::kHangCeiling` is only a floor.~~ its only bound is `GitCommand::kNetworkIdle` (60 s × multiplier without data, 2026-10-07).
-- **Do**: closing needs a typedef, a Dart-side in-flight id (`GBM_EVENT_OPERATION_FINISHED` carries none), a UI entry, and cancel not drawn as an error (P10 `LOGRULES`). ~~Only a device test crosses the seam ([TEST-ffi-matches-symbol-only])~~ **Corrected (#159)**: types are checked at the unit tier by `gbm_capi_signature_parity_test.dart` — wiring this means deleting `gbm_cancel_operation` from its `_unboundByDecision`, after which a wrong `Uint64` reds there; semantics still need a device test, and `integration_test/` reaches neither cancel nor `gbm_rebase_start`'s 6 parameters.
-- **Evidence**: **#139**; [ledger: 追加四](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
+- **Rule**: ~~「開 capi cancellation token 然後先不接線」~~ overruled 2026-10-15 (「S2 的 capi 提前到這輪」). Status-bar Cancel → `cancelOperation(queuedOperationId)` → `OperationRunner::cancel(id)`: trips a queued op, a running one only if `killableMidFlight()`, else `NotCancellable` + GBM_EVENT_ERROR_OCCURRED (「capi不行cancel會拋錯」). id 0 keeps `~Session()`'s cancel-all.
+- **Do**: the UI never decides cancellability (「實作不是用 cancellable」). Open for S3: `ProcessRunner::execute` kills any command on a tripped token, so a timeout or `cancelOperations(0)` can still kill a mutating git.
+- **Evidence**: **#139**; [ledger: fix/status-bar-running-tasks](../../docs/ledger/2026-10-15-fix-status-bar-running-tasks.md); `integration_test/status_bar_cancel_flow_test.dart`
 
 ## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared
 

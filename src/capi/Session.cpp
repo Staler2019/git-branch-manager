@@ -716,6 +716,28 @@ std::size_t Session::cancelOperations(std::uint64_t id) {
     return targets.size();
 }
 
+std::int32_t Session::cancelOperation(std::uint64_t id) {
+    if (id == 0) {
+        return static_cast<std::int32_t>(cancelOperations(0));
+    }
+    std::string description;
+    switch (operations_->cancel(id, &description)) {
+        case OperationRunner::CancelResult::Cancelled:
+            return 1;
+        case OperationRunner::CancelResult::NotFound:
+            return 0;
+        case OperationRunner::CancelResult::NotCancellable:
+            break;
+    }
+    GitError error(GitError::Code::NotCancellable,
+                   "\"" + description + "\" can't be cancelled once it has started",
+                   "It changes the repository (it takes a git lock) as one step; "
+                   "stopping it part-way could leave the repository half-updated, "
+                   "so it was left to finish.");
+    callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+    return -1;
+}
+
 void Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
                               std::function<void()> onSuccess,
@@ -1243,7 +1265,19 @@ void Session::dispatchOperationLogRecord(const OperationRecord& record) {
                 dirs.push_back(worktree.path);
             }
         }
-        if (recordBelongsToSession(record.repoDir, dirs)) {
+        if (!recordBelongsToSession(record.repoDir, dirs)) {
+            continue;
+        }
+        // Serialised per receiving session: only the session whose queue runs
+        // the operation may name it for a Cancel. Taking the runner's mutex
+        // here cannot invert a lock order -- the runner never holds it while
+        // anything logs.
+        if (record.queuedOperationId != 0 &&
+            !session->operations_->runs(record.queuedOperationId)) {
+            OperationRecord foreign = record;
+            foreign.queuedOperationId = 0;
+            session->publishOperationLogRecord(foreign);
+        } else {
             session->publishOperationLogRecord(record);
         }
     }

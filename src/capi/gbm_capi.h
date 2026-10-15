@@ -123,7 +123,10 @@ enum GbmEventType {
     /// session makes, for an operation-log panel -- see
     /// core/base/Logging.h's OperationRecord doc comment. Distinct from
     /// every other event: it can fire during a *read* (history refresh,
-    /// working-copy refresh), not only a mutation.
+    /// working-copy refresh), not only a mutation. Its `queuedOperationId`
+    /// names the queued operation the invocation ran for -- what
+    /// gbm_cancel_operation() takes -- and is 0 when none, or when the
+    /// operation belongs to another session open on the same directories.
     GBM_EVENT_OPERATION_LOG_RECORD = 12,
 
     /// payload: BlameResult JSON. Reply to gbm_request_blame().
@@ -326,8 +329,23 @@ GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session);
 /// original request and lets that submission's own preflight() re-arbitrate.
 GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session);
 
-/// Trips the cancellation token of every in-flight operation whose id
-/// matches, or of all of them when `id` is 0. Returns how many were tripped.
+/// A user's Cancel of one queued operation, decided per capi unit.
+///
+/// `id` is an operation-log record's `queuedOperationId` (see
+/// GBM_EVENT_OPERATION_LOG_RECORD); a session receives a non-zero one only for
+/// operations its own queue runs. Returns:
+///   *  1 -- cancelled: a queued operation finishes as Cancelled without
+///           running, or a running one whose unit can be stopped part-way
+///           (Operation::killableMidFlight()) is being stopped;
+///   *  0 -- nothing here by that id (already finished, or another session's);
+///   * -1 -- refused: the operation is running and its unit cannot be stopped
+///           part-way (使用者裁定 2026-10-15: 「capi 中有 git lock 會產生的動作都
+///           不能取消」 -- fetch, pull and push update refs in the same
+///           invocation). It is left to finish, and GBM_EVENT_ERROR_OCCURRED
+///           fires with code NotCancellable (「capi不行cancel會拋錯」).
+///
+/// `id` 0 keeps its original meaning, used by session close: trip every
+/// operation registered by submitOperation() and return how many.
 ///
 /// This is the control the ~28 commands that deliberately run with **no**
 /// deadline are documented as relying on: a fetch of a 500 MB repository on a

@@ -47,7 +47,23 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     return handle;
 }
 
-OperationRunner::CancelResult OperationRunner::cancel(std::uint64_t id) {
+bool OperationRunner::runs(std::uint64_t id) const {
+    if (id == 0) {
+        return false;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (id == runningId_) {
+        return true;
+    }
+    for (const auto& queued : queue_) {
+        if (queued.id == id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+OperationRunner::CancelResult OperationRunner::cancel(std::uint64_t id, std::string* description) {
     CancellationSource running;
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -62,6 +78,9 @@ OperationRunner::CancelResult OperationRunner::cancel(std::uint64_t id) {
             return CancelResult::NotFound;
         }
         if (!runningKillable_) {
+            if (description != nullptr) {
+                *description = runningDescription_;
+            }
             return CancelResult::NotCancellable;
         }
         running = runningSource_;
@@ -164,6 +183,7 @@ void OperationRunner::workerLoop() {
             // cancel()'s invariant 1: running from the instant it left the queue.
             runningId_ = queued.id;
             runningKillable_ = queued.operation->killableMidFlight();
+            runningDescription_ = queued.operation->describe();
             runningSource_ = queued.source;
         }
 

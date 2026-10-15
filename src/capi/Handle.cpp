@@ -84,5 +84,5 @@ GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session) 
 }
 
 GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id) {
-    return static_cast<int32_t>(toSession(session)->cancelOperations(id));
+    return toSession(session)->cancelOperation(id);
 }

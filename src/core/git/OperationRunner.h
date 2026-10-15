@@ -161,7 +161,15 @@ public:
     ///     token. Tripping under the lock is safe: an operation that has not
     ///     started has no onCancel callbacks registered, so cancel() runs
     ///     nothing. Only the running-and-killable case trips outside the lock.
-    CancelResult cancel(std::uint64_t id);
+    ///
+    /// `description`, when given, receives the running operation's describe()
+    /// on NotCancellable, so the refusal can name what was left running.
+    CancelResult cancel(std::uint64_t id, std::string* description = nullptr);
+
+    /// Whether operation `id` is queued or running on this runner. A log record
+    /// reaches every session open on the same directories; only the one whose
+    /// runner this is may name the operation for a cancel.
+    bool runs(std::uint64_t id) const;
 
     /// Current on-disk state. Cheap; safe to call often.
     RepoState state() const;
@@ -223,6 +231,7 @@ private:
     /// together with busy_ (see cancel()'s invariant 1). 0 when idle.
     std::uint64_t runningId_ = 0;
     bool runningKillable_ = false;
+    std::string runningDescription_;
     CancellationSource runningSource_;
     bool busy_ = false;
     bool stopping_ = false;

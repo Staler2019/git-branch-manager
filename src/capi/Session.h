@@ -131,6 +131,14 @@ public:
     /// already running. An operation that has already finished is simply absent.
     std::size_t cancelOperations(std::uint64_t id);
 
+    /// A user's Cancel, from gbm_cancel_operation(): `id` is a log record's
+    /// queuedOperationId. 0 keeps cancelOperations(0)'s meaning. Otherwise
+    /// OperationRunner::cancel() decides per unit; a refusal is raised as
+    /// GBM_EVENT_ERROR_OCCURRED (GitError::Code::NotCancellable) -- 使用者裁定
+    /// 「capi不行cancel會拋錯」. Returns 1 cancelled, 0 not this session's or
+    /// already finished, -1 refused.
+    std::int32_t cancelOperation(std::uint64_t id);
+
     /// Async: see gbm_history_refresh()'s doc comment in gbm_capi.h. Returns
     /// this request's number (refreshRequestSeq_).
     std::uint64_t refreshHistory();

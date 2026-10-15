@@ -52,12 +52,6 @@ Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec 
 - **Do**: leave both English until a menu-bar localisation ruling; `dialog_copy_test.dart`'s 'Preferences' group pins the English header.
 - **Evidence**: [ledger: G1i](../../docs/ledger/2026-09-04-fix-prune-stale-comment-and-recovery-choice-copy.md)
 
-## [DRIFT-cancel-capi-unwired] ~~`gbm_cancel_operation` exists with no Dart caller, by decision~~ Closed 2026-10-15: wired, core decides per unit
-
-- **Rule**: ~~「開 capi cancellation token 然後先不接線」~~ overruled 2026-10-15 (「S2 的 capi 提前到這輪」). Status-bar Cancel → `cancelOperation(queuedOperationId)` → `OperationRunner::cancel(id)`: trips a queued op, a running one only if `killableMidFlight()`, else `NotCancellable` + GBM_EVENT_ERROR_OCCURRED (「capi不行cancel會拋錯」). id 0 keeps `~Session()`'s cancel-all.
-- **Do**: the UI never decides cancellability (「實作不是用 cancellable」). Open for S3: `ProcessRunner::execute` kills any command on a tripped token, so a timeout or `cancelOperations(0)` can still kill a mutating git.
-- **Evidence**: **#139**; [ledger: fix/status-bar-running-tasks](../../docs/ledger/2026-10-15-fix-status-bar-running-tasks.md); `integration_test/status_bar_cancel_flow_test.dart`
-
 ## [DRIFT-list-tree-mode-scope-undecided] P03 item 10 contradicts itself on whether List/Tree mode is per-list or shared
 
 - **Rule**: its own `note` says 「模式各清單獨立記憶」 and then 「同一個設定套用到…」; the code is shared (`fileListViewModeProvider`, five call sites) and the matrix ratified that; collapse state is per-list (`FileTreeList._expandedFolders`).

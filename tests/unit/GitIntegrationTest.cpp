@@ -5371,9 +5371,10 @@ TEST_F(RealRepoTest, RecordsTakenInsideAQueuedOperationCarryItsId) {
     OperationRunner operations(*runner_, paths_);
     // onDone runs on the same worker thread, but after the operation: what it
     // runs is not the operation's work, and must not claim its id.
-    const auto handle = operations.submit(std::make_unique<RunsRevParse>(), [this](OperationOutcome) {
-        EXPECT_TRUE(run({"rev-parse", "--is-bare-repository"}));
-    });
+    const auto handle =
+        operations.submit(std::make_unique<RunsRevParse>(), [this](OperationOutcome) {
+            EXPECT_TRUE(run({"rev-parse", "--is-bare-repository"}));
+        });
     operations.drain();
 
     const auto records = spy.allEndingWith({"rev-parse", "--is-inside-work-tree"});

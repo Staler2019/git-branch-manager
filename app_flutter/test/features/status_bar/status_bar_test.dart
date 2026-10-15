@@ -1117,6 +1117,24 @@ void main() {
       expect(find.text('1200/0'), findsNothing);
     });
 
+    testWidgets('a git task counts nothing, so it draws no count at all', (
+      tester,
+    ) async {
+      // Core reports no object counts (使用者裁定: 計數「改spec，沒有計畫」),
+      // so `gitCommand` is current 0 / total 0. A lone "0" beside the bar
+      // reads as an object count that is stuck.
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.gitCommand(
+          id: 'git-1',
+          label: 'Pushing origin',
+          queuedOperationId: 7,
+        ),
+      ]);
+
+      expect(find.text('Pushing origin'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+    });
+
     testWidgets('a known total keeps a determinate bar and "N/M"', (
       tester,
     ) async {

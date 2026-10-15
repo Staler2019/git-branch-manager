@@ -386,16 +386,21 @@ class _StatusBarState extends State<StatusBar> {
             ],
           ),
         ),
-        const SizedBox(width: GbmSpacing.space2),
-        Text(
-          foregroundTask.total > 0
-              ? '${foregroundTask.current}/${foregroundTask.total}'
-              : '${foregroundTask.current}',
-          style: TextStyle(
-            fontSize: GbmTypography.textXs,
-            color: colors.textTertiary,
+        // A task that has counted nothing and knows no total draws no count:
+        // a git task never counts (計數「改spec，沒有計畫」), and a lone "0"
+        // would read as a stuck object count.
+        if (foregroundTask.total > 0 || foregroundTask.current > 0) ...<Widget>[
+          const SizedBox(width: GbmSpacing.space2),
+          Text(
+            foregroundTask.total > 0
+                ? '${foregroundTask.current}/${foregroundTask.total}'
+                : '${foregroundTask.current}',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
           ),
-        ),
+        ],
         const SizedBox(width: GbmSpacing.space2),
         if (extraCount > 0)
           _ExtraTasksChip(

@@ -26,6 +26,7 @@
 // back off.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -305,5 +306,112 @@ void main() {
         );
       },
     );
+
+    // The reported gap: a fetch was running and nothing in the window said so
+    // -- only the log drawer's RUNNING row did. The task is derived from that
+    // same row, and its Cancel hands core the queued id the row carries.
+    testWidgets('a running fetch shows a task whose Cancel reaches core with '
+        'the queued id', (tester) async {
+      final pumped = await pumpWorkspace(tester, identity: _identity);
+      OperationRecord fetch({required bool running}) => OperationRecord(
+        whenEpochMs: 0,
+        repoDir: '/test/repo',
+        argv: const <String>['git', '-C', '/test/repo', 'fetch', 'origin'],
+        commandLine: 'git fetch origin',
+        exitCode: 0,
+        durationMs: 0,
+        stderrText: '',
+        cancelled: false,
+        timedOut: false,
+        id: 77,
+        running: running,
+        queuedOperationId: 41,
+      );
+
+      pumped.controller.emit(
+        pumped.controller.state.withOperationRecord(
+          fetch(running: true),
+          maxEntries: 2000,
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBar),
+          matching: find.text('Fetching origin'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(_statusBarCancel());
+      await tester.pump();
+
+      final List<FakeCommand> cancels = pumped.controller.commandLog
+          .where((c) => c.name == 'cancelOperation')
+          .toList();
+      expect(cancels.length, 1);
+      expect(cancels.single.args['queuedOperationId'], 41);
+
+      // The outcome replaces the running row: the task finishes, lingers,
+      // and is gone.
+      pumped.controller.emit(
+        pumped.controller.state.withOperationRecord(
+          fetch(running: false),
+          maxEntries: 2000,
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 3));
+      expect(
+        find.descendant(
+          of: find.byType(StatusBar),
+          matching: find.text('Fetching origin'),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a running cherry-pick is drawn once, not again as the '
+        'stopped sequencer', (tester) async {
+      final pumped = await pumpWorkspace(tester, identity: _identity);
+      pumped.controller.emit(
+        pumped.controller.state
+            .copyWith(repoState: _cherryPickState())
+            .withOperationRecord(
+              const OperationRecord(
+                whenEpochMs: 0,
+                repoDir: '/test/repo',
+                argv: <String>['git', 'cherry-pick', '--continue'],
+                commandLine: 'git cherry-pick --continue',
+                exitCode: 0,
+                durationMs: 0,
+                stderrText: '',
+                cancelled: false,
+                timedOut: false,
+                id: 5,
+                running: true,
+                queuedOperationId: 9,
+              ),
+              maxEntries: 2000,
+            ),
+      );
+      await tester.pump();
+
+      expect(
+        find.descendant(
+          of: find.byType(StatusBar),
+          matching: find.text('Cherry-picking'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(StatusBar),
+          matching: find.text('+1 task'),
+        ),
+        findsNothing,
+      );
+    });
   });
 }

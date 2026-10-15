@@ -4,11 +4,12 @@ import 'package:gbm_flutter/features/status_bar/background_task.dart';
 void main() {
   group('BackgroundTask', () {
     test('factory creates task with correct fields', () {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching from origin',
         current: 50,
         total: 100,
+        cancellable: true,
       );
 
       expect(task.id, 'fetch-1');
@@ -18,89 +19,40 @@ void main() {
       expect(task.finishedAt, isNull);
     });
 
-    test('fetch task is cancellable', () {
-      final task = BackgroundTask.fetch(
-        id: 'fetch-1',
-        label: 'Fetching',
-        current: 0,
-        total: 1,
+    test(
+      'a git command task always offers Cancel and carries its queued id',
+      () {
+        // Core decides whether the running unit can stop (使用者裁定
+        // 2026-10-15); the button always asks.
+        final task = BackgroundTask.gitCommand(
+          id: 'git-3',
+          label: 'Pushing origin',
+          queuedOperationId: 41,
+        );
+
+        expect(task.cancellable, isTrue);
+        expect(task.queuedOperationId, 41);
+        expect(task.total, 0, reason: 'no object counts from core');
+      },
+    );
+
+    test('copyWith keeps the queued id', () {
+      final task = BackgroundTask.gitCommand(
+        id: 'git-3',
+        label: 'Pushing origin',
+        queuedOperationId: 41,
       );
 
-      expect(task.cancellable, isTrue);
-    });
-
-    test('pull task is cancellable', () {
-      final task = BackgroundTask.pull(
-        id: 'pull-1',
-        label: 'Pulling',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isTrue);
-    });
-
-    test('push task is cancellable', () {
-      final task = BackgroundTask.push(
-        id: 'push-1',
-        label: 'Pushing',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isTrue);
-    });
-
-    test('clone task is cancellable', () {
-      final task = BackgroundTask.clone(
-        id: 'clone-1',
-        label: 'Cloning',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isTrue);
-    });
-
-    test('checkout task is NOT cancellable', () {
-      final task = BackgroundTask.checkout(
-        id: 'checkout-1',
-        label: 'Checking out',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isFalse);
-    });
-
-    test('merge task is NOT cancellable', () {
-      final task = BackgroundTask.merge(
-        id: 'merge-1',
-        label: 'Merging',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isFalse);
-    });
-
-    test('rebase task is NOT cancellable', () {
-      final task = BackgroundTask.rebase(
-        id: 'rebase-1',
-        label: 'Rebasing',
-        current: 0,
-        total: 1,
-      );
-
-      expect(task.cancellable, isFalse);
+      expect(task.copyWith(finishedAt: DateTime(2026)).queuedOperationId, 41);
     });
 
     test('copyWith creates immutable copy', () {
-      final task1 = BackgroundTask.fetch(
+      final task1 = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 10,
         total: 100,
+        cancellable: true,
       );
 
       final task2 = task1.copyWith(current: 50);
@@ -113,11 +65,12 @@ void main() {
     });
 
     test('copyWith can set finishedAt', () {
-      final task1 = BackgroundTask.fetch(
+      final task1 = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 100,
         total: 100,
+        cancellable: true,
       );
 
       final now = DateTime.now();
@@ -128,33 +81,36 @@ void main() {
     });
 
     test('progress calculation is correct', () {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 33,
         total: 100,
+        cancellable: true,
       );
 
       expect(task.progress, closeTo(0.33, 0.01));
     });
 
     test('progress is clamped to 1.0 when current >= total', () {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 150,
         total: 100,
+        cancellable: true,
       );
 
       expect(task.progress, 1.0);
     });
 
     test('progress is 0.0 (not NaN) when total is 0 (indeterminate task)', () {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 0,
         total: 0,
+        cancellable: true,
       );
 
       expect(task.progress, 0.0);
@@ -162,11 +118,12 @@ void main() {
     });
 
     test('task is immutable', () {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 0,
         total: 100,
+        cancellable: true,
       );
 
       expect(task, isA<BackgroundTask>());

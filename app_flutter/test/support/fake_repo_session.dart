@@ -410,6 +410,21 @@ class FakeRepoSessionController extends RepoSessionController {
     return ++refreshRequestSeq;
   }
 
+  /// Recorded, with core's answer settable: the real method's null-session
+  /// guard would return 0 for every id, and a test could not tell the status
+  /// bar's Cancel reaching core from a dead button.
+  int cancelOperationAnswer = 1;
+
+  @override
+  int cancelOperation(int queuedOperationId) {
+    commandLog.add(
+      FakeCommand('cancelOperation', <String, Object?>{
+        'queuedOperationId': queuedOperationId,
+      }),
+    );
+    return cancelOperationAnswer;
+  }
+
   /// Same reasoning as [refreshHistory] above, for the other half of a
   /// window-focus regain: WorkspaceScreen's AppLifecycleListener dispatches
   /// both, and an unoverridden method no-ops silently against the null

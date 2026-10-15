@@ -190,11 +190,12 @@ void main() {
     });
 
     testWidgets('shows single task in progress zone', (tester) async {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 50,
         total: 100,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -225,25 +226,30 @@ void main() {
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
     });
 
+    // Spec page 10 P10 #2: 「其餘作業摺疊成 +N task」; its mockup draws
+    // "+1 task". The chip used to read "+N more".
     testWidgets('folds N>1 tasks to "+N task" text', (tester) async {
       final tasks = [
-        BackgroundTask.fetch(
+        BackgroundTask(
           id: 'fetch-1',
           label: 'Fetching',
           current: 50,
           total: 100,
+          cancellable: true,
         ),
-        BackgroundTask.push(
+        BackgroundTask(
           id: 'push-1',
           label: 'Pushing',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
-        BackgroundTask.pull(
+        BackgroundTask(
           id: 'pull-1',
           label: 'Pulling',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
       ];
 
@@ -270,29 +276,32 @@ void main() {
       await tester.pump();
 
       // Should show fold indicator
-      expect(find.text('+2 more'), findsOneWidget);
+      expect(find.text('+2 task'), findsOneWidget);
     });
 
     testWidgets('tapping "+N more" expands the folded tasks (spec page 10 '
         'STATUSPARTS #2: "其餘作業摺疊成 +N task，點了展開清單")', (tester) async {
       final tasks = [
-        BackgroundTask.fetch(
+        BackgroundTask(
           id: 'fetch-1',
           label: 'Fetching',
           current: 50,
           total: 100,
+          cancellable: true,
         ),
-        BackgroundTask.push(
+        BackgroundTask(
           id: 'push-1',
           label: 'Pushing',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
-        BackgroundTask.checkout(
+        BackgroundTask(
           id: 'checkout-1',
           label: 'Checking out',
           current: 0,
           total: 1,
+          cancellable: false,
         ),
       ];
       String? cancelledId;
@@ -324,7 +333,7 @@ void main() {
       expect(find.text('Pushing'), findsNothing);
       expect(find.text('Checking out'), findsNothing);
 
-      await tester.tap(find.text('+2 more'));
+      await tester.tap(find.text('+2 task'));
       await tester.pumpAndSettle();
 
       // After expanding: both folded tasks' labels are now visible.
@@ -349,11 +358,12 @@ void main() {
     testWidgets('non-cancellable task Cancel button is disabled', (
       tester,
     ) async {
-      final task = BackgroundTask.checkout(
+      final task = BackgroundTask(
         id: 'checkout-1',
         label: 'Checking out',
         current: 0,
         total: 1,
+        cancellable: false,
       );
 
       await tester.pumpWidget(
@@ -387,11 +397,12 @@ void main() {
 
     testWidgets('cancellable task Cancel button is enabled', (tester) async {
       var cancelledId = '';
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 0,
         total: 1,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -431,11 +442,12 @@ void main() {
     testWidgets('repo status zone visible even with task in progress', (
       tester,
     ) async {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 50,
         total: 100,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -1156,6 +1168,33 @@ void main() {
       expect(bar.value, 0.0);
     });
 
+    testWidgets('a task that starts during the linger is shown at once', (
+      tester,
+    ) async {
+      // A pull with stash-first runs `stash push` then `pull`: the second
+      // must not sit hidden behind the first one's 3-second linger.
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+      await pumpTasks(tester, const <BackgroundTask>[]);
+      expect(find.text('Reading history'), findsOneWidget);
+
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.gitCommand(
+          id: 'git-9',
+          label: 'Pulling',
+          queuedOperationId: 4,
+        ),
+      ]);
+
+      expect(find.text('Pulling'), findsOneWidget);
+      expect(find.text('Reading history'), findsNothing);
+
+      // And when that one finishes, it is the one that lingers.
+      await pumpTasks(tester, const <BackgroundTask>[]);
+      expect(find.text('Pulling'), findsOneWidget);
+      expect(find.text('Reading history'), findsNothing);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
     testWidgets('a folded task with total 0 is indeterminate too', (
       tester,
     ) async {
@@ -1169,7 +1208,7 @@ void main() {
           cancellable: false,
         ),
       ]);
-      await tester.tap(find.text('+1 more'));
+      await tester.tap(find.text('+1 task'));
       // Not pumpAndSettle: an indeterminate bar never settles
       // ([TEST-no-pumpandsettle-with-spinner]).
       await tester.pump();

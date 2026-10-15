@@ -116,10 +116,10 @@ class _StatusBarState extends State<StatusBar> {
     super.didUpdateWidget(oldWidget);
 
     // Detect task completion: if a task that was in the list is now gone,
-    // it finished. Show it lingering for 3 seconds.
+    // it finished. Show it lingering for 3 seconds -- the latest one, so a
+    // task that started and finished during an earlier linger replaces it.
     if (oldWidget.backgroundTasks.isNotEmpty &&
-        widget.backgroundTasks.isEmpty &&
-        _completedTask == null) {
+        widget.backgroundTasks.isEmpty) {
       // All tasks finished; use the last one from the old list as the completed task
       _completedTask = oldWidget.backgroundTasks.last.copyWith(
         finishedAt: DateTime.now(),
@@ -176,9 +176,11 @@ class _StatusBarState extends State<StatusBar> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final List<BackgroundTask> visibleTasks = _completedTask != null
-        ? [_completedTask!]
-        : widget.backgroundTasks;
+    // A finished task lingers only while nothing else runs: a task that starts
+    // during the linger (a pull's `stash push` then `pull`) is shown at once.
+    final List<BackgroundTask> visibleTasks = widget.backgroundTasks.isNotEmpty
+        ? widget.backgroundTasks
+        : <BackgroundTask>[?_completedTask];
 
     final conflictLabel = _buildConflictLabel();
 
@@ -490,7 +492,8 @@ class _ExtraTasksChip extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showExtraTasksMenu(context),
       child: Text(
-        '+${extraTasks.length} more',
+        // Spec page 10 P10 #2: 「其餘作業摺疊成 +N task」 (mockup: "+1 task").
+        '+${extraTasks.length} task',
         style: TextStyle(
           fontSize: GbmTypography.textXs,
           color: colors.textLink,

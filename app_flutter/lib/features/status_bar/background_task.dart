@@ -1,10 +1,6 @@
-/// A background task in progress (fetch, pull, push, clone, checkout,
-/// merge/rebase). Immutable DTO following the project's DDD + factory pattern
-/// convention.
-///
-/// Non-cancellable tasks (checkout, merge, rebase) show a disabled Cancel
-/// button with a tooltip explaining why, per the design spec. All others
-/// default to cancellable.
+/// A background task in progress: the history scan, a sequencer operation
+/// stopped on the user, or a running git command. Immutable DTO following the
+/// project's DDD + factory pattern convention.
 class BackgroundTask {
   const BackgroundTask({
     required this.id,
@@ -14,6 +10,7 @@ class BackgroundTask {
     required this.cancellable,
     this.finishedAt,
     this.waitingOnUser = false,
+    this.queuedOperationId = 0,
   });
 
   /// A sequencer operation (merge/rebase/cherry-pick/revert) stopped part-way,
@@ -34,96 +31,24 @@ class BackgroundTask {
     waitingOnUser: true,
   );
 
-  // Factory constructors for each task kind, auto-setting cancellable flag
-  factory BackgroundTask.fetch({
+  /// A running git invocation of one of this session's queued operations
+  /// (`backgroundTasksFromOperationLog`). Its Cancel is always enabled:
+  /// whether the unit can stop part-way is core's decision, not this DTO's
+  /// (使用者裁定 2026-10-15: 「實作不是用 cancellable…capi不行cancel會拋錯」).
+  /// The six per-kind factories this replaced (fetch/pull/push/clone with
+  /// cancellable true, checkout/merge/rebase false) had no caller under lib/
+  /// and encoded the opposite of that ruling.
+  factory BackgroundTask.gitCommand({
     required String id,
     required String label,
-    required int current,
-    required int total,
+    required int queuedOperationId,
   }) => BackgroundTask(
     id: id,
     label: label,
-    current: current,
-    total: total,
+    current: 0,
+    total: 0,
     cancellable: true,
-  );
-
-  factory BackgroundTask.pull({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: true,
-  );
-
-  factory BackgroundTask.push({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: true,
-  );
-
-  factory BackgroundTask.clone({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: true,
-  );
-
-  factory BackgroundTask.checkout({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: false,
-  );
-
-  factory BackgroundTask.merge({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: false,
-  );
-
-  factory BackgroundTask.rebase({
-    required String id,
-    required String label,
-    required int current,
-    required int total,
-  }) => BackgroundTask(
-    id: id,
-    label: label,
-    current: current,
-    total: total,
-    cancellable: false,
+    queuedOperationId: queuedOperationId,
   );
 
   final String id;
@@ -131,9 +56,14 @@ class BackgroundTask {
   final int current;
   final int total;
 
-  /// Whether this task can be safely cancelled. Checkout, merge, and rebase
-  /// operations are not cancellable for safety reasons.
+  /// Whether the status bar offers Cancel. For a git command it is always
+  /// true and core decides ([BackgroundTask.gitCommand]); the stopped
+  /// sequencer is false because nothing is running to stop.
   final bool cancellable;
+
+  /// The queued operation a git command's Cancel names
+  /// (`RepoSessionController.cancelOperation`); 0 for every other task.
+  final int queuedOperationId;
 
   /// When the task completed, or null if still running.
   final DateTime? finishedAt;
@@ -157,6 +87,7 @@ class BackgroundTask {
     bool? cancellable,
     DateTime? finishedAt,
     bool? waitingOnUser,
+    int? queuedOperationId,
   }) => BackgroundTask(
     id: id ?? this.id,
     label: label ?? this.label,
@@ -165,5 +96,6 @@ class BackgroundTask {
     cancellable: cancellable ?? this.cancellable,
     finishedAt: finishedAt ?? this.finishedAt,
     waitingOnUser: waitingOnUser ?? this.waitingOnUser,
+    queuedOperationId: queuedOperationId ?? this.queuedOperationId,
   );
 }

@@ -354,11 +354,10 @@ GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session);
 /// pathological case (a `git` that has stopped saying anything at all), but
 /// an operation that is still making progress can only be stopped from here.
 ///
-/// **No Dart or UI caller exists yet, by decision** (使用者裁定: 「開 capi
-/// cancellation token 然後先不接線」). That makes this a deliberate
-/// producer-side orphan in [CULT-orphan-wiring]'s sense -- recorded rather
-/// than implied, and tracked on its own issue. Do not delete it as dead
-/// wiring; the reader is scheduled, not missing.
+/// ~~**No Dart or UI caller exists yet, by decision** (使用者裁定: 「開 capi
+/// cancellation token 然後先不接線」).~~ Wired 2026-10-15 (使用者裁定「吃
+/// cancellationToken 如果capi吃的到cancellationToken」): the Dart caller is
+/// RepoSessionController.cancelOperation().
 ///
 /// Cancellation is cooperative and idempotent: a token already tripped, or an
 /// operation that finished between the caller reading an id and this call,

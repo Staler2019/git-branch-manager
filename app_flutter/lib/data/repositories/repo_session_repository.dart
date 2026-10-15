@@ -2756,6 +2756,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _bindings.removeStaleIndexLock(_session);
   }
 
+  /// A user's Cancel of the queued operation [queuedOperationId] names (an
+  /// [OperationRecord.queuedOperationId]). Core decides per capi unit --
+  /// 使用者裁定 2026-10-15, see gbm_cancel_operation()'s doc comment -- and
+  /// its answer comes back unchanged: 1 cancelled, 0 not found, -1 refused.
+  /// A refusal also arrives as GBM_EVENT_ERROR_OCCURRED (NotCancellable),
+  /// which is how the user hears about it.
+  ///
+  /// 0 is never sent: to the capi it means "every operation in the session",
+  /// the session-close path, and a record with no queued id names nothing.
+  int cancelOperation(int queuedOperationId) {
+    if (_session == nullptr || queuedOperationId == 0) return 0;
+    return _bindings.cancelOperation(_session, queuedOperationId);
+  }
+
   /// Resubmits the checkout request that produced the current
   /// [RepoSessionState.checkoutChoices] with the flag [kind] implies
   /// (stash-and-retry -> `stashFirst`, force-discard -> `force`; retry and

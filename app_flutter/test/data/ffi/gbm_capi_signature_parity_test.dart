@@ -46,10 +46,7 @@ const Map<String, String> _dartAliases = <String, String>{
 
 /// Declared in the header, deliberately not bound in Dart. Binding one of
 /// these means deleting it here too -- the coverage test checks both ways.
-const Set<String> _unboundByDecision = <String>{
-  // [DRIFT-cancel-capi-unwired], #139: capi landed, Dart deliberately unwired.
-  'gbm_cancel_operation',
-};
+const Set<String> _unboundByDecision = <String>{};
 
 class _Signature {
   const _Signature(this.ret, this.params);

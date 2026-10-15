@@ -39,12 +39,35 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     {
         std::lock_guard<std::mutex> lock(mutex_);
         handle.id = nextId_++;
-        QueuedOperation queued{
-            handle.id, std::move(operation), std::move(onDone), handle.cancel.token()};
+        QueuedOperation queued{handle.id, std::move(operation), std::move(onDone), handle.cancel};
         queue_.push_back(std::move(queued));
     }
     work_.notify_one();
     return handle;
+}
+
+OperationRunner::CancelResult OperationRunner::cancel(std::uint64_t id) {
+    CancellationSource running;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto& queued : queue_) {
+            if (queued.id == id) {
+                // Invariant 2: tripped before the lock is released.
+                queued.source.cancel();
+                return CancelResult::Cancelled;
+            }
+        }
+        if (id == 0 || id != runningId_) {
+            return CancelResult::NotFound;
+        }
+        if (!runningKillable_) {
+            return CancelResult::NotCancellable;
+        }
+        running = runningSource_;
+    }
+    // Outside the lock: this runs ProcessRunner's kill callback.
+    running.cancel();
+    return CancelResult::Cancelled;
 }
 
 bool OperationRunner::removeStaleIndexLock() {
@@ -127,7 +150,7 @@ void OperationRunner::recordUndoPoint(const Operation& operation) {
 
 void OperationRunner::workerLoop() {
     for (;;) {
-        QueuedOperation queued{0, nullptr, nullptr, CancellationToken{}};
+        QueuedOperation queued{0, nullptr, nullptr, CancellationSource{}};
         {
             std::unique_lock<std::mutex> lock(mutex_);
             work_.wait(lock, [this] { return stopping_ || !queue_.empty(); });
@@ -137,10 +160,14 @@ void OperationRunner::workerLoop() {
             queued = std::move(queue_.front());
             queue_.pop_front();
             busy_ = true;
+            // cancel()'s invariant 1: running from the instant it left the queue.
+            runningId_ = queued.id;
+            runningKillable_ = queued.operation->killableMidFlight();
+            runningSource_ = queued.source;
         }
 
         OperationOutcome outcome;
-        if (queued.token.isCancelled()) {
+        if (queued.source.isCancelled()) {
             outcome.succeeded = false;
             outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
         } else if (auto blocked = preflight(*queued.operation)) {
@@ -149,7 +176,7 @@ void OperationRunner::workerLoop() {
             recordUndoPoint(*queued.operation);
             logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
             try {
-                outcome = queued.operation->run(runner_, paths_, queued.token);
+                outcome = queued.operation->run(runner_, paths_, queued.source.token());
             } catch (const std::exception& ex) {
                 // A throwing operation must not take the process down while the
                 // user has uncommitted work open.
@@ -171,6 +198,8 @@ void OperationRunner::workerLoop() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             busy_ = false;
+            runningId_ = 0;
+            runningKillable_ = false;
             if (queue_.empty()) {
                 idle_.notify_all();
             }

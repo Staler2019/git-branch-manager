@@ -75,5 +75,8 @@ Cancel(task) ─ queuedOperationId ─▶ gbm_cancel_operation ─▶ Session::c
     - `0f14d0d`：`recordBelongsToSession` 改用它。實作前紅 1；mutation 2 次，各紅 1。重新量測：命中約 1.2 µs、fallback 約 115 µs，與先前相同。
     - `71132dc`：`WorktreeOps` 的 `isMain`、`attachCreatedAt` 四處改用它；這四處有同樣的缺口。第一輪 mutation 4 次只紅 2：git 回報那一側的兩處沒有測試能分辨，因為 fixture 在那一側一律用真實路徑（[TEST-fixture-cannot-disagree] 第 3 型）。補上兩則鏡像測試後，4 次各紅 1。鏡像測試是實作後才補的，沒有先看到紅。ctest 804/804。
   - A2（P4，相對路徑會依 CWD 解析，目前所有寫入點都是絕對路徑）、A3（P4，`liveSessionsMutex` 內的檔案系統呼叫可能被斷線的網路磁碟卡住，只是推測）：**DEFER**。
+  - Fresh `verifier` 驗 `9a02323`／`0f14d0d`／`71132dc`：**CONFIRMED**。它自己跑 ctest 804/804，另用 probe 驗證：最後一層是 junction 時能比對到；斷掉的連結 `resolvedDirId` 回 nullopt。PR #189 的 CI 在 `549598d` 13 項全綠。兩項 P4 advisory 都 **DEFER**：
+    - 鏡像測試沒有先見紅，已由 mutation 補足。
+    - 本輪改動才造成的情況，沒有實際重現：prunable worktree 的路徑若是斷掉的連結，且 `gitdir` 與 `git worktree list` 對它的寫法不同，`createdAtUnix` 會從有變成沒有。原本兩邊會以連結本身的 id 對上。影響只有一個已不存在的 worktree 少了建立日期。
 - 範圍外發現，交 S3（裁定 3 的 rollback 輪），本輪未改：`ProcessRunner::execute` 對任何命令都把 token 接到 kill，與 `terminate()` 的註解「mutating git process is never killed mid-flight」不符；逾時（`effectiveDeadlines`）與 `~Session` 的 `cancelOperations(0)` 都可能在 merge／rebase／checkout 中途砍掉 git。
 - 規則：~~`[DRIFT-cancel-capi-unwired]` 原地改寫為已接線；~~ **更正**：`drift-open.md` 開頭規定「closed drift lives in the ledger」，先改寫後已自該檔退役（引用者只有 ledger 的 code span，`check-rule-pins.py` 不受影響）。關閉時的狀態：狀態列 Cancel → `cancelOperation(queuedOperationId)` → `OperationRunner::cancel(id)`；仍開放、交 S3：`ProcessRunner::execute` 對任何命令都在 token trip 時 kill。`[CULT-orphan-wiring]` 計數 13 → 15，[record](../records/2026-10-04-orphan-wiring-instances.md) 加第 14、15 例。

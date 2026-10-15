@@ -69,5 +69,11 @@ Cancel(task) ─ queuedOperationId ─▶ gbm_cancel_operation ─▶ Session::c
   - 先改了 fixture（`canonical(repo_)`），後來撤回，沒有 commit：使用者裁定「symlink那個修」。
   - `949a259`：字串都不符合時才用 `fsutil::fileIdOf` 比對，`WorktreeOps.cpp` 已有同樣做法的先例。新測試在本機 Windows 實作前紅 2（symlink 與 8.3 兩種都重現）；mutation 3 次，紅 2／3／1；ctest 795/795。
   - 量測（規則 5，Windows 本機，20,000 次 × 3 輪）：字串命中約 1.2 µs／次；走 fallback（3 個目錄都不符合）約 116 µs／次。這段成本在 `liveSessionsMutex` 內，只有不擁有該 record 的 session 會付。Windows 上 spawn 一次 git 是毫秒級，所以不加快取。
+  - Fresh `verifier` 判 `949a259` **INCONCLUSIVE**，只差 macOS 的實際結果。Windows 這半它自己用修正前的 build、把 TEMP 換成 8.3 短名重現了紅，再在 `949a259` 上看到綠。之後 `capi (FFI) - macOS (arm64)` 綠了，`HeldPushTest.AnotherSessionSeesTheRecordButCannotCancelIt` 實際跑過（0.50 s，不是 skip）；PR #189 的 13 項 CI 全綠，缺的那項證據已補上。
+  - Advisory A1（P3）：路徑的**最後一層**本身是 symlink／junction 時仍比不到，原因是 `fileIdOf` 刻意不跟隨最後一層。使用者裁定「修a1」，並問「是不是全改fileIdOf 可以解決?」。答覆是不行：`Scanner.cpp` 的迴圈防護依賴「把連結本身當身分」，而 `DiscoveryTest` 沒有任何 followLinks 或迴圈測試，全面改掉沒有任何測試會紅。改採新增一個並列的函式（arch-suggester 建議放 `FsUtil`、命名 `resolvedDirId`）：
+    - `9a02323`：`resolvedDirId`，與 `fileIdOf` 共用 `identityOf(path, followFinalLink)`。stub 時紅 3；mutation 2 次，各紅 1。
+    - `0f14d0d`：`recordBelongsToSession` 改用它。實作前紅 1；mutation 2 次，各紅 1。重新量測：命中約 1.2 µs、fallback 約 115 µs，與先前相同。
+    - `71132dc`：`WorktreeOps` 的 `isMain`、`attachCreatedAt` 四處改用它；這四處有同樣的缺口。第一輪 mutation 4 次只紅 2：git 回報那一側的兩處沒有測試能分辨，因為 fixture 在那一側一律用真實路徑（[TEST-fixture-cannot-disagree] 第 3 型）。補上兩則鏡像測試後，4 次各紅 1。鏡像測試是實作後才補的，沒有先看到紅。ctest 804/804。
+  - A2（P4，相對路徑會依 CWD 解析，目前所有寫入點都是絕對路徑）、A3（P4，`liveSessionsMutex` 內的檔案系統呼叫可能被斷線的網路磁碟卡住，只是推測）：**DEFER**。
 - 範圍外發現，交 S3（裁定 3 的 rollback 輪），本輪未改：`ProcessRunner::execute` 對任何命令都把 token 接到 kill，與 `terminate()` 的註解「mutating git process is never killed mid-flight」不符；逾時（`effectiveDeadlines`）與 `~Session` 的 `cancelOperations(0)` 都可能在 merge／rebase／checkout 中途砍掉 git。
 - 規則：~~`[DRIFT-cancel-capi-unwired]` 原地改寫為已接線；~~ **更正**：`drift-open.md` 開頭規定「closed drift lives in the ledger」，先改寫後已自該檔退役（引用者只有 ledger 的 code span，`check-rule-pins.py` 不受影響）。關閉時的狀態：狀態列 Cancel → `cancelOperation(queuedOperationId)` → `OperationRunner::cancel(id)`；仍開放、交 S3：`ProcessRunner::execute` 對任何命令都在 token trip 時 kill。`[CULT-orphan-wiring]` 計數 13 → 15，[record](../records/2026-10-04-orphan-wiring-instances.md) 加第 14、15 例。

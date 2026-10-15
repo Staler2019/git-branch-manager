@@ -1047,4 +1047,140 @@ void main() {
       expect(find.text(refreshTimingsLabel(timings)), findsOneWidget);
     });
   });
+
+  // Spec page 10 TASKS: a task whose total is not known yet is still running,
+  // and has to look like it. `value: 0.0` drew a static empty track with an
+  // "N/0" count -- indistinguishable from nothing happening.
+  group('StatusBar progress for a task with no known total', () {
+    Future<void> pumpTasks(
+      WidgetTester tester,
+      List<BackgroundTask> tasks,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: tasks,
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    BackgroundTask scan({int current = 1200, int total = 0}) => BackgroundTask(
+      id: 'history-scan',
+      label: 'Reading history',
+      current: current,
+      total: total,
+      cancellable: false,
+    );
+
+    testWidgets('total 0 draws an animated (indeterminate) bar', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, isNull);
+    });
+
+    testWidgets('total 0 shows the count alone, never "N/0"', (tester) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+
+      expect(find.text('1200'), findsOneWidget);
+      expect(find.text('1200/0'), findsNothing);
+    });
+
+    testWidgets('a known total keeps a determinate bar and "N/M"', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan(current: 50, total: 100)]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 0.5);
+      expect(find.text('50/100'), findsOneWidget);
+    });
+
+    testWidgets('a finished task lingers as a full bar, not a spinning one', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+      await pumpTasks(tester, const <BackgroundTask>[]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 1.0);
+
+      // The linger timer is 3 s; let it fire so no timer outlives the test.
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    });
+
+    testWidgets('a sequencer stopped on the user draws a still bar', (
+      tester,
+    ) async {
+      // A merge stopped at a conflict has no step count (total 0) but nothing
+      // is running: animating it would claim work that is not happening.
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.stoppedSequencer(
+          id: 'sequencer',
+          label: 'Merging',
+          current: 0,
+          total: 0,
+        ),
+      ]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 0.0);
+    });
+
+    testWidgets('a folded task with total 0 is indeterminate too', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[
+        scan(current: 50, total: 100),
+        BackgroundTask(
+          id: 'git-7',
+          label: 'Fetching origin',
+          current: 0,
+          total: 0,
+          cancellable: false,
+        ),
+      ]);
+      await tester.tap(find.text('+1 more'));
+      // Not pumpAndSettle: an indeterminate bar never settles
+      // ([TEST-no-pumpandsettle-with-spinner]).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final List<LinearProgressIndicator> bars = tester
+          .widgetList<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          )
+          .toList();
+      expect(bars.map((b) => b.value), <double?>[0.5, null]);
+    });
+  });
 }

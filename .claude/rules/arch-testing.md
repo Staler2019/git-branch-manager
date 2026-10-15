@@ -49,7 +49,7 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 ## [TEST-no-pumpandsettle-with-spinner] Never `pumpAndSettle()` while an indeterminate progress indicator is on screen
 
 - **Rule**: a `CircularProgressIndicator`, or a `LinearProgressIndicator` with no `value:`, schedules frames forever, so `pumpAndSettle` can only time out; this is the confirmed mechanism of the device-tier batch flake (**#101**), not **#70**.
-- **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, `welcome_screen.dart` while scanning); `StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.
+- **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, `welcome_screen.dart` while scanning); ~~`StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.~~ `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`, `status_bar.dart`), so they too never settle while one runs — a static empty track was the reported 「不知道有沒有在跑」 (2026-10-15).
 
 ## [TEST-runasync-for-real-async] Real async inside `testWidgets` needs `tester.runAsync()`
 

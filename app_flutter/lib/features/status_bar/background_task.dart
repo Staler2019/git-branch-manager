@@ -13,7 +13,26 @@ class BackgroundTask {
     required this.total,
     required this.cancellable,
     this.finishedAt,
+    this.waitingOnUser = false,
   });
+
+  /// A sequencer operation (merge/rebase/cherry-pick/revert) stopped part-way,
+  /// waiting for the user to resolve, continue, skip or abort. Nothing is
+  /// running, so its bar stays still rather than animating -- an animated bar
+  /// would claim work that is not happening (and never settles in a test).
+  factory BackgroundTask.stoppedSequencer({
+    required String id,
+    required String label,
+    required int current,
+    required int total,
+  }) => BackgroundTask(
+    id: id,
+    label: label,
+    current: current,
+    total: total,
+    cancellable: false,
+    waitingOnUser: true,
+  );
 
   // Factory constructors for each task kind, auto-setting cancellable flag
   factory BackgroundTask.fetch({
@@ -119,6 +138,10 @@ class BackgroundTask {
   /// When the task completed, or null if still running.
   final DateTime? finishedAt;
 
+  /// True when the task is paused on the user rather than running; see
+  /// [BackgroundTask.stoppedSequencer].
+  final bool waitingOnUser;
+
   /// Progress as a fraction [0.0, 1.0], clamped at 1.0. `total <= 0` means
   /// the operation hasn't reported a step count yet (indeterminate), so this
   /// reads as 0.0 rather than the NaN/Infinity `current / total` would
@@ -133,6 +156,7 @@ class BackgroundTask {
     int? total,
     bool? cancellable,
     DateTime? finishedAt,
+    bool? waitingOnUser,
   }) => BackgroundTask(
     id: id ?? this.id,
     label: label ?? this.label,
@@ -140,5 +164,6 @@ class BackgroundTask {
     total: total ?? this.total,
     cancellable: cancellable ?? this.cancellable,
     finishedAt: finishedAt ?? this.finishedAt,
+    waitingOnUser: waitingOnUser ?? this.waitingOnUser,
   );
 }

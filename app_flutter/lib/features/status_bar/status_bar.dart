@@ -121,7 +121,9 @@ class _StatusBarState extends State<StatusBar> {
         widget.backgroundTasks.isEmpty &&
         _completedTask == null) {
       // All tasks finished; use the last one from the old list as the completed task
-      _completedTask = oldWidget.backgroundTasks.last;
+      _completedTask = oldWidget.backgroundTasks.last.copyWith(
+        finishedAt: DateTime.now(),
+      );
       _lingerTimer?.cancel();
       _lingerTimer = Timer(const Duration(seconds: 3), () {
         if (mounted) {
@@ -373,7 +375,7 @@ class _StatusBarState extends State<StatusBar> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
-                  value: foregroundTask.progress,
+                  value: _barValue(foregroundTask),
                   minHeight: 2,
                   backgroundColor: colors.surfaceSunken,
                   valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
@@ -384,7 +386,9 @@ class _StatusBarState extends State<StatusBar> {
         ),
         const SizedBox(width: GbmSpacing.space2),
         Text(
-          '${foregroundTask.current}/${foregroundTask.total}',
+          foregroundTask.total > 0
+              ? '${foregroundTask.current}/${foregroundTask.total}'
+              : '${foregroundTask.current}',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
@@ -558,7 +562,7 @@ class _ExtraTaskRow extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(2),
                   child: LinearProgressIndicator(
-                    value: task.progress,
+                    value: _barValue(task),
                     minHeight: 2,
                     backgroundColor: colors.surfaceSunken,
                     valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
@@ -595,4 +599,18 @@ class _ExtraTaskRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// What a task's bar draws. A finished task lingers as a full bar; a task
+/// waiting on the user (a sequencer stopped at a conflict) is still; a running
+/// one with no known total (`total <= 0`) is indeterminate (`null`), because
+/// `value: 0.0` is a static empty track that reads as "nothing is happening"
+/// -- the reported symptom. The indeterminate bar animates forever, so a test
+/// must not `pumpAndSettle()` while one is on screen
+/// ([TEST-no-pumpandsettle-with-spinner]).
+double? _barValue(BackgroundTask task) {
+  if (task.finishedAt != null) return 1.0;
+  if (task.waitingOnUser) return task.progress;
+  if (task.total <= 0) return null;
+  return task.progress;
 }

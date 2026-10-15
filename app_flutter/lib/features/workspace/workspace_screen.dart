@@ -1264,12 +1264,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // the same fallback this code already used before the dedup.
       final String label = activeSequencerOperation(state)?.gerund ?? 'Merging';
       tasks.add(
-        BackgroundTask(
+        BackgroundTask.stoppedSequencer(
           id: 'sequencer',
           label: label,
           current: state.rebaseStep,
           total: state.rebaseTotal,
-          cancellable: false,
         ),
       );
     }

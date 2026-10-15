@@ -37,7 +37,7 @@ namespace {
 using testing::FakeProcessRunner;
 
 /// Real directories, because `parseEntry` resolves `isMain` through
-/// `fsutil::fileIdOf` rather than a string compare -- a path that does not
+/// `fsutil::resolvedDirId` rather than a string compare -- a path that does not
 /// exist has no file id, and the comparison then answers false for every
 /// entry, which would make this test pass for the wrong reason.
 class WorktreePrimaryTest : public ::testing::Test {
@@ -130,6 +130,56 @@ TEST_F(WorktreePrimaryTest, OpenedOnTheMainWorktreeBothFlagsLandOnEntryZero) {
     EXPECT_TRUE(infos[0].isMain);
     EXPECT_FALSE(infos[1].isPrimary);
     EXPECT_FALSE(infos[1].isMain);
+}
+
+// A repository opened through a link to the repository itself: the session
+// holds the link, `git worktree list` reports the target. fileIdOf names a
+// final-component link as itself, so `isMain` used to land on nothing.
+TEST_F(WorktreePrimaryTest, OpenedThroughALinkToTheMainWorktreeItIsStillMain) {
+    const std::filesystem::path link = root_ / "linked-main";
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(mainDir(), link, ec);
+    if (ec) {
+        GTEST_SKIP() << "symlink creation unavailable: " << ec.message();
+    }
+    FakeProcessRunner runner;
+    runner.whenArgsContain({"worktree", "list"}, listResponse());
+    WorktreeStore store(runner, RepoPaths(link, mainDir() / ".git", mainDir() / ".git"));
+
+    auto result = store.list(CancellationToken());
+
+    ASSERT_TRUE(result);
+    const std::vector<WorktreeInfo>& infos = result.value();
+    ASSERT_EQ(infos.size(), 2u);
+    EXPECT_TRUE(infos[0].isMain) << "the session is open on the main worktree, via a link";
+    EXPECT_FALSE(infos[1].isMain);
+}
+
+// The mirror image: the list names the link, the session holds the target.
+// Both sides go through one identity, so neither spelling decides.
+TEST_F(WorktreePrimaryTest, ListedThroughALinkTheMainWorktreeIsStillMain) {
+    const std::filesystem::path link = root_ / "linked-main";
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(mainDir(), link, ec);
+    if (ec) {
+        GTEST_SKIP() << "symlink creation unavailable: " << ec.message();
+    }
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    response.out = "worktree " + link.string() +
+                   "\n"
+                   "HEAD 1111111111111111111111111111111111111111\n"
+                   "branch refs/heads/main\n"
+                   "\n";
+    runner.whenArgsContain({"worktree", "list"}, response);
+    WorktreeStore store(runner, RepoPaths(mainDir(), mainDir() / ".git", mainDir() / ".git"));
+
+    auto result = store.list(CancellationToken());
+
+    ASSERT_TRUE(result);
+    ASSERT_EQ(result.value().size(), 1u);
+    EXPECT_TRUE(result.value()[0].isMain);
 }
 
 }  // namespace gbm

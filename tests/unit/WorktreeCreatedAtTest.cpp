@@ -58,7 +58,7 @@ protected:
     /// `reflog` is non-empty.
     ///
     /// `createWorkDir` defaults to **true** on purpose. With it false for every
-    /// case, `fsutil::fileIdOf` is nullopt everywhere and every lookup falls to
+    /// case, `fsutil::resolvedDirId` is nullopt everywhere and every lookup falls to
     /// the string-key branch -- so the file-identity branch, which is the one
     /// that runs for every worktree that still exists, would be exercised by
     /// nothing. Deleting it then reddened five tests instead of one, which is
@@ -155,12 +155,11 @@ TEST_F(WorktreeCreatedAtTest, ADirectoryThatIsTheSameByIdentityButNotByStringSti
     // realpath into `gitdir`, and a path that reached us through a symlinked
     // *parent* names the same directory with different bytes.
     //
-    // The symlink has to be an **intermediate** component, not the last one.
-    // fsutil::fileIdOf is lstat (and FILE_FLAG_OPEN_REPARSE_POINT on Windows),
-    // so it identifies a terminal symlink as itself -- deliberately, since it
-    // is also the scanner's loop guard. lstat does follow the components
-    // before the last, which is exactly why /var/.../linked and
-    // /private/var/.../linked come out equal while their strings differ.
+    // The symlink is an **intermediate** component here; a link that is the
+    // final component is AWorktreeNamedThroughALinkToItselfStillMatches.
+    // Both reach the same identity through fsutil::resolvedDirId, which
+    // follows every component -- unlike fsutil::fileIdOf, which names a final
+    // link as itself because the scanner's loop guard depends on that.
     std::error_code ec;
     std::filesystem::create_directories(root_ / "real");
     std::filesystem::create_directory_symlink(root_ / "real", root_ / "via", ec);
@@ -175,11 +174,43 @@ TEST_F(WorktreeCreatedAtTest, ADirectoryThatIsTheSameByIdentityButNotByStringSti
     const std::filesystem::path viaLink = root_ / "via" / "linked";
     ASSERT_NE(fsutil::canonicalKey(viaLink), fsutil::canonicalKey(root_ / "real" / "linked"))
         << "if the strings already agree, this case proves nothing";
-    ASSERT_EQ(fsutil::fileIdOf(viaLink), fsutil::fileIdOf(root_ / "real" / "linked"))
+    ASSERT_EQ(fsutil::resolvedDirId(viaLink), fsutil::resolvedDirId(root_ / "real" / "linked"))
         << "and if the identities disagree, it is testing the wrong mechanism";
 
     EXPECT_EQ(attachFor(viaLink)[0].createdAtUnix, 1788222222)
         << "a string compare reports absent here";
+}
+
+TEST_F(WorktreeCreatedAtTest, AWorktreeNamedThroughALinkToItselfStillMatches) {
+    // The final component is the link: the shape fileIdOf deliberately names
+    // as the link itself, so this is fsutil::resolvedDirId's case.
+    makeAdminDir("linked",
+                 root_ / "real-linked",
+                 "0000000000000000000000000000000000000000 "
+                 "ccd3a76638fb5556621115d60df0505f15ccc7cc T <t@e.invalid> 1788333333 +0800\n");
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(root_ / "real-linked", root_ / "via-linked", ec);
+    if (ec) {
+        GTEST_SKIP() << "symlink creation unavailable: " << ec.message();
+    }
+
+    EXPECT_EQ(attachFor(root_ / "via-linked")[0].createdAtUnix, 1788333333);
+}
+
+TEST_F(WorktreeCreatedAtTest, AGitdirRecordedThroughALinkStillMatches) {
+    // The mirror image: `gitdir` names the link, the worktree list the target.
+    std::filesystem::create_directories(root_ / "real-linked");
+    std::error_code ec;
+    std::filesystem::create_directory_symlink(root_ / "real-linked", root_ / "via-linked", ec);
+    if (ec) {
+        GTEST_SKIP() << "symlink creation unavailable: " << ec.message();
+    }
+    makeAdminDir("linked",
+                 root_ / "via-linked",
+                 "0000000000000000000000000000000000000000 "
+                 "ccd3a76638fb5556621115d60df0505f15ccc7cc T <t@e.invalid> 1788444444 +0800\n");
+
+    EXPECT_EQ(attachFor(root_ / "real-linked")[0].createdAtUnix, 1788444444);
 }
 
 TEST_F(WorktreeCreatedAtTest, AWorktreeWhosePathIsGoneIsStillResolved) {

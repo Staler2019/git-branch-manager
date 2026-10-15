@@ -126,9 +126,11 @@ WorktreeInfo parseEntry(const std::vector<std::string_view>& lines,
         // File identity rather than a string compare: git reports each
         // worktree's realpath, which on macOS differs textually from a path
         // built through /var (a symlink to /private/var) even though it names
-        // the same directory. fileIdOf sidesteps that entirely.
-        const auto entryId = fsutil::fileIdOf(info.path);
-        const auto mainId = fsutil::fileIdOf(mainWorkDir);
+        // the same directory. resolvedDirId sidesteps that entirely, and also
+        // follows a link that is the final component (a repository opened
+        // through a link to itself), which fileIdOf deliberately does not.
+        const auto entryId = fsutil::resolvedDirId(info.path);
+        const auto mainId = fsutil::resolvedDirId(mainWorkDir);
         info.isMain = entryId.has_value() && mainId.has_value() && *entryId == *mainId;
     }
     return info;
@@ -468,7 +470,8 @@ void attachCreatedAt(const RepoPaths& paths, std::vector<WorktreeInfo>& worktree
             continue;
         }
         const std::filesystem::path workPath = pointer.parent_path();
-        index.push_back({entry.path(), fsutil::fileIdOf(workPath), fsutil::canonicalKey(workPath)});
+        index.push_back(
+            {entry.path(), fsutil::resolvedDirId(workPath), fsutil::canonicalKey(workPath)});
     }
 
     for (WorktreeInfo& worktree : worktrees) {
@@ -477,7 +480,7 @@ void attachCreatedAt(const RepoPaths& paths, std::vector<WorktreeInfo>& worktree
         // textually from git's realpath through /private/var while naming the
         // same directory. A prunable worktree has no directory left to
         // identify, and the string key is the only thing left to match on.
-        const std::optional<fsutil::FileId> id = fsutil::fileIdOf(worktree.path);
+        const std::optional<fsutil::FileId> id = fsutil::resolvedDirId(worktree.path);
         const std::string key = fsutil::canonicalKey(worktree.path);
         const auto hit = std::find_if(index.begin(), index.end(), [&](const AdminDirEntry& admin) {
             return id && admin.id ? *id == *admin.id : admin.key == key;

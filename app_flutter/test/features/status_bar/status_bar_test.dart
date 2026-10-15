@@ -190,11 +190,12 @@ void main() {
     });
 
     testWidgets('shows single task in progress zone', (tester) async {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 50,
         total: 100,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -225,25 +226,30 @@ void main() {
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
     });
 
+    // Spec page 10 P10 #2: 「其餘作業摺疊成 +N task」; its mockup draws
+    // "+1 task". The chip used to read "+N more".
     testWidgets('folds N>1 tasks to "+N task" text', (tester) async {
       final tasks = [
-        BackgroundTask.fetch(
+        BackgroundTask(
           id: 'fetch-1',
           label: 'Fetching',
           current: 50,
           total: 100,
+          cancellable: true,
         ),
-        BackgroundTask.push(
+        BackgroundTask(
           id: 'push-1',
           label: 'Pushing',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
-        BackgroundTask.pull(
+        BackgroundTask(
           id: 'pull-1',
           label: 'Pulling',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
       ];
 
@@ -270,29 +276,32 @@ void main() {
       await tester.pump();
 
       // Should show fold indicator
-      expect(find.text('+2 more'), findsOneWidget);
+      expect(find.text('+2 task'), findsOneWidget);
     });
 
     testWidgets('tapping "+N more" expands the folded tasks (spec page 10 '
         'STATUSPARTS #2: "其餘作業摺疊成 +N task，點了展開清單")', (tester) async {
       final tasks = [
-        BackgroundTask.fetch(
+        BackgroundTask(
           id: 'fetch-1',
           label: 'Fetching',
           current: 50,
           total: 100,
+          cancellable: true,
         ),
-        BackgroundTask.push(
+        BackgroundTask(
           id: 'push-1',
           label: 'Pushing',
           current: 0,
           total: 1,
+          cancellable: true,
         ),
-        BackgroundTask.checkout(
+        BackgroundTask(
           id: 'checkout-1',
           label: 'Checking out',
           current: 0,
           total: 1,
+          cancellable: false,
         ),
       ];
       String? cancelledId;
@@ -324,7 +333,7 @@ void main() {
       expect(find.text('Pushing'), findsNothing);
       expect(find.text('Checking out'), findsNothing);
 
-      await tester.tap(find.text('+2 more'));
+      await tester.tap(find.text('+2 task'));
       await tester.pumpAndSettle();
 
       // After expanding: both folded tasks' labels are now visible.
@@ -349,11 +358,12 @@ void main() {
     testWidgets('non-cancellable task Cancel button is disabled', (
       tester,
     ) async {
-      final task = BackgroundTask.checkout(
+      final task = BackgroundTask(
         id: 'checkout-1',
         label: 'Checking out',
         current: 0,
         total: 1,
+        cancellable: false,
       );
 
       await tester.pumpWidget(
@@ -387,11 +397,12 @@ void main() {
 
     testWidgets('cancellable task Cancel button is enabled', (tester) async {
       var cancelledId = '';
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 0,
         total: 1,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -431,11 +442,12 @@ void main() {
     testWidgets('repo status zone visible even with task in progress', (
       tester,
     ) async {
-      final task = BackgroundTask.fetch(
+      final task = BackgroundTask(
         id: 'fetch-1',
         label: 'Fetching',
         current: 50,
         total: 100,
+        cancellable: true,
       );
 
       await tester.pumpWidget(
@@ -1045,6 +1057,187 @@ void main() {
       // Asserted against the real formatter rather than a literal string, so
       // this test cannot drift from refreshTimingsLabel's own stage order.
       expect(find.text(refreshTimingsLabel(timings)), findsOneWidget);
+    });
+  });
+
+  // Spec page 10 TASKS: a task whose total is not known yet is still running,
+  // and has to look like it. `value: 0.0` drew a static empty track with an
+  // "N/0" count -- indistinguishable from nothing happening.
+  group('StatusBar progress for a task with no known total', () {
+    Future<void> pumpTasks(
+      WidgetTester tester,
+      List<BackgroundTask> tasks,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: StatusBar(
+              currentBranch: 'main',
+              ahead: 0,
+              behind: 0,
+              commitCount: 10,
+              lastScanDuration: const Duration(milliseconds: 100),
+              graphLaneCapacity: 6,
+              backgroundTasks: tasks,
+              hasUnreadLog: false,
+              onOpenLog: () {},
+              onCancelTask: (_) {},
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    BackgroundTask scan({int current = 1200, int total = 0}) => BackgroundTask(
+      id: 'history-scan',
+      label: 'Reading history',
+      current: current,
+      total: total,
+      cancellable: false,
+    );
+
+    testWidgets('total 0 draws an animated (indeterminate) bar', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, isNull);
+    });
+
+    testWidgets('total 0 shows the count alone, never "N/0"', (tester) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+
+      expect(find.text('1200'), findsOneWidget);
+      expect(find.text('1200/0'), findsNothing);
+    });
+
+    testWidgets('a git task counts nothing, so it draws no count at all', (
+      tester,
+    ) async {
+      // Core reports no object counts (使用者裁定: 計數「改spec，沒有計畫」),
+      // so `gitCommand` is current 0 / total 0. A lone "0" beside the bar
+      // reads as an object count that is stuck.
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.gitCommand(
+          id: 'git-1',
+          label: 'Pushing origin',
+          queuedOperationId: 7,
+        ),
+      ]);
+
+      expect(find.text('Pushing origin'), findsOneWidget);
+      expect(find.text('0'), findsNothing);
+    });
+
+    testWidgets('a known total keeps a determinate bar and "N/M"', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan(current: 50, total: 100)]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 0.5);
+      expect(find.text('50/100'), findsOneWidget);
+    });
+
+    testWidgets('a finished task lingers as a full bar, not a spinning one', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+      await pumpTasks(tester, const <BackgroundTask>[]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 1.0);
+
+      // The linger timer is 3 s; let it fire so no timer outlives the test.
+      await tester.pump(const Duration(seconds: 3));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    });
+
+    testWidgets('a sequencer stopped on the user draws a still bar', (
+      tester,
+    ) async {
+      // A merge stopped at a conflict has no step count (total 0) but nothing
+      // is running: animating it would claim work that is not happening.
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.stoppedSequencer(
+          id: 'sequencer',
+          label: 'Merging',
+          current: 0,
+          total: 0,
+        ),
+      ]);
+
+      final LinearProgressIndicator bar = tester
+          .widget<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          );
+      expect(bar.value, 0.0);
+    });
+
+    testWidgets('a task that starts during the linger is shown at once', (
+      tester,
+    ) async {
+      // A pull with stash-first runs `stash push` then `pull`: the second
+      // must not sit hidden behind the first one's 3-second linger.
+      await pumpTasks(tester, <BackgroundTask>[scan()]);
+      await pumpTasks(tester, const <BackgroundTask>[]);
+      expect(find.text('Reading history'), findsOneWidget);
+
+      await pumpTasks(tester, <BackgroundTask>[
+        BackgroundTask.gitCommand(
+          id: 'git-9',
+          label: 'Pulling',
+          queuedOperationId: 4,
+        ),
+      ]);
+
+      expect(find.text('Pulling'), findsOneWidget);
+      expect(find.text('Reading history'), findsNothing);
+
+      // And when that one finishes, it is the one that lingers.
+      await pumpTasks(tester, const <BackgroundTask>[]);
+      expect(find.text('Pulling'), findsOneWidget);
+      expect(find.text('Reading history'), findsNothing);
+      await tester.pump(const Duration(seconds: 3));
+    });
+
+    testWidgets('a folded task with total 0 is indeterminate too', (
+      tester,
+    ) async {
+      await pumpTasks(tester, <BackgroundTask>[
+        scan(current: 50, total: 100),
+        BackgroundTask(
+          id: 'git-7',
+          label: 'Fetching origin',
+          current: 0,
+          total: 0,
+          cancellable: false,
+        ),
+      ]);
+      await tester.tap(find.text('+1 task'));
+      // Not pumpAndSettle: an indeterminate bar never settles
+      // ([TEST-no-pumpandsettle-with-spinner]).
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      final List<LinearProgressIndicator> bars = tester
+          .widgetList<LinearProgressIndicator>(
+            find.byType(LinearProgressIndicator),
+          )
+          .toList();
+      expect(bars.map((b) => b.value), <double?>[0.5, null]);
     });
   });
 }

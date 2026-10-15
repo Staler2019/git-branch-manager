@@ -5348,6 +5348,51 @@ private:
     std::vector<OperationRecord> records_;
 };
 
+// A user's Cancel reaches the capi with the id of the queued operation a log
+// row belongs to (OperationRunner::cancel). The id is stamped on the worker
+// thread while the operation runs, so every git invocation it makes -- both
+// halves of each -- carries it, and an invocation outside any queued
+// operation carries 0.
+class RunsRevParse final : public Operation {
+public:
+    std::string describe() const override { return "rev-parse for a test"; }
+    OperationOutcome run(IProcessRunner& runner,
+                         const RepoPaths& paths,
+                         CancellationToken token) override {
+        GitCommand command(paths.commandDir(), {"rev-parse", "--is-inside-work-tree"});
+        OperationOutcome outcome;
+        outcome.succeeded = static_cast<bool>(runner.run(command, token));
+        return outcome;
+    }
+};
+
+TEST_F(RealRepoTest, RecordsTakenInsideAQueuedOperationCarryItsId) {
+    RecordSpy spy;
+    OperationRunner operations(*runner_, paths_);
+    // onDone runs on the same worker thread, but after the operation: what it
+    // runs is not the operation's work, and must not claim its id.
+    const auto handle =
+        operations.submit(std::make_unique<RunsRevParse>(), [this](OperationOutcome) {
+            EXPECT_TRUE(run({"rev-parse", "--is-bare-repository"}));
+        });
+    operations.drain();
+
+    const auto records = spy.allEndingWith({"rev-parse", "--is-inside-work-tree"});
+    ASSERT_EQ(records.size(), 2U) << "one running, one finished";
+    for (const auto& record : records) {
+        EXPECT_EQ(record.queuedOperationId, handle.id) << "running=" << record.running;
+    }
+
+    ASSERT_TRUE(run({"rev-parse", "--is-inside-git-dir"}));
+    const auto outside = spy.lastEndingWith({"rev-parse", "--is-inside-git-dir"});
+    ASSERT_TRUE(outside.has_value());
+    EXPECT_EQ(outside->queuedOperationId, 0U) << "not run by any queued operation";
+
+    const auto afterwards = spy.lastEndingWith({"rev-parse", "--is-bare-repository"});
+    ASSERT_TRUE(afterwards.has_value());
+    EXPECT_EQ(afterwards->queuedOperationId, 0U) << "run by onDone, after the operation ended";
+}
+
 TEST_F(RealRepoTest, DeclaredBenignExitCodeIsRecordedAsBenign) {
     // SetUp() configures user.name into --local scope, so the reported
     // condition -- the key genuinely unset -- has to be arranged first.

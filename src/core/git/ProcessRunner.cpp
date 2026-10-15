@@ -1148,6 +1148,7 @@ private:
         record.argv = argv;
         record.id = id;
         record.running = true;
+        record.queuedOperationId = currentQueuedOperationId();
         Log::instance().recordOperation(record);
     }
 
@@ -1163,6 +1164,7 @@ private:
                                 bool sinkStopped = false) {
         OperationRecord record;
         record.id = id;
+        record.queuedOperationId = currentQueuedOperationId();
         record.timeoutMs = deadlines.total.count();
         record.idleTimeoutMs = deadlines.idle.count();
         record.when = std::chrono::system_clock::now();

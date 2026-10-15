@@ -1395,12 +1395,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
           // re-read below, so the commit is settled before its merge ends.
           if (!succeeded || isCommit) {
+            final GitError? failure =
+                succeeded || error is! Map<String, dynamic>
+                ? null
+                : GitError.fromJson(error);
             state = state.copyWith(
-              lastError: succeeded
-                  ? null
-                  : (error is Map<String, dynamic>
-                        ? GitError.fromJson(error)
-                        : null),
+              lastError: _isUserCancel(failure) ? null : failure,
               commitOutcomeSeq: isCommit ? state.commitOutcomeSeq + 1 : null,
               lastCommitSucceeded: isCommit ? succeeded : null,
             );
@@ -2193,10 +2193,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // Suppression means "do not write", not "write null": an unrelated
     // failure already on screen must survive a background prune failing
     // behind it -- the same rule the automatic preview's suppressor follows.
-    if (error != null && !_isSuppressedAutoPruneWorktreesError(error)) {
+    if (error != null &&
+        !_isUserCancel(error) &&
+        !_isSuppressedAutoPruneWorktreesError(error)) {
       state = state.copyWith(lastError: error);
     }
   }
+
+  /// A cancelled operation is not a refused one: spec page 10 LOGRULES keeps
+  /// error for a refusal, and the log already carries the CANCELLED row, so a
+  /// user's Cancel must not raise the error banner. The opposite case -- core
+  /// refusing the cancel (NotCancellable) -- arrives on errorOccurred and is
+  /// shown, because it is how the user hears the operation kept running.
+  static bool _isUserCancel(GitError? error) => error?.codeName == 'Cancelled';
 
   /// Remote name -> how many automatic post-fetch prune previews for that
   /// remote are still awaiting a reply.
@@ -2754,6 +2763,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void _removeStaleIndexLock() {
     if (_session == nullptr) return;
     _bindings.removeStaleIndexLock(_session);
+  }
+
+  /// A user's Cancel of the queued operation [queuedOperationId] names (an
+  /// [OperationRecord.queuedOperationId]). Core decides per capi unit --
+  /// 使用者裁定 2026-10-15, see gbm_cancel_operation()'s doc comment -- and
+  /// its answer comes back unchanged: 1 cancelled, 0 not found, -1 refused.
+  /// A refusal also arrives as GBM_EVENT_ERROR_OCCURRED (NotCancellable),
+  /// which is how the user hears about it.
+  ///
+  /// 0 is never sent: to the capi it means "every operation in the session",
+  /// the session-close path, and a record with no queued id names nothing.
+  int cancelOperation(int queuedOperationId) {
+    if (_session == nullptr || queuedOperationId == 0) return 0;
+    return _bindings.cancelOperation(_session, queuedOperationId);
   }
 
   /// Resubmits the checkout request that produced the current

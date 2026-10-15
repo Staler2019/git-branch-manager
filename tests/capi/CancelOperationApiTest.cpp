@@ -368,5 +368,174 @@ TEST_F(CancelOperationApiTest, SessionCloseDrainsOperationsBeforeTheReadPool) {
         << "a task this session posted ran after gbm_session_close() returned";
 }
 
+// --- A user's Cancel (id != 0), decided per capi unit -----------------------
+//
+// 使用者裁定 (2026-10-15): a unit that takes a git lock is not cancellable, and
+// a refused cancel 「會拋錯」 to Flutter. `git push` updates the remote-tracking
+// ref in the same invocation, so PushOperation keeps killableMidFlight() false.
+//
+// The push is held mid-flight by the remote's pre-receive hook, which waits
+// for a file the test creates -- so "running" is a state the test holds, not a
+// race it has to win.
+
+/// The queued-operation id of the first running record whose argv holds
+/// `token`, or 0 when none has arrived yet.
+std::uint64_t runningQueuedIdFor(EventLog& log, const std::string& token) {
+    std::lock_guard<std::mutex> lock(log.mutex);
+    for (const auto& [type, payload] : log.events) {
+        if (type != GBM_EVENT_OPERATION_LOG_RECORD ||
+            payload.find("\"running\":true") == std::string::npos ||
+            payload.find("\"" + token + "\"") == std::string::npos) {
+            continue;
+        }
+        const std::string key = "\"queuedOperationId\":";
+        const auto at = payload.find(key);
+        if (at == std::string::npos) return 0;
+        return std::stoull(payload.substr(at + key.size()));
+    }
+    return 0;
+}
+
+class HeldPushTest : public CancelOperationApiTest {
+protected:
+    void SetUp() override {
+        CancelOperationApiTest::SetUp();
+        if (HasFatalFailure() || IsSkipped()) return;
+        remote_ = std::filesystem::path(repo_.string() + "-remote.git");
+        release_ = std::filesystem::path(repo_.string() + "-release");
+        std::filesystem::remove_all(remote_);
+        std::filesystem::remove(release_);
+        ASSERT_EQ(GitCli::run(repo_, {"init", "--quiet", "--bare", remote_.string()}), 0);
+        {
+            std::ofstream hook(remote_ / "hooks" / "pre-receive", std::ios::binary);
+            hook << "#!/bin/sh\n"
+                 << "while [ ! -f '" << release_.generic_string() << "' ]; do sleep 0.05; done\n"
+                 << "cat >/dev/null\n";
+        }
+        std::filesystem::permissions(remote_ / "hooks" / "pre-receive",
+                                     std::filesystem::perms::owner_all,
+                                     std::filesystem::perm_options::add);
+        ASSERT_EQ(runGit({"remote", "add", "origin", remote_.string()}), 0);
+    }
+
+    void TearDown() override {
+        releasePush();
+        CancelOperationApiTest::TearDown();
+        std::error_code ec;
+        std::filesystem::remove_all(remote_, ec);
+        std::filesystem::remove(release_, ec);
+    }
+
+    void releasePush() { std::ofstream(release_) << "go\n"; }
+
+    void startHeldPush() {
+        const char* branches[] = {"main"};
+        gbm_push(session_, "origin", branches, 1, /*setUpstream=*/1, 0, 0);
+    }
+
+    /// Waits for the push's running record and returns its queued id.
+    std::uint64_t waitForRunningPush(EventLog& log) {
+        std::uint64_t id = 0;
+        for (int i = 0; i < 600 && id == 0; ++i) {
+            id = runningQueuedIdFor(log, "push");
+            if (id == 0) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+        return id;
+    }
+
+    bool pushFinished(bool& succeeded) {
+        const bool done = log_.waitFor([](const auto& events) {
+            for (const auto& [type, payload] : events) {
+                if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) return true;
+            }
+            return false;
+        });
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        for (const auto& [type, payload] : log_.events) {
+            if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) {
+                succeeded = payload.find("\"succeeded\":true") != std::string::npos;
+            }
+        }
+        return done;
+    }
+
+    std::filesystem::path remote_;
+    std::filesystem::path release_;
+};
+
+TEST_F(HeldPushTest, ARunningPushRefusesCancelAndRaisesAnError) {
+    startHeldPush();
+    const std::uint64_t id = waitForRunningPush(log_);
+    ASSERT_NE(id, 0U) << "the running push record must carry its queued id";
+
+    EXPECT_EQ(gbm_cancel_operation(session_, id), -1) << "-1: running and not cancellable";
+    EXPECT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_ERROR_OCCURRED &&
+                payload.find("\"codeName\":\"NotCancellable\"") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    })) << "a refused cancel is raised, not swallowed";
+
+    releasePush();
+    bool succeeded = false;
+    ASSERT_TRUE(pushFinished(succeeded));
+    EXPECT_TRUE(succeeded) << "the push must run to completion untouched";
+}
+
+// A record reaches every session open on the same directories; only the one
+// whose queue runs the operation may name it for a Cancel.
+TEST_F(HeldPushTest, AnotherSessionSeesTheRecordButCannotCancelIt) {
+    const std::filesystem::path linked(repo_.string() + "-linked");
+    std::filesystem::remove_all(linked);
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "linked", linked.string()}), 0);
+    GbmSessionHandle other = gbm_session_open(
+        linked.string().c_str(),
+        (repo_ / ".git" / "worktrees" / linked.filename()).string().c_str(),
+        (repo_ / ".git").string().c_str());
+    ASSERT_NE(other, nullptr);
+    EventLog otherLog;
+    gbm_register_callback(other, &logCallback, &otherLog);
+    gbm_worktree_refresh(other);
+    ASSERT_TRUE(otherLog.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_WORKTREES_UPDATED) return true;
+        }
+        return false;
+    }));
+
+    startHeldPush();
+    const std::uint64_t id = waitForRunningPush(log_);
+    ASSERT_NE(id, 0U);
+
+    bool otherSawIt = false;
+    for (int i = 0; i < 200 && !otherSawIt; ++i) {
+        std::lock_guard<std::mutex> lock(otherLog.mutex);
+        for (const auto& [type, payload] : otherLog.events) {
+            if (type == GBM_EVENT_OPERATION_LOG_RECORD &&
+                payload.find("\"push\"") != std::string::npos &&
+                payload.find("\"running\":true") != std::string::npos) {
+                otherSawIt = true;
+                EXPECT_NE(payload.find("\"queuedOperationId\":0"), std::string::npos)
+                    << "not this session's operation: " << payload;
+            }
+        }
+        if (!otherSawIt) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    EXPECT_TRUE(otherSawIt) << "the linked worktree's session receives the record";
+    EXPECT_EQ(gbm_cancel_operation(other, id), 0) << "0: not this session's operation";
+
+    releasePush();
+    bool succeeded = false;
+    ASSERT_TRUE(pushFinished(succeeded));
+    EXPECT_TRUE(succeeded);
+
+    gbm_session_close(other);
+    std::error_code ec;
+    std::filesystem::remove_all(linked, ec);
+}
+
 }  // namespace
 }  // namespace gbm::capi

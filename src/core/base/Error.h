@@ -34,6 +34,10 @@ struct GitError {
         TooLarge,
         Database,
         Io,
+        /// A user asked to cancel a running operation whose unit cannot be
+        /// stopped part-way (Operation::killableMidFlight()); it was left to
+        /// finish. Appended last: the integer crosses the capi.
+        NotCancellable,
     };
 
     Code code = Code::Unknown;

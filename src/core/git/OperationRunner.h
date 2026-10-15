@@ -130,6 +130,47 @@ public:
     /// marshals it back to the UI thread.
     Handle submit(std::unique_ptr<Operation> operation, CompletionCallback onDone);
 
+    /// What a user's cancel of one operation did.
+    enum class CancelResult {
+        /// The token was tripped: a queued operation will finish as Cancelled
+        /// without running, a running killable one is being stopped.
+        Cancelled,
+        /// The operation is running and its unit cannot be stopped part-way
+        /// (Operation::killableMidFlight() is false). Nothing was tripped; it
+        /// runs to completion.
+        NotCancellable,
+        /// No such operation here: already finished, or never this runner's.
+        NotFound,
+    };
+
+    /// A user's cancel of operation `id`, decided per capi unit (使用者裁定
+    /// 2026-10-15: 「capi 中有 git lock 會產生的動作都不能取消」, and a refused
+    /// cancel is reported, not swallowed). This is the only reader of
+    /// Operation::killableMidFlight().
+    ///
+    /// Two invariants keep a non-killable operation from being killed
+    /// mid-flight, and both are about mutex_:
+    ///  1. workerLoop() records the running id in the same locked section as
+    ///     queue_.pop_front(), and clears it under the lock once the operation
+    ///     has finished -- so "queued" and "running" are never both false for
+    ///     an operation that has not completed.
+    ///  2. A queued operation's token is tripped *before* mutex_ is released.
+    ///     Copying it out and tripping after unlocking (Session::cancelOperations'
+    ///     idiom) would let the worker pop it, pass its isCancelled() check and
+    ///     spawn git first, and ProcessRunner kills a child on any tripped
+    ///     token. Tripping under the lock is safe: an operation that has not
+    ///     started has no onCancel callbacks registered, so cancel() runs
+    ///     nothing. Only the running-and-killable case trips outside the lock.
+    ///
+    /// `description`, when given, receives the running operation's describe()
+    /// on NotCancellable, so the refusal can name what was left running.
+    CancelResult cancel(std::uint64_t id, std::string* description = nullptr);
+
+    /// Whether operation `id` is queued or running on this runner. A log record
+    /// reaches every session open on the same directories; only the one whose
+    /// runner this is may name the operation for a cancel.
+    bool runs(std::uint64_t id) const;
+
     /// Current on-disk state. Cheap; safe to call often.
     RepoState state() const;
 
@@ -177,7 +218,7 @@ private:
         std::uint64_t id;
         std::unique_ptr<Operation> operation;
         CompletionCallback onDone;
-        CancellationToken token;
+        CancellationSource source;
     };
 
     mutable std::mutex mutex_;
@@ -186,7 +227,12 @@ private:
     std::deque<QueuedOperation> queue_;
     std::thread worker_;
     std::vector<UndoEntry> undoJournal_;
-    std::uint64_t nextId_ = 1;
+    /// The operation workerLoop() is running, set and cleared under mutex_
+    /// together with busy_ (see cancel()'s invariant 1). 0 when idle.
+    std::uint64_t runningId_ = 0;
+    bool runningKillable_ = false;
+    std::string runningDescription_;
+    CancellationSource runningSource_;
     bool busy_ = false;
     bool stopping_ = false;
 };

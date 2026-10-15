@@ -46,6 +46,19 @@ class _NoLaunchLauncher extends DesktopLauncher {
   Future<bool> openUrl(String url) async => false;
 }
 
+/// An installer whose Windows Installer record names the folder this very
+/// copy runs from, so the check gets past `_installerBlocker` on Windows.
+///
+/// A device-test build runs from `build/windows/x64/runner/Debug`, which no
+/// MSI ever installed, so the real registry read always blocks it -- and a
+/// real install elsewhere on the machine blocks it just the same. This file
+/// asks whether the *live release* matches the code, not whether this
+/// machine's registry happens to point at the build. Every other seam stays
+/// real, and Install is never pressed, so msiexec never sees this answer.
+UpdateInstaller _installerManagingThisCopy() => UpdateInstaller(
+  readInstallLocation: () => File(Platform.resolvedExecutable).parent.path,
+);
+
 /// Names every `gbm-update-*` directory currently in the system temp dir.
 ///
 /// Used to delete only what this test created: another instance of the app
@@ -143,6 +156,9 @@ void main() {
         extraOverrides: <Override>[
           buildVersionProvider.overrideWithValue(_ancient),
           desktopLauncherProvider.overrideWithValue(_NoLaunchLauncher()),
+          updateInstallerProvider.overrideWithValue(
+            _installerManagingThisCopy(),
+          ),
         ],
       );
 

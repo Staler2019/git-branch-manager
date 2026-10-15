@@ -142,6 +142,8 @@ std::string_view toString(GitError::Code code) {
             return "Database";
         case GitError::Code::Io:
             return "Io";
+        case GitError::Code::NotCancellable:
+            return "NotCancellable";
     }
     return "Unknown";
 }

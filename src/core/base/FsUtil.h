@@ -32,6 +32,14 @@ struct FileIdHash {
 
 std::optional<FileId> fileIdOf(const std::filesystem::path& path);
 
+/// The identity of the directory [path] finally names, following every
+/// symlink or junction including the last component; nullopt when nothing is
+/// there. Two spellings of one directory -- a symlinked parent (macOS /var vs
+/// /private/var), a symlinked or junctioned final component, an 8.3 alias --
+/// compare equal. Not a substitute for fileIdOf, which identifies a link as
+/// itself because the scanner's cycle guard depends on that.
+std::optional<FileId> resolvedDirId(const std::filesystem::path& path);
+
 /// Absolute path to the running executable. Used to point GIT_ASKPASS /
 /// SSH_ASKPASS back at this application -- see AskpassHelper.
 std::optional<std::filesystem::path> currentExecutablePath();

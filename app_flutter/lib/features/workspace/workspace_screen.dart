@@ -44,6 +44,7 @@ import '../sidebar/branch_tree_builder.dart';
 import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
+import '../status_bar/running_git_tasks.dart';
 import '../status_bar/status_bar.dart';
 import 'widgets/action_toolbar.dart';
 import 'widgets/menu_bar_row.dart';
@@ -1223,15 +1224,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///
   /// Derived from session state rather than tracked separately, so a task
   /// cannot linger on screen after the operation that owns it has finished.
-  /// Only the operations this layer can actually observe appear here: the
-  /// history scan (`isRefreshing`) and an in-flight sequencer operation,
-  /// whose step counts `RepoState` already carries. Transfer counts for
-  /// fetch/pull/push ("12,480 / 31,206" in the spec's own example) need
-  /// per-object progress the capi does not surface yet, so those are
-  /// reported as indeterminate (`total: 0`) instead of with an invented
-  /// denominator.
+  /// Three sources, in this order: every running git command of this
+  /// session's queued operations (`backgroundTasksFromOperationLog`, the same
+  /// rows the log drawer shows as RUNNING), the history scan
+  /// (`isRefreshing`), and a sequencer operation stopped on the user, whose
+  /// step counts `RepoState` carries.
+  ///
+  /// ~~Transfer counts for fetch/pull/push ... are reported as indeterminate
+  /// (`total: 0`)~~ -- nothing reported fetch/pull/push at all until
+  /// 2026-10-15, though this comment said so. They are indeterminate now: core
+  /// surfaces no object counts, and 使用者裁定 has the spec's
+  /// "12,480 / 31,206" 「改spec，沒有計畫」.
   List<BackgroundTask> _backgroundTasks(RepoSessionState session) {
-    final List<BackgroundTask> tasks = <BackgroundTask>[];
+    final List<BackgroundTask> tasks = backgroundTasksFromOperationLog(
+      session.operationLog,
+    );
 
     if (session.isRefreshing) {
       tasks.add(
@@ -1246,7 +1253,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
 
     final RepoState? state = session.repoState;
-    if (state != null && state.isSequencerOperation) {
+    // A running `git rebase --continue` already has its own task; the
+    // stopped-sequencer entry for the same operation would draw it twice.
+    final String? runningSequencerLabel = state == null
+        ? null
+        : activeSequencerOperation(state)?.gerund;
+    if (state != null &&
+        state.isSequencerOperation &&
+        !tasks.any((BackgroundTask t) => t.label == runningSequencerLabel)) {
       // Non-cancellable by construction: spec page 10's TASKS table marks
       // Checkout/Merge/Rebase "不可取消" because interrupting them midway is
       // more dangerous than letting them finish.
@@ -1264,12 +1278,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // the same fallback this code already used before the dedup.
       final String label = activeSequencerOperation(state)?.gerund ?? 'Merging';
       tasks.add(
-        BackgroundTask(
+        BackgroundTask.stoppedSequencer(
           id: 'sequencer',
           label: label,
           current: state.rebaseStep,
           total: state.rebaseTotal,
-          cancellable: false,
         ),
       );
     }
@@ -1277,11 +1290,25 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     return tasks;
   }
 
-  /// Cancels a running task by id. Only the history scan is cancellable
-  /// today (see [_backgroundTasks]); the sequencer entry is built with
-  /// `cancellable: false`, so the status bar never offers Cancel for it and
-  /// this is never called with its id.
+  /// Cancels a running task by id. A git command's Cancel hands core the
+  /// queued id its row carries, and core decides -- a refusal arrives as an
+  /// error (使用者裁定 2026-10-15). The history scan is cancelled by
+  /// re-requesting the snapshot. The sequencer entry is built with
+  /// `cancellable: false`, so this is never called with its id.
   void _cancelTask(String id) {
+    final RepoSessionState session = ref.read(
+      repoSessionProvider(widget.identity),
+    );
+    for (final BackgroundTask task in backgroundTasksFromOperationLog(
+      session.operationLog,
+    )) {
+      if (task.id == id) {
+        ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .cancelOperation(task.queuedOperationId);
+        return;
+      }
+    }
     if (id != 'history-scan') return;
     // Re-requesting the current snapshot is what stops the incremental scan:
     // there is no separate cancel entry point in the capi, and the already

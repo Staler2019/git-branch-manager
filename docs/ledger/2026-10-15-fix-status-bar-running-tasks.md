@@ -1,0 +1,82 @@
+# 狀態列顯示執行中的 git 動作，Cancel 交給 core 依 unit 判斷
+
+## Situation
+
+使用者回報：除了 `Reading history`，fetch / pull / push 等動作在右下角都沒有進度條，只能開 log 看 RUNNING 列。
+
+查到三件事：
+
+- `WorkspaceScreen._backgroundTasks()` 只產生 history scan 與停在衝突的 sequencer 兩種任務；`BackgroundTask.fetch/pull/push/checkout/merge/rebase` 六個 factory 有單元測試、沒有任何 caller（孤兒第 14 例）。
+- 總數未知的任務畫 `value: 0.0` 的靜止空條與 `N/0`，看不出有沒有在跑。
+- `gbm_cancel_operation` 依先前裁定沒有 Dart caller（`[DRIFT-cancel-capi-unwired]`）；`Operation::killableMidFlight()` 有覆寫、`src/` 沒有讀者（孤兒第 15 例）。
+
+## Task
+
+使用者裁定（2026-10-15，原文）：
+
+1. 「這輪先不取消，但是需要檢查，capi 中有 gitlock 會產生的動作都不能取消。如果發生 io 意外或是動作意外需要 rollback。」
+2. 「看 capi 怎麼包這個 unit 動作，如果包一起就不可以取消。」
+3. 「rollback只做capi 的單個 unit動作，capi 處理、照樣拋錯到 flutter、但不損壞 git 為前提，需要考量各種可能 edge case，做穩定。」（S3，另輪）
+4. 「實作不是用 cancellable 喔。維持之前決策，吃cancellationToken 如果capi吃的到cancellationToken。如果真的 cancel 了，capi不行cancel 會拋錯。=> 因為cancellation目前包含，timeout 處理、stack cancel 傳遞等等。」— 推翻了本輪第一版 commit 2（UI 旗標 `cancellable`），該版未 commit，檔案留在 scratchpad。
+5. 「對，S2 的 capi 提前到這輪」
+6. G1：Checkout／Merge／Rebase 的 Cancel 可按，由 core 拋錯；總數未知的計數「改spec，沒有計畫」；標籤照列；`+N more` 改 `+N task`。
+
+## Action
+
+```
+Cancel(task) ─ queuedOperationId ─▶ gbm_cancel_operation ─▶ Session::cancelOperation(id)
+                                                              └▶ OperationRunner::cancel(id)
+   queued            → trip，什麼都沒跑         Cancelled
+   running+killable  → trip                     Cancelled
+   running+!killable → 不 trip、ERROR_OCCURRED  NotCancellable
+   找不到             →                          NotFound
+```
+
+| commit | 內容 | mutations-run / tests-reddened |
+|---|---|---|
+| `0f8d218` | 不定進度條、`N` 不畫 `/0`、linger 畫滿格、`stoppedSequencer` 靜止條；原地更正 `[TEST-no-pumpandsettle-with-spinner]` | — |
+| `6181866` | `OperationRunner::cancel(id)` → `Cancelled/NotCancellable/NotFound`，讀 `killableMidFlight()` | 4 / 1,1,1,1 |
+| `ced72b4` | 全程序唯一的 queued id、`QueuedOperationScope`、`OperationRecord::queuedOperationId`、JsonCodec 輸出 | 6 / 1,2,1,1,1,1 |
+| `9f418b6` | style：測試行超過 100 欄 | — |
+| `4887c9e` | capi `cancelOperation(id)`、`GitError::Code::NotCancellable`、log 依接收 session 決定是否帶 id | 5 / 1,1,2,1,1 |
+| `9b3774e` | Dart 綁定、`OperationRecord.queuedOperationId`（缺欄＝0）、`cancelOperation(int)` | 4 / 1,1,2,1 |
+| `1fb8558` | `running_git_tasks.dart`、`BackgroundTask.gitCommand` 取代六個孤兒 factory、`+N task` | 10 / 1,20,1,1,1,1,3,1,1,3 |
+| `a127b5a` | 使用者取消不寫 `lastError`；NotCancellable 照常顯示 | 3 / 1,1,1 |
+| `8d0aec6` | device：`status_bar_cancel_flow_test.dart`（pre-receive hook 卡住 push），Windows 1/1 | 2 / 1,1 |
+
+偏離計畫，照實記：
+
+- 欄位名從計畫的 `operationId` 改為 `queuedOperationId`：record 已有 `id`（log record id），兩個 id 並存時 `operationId` 讀不出是哪一個。
+- 其他 session（linked worktree）的操作不出現在本 session 狀態列：接收 session 的 record id 為 0，無從取消，也就不畫。
+- 排隊中、尚未 spawn git 的 op 沒有 running record，狀態列看不到也無從按 Cancel；排隊取消只在 `OperationRunnerCancelTest` 驗證，capi 層無法穩定讓 op 停在 queue（已在測試檔註明）。曾告知使用者「排隊中的任務在 log 也看不到」，待使用者決定是否處理。
+- 計數不畫：spec 頁 10 的 `199,960 / 199,960 objects` 依裁定 6 以 [record](../records/2026-10-15-status-bar-no-object-counts.md) 修訂，spec HTML 本身不改。
+
+靠「跑」而非「讀」發現的：
+
+- `0f8d218` 讓 18 個衝突測試 `pumpAndSettle` 逾時 — sequencer 任務原本 `total 0` 也變成不定條；改為 `waitingOnUser` 靜止條。
+- MSVC 建置在非 UTF-8 codepage 下 ninja 記不到 `/showIncludes` 相依，舊 object 未重編，測試以 0xc0000409 崩潰；`chcp 65001` 後正常。
+
+## Result
+
+- ctest 792/792；`flutter analyze` 0；`flutter test` 3525 全綠（`a127b5a`）。
+- Device tier（Windows，逐檔跑 21 檔）：20 綠、`update_check_flow_test.dart` 紅 1 —「downloads the real asset…」在 `canSelfInstall` 斷言失敗，原因字串 「This copy was not installed with the installer, so it cannot update itself.」。本分支沒有改動任何 updater 檔（`git diff main...HEAD` 對 update 相關路徑為空）；這是 [feat/release-msi-installer](2026-10-14-feat-release-msi-installer.md) 改成「只有 MSI 安裝的副本能自我更新」後，debug build 必然不符合的測試前提，與本輪無關，~~處置交使用者決定。~~ 使用者裁定「這輪一起修掉」：測試覆寫 `updateInstallerProvider`，讓 `readInstallLocation` 回報正在跑的這份副本的資料夾，其他 seam 全部用真的，Install 也從不按下。修正後 2/2 綠（01:17，真的下載 MSI 並驗 checksum）；修正前的狀態就是那次紅（mutation 1／紅 1）。MSI 那一輪漏跑這個 device 檔，是 [TEST-device-tier-not-in-ci] 的又一例。
+- 使用者裁定「排隊中、還沒開始跑的 op…先不處理」。
+- Fresh `verifier`（commit 2–9 的完整 claim）：**CONFIRMED**；它自己重建，ctest 792/792、flutter test 3525、device 檔 1/1，也看過 cancel 與 worker pop 之間的 race 和 lock 順序。兩項 advisory：
+  - A1（P3，本輪造成）：不定進度條旁畫出孤立的 `0`，因為 `gitCommand` 是 current 0／total 0，與 [record](../records/2026-10-15-status-bar-no-object-counts.md) 寫的「count 文字不畫」不符。**FIX**：`total > 0 || current > 0` 才畫 count；history scan 的「已載入 N」不受影響。mutation 2／各紅 1；flutter test 3526。
+  - A2（P4，既有行為）：`errorOccurred` 一律 `isRefreshing: false`，所以一次被拒的 Cancel 若剛好發生在 history scan 期間，會讓 scan 任務提前消失，直到下一個 history event。只是從程式碼推論，沒有實際重現。**DEFER**：既有行為、P4，本輪新增的只是另一個觸發來源。
+- verdict 之後的修改（`4d4a3b6`、`aa82991`）影響 claim，所以重跑主要驗收（`status_bar_cancel_flow_test.dart` 1/1），再交給第二個 fresh `verifier`：**CONFIRMED**。它自己跑 flutter test 3526、update_check 2/2（真的下載）、check-rule-pins 綠。另有一項 P4 advisory：新測試只確認 `0` 不在，沒有鎖住間距。**DEFER**：verifier 已讀過程式碼確認排版正確。
+- PR #189 CI：`capi (FFI) - macOS (arm64)` 與 `capi (FFI) - Windows` 都在 `HeldPushTest.AnotherSessionSeesTheRecordButCannotCancelIt` 紅（`otherSawIt` 為 false），其餘 job 綠；本機 Windows 一直是綠的。根因是既有缺口：`recordBelongsToSession` 只用 `canonicalKey` 比字面，而 git 以解析後的路徑列 worktree。macOS 暫存目錄是 `/var/…`，實際是 `/private/var/…` 的 symlink；Windows runner 是 `C:/Users/RUNNER~1/…` 的 8.3 別名。結果 linked worktree 的 session 收不到主 session 的 record。
+  - 先改了 fixture（`canonical(repo_)`），後來撤回，沒有 commit：使用者裁定「symlink那個修」。
+  - `949a259`：字串都不符合時才用 `fsutil::fileIdOf` 比對，`WorktreeOps.cpp` 已有同樣做法的先例。新測試在本機 Windows 實作前紅 2（symlink 與 8.3 兩種都重現）；mutation 3 次，紅 2／3／1；ctest 795/795。
+  - 量測（規則 5，Windows 本機，20,000 次 × 3 輪）：字串命中約 1.2 µs／次；走 fallback（3 個目錄都不符合）約 116 µs／次。這段成本在 `liveSessionsMutex` 內，只有不擁有該 record 的 session 會付。Windows 上 spawn 一次 git 是毫秒級，所以不加快取。
+  - Fresh `verifier` 判 `949a259` **INCONCLUSIVE**，只差 macOS 的實際結果。Windows 這半它自己用修正前的 build、把 TEMP 換成 8.3 短名重現了紅，再在 `949a259` 上看到綠。之後 `capi (FFI) - macOS (arm64)` 綠了，`HeldPushTest.AnotherSessionSeesTheRecordButCannotCancelIt` 實際跑過（0.50 s，不是 skip）；PR #189 的 13 項 CI 全綠，缺的那項證據已補上。
+  - Advisory A1（P3）：路徑的**最後一層**本身是 symlink／junction 時仍比不到，原因是 `fileIdOf` 刻意不跟隨最後一層。使用者裁定「修a1」，並問「是不是全改fileIdOf 可以解決?」。答覆是不行：`Scanner.cpp` 的迴圈防護依賴「把連結本身當身分」，而 `DiscoveryTest` 沒有任何 followLinks 或迴圈測試，全面改掉沒有任何測試會紅。改採新增一個並列的函式（arch-suggester 建議放 `FsUtil`、命名 `resolvedDirId`）：
+    - `9a02323`：`resolvedDirId`，與 `fileIdOf` 共用 `identityOf(path, followFinalLink)`。stub 時紅 3；mutation 2 次，各紅 1。
+    - `0f14d0d`：`recordBelongsToSession` 改用它。實作前紅 1；mutation 2 次，各紅 1。重新量測：命中約 1.2 µs、fallback 約 115 µs，與先前相同。
+    - `71132dc`：`WorktreeOps` 的 `isMain`、`attachCreatedAt` 四處改用它；這四處有同樣的缺口。第一輪 mutation 4 次只紅 2：git 回報那一側的兩處沒有測試能分辨，因為 fixture 在那一側一律用真實路徑（[TEST-fixture-cannot-disagree] 第 3 型）。補上兩則鏡像測試後，4 次各紅 1。鏡像測試是實作後才補的，沒有先看到紅。ctest 804/804。
+  - A2（P4，相對路徑會依 CWD 解析，目前所有寫入點都是絕對路徑）、A3（P4，`liveSessionsMutex` 內的檔案系統呼叫可能被斷線的網路磁碟卡住，只是推測）：**DEFER**。
+  - Fresh `verifier` 驗 `9a02323`／`0f14d0d`／`71132dc`：**CONFIRMED**。它自己跑 ctest 804/804，另用 probe 驗證：最後一層是 junction 時能比對到；斷掉的連結 `resolvedDirId` 回 nullopt。PR #189 的 CI 在 `549598d` 13 項全綠。兩項 P4 advisory 都 **DEFER**：
+    - 鏡像測試沒有先見紅，已由 mutation 補足。
+    - 本輪改動才造成的情況，沒有實際重現：prunable worktree 的路徑若是斷掉的連結，且 `gitdir` 與 `git worktree list` 對它的寫法不同，`createdAtUnix` 會從有變成沒有。原本兩邊會以連結本身的 id 對上。影響只有一個已不存在的 worktree 少了建立日期。
+- 範圍外發現，交 S3（裁定 3 的 rollback 輪），本輪未改：`ProcessRunner::execute` 對任何命令都把 token 接到 kill，與 `terminate()` 的註解「mutating git process is never killed mid-flight」不符；逾時（`effectiveDeadlines`）與 `~Session` 的 `cancelOperations(0)` 都可能在 merge／rebase／checkout 中途砍掉 git。
+- 規則：~~`[DRIFT-cancel-capi-unwired]` 原地改寫為已接線；~~ **更正**：`drift-open.md` 開頭規定「closed drift lives in the ledger」，先改寫後已自該檔退役（引用者只有 ledger 的 code span，`check-rule-pins.py` 不受影響）。關閉時的狀態：狀態列 Cancel → `cancelOperation(queuedOperationId)` → `OperationRunner::cancel(id)`；仍開放、交 S3：`ProcessRunner::execute` 對任何命令都在 token trip 時 kill。`[CULT-orphan-wiring]` 計數 13 → 15，[record](../records/2026-10-04-orphan-wiring-instances.md) 加第 14、15 例。

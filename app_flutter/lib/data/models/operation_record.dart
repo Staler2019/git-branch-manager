@@ -61,6 +61,7 @@ class OperationRecord extends GbmLogEntry {
     this.running = false,
     this.timeoutMs = 0,
     this.idleTimeoutMs = 0,
+    this.queuedOperationId = 0,
   });
 
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
@@ -79,6 +80,11 @@ class OperationRecord extends GbmLogEntry {
       benignExit: json['benignExit'] as bool,
       timeoutMs: json['timeoutMs'] as int,
       idleTimeoutMs: json['idleTimeoutMs'] as int,
+      // Lenient, unlike every key above: a native library built before the
+      // field existed must not turn every log event into a TypeError, which
+      // RepoSessionController._onEvent does not catch -- and it keeps the
+      // core commit that added the field revertable on its own.
+      queuedOperationId: json['queuedOperationId'] as int? ?? 0,
     );
   }
 
@@ -101,6 +107,12 @@ class OperationRecord extends GbmLogEntry {
 
   /// The no-output limit, likewise; 0 when none applied.
   final int idleTimeoutMs;
+
+  /// The queued operation (one capi unit) this invocation ran for, which is
+  /// what a Cancel names (`RepoSessionController.cancelOperation`). 0 when it
+  /// ran for none, or when the operation is another session's -- core only
+  /// gives a session the ids its own queue runs.
+  final int queuedOperationId;
 
   @override
   final int whenEpochMs;

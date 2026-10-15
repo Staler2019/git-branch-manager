@@ -112,6 +112,12 @@ typedef RepoStateJsonDart = int Function(Pointer<Void> session);
 typedef _RemoveStaleIndexLockNative = Int32 Function(Pointer<Void> session);
 typedef RemoveStaleIndexLockDart = int Function(Pointer<Void> session);
 
+typedef _CancelOperationNative = Int32 Function(
+  Pointer<Void> session,
+  Uint64 id,
+);
+typedef CancelOperationDart = int Function(Pointer<Void> session, int id);
+
 typedef _HistoryRefreshNative = Uint64 Function(Pointer<Void> session);
 typedef HistoryRefreshDart = int Function(Pointer<Void> session);
 typedef _HistorySetFilterNative = Void Function(
@@ -1357,6 +1363,10 @@ class GbmBindings {
             _RemoveStaleIndexLockNative,
             RemoveStaleIndexLockDart
           >('gbm_operation_remove_stale_index_lock'),
+      cancelOperation = library
+          .lookupFunction<_CancelOperationNative, CancelOperationDart>(
+            'gbm_cancel_operation',
+          ),
       historyRefresh = library
           .lookupFunction<_HistoryRefreshNative, HistoryRefreshDart>(
             'gbm_history_refresh',
@@ -1911,6 +1921,7 @@ class GbmBindings {
   final RegisterCallbackDart registerCallback;
   final RepoStateJsonDart repoStateJson;
   final RemoveStaleIndexLockDart removeStaleIndexLock;
+  final CancelOperationDart cancelOperation;
   final HistoryRefreshDart historyRefresh;
   final HistorySetFilterDart historySetFilter;
   final RefsJsonDart refsJson;

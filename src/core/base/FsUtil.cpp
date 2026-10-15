@@ -44,15 +44,21 @@ namespace {
 
 }  // namespace
 
-std::optional<FileId> fileIdOf(const std::filesystem::path& path) {
+namespace {
+
+/// fileIdOf and resolvedDirId differ only in whether the last component is
+/// followed when it is itself a link.
+std::optional<FileId> identityOf(const std::filesystem::path& path, bool followFinalLink) {
 #if defined(_WIN32)
     const std::filesystem::path safe = longPathSafe(path);
+    const DWORD flags = FILE_FLAG_BACKUP_SEMANTICS |
+                        (followFinalLink ? 0 : static_cast<DWORD>(FILE_FLAG_OPEN_REPARSE_POINT));
     HANDLE handle = ::CreateFileW(safe.c_str(),
                                   0,
                                   FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                                   nullptr,
                                   OPEN_EXISTING,
-                                  FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                                  flags,
                                   nullptr);
     if (handle == INVALID_HANDLE_VALUE) {
         return std::nullopt;
@@ -71,7 +77,8 @@ std::optional<FileId> fileIdOf(const std::filesystem::path& path) {
 #else
     struct stat st {};
 
-    if (::lstat(path.c_str(), &st) != 0) {
+    const int rc = followFinalLink ? ::stat(path.c_str(), &st) : ::lstat(path.c_str(), &st);
+    if (rc != 0) {
         return std::nullopt;
     }
     FileId id;
@@ -80,6 +87,16 @@ std::optional<FileId> fileIdOf(const std::filesystem::path& path) {
     id.low = static_cast<std::uint64_t>(st.st_ino);
     return id;
 #endif
+}
+
+}  // namespace
+
+std::optional<FileId> fileIdOf(const std::filesystem::path& path) {
+    return identityOf(path, /*followFinalLink=*/false);
+}
+
+std::optional<FileId> resolvedDirId(const std::filesystem::path& path) {
+    return identityOf(path, /*followFinalLink=*/true);
 }
 
 std::optional<std::filesystem::path> currentExecutablePath() {

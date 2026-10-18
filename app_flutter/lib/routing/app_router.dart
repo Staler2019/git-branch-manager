@@ -243,10 +243,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
-      dialogRoute(
-        path: RoutePaths.preferencesDialog,
-        builder: (context, state) => const PreferencesDialogContent(),
-      ),
+      preferencesDialogRoute(),
       dialogRoute(
         path: RoutePaths.repositorySettingsDialog,
         builder: (context, state) {
@@ -485,3 +482,21 @@ Widget buildComparePageRoute(BuildContext context, GoRouterState state) {
     tabId: tabId,
   );
 }
+
+/// App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
+/// `?section=` picks where it opens (ruling D5); a missing or unknown value
+/// is General, which is what every push without one has always got. A
+/// function of its own so a test can mount the real route on a small router
+/// without the workspace's FFI-backed screens.
+GoRoute preferencesDialogRoute() => dialogRoute(
+  path: RoutePaths.preferencesDialog,
+  builder: (context, state) {
+    final String? name = state.uri.queryParameters['section'];
+    return PreferencesDialogContent(
+      initialSection: PreferencesSection.values.firstWhere(
+        (PreferencesSection s) => s.name == name,
+        orElse: () => PreferencesSection.general,
+      ),
+    );
+  },
+);

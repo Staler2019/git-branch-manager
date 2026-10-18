@@ -66,6 +66,12 @@ jobs:
           python3 scripts/test_check_instruction_budget.py
           python3 scripts/check-instruction-budget.py
 
+      # The Flutter template ships a default icon in every runner; the build
+      # bundles whatever is there, so a drift from resources/branding/ ships
+      # an app with no brand icon and nothing else goes red.
+      - name: app icon sync
+        run: python3 scripts/check-app-icon-sync.py
+
       # The core/capi split is the load-bearing structural decision: core must
       # stay free of any UI toolkit so the whole data layer is testable
       # headless. A grep is crude but it cannot be argued with, and it fails

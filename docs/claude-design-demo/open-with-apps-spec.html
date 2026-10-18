@@ -1,0 +1,371 @@
+<title>Worktree 開啟方式</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet — each screen is a framed mock in the app's own tokens, with its value-source table beside/below it. */
+/* App tokens: app_flutter/lib/theme/tokens.dart — light = _lightIde, dark = _darkTechnical (the app default). */
+:root {
+  --surface-app: #FFFFFF; --surface-panel: #FFFFFF; --surface-raised: #FFFFFF;
+  --surface-sunken: #F5F6F8; --surface-hover: #F0F2F5; --surface-selected: #E4EDFD; --surface-overlay: #FFFFFF;
+  --border-subtle: #EAECEF; --border-default: #DCDFE4;
+  --text-primary: #1C2128; --text-secondary: #57606A; --text-tertiary: #8B949E; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --danger: #CF222E; --warning: #9A6700; --diff-del-bg: #FFEBE9;
+  /* page chrome (not app tokens): everything outside the .mock frames, plus the frames' own width/radius, is page layout, not a drawn value */
+  --page-bg: #F3F5F8; --page-ink: #1C2128; --page-muted: #57606A; --page-rule: #DCDFE4;
+  --tag-new-bg: #FFF4DB; --tag-new-ink: #7A5200; --tag-code-bg: #E4EDFD; --tag-code-ink: #1857B8; --tag-rule-bg: #E6F6EC; --tag-rule-ink: #136C37;
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', sans-serif; /* spec L861 */
+  --font-mono: 'JetBrains Mono', 'SF Mono', Consolas, monospace; /* spec L862 */
+  --font-page: -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --danger: #F85149; --warning: #D29922; --diff-del-bg: #3A1414;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --danger: #F85149; --warning: #D29922; --diff-del-bg: #3A1414;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page-bg); color: var(--page-ink); font-family: var(--font-page); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--page-muted); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--page-muted); font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--page-muted); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--page-rule); padding-top: 18px; }
+.rulings { display: flex; flex-wrap: wrap; gap: 8px; }
+.ruling { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--page-muted); align-items: center; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--tag-code-bg); color: var(--tag-code-ink); }
+.tag.new { background: var(--tag-new-bg); color: var(--tag-new-ink); }
+.tag.rule { background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+
+.stage { overflow-x: auto; padding: 20px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 8px; }
+.mock { font-family: var(--font-ui); color: var(--text-primary); background: var(--surface-app); }
+.mono { font-family: var(--font-mono); }
+/* ---------- tables ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+th { font-weight: 600; color: var(--page-muted); font-size: 12px; }
+td code, p code, li code { font-family: var(--font-mono); font-size: 11.5px; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+/* ---------- shadow token: GbmEffects.shadowLg (tokens.dart:493) — alpha .18 light / .6 dark, blur 32, y 12 ---------- */
+:root { --shadow-lg: 0 12px 32px rgba(0,0,0,.18); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --shadow-lg: 0 12px 32px rgba(0,0,0,.6); } }
+:root[data-theme="dark"] { --shadow-lg: 0 12px 32px rgba(0,0,0,.6); }
+
+/* ---------- GbmButton (gbm_button.dart) ---------- */
+.gbm-btn { height: 30px; padding: 0 12px; border-radius: 6px; font-family: var(--font-ui); font-size: 12.5px; font-weight: 500; display: inline-flex; align-items: center; gap: 8px; border: 0; background: transparent; color: var(--text-primary); white-space: nowrap; cursor: pointer; }
+.gbm-btn.secondary { background: var(--surface-raised); border: 1px solid var(--border-default); color: var(--text-primary); }
+.gbm-btn.ghost { color: var(--text-secondary); }
+.gbm-btn.ghost:hover, .gbm-btn.secondary:hover { background: var(--surface-hover); }
+.gbm-btn.danger { color: var(--danger); border: 1px solid var(--border-default); }
+.gbm-btn[disabled] { opacity: .45; cursor: default; } /* gbm_button.dart:154 alpha 0.45 */
+.gbm-btn.danger:hover { background: var(--diff-del-bg); border-color: var(--danger); }
+.gbm-btn.primary { background: var(--accent); color: var(--text-on-accent); }
+.gbm-btn svg { flex-shrink: 0; }
+
+/* ---------- the split button (new) ---------- */
+.gbm-split-button { display: inline-flex; align-items: center; }
+.gbm-split-button .gbm-btn.main { border-radius: 6px 0 0 6px; }
+.gbm-split-button .gbm-btn.chev { border-radius: 0 6px 6px 0; padding: 0 8px; }
+.gbm-split-button .rule { width: 1px; height: 16px; background: var(--border-subtle); }
+.gbm-split-button .gbm-btn.chev.open { background: var(--surface-hover); color: var(--text-primary); }
+
+/* ---------- PanelDetailActions (panel_widgets.dart:367) ---------- */
+/* page glue: frame width/border/background stand in for the panel around it */
+.detail { width: 640px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-panel); overflow: visible; }
+/* PanelDetailColumn: panel_widgets.dart:31 label 78, :202 row bottom 12, :213 label textXs, :225 value textSm, :227 'monospace', :253 padding 16 */
+.detail-fields { display: grid; grid-template-columns: 78px 1fr; row-gap: 12px; padding: 16px; }
+.detail-fields .k { color: var(--text-tertiary); font-size: 11px; }
+.detail-fields .v { color: var(--text-primary); font-family: monospace; font-size: 12.5px; }
+.panel-detail-actions { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border-subtle); position: relative; }
+.panel-detail-actions .sp { flex: 1; }
+
+/* ---------- showGbmMenu (gbm_menu.dart:213) — position/z-index are page glue; showMenu places it by RelativeRect (gbm_menu.dart:155) ---------- */
+.gbm-menu { position: absolute; min-width: 220px; padding: 4px; border-radius: 6px; border: 1px solid var(--border-default); background: var(--surface-overlay); box-shadow: var(--shadow-lg); font-family: var(--font-ui); z-index: 2; }
+.gbm-menu-item { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 4px; font-size: 12.5px; color: var(--text-primary); cursor: pointer; }
+.gbm-menu-item .lbl { flex: 1; }
+.gbm-menu-item:hover { background: var(--accent); color: var(--text-on-accent); }
+.gbm-menu-item.disabled { color: var(--text-tertiary); cursor: default; }
+.gbm-menu-item.disabled:hover { background: transparent; color: var(--text-tertiary); }
+.gbm-menu-sep { height: 1px; background: var(--border-subtle); margin: 4px 6px; }
+
+/* ---------- Preferences dialog (preferences_dialog.dart) ---------- */
+.dlg { width: 720px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 24px rgba(0,0,0,.3); } /* gbm_dialog_shell.dart:73-80 */
+.dlg-title { padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; font-weight: 600; }
+.dlg-body { display: flex; height: 420px; padding: 0 16px; } /* gbm_dialog_shell.dart:125 horizontal only */
+.nav { width: 168px; display: flex; flex-direction: column; }
+.nav div { padding: 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.nav div.on { background: var(--surface-selected); color: var(--text-primary); font-weight: 600; }
+.vdiv { width: 1px; background: var(--border-subtle); }
+.pane { flex: 1; min-width: 0; padding-left: 16px; display: flex; flex-direction: column; }
+.sh { font-size: 11px; font-weight: 600; color: var(--text-tertiary); letter-spacing: .5px; padding-bottom: 8px; }
+.t-xs { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+.inp { height: 30px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-panel); display: flex; align-items: center; padding: 0 12px; font-size: 12.5px; color: var(--text-primary); min-width: 0; }
+.inp.mono { font-family: var(--font-mono); }
+.inp.ph { color: var(--text-tertiary); }
+.app-row { display: flex; align-items: center; gap: 8px; padding-bottom: 4px; }
+.app-row .name { width: 140px; flex-shrink: 0; }
+.app-row .cmd { flex: 1; }
+.app-reject { font-size: 11px; color: var(--danger); padding: 0 0 6px 148px; line-height: 1.5; } /* textXs + danger; indent = name 140 + gap 8 — 新增 */
+.inp.bad { border-color: var(--danger); }
+.icon-btn { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 6px; color: var(--text-tertiary); flex-shrink: 0; }
+.icon-btn.del { color: var(--danger); }
+.icon-btn.off { opacity: .45; } /* repo disabled convention gbm_button.dart:154; Icon colour must be dimmed explicitly — IconButton.disabledColor does not override an explicit Icon colour */
+.dlg-foot { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border-subtle); }
+.dlg-foot .gbm-btn { height: 24px; padding: 0 8px; font-size: 11px; }
+.gap4 { height: 16px; } .gap2 { height: 8px; }
+
+/* ---------- SnackBar (Material default, as _openInTerminal uses it) ---------- */
+.snack { width: 420px; padding: 14px 16px; border-radius: 4px; background: var(--text-primary); color: var(--surface-panel); font-family: var(--font-ui); font-size: 14px; }
+
+.stage.tall { padding-bottom: 210px; }
+.pair { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.pair figure { margin: 0; display: grid; gap: 8px; }
+.pair figcaption { font-size: 12.5px; color: var(--page-muted); }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } h1 { font-size: 22px; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- terminal: app_flutter/assets/icons/terminal.svg (Lucide) -->
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+  <!-- keyboard_arrow_down: Material icon, the same family gbm_menu.dart:378 uses for its chevron -->
+  <symbol id="i-down" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></symbol>
+  <symbol id="i-up-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></symbol>
+  <symbol id="i-down-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></symbol>
+  <!-- delete_outline: Material icon, as _BaseFolderRow uses (preferences_dialog.dart:793) -->
+  <symbol id="i-del" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM8 9h8v10H8V9zm7.5-5-1-1h-5l-1 1H5v2h14V4z"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">feature/make-user-can-customize-open-apps · G1 設計稿 · 2026-10-18</div>
+    <h1>Worktree 開啟方式</h1>
+    <p class="lede">Worktree 面板的 Open in terminal 旁加一個 ▾，展開使用者自訂的應用清單（例如 <code>rider .</code>、<code>code .</code>、<code>open .</code>）；清單在 Preferences 新增的一段裡編輯。畫面用 app 自己的 token 繪製，跟著瀏覽器的亮暗主題切換：亮色是 Light IDE，暗色是 Dark technical（<code>tokens.dart</code> 的 <code>_lightIde</code>／<code>_darkTechnical</code>）。框內每個值的出處列在各畫面下方的表；框外是這份文件自己的版面。</p>
+    <div class="legend">
+      <span><span class="tag code">code</span> 沿用現有程式（檔名:行）</span>
+      <span><span class="tag rule">裁定</span> 你的裁定</span>
+      <span><span class="tag new">新增</span> 沒有出處，等你裁定</span>
+    </div>
+  </header>
+
+  <!-- ===================== Rules ===================== -->
+  <section class="screen" id="rules">
+    <div class="screen-head">
+      <div class="eyebrow">底層規則 · 畫面以外</div>
+      <h2>一筆應用 = 名稱 + 一行指令，在 worktree 資料夾裡執行</h2>
+      <div class="rulings">
+        <span class="ruling">範圍：「只有 worktree 面板」</span>
+        <span class="ruling">按鈕：「Split button」</span>
+        <span class="ruling">設定：「Preferences 新分頁」</span>
+        <span class="ruling">執行：「經由使用者的 login shell」</span>
+        <span class="ruling">「記得更新spec」</span>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>項目</th><th>規則</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>工作目錄</td><td>永遠是被選取的 worktree 路徑，所以 <code>rider .</code>、<code>explorer .</code> 直接可用</td><td><span class="tag code">desktop_launcher.dart openTerminal 的 workingDirectory: path</span></td></tr>
+        <tr><td><code>{path}</code></td><td>macOS/Linux：換成參數 <code>"$1"</code>，路徑本身不進 shell 字串，所以路徑含空白、引號、<code>$(…)</code> 都不會被執行。Windows：換成 <code>.</code>（工作目錄就是 worktree），路徑完全不進 cmd 字串。寫成 <code>"{path}"</code> 或 <code>'{path}'</code> 時存檔就正規化成 <code>{path}</code>；其他位於引號內的 <code>{path}</code> 不能存檔（否則 <code>""$1""</code> 等於沒有引號）</td><td><span class="tag code">desktop_launcher.dart「never interpolated into a shell string」</span> · security review F2、F4 · 置換語法 <span class="tag new">新增</span></td></tr>
+        <tr><td>macOS / Linux</td><td><code>$SHELL -lic '&lt;指令&gt;' gbm &lt;worktree 路徑&gt;</code>，stdin 接 <code>/dev/null</code>。只有 <code>$SHELL</code> 是絕對路徑、而且是 sh / bash / zsh / dash / ksh / mksh / yash / ash 時才用它，其他（fish、pwsh、tcsh、nu…）一律 <code>/bin/sh</code>，因為那些 shell 的 <code>$1</code> 語意不同。用 <code>-lic</code>：login + 互動，<code>~/.zprofile</code> 和 <code>~/.zshrc</code> 裡的 PATH（nvm、pyenv、conda）都拿得到；GUI 啟動的 app 預設只有 <code>/usr/bin:/bin:/usr/sbin:/sbin</code>。已知代價：<code>.zshrc</code> 裡若有 <code>exec tmux</code> 之類的寫法，指令不會執行；stdin 接 <code>/dev/null</code> 讓互動提示直接讀到結尾、不會卡住</td><td>login shell <span class="tag rule">裁定</span> · <code>-lic</code> <span class="tag rule">裁定</span> D6 · 白名單：security review F3</td></tr>
+        <tr><td>Windows</td><td><code>%SystemRoot%\System32\cmd.exe /d /s /v:off /c &lt;指令&gt;</code>，經過既有的 <code>startDetachedProcess</code> relay，<code>workingDirectory</code> 是 worktree。worktree 是 UNC 路徑（<code>\\server\share</code>）時不執行並回報失敗，因為 cmd 不能把 UNC 當工作目錄，會退回 <code>C:\Windows</code>。指令含雙引號 <code>"</code> 時也不執行並回報「Windows 上的指令不能含雙引號」：relay 會拒絕任何含 <code>"</code> 的參數，像 <code>"C:\Program Files\…\code.cmd" .</code> 這種寫法在 Windows 一定失敗，所以先擋下並說明</td><td><span class="tag code">detached_process.dart startDetachedProcess</span>、<span class="tag code">windowsRelayShell 的絕對路徑</span> · 雙引號 <span class="tag code">detached_process.dart:72</span> · security review F2、plan review</td></tr>
+        <tr><td>指令本身</td><td>是使用者自己寫的，會原封不動交給 shell。這是刻意的：等同使用者在 terminal 裡打同一行</td><td><span class="tag rule">裁定</span>「經由使用者的 login shell」所選選項的說明：「用 <code>$SHELL -lc '&lt;cmd&gt;'</code> 執行，PATH 跟你在 terminal 裡看到的一致」</td></tr>
+        <tr><td>預設清單</td><td>macOS <code>Finder · open .</code>；Windows <code>Explorer · explorer .</code>；Linux <code>File manager · xdg-open .</code>。可刪</td><td><span class="tag new">新增</span></td></tr>
+        <tr><td>儲存</td><td><code>appPrefs.openWithApps</code>，JSON 陣列 <code>[{id,label,command}]</code>；讀到損毀資料時退回預設清單</td><td>前綴 <span class="tag code">app_preferences_repository.dart:246 _kPrefix</span> · 格式 <span class="tag new">新增</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Screen 1: split button ===================== -->
+  <section class="screen" id="split">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · Worktrees 面板 → 明細動作列</div>
+      <h2>Open in terminal 變成 split button</h2>
+    </div>
+    <div class="stage tall">
+      <div class="mock detail">
+        <div class="detail-fields">
+          <span class="k">路徑</span><span class="v">~/src/git-branch-manager-feature</span>
+          <span class="k">分支</span><span class="v">feature/make-user-can-customize-open-apps</span>
+        </div>
+        <div class="panel-detail-actions">
+          <button class="gbm-btn secondary">Switch to</button>
+          <span class="gbm-split-button">
+            <button class="gbm-btn ghost main"><svg width="12" height="12" style="color:var(--text-secondary)"><use href="#i-terminal"/></svg>Open in terminal</button><span class="rule"></span><button class="gbm-btn ghost chev open" title="其他開啟方式" aria-label="其他開啟方式" aria-haspopup="menu" aria-expanded="true"><svg width="14" height="14"><use href="#i-down"/></svg></button>
+          </span>
+          <button class="gbm-btn ghost">Lock…</button>
+          <button class="gbm-btn ghost">重新量測</button>
+          <span class="sp"></span>
+          <button class="gbm-btn danger">Remove worktree…</button>
+          <div class="gbm-menu" role="menu" style="left:96px; top:44px">
+            <div class="gbm-menu-item" role="menuitem"><span class="lbl">Rider</span></div>
+            <div class="gbm-menu-item" role="menuitem"><span class="lbl">VS Code</span></div>
+            <div class="gbm-menu-item" role="menuitem"><span class="lbl">Finder</span></div>
+            <div class="gbm-menu-sep"></div>
+            <div class="gbm-menu-item" role="menuitem"><span class="lbl">Edit apps…</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pair">
+      <figure>
+        <div class="stage" style="padding-bottom:120px">
+          <div class="mock" style="position:relative;width:300px;height:1px">
+            <div class="gbm-menu" style="left:0;top:0">
+              <div class="gbm-menu-item disabled" role="menuitem" aria-disabled="true" title="在 Preferences → External apps 新增"><span class="lbl">還沒有自訂應用</span></div>
+              <div class="gbm-menu-sep"></div>
+              <div class="gbm-menu-item" role="menuitem"><span class="lbl">Edit apps…</span></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>清單是空的：一列停用的說明（不隱藏 ▾），加上 Edit apps…</figcaption>
+      </figure>
+      <figure>
+        <div class="stage">
+          <div class="snack">無法執行「Rider」：<span class="mono">zsh:1: command not found: rider</span></div>
+        </div>
+        <figcaption>執行失敗：SnackBar，帶 shell 自己的錯誤訊息最後一行</figcaption>
+      </figure>
+    </div>
+
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>動作列</td><td>padding 8 / 12，上框線 borderSubtle，按鈕間距 8，danger 靠右</td><td><span class="tag code">panel_widgets.dart:370–386 PanelDetailActions</span></td></tr>
+        <tr><td>按鈕尺寸</td><td>高 30、左右 12、圓角 6、12.5 / 500。明細列沒有 <code>GbmButtonSizeScope</code>，所以是一般尺寸（P19 的 mock 畫 <code>.gbm-btn-sm</code>，屬既有差異，本輪不動）</td><td><span class="tag code">gbm_button.dart:138–144</span>（高、字級、padding）、<span class="tag code">:168</span>（圓角）、<span class="tag code">:181</span>（500）</td></tr>
+        <tr><td>主體</td><td>ghost，文字 textSecondary，hover surfaceHover；icon <code>terminal</code> 12px、textSecondary，與文字間距 8；文字與行為都不變</td><td><span class="tag code">worktrees_panel.dart:347–358</span> · <span class="tag code">gbm_button.dart:110 ghost</span> · 間距 8 <span class="tag new">推測</span>（Flutter <code>TextButton.icon</code> 的框架預設，repo 裡讀不到）</td></tr>
+        <tr><td>▾ 段</td><td>ghost，左右 padding 8，icon 14px <code>keyboard_arrow_down</code>；選單開著時保持 hover 底色</td><td>padding <span class="tag code">gbm_button.dart:142 sm 的 space2</span> · icon 尺寸 <span class="tag code">gbm_menu.dart:378</span>（借自選單的子選單箭頭 <code>chevron_right</code>，不同元件） · 組合與開啟中狀態 <span class="tag new">新增</span></td></tr>
+        <tr><td>兩段之間</td><td>1px × 16 的 borderSubtle 分隔線，兩段各自只圓外側的角</td><td><span class="tag new">新增</span>（spec 沒有 split button；最接近的是 P19 工具列的 <code>width:1px;height:15px</code> 分隔線）</td></tr>
+        <tr><td>▾ tooltip</td><td>「其他開啟方式」</td><td><span class="tag new">新增</span></td></tr>
+        <tr><td>選單外框</td><td>最小寬 220、padding 4、圓角 6、borderDefault、surfaceOverlay、shadowLg</td><td><span class="tag code">gbm_menu.dart:213–219</span></td></tr>
+        <tr><td>選單項目</td><td>padding 6 / 10、圓角 4、12.5px；hover 是 accent 填色（不是 surfaceHover）</td><td><span class="tag code">gbm_menu.dart:357–372</span> · <code>.gbm-menu-item:hover</code></td></tr>
+        <tr><td>選單項目文字</td><td>只顯示名稱，不顯示指令；指令只在 Preferences 看得到</td><td><span class="tag rule">裁定</span> D1「只顯示名稱」</td></tr>
+        <tr><td>分隔線</td><td>1px borderSubtle，margin 4 / 6</td><td><span class="tag code">.gbm-menu-sep</span></td></tr>
+        <tr><td>Edit apps…</td><td>開 Preferences 並直接停在 External apps 段；有省略號，因為會開對話框</td><td>省略號 <span class="tag code">[UX-ellipsis-promises-a-dialog]</span> · 文字、直接停在該段 <span class="tag new">新增</span>（<code>PreferencesDialogContent</code> 目前固定從 General 開始，<code>preferences_dialog.dart:64</code>，要加初始段參數）</td></tr>
+        <tr><td>空清單</td><td>停用列「還沒有自訂應用」：<code>enabled: false</code> 且 <code>onTap: null</code>，tooltip「在 Preferences → External apps 新增」</td><td><span class="tag code">[FLU-menu-enabled-is-visual-only]</span>「disabled-with-a-tooltip beats hidden — 隱藏會讓人以為功能不存在」 · tooltip 欄 <span class="tag code">gbm_menu.dart:91 tooltip</span> · 文字 <span class="tag new">新增</span></td></tr>
+        <tr><td>失敗回報</td><td>以一般模式啟動，持續讀取並丟棄輸出；5 秒內非 0 結束就顯示 SnackBar「無法執行「&lt;名稱&gt;」：&lt;stderr 最後一行&gt;」，5 秒內沒結束就當作成功；之後仍持續讀取 stderr 直到結束（只保留最後一行、上限 512 字元），stdout 在 shell 裡就導到 <code>/dev/null</code>。<strong>只有 macOS / Linux 做得到</strong>：Windows 經過 PowerShell relay，relay 只等 <code>Start-Process</code>，看不到 cmd 的結束碼，所以 Windows 只回報 relay 本身的失敗。目前的 worktree terminal 按鈕失敗時什麼都不顯示，這次一併補上</td><td>SnackBar 做法 <span class="tag code">workspace_screen.dart:1415 _openInTerminal</span> · SnackBar 的尺寸與配色 <span class="tag new">推測</span>（Material 預設，repo 沒有 snackBarTheme） · 偵測方式 <span class="tag rule">裁定</span> D3「最多等 5 秒看結束碼」</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Screen 2: Preferences ===================== -->
+  <section class="screen" id="prefs">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · Preferences → External apps（新的一段）</div>
+      <h2>清單：名稱 + 指令，可排序、可刪</h2>
+    </div>
+    <div class="stage">
+      <div class="mock dlg">
+        <div class="dlg-title">Preferences</div>
+        <div class="dlg-body">
+          <div class="nav"><div>General</div><div>Repository sources</div><div>Git</div><div>Appearance</div><div class="on">External apps</div><div>Shortcuts</div><div>Advanced</div><div>Developer</div></div>
+          <div class="vdiv"></div>
+          <div class="pane">
+            <div class="sh">開啟方式</div>
+            <div class="app-row">
+              <div class="inp name">Rider</div><div class="inp mono cmd">rider .</div>
+              <span class="icon-btn off" title="上移"><svg width="16" height="16"><use href="#i-up-arrow"/></svg></span>
+              <span class="icon-btn" title="下移"><svg width="16" height="16"><use href="#i-down-arrow"/></svg></span>
+              <span class="icon-btn del" title="移除"><svg width="18" height="18"><use href="#i-del"/></svg></span>
+            </div>
+            <div class="app-row">
+              <div class="inp name">VS Code</div><div class="inp mono cmd">code {path}</div>
+              <span class="icon-btn" title="上移"><svg width="16" height="16"><use href="#i-up-arrow"/></svg></span>
+              <span class="icon-btn" title="下移"><svg width="16" height="16"><use href="#i-down-arrow"/></svg></span>
+              <span class="icon-btn del" title="移除"><svg width="18" height="18"><use href="#i-del"/></svg></span>
+            </div>
+            <div class="app-row">
+              <div class="inp name">Finder</div><div class="inp mono cmd bad">-a Finder .</div>
+              <span class="icon-btn" title="上移"><svg width="16" height="16"><use href="#i-up-arrow"/></svg></span>
+              <span class="icon-btn off" title="下移"><svg width="16" height="16"><use href="#i-down-arrow"/></svg></span>
+              <span class="icon-btn del" title="移除"><svg width="18" height="18"><use href="#i-del"/></svg></span>
+            </div>
+            <div class="app-reject">指令不能以 - 開頭，這次修改沒有存檔（仍是 <span class="mono">open .</span>）</div>
+            <div class="gap2"></div>
+            <div class="app-row">
+              <div class="inp name ph">名稱</div><div class="inp mono cmd ph">指令，例如 code .</div>
+              <button class="gbm-btn primary" disabled>Add</button>
+            </div>
+            <div class="gap2"></div>
+            <div class="t-xs">指令會在 worktree 資料夾裡執行：macOS / Linux 透過你的 login shell，PATH 與你的 terminal 相同；Windows 透過 cmd。<span class="mono">{path}</span> 會換成 worktree 的完整路徑（Windows 換成 <span class="mono">.</span>）。</div>
+            <div class="gap2"></div>
+            <div class="t-xs">名稱或指令清空時不會存檔，會保留原本的值。</div>
+          </div>
+        </div>
+        <div class="dlg-foot"><button class="gbm-btn primary">Close</button></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>對話框外框</td><td>寬 720、內容高 420、標題 13 / 600、只有 Close（改動即時寫入）</td><td>寬、高、Close <span class="tag code">preferences_dialog.dart:85–94</span> · 圓角 10、外框、陰影 <span class="tag code">gbm_dialog_shell.dart:73–80</span> · 標題 13 / 600 <span class="tag code">gbm_dialog_shell.dart:95–111</span></td></tr>
+        <tr><td>左側導覽</td><td>寬 168、padding 8、12.5px；選中 surfaceSelected + 600</td><td><span class="tag code">preferences_dialog.dart:139–186 _NavItem</span></td></tr>
+        <tr><td>段名「External apps」</td><td>英文，放在 Appearance 和 Shortcuts 之間；和 Developer 一樣是 PREFNAV 六段以外、使用者要求加的段</td><td>英文段名 <span class="tag code">preferences_dialog.dart:66「Section names stay English」</span> · 名稱與位置 <span class="tag new">新增</span></td></tr>
+        <tr><td>小標「開啟方式」</td><td>11 / 600、textTertiary、字距 0.5、下方 8</td><td><span class="tag code">preferences_dialog.dart:189 _SectionHeading</span> · 文字 <span class="tag new">新增</span></td></tr>
+        <tr><td>每一列</td><td>名稱欄寬 140 + 指令欄（mono）填滿，高 30、圓角 6；列與列之間 4</td><td>欄位 <span class="tag code">tokens.dart:457 inputHeight</span>、<span class="tag code">gbmInputDecoration</span> · 列距 <span class="tag code">_BaseFolderRow 的 space1</span> · 寬 140 與 mono <span class="tag new">新增</span></td></tr>
+        <tr><td>上移 / 下移</td><td>Lucide <code>arrow-up</code>／<code>arrow-down</code> 16px textTertiary，compact IconButton（畫成 28×28、圓角 6 是推測）；第一列不能上移、最後一列不能下移時停用，透明度 .45</td><td>尺寸與顏色 <span class="tag code">preferences_dialog.dart:708 _RecentEntryRow 的 close 16px</span> · 圖示 <span class="tag code">assets/icons/arrow-up.svg</span> · 排序功能 <span class="tag new">新增</span> · 28×28 <span class="tag new">推測</span>（IconButton 尺寸是 Flutter 預設，repo 沒有 iconButtonTheme）· .45 <span class="tag code">gbm_button.dart:154</span></td></tr>
+        <tr><td>移除</td><td><code>delete_outline</code> 18px danger，tooltip「移除」，不確認（只刪一筆設定，磁碟上什麼都不動）</td><td><span class="tag code">preferences_dialog.dart:793 _BaseFolderRow</span></td></tr>
+        <tr><td>新增列</td><td>兩個空欄 + primary <code>Add</code>（沒有省略號：不開對話框）；兩欄都有字才可按</td><td>版型 <span class="tag code">preferences_dialog.dart:558–590 基礎資料夾的新增列</span> · 文字、placeholder「名稱」「指令，例如 code .」、兩欄都有字才可按（停用 .45）<span class="tag new">新增</span></td></tr>
+        <tr><td>清空不存</td><td>現有列的修改被 factory 拒絕時（清空、以 <code>-</code> 開頭、引號內的 <code>{path}</code>）不寫入，保留原值；欄位外框變 danger，列下方以 11px danger 顯示原因與目前存的值</td><td><span class="tag code">preferences_dialog.dart:312 _NumberField「a half-typed field must not momentarily persist」</span> · 拒絕條件 security review F4、F6 · 提示列的樣式與文字 <span class="tag new">新增</span></td></tr>
+        <tr><td>說明文字</td><td>11px textTertiary、行高 1.5</td><td><span class="tag code">_SettingSwitch subtitle 的 textXs / textTertiary</span> · 文字 <span class="tag new">新增</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Inferred ===================== -->
+  <section class="screen" id="inferred">
+    <div class="screen-head">
+      <div class="eyebrow">推測值</div>
+      <h2>沒有出處、我自己填的值</h2>
+    </div>
+    <ul class="notes">
+      <li>按鈕 icon 與文字的間距 8：Flutter <code>TextButton.icon</code> 的框架預設，repo 裡讀不到。</li>
+      <li>上移／下移／移除的 28×28 點擊區、圓角 6：IconButton 的實際尺寸由 Flutter 預設決定，repo 沒有 <code>iconButtonTheme</code>。</li>
+      <li>SnackBar 的寬 420、padding 14 / 16、圓角 4、配色、14px：Material 預設，repo 沒有 <code>snackBarTheme</code>；只用來示意內容。</li>
+      <li>split button 的整個組合：▾ 段沿用 sm 的左右 8、兩段只圓外側角、中間 1×16 分隔線、開啟中保持 hover 底色。spec 沒有 split button。</li>
+      <li>名稱欄寬 140、指令欄用 mono。</li>
+    </ul>
+    <p class="lede">另外，這份頁面的框架是從 <code>slow-machine-timeouts-spec.html</code> 複製過來的，稽核在那份頁面發現一個既有錯誤：Preferences 內容上下各多畫了 16px（<code>margin-block: 16px</code>），程式沒有這段（<code>gbm_dialog_shell.dart:125</code> 只有左右 padding）。兩份都已修正（裁定：「一起修前例頁的 16px」）。</p>
+  </section>
+
+  <!-- ===================== Rulings ===================== -->
+  <section class="screen" id="decisions">
+    <div class="screen-head">
+      <div class="eyebrow">裁定 · 2026-10-18</div>
+      <h2>六個決定</h2>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>問題</th><th>裁定</th></tr></thead>
+      <tbody>
+        <tr><td>D1</td><td>選單裡要不要顯示每一項的指令</td><td>「只顯示名稱」</td></tr>
+        <tr><td>D2</td><td>Preferences 段名與位置</td><td>「External apps」，放在 Appearance 之後</td></tr>
+        <tr><td>D3</td><td>怎麼知道執行失敗</td><td>「最多等 5 秒看結束碼」</td></tr>
+        <tr><td>D4</td><td>預設清單</td><td>「放檔案管理員」：Finder <code>open .</code> / Explorer <code>explorer .</code> / <code>xdg-open .</code>。追問「"." 都可以用{path}取代嗎？ windows 不行？」的答覆：兩邊都能寫；Windows 上 <code>{path}</code> 會換成 <code>.</code>（security review F2），效果相同，只有一定要絕對路徑的程式在 Windows 上不適用</td></tr>
+        <tr><td>D5</td><td>選單最後一項的文字</td><td>「Edit apps…」</td></tr>
+        <tr><td>D6</td><td>login shell 拿不到 <code>.zshrc</code> 裡的 PATH</td><td>「我的需求是 lic 才做得到」→ 改用 <code>-lic</code>，stdin 接 <code>/dev/null</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>

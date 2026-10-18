@@ -49,6 +49,10 @@ Everything below works end to end on Linux, macOS and Windows.
   reported exactly once, never as two stacked dialogs for the same failure.
 - **Worktrees, stash and tags**: add/remove/lock/prune worktrees; save/apply/
   pop/drop/branch stashes; create/delete/push annotated or lightweight tags.
+- **Open a worktree with your own apps**: the worktree panel's Open in
+  terminal has a ▾ listing commands defined in Preferences → External apps
+  (`rider .`, `code {path}`, …), run in the worktree through the login shell
+  (`cmd` on Windows). Spec: `docs/claude-design-demo/open-with-apps-spec.html`.
 - **Fetch, pull and push**, with credential prompts routed through an askpass
   helper rather than failing outright, and force-pushing offering only
   `--force-with-lease`, never a bare `--force`.

@@ -149,6 +149,13 @@ install(CODE "
 install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
   DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)
 
+# The window icon. Linux bundles have no icon slot the way a macOS .app or a
+# Windows .rc does, so my_application.cc loads this file from data/ itself.
+# resources/branding/ is the single source (scripts/gen-app-icon.sh).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/branding/app-icon-256.png"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" RENAME "app_icon.png"
+  COMPONENT Runtime)
+
 # Install the AOT library on non-Debug builds only.
 if(NOT CMAKE_BUILD_TYPE MATCHES "Debug")
   install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"

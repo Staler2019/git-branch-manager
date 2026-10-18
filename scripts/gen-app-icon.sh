@@ -78,4 +78,17 @@ base.save(
 )
 PYEOF
 
+# --- Flutter platform runners -------------------------------------------
+# The Flutter template ships its own default icon in each runner; overwrite
+# them so `flutter build` bundles this one. scripts/check-app-icon-sync.py
+# fails CI if they drift apart again. Linux has no bundle icon slot: its
+# CMakeLists.txt installs app-icon-256.png and the runner sets it itself.
+echo "Syncing Flutter runner icons..."
+flutter_dir="$repo_root/app_flutter"
+mac_iconset="$flutter_dir/macos/Runner/Assets.xcassets/AppIcon.appiconset"
+for size in 16 32 64 128 256 512 1024; do
+    cp "$branding_dir/app-icon-${size}.png" "$mac_iconset/app_icon_${size}.png"
+done
+cp "$branding_dir/app-icon.ico" "$flutter_dir/windows/runner/resources/app_icon.ico"
+
 echo "Done. Generated artefacts are in $branding_dir -- commit them alongside app-icon.svg."

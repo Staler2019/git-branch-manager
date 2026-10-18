@@ -388,6 +388,7 @@ ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75
         <span class="ruling">Q5「先footer下方常駐紅字ok。因為歡迎畫面目前跟spec不同，之後會改符合樣式」</span>
         <span class="ruling">Q6「Toggle，同 Ctrl/Cmd+Shift+L」</span>
         <span class="ruling">Q7「S1–S8 全做」</span>
+        <span class="ruling">Q8「重新打開 Clone 對話框並顯示錯誤」</span>
       </div>
     </div>
     <p class="lede">P10 #3：「有 error 未讀時左側常駐紅色摘要，可點開直接跳到該筆 log。不使用會自動消失的 toast——錯誤必須留到使用者看過。」文字寫「左側」，mock 畫在右端（<code>flex:1</code> 之後）；你裁定照 mock。</p>
@@ -469,7 +470,7 @@ ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75
         <tr><td><code>changed_files_panel.dart _onExportFinished</code> 失敗</td><td>SnackBar，git 訊息或「Could not read &lt;path&gt; at that revision.」</td><td><code>Could not export &lt;path&gt;: &lt;同一段訊息&gt;</code></td></tr>
         <tr><td><code>log_drawer.dart _saveAs</code> 失敗</td><td>SnackBar「Could not save the log: …」</td><td>同一段文字；<code>LogDrawer</code> 沒有 session，經由新的 <code>onSaveFailed</code> callback（<span class="tag new">新增</span>）交給 <code>WorkspaceScreen</code> 寫入</td></tr>
         <tr><td><code>repo_switcher_popover.dart</code> New repository… 失敗</td><td>SnackBar，core 的 <code>GitError.message</code></td><td><code>Could not create a repository at &lt;path&gt;: &lt;message&gt;</code>，寫進目前開著的 repo 的 Log（New repository… 只在 workspace 的 File 選單）</td></tr>
-        <tr><td><code>repo_switcher_popover.dart</code> Clone repository… 失敗</td><td>同上</td><td><span class="struck">寫進目前 repo 的 Log</span> <span class="fix">更正：Clone repository… 也在歡迎畫面的 <code>RepoSwitcherList</code> footer（<code>welcome_screen.dart:113</code>、<code>repo_switcher_popover.dart:736</code>），那裡沒有開著的 repo、沒有 Log。見 Q5</span></td></tr>
+        <tr><td><code>repo_switcher_popover.dart</code> Clone repository… 失敗</td><td>同上</td><td><span class="struck">寫進目前 repo 的 Log</span> <span class="fix">更正：Clone repository… 也在歡迎畫面的 <code>RepoSwitcherList</code> footer（<code>welcome_screen.dart:113</code>、<code>repo_switcher_popover.dart:736</code>），那裡沒有開著的 repo、沒有 Log。見 Q5</span> · 清單 footer 觸發：footer 下方常駐紅字（Q5）；File 選單觸發：重新打開 Clone 對話框並顯示錯誤（Q8）</td></tr>
       </tbody>
     </table></div>
     <p class="lede">三個成功提示不是錯誤，維持 SnackBar：<code>changed_files_panel.dart</code>「Saved to …」、<code>log_drawer.dart</code>「Copied to clipboard」「Log saved to …」。訊息都是英文，跟 <code>app_log_events.dart</code> 其他事件一致；factory 都放在 <code>AppLogEvents</code>，寫入走 <code>withOperationRecord</code>（<span class="tag code">[FLU-log-row-is-replaced-by-id]</span>「a new log producer goes through withOperationRecord」）。</p>
@@ -485,6 +486,7 @@ ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75
         <tr><td>Q5</td><td>Clone 失敗在歡迎畫面要顯示在哪</td><td>歡迎畫面沒有 status bar 和 Log；P10 #5 允許使用者主動觸發的失敗開視窗，但 repo 沒有這個元件（Q1）</td><td>在 <code>RepoSwitcherList</code> footer 下方常駐一行 danger 文字（textXs），下一次 Clone 或關閉時才清掉；popover 與歡迎畫面共用同一處。字級、位置、清除時機都是 <span class="tag new">推測</span> · <span class="tag rule">裁定</span>「先footer下方常駐紅字ok。因為歡迎畫面目前跟spec不同，之後會改符合樣式」</td></tr>
         <tr><td>Q6</td><td>status bar 的 Log 入口：toggle 還是只打開</td><td><code>workspace_screen.dart:976–980</code>：「The status bar's own badge deliberately keeps plain <code>open()</code>: it means 「show me the log」」——那是針對紅色 badge。新的 Log 入口是常駐的入口，P10 #3 和 #4 給它跟 View → Log 同一個快捷鍵</td><td>Log 入口 toggle（等於 <code>Ctrl/Cmd+Shift+L</code>）；紅色摘要維持只打開（沿用 <code>onOpenLog</code>），並把那段註解改成講紅色摘要 · <span class="tag rule">裁定</span>「Toggle，同 Ctrl/Cmd+Shift+L」</td></tr>
         <tr><td>Q7</td><td>「整條 bar 照 mock」包含 S1–S8 的哪些</td><td>Q2 選項的說明只寫了「高度、padding、字級」；mock 還改了 S3 箭頭位置、S5 分隔線、S6 進度區排法、S7 顏色</td><td>S1–S8 全做（取 mock 整份，不混兩邊）；S4 的項目保留 · <span class="tag rule">裁定</span>「S1–S8 全做」</td></tr>
+        <tr><td>Q8</td><td>從 workspace 的 File → Clone repository… 失敗時顯示在哪（那裡沒有清單 footer）</td><td>Q4：clone 失敗不寫進 Log；Q5 只涵蓋清單 footer</td><td><span class="tag rule">裁定</span>「重新打開 Clone 對話框並顯示錯誤」：保留輸入的 URL 與路徑，錯誤以欄位錯誤樣式（<code>gbmFieldError</code>）顯示在對話框內，不進 Log</td></tr>
       </tbody>
     </table></div>
   </section>

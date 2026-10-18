@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/refresh_timings.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
@@ -8,6 +9,7 @@ import 'package:gbm_flutter/features/status_bar/status_bar.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 
 WorkingCopyStatus _createConflictedStatus(List<String> conflictedPaths) {
   final entries = conflictedPaths
@@ -126,7 +128,7 @@ void main() {
       await tester.pump();
 
       expect(find.text(''), findsNothing);
-      expect(find.text('main'), findsWidgets);
+      expect(find.textContaining('main ↑'), findsWidgets);
     });
 
     testWidgets('renders repo status zone when no task is running', (
@@ -154,11 +156,8 @@ void main() {
 
       await tester.pump();
 
-      // Should show branch name
-      expect(find.text('main'), findsWidgets);
-      // Should show ahead/behind (compact format with arrows)
-      expect(find.text('2↑'), findsOneWidget);
-      expect(find.text('1↓'), findsOneWidget);
+      // P10 mock: `<span>main ↑2 ↓0</span>` -- one run, arrows first.
+      expect(find.text('main ↑2 ↓1'), findsOneWidget);
     });
 
     testWidgets('shows error badge when hasUnreadLog is true', (tester) async {
@@ -220,8 +219,9 @@ void main() {
 
       await tester.pump();
 
-      // Should show task label
-      expect(find.text('Fetching'), findsOneWidget);
+      // P10 mock: `Cloning design-tokens — 12,480 / 31,206` -- the count
+      // rides in the label.
+      expect(find.text('Fetching — 50 / 100'), findsOneWidget);
       // Should show progress indicator
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
     });
@@ -329,7 +329,7 @@ void main() {
 
       // Before expanding: only the foreground task's label is visible,
       // the two folded ones are not.
-      expect(find.text('Fetching'), findsOneWidget);
+      expect(find.text('Fetching — 50 / 100'), findsOneWidget);
       expect(find.text('Pushing'), findsNothing);
       expect(find.text('Checking out'), findsNothing);
 
@@ -342,9 +342,11 @@ void main() {
 
       // A cancellable folded task (push) has a live Cancel button that
       // reaches the same onCancelTask callback the foreground task uses.
+      // The first Cancel is the foreground task's own, which the mock keeps
+      // beside `+N task`; the folded two follow it in the expanded list.
       final Finder cancelButtons = find.widgetWithText(TextButton, 'Cancel');
-      expect(cancelButtons, findsNWidgets(2));
-      await tester.tap(cancelButtons.first);
+      expect(cancelButtons, findsNWidgets(3));
+      await tester.tap(cancelButtons.at(1));
       expect(cancelledId, 'push-1');
 
       // A non-cancellable folded task (checkout) has its Cancel button
@@ -473,9 +475,8 @@ void main() {
       await tester.pump();
 
       // Both repo status and task should be visible
-      expect(find.text('develop'), findsWidgets);
-      expect(find.text('Fetching'), findsOneWidget);
-      expect(find.text('3↑'), findsOneWidget);
+      expect(find.text('develop ↑3 ↓2'), findsOneWidget);
+      expect(find.text('Fetching — 50 / 100'), findsOneWidget);
     });
 
     testWidgets('tapping error badge calls onOpenLog', (tester) async {
@@ -756,7 +757,7 @@ void main() {
       await tester.pump();
 
       // Should show normal branch status
-      expect(find.text('main'), findsWidgets);
+      expect(find.textContaining('main ↑'), findsWidgets);
       // Should NOT show conflict status labels
       expect(find.textContaining('conflicted'), findsNothing);
     });
@@ -836,7 +837,7 @@ void main() {
       // Additive, not a replacement: spec page 13 asks for the summary in the
       // status bar without taking the repo status away.
       expect(find.text('4 commits \u00b7 contiguous'), findsOneWidget);
-      expect(find.text('main'), findsOneWidget);
+      expect(find.textContaining('main ↑'), findsOneWidget);
       expect(find.text('42c'), findsOneWidget);
     });
 
@@ -948,8 +949,8 @@ void main() {
       await pump(tester, upstreamGone: true);
 
       expect(find.text('upstream gone'), findsOneWidget);
-      expect(find.text('2↑'), findsNothing);
-      expect(find.text('1↓'), findsNothing);
+      expect(find.text('main ↑2 ↓1'), findsNothing);
+      expect(find.text('main'), findsOneWidget);
     });
 
     testWidgets('leaves the branch name and commit count alone', (
@@ -965,8 +966,7 @@ void main() {
       await pump(tester, upstreamGone: false);
 
       expect(find.text('upstream gone'), findsNothing);
-      expect(find.text('2↑'), findsOneWidget);
-      expect(find.text('1↓'), findsOneWidget);
+      expect(find.text('main ↑2 ↓1'), findsOneWidget);
     });
 
     testWidgets('shows even with zero ahead and behind', (tester) async {
@@ -1113,8 +1113,8 @@ void main() {
     testWidgets('total 0 shows the count alone, never "N/0"', (tester) async {
       await pumpTasks(tester, <BackgroundTask>[scan()]);
 
-      expect(find.text('1200'), findsOneWidget);
-      expect(find.text('1200/0'), findsNothing);
+      expect(find.text('Reading history — 1,200'), findsOneWidget);
+      expect(find.textContaining('/ 0'), findsNothing);
     });
 
     testWidgets('a git task counts nothing, so it draws no count at all', (
@@ -1132,7 +1132,7 @@ void main() {
       ]);
 
       expect(find.text('Pushing origin'), findsOneWidget);
-      expect(find.text('0'), findsNothing);
+      expect(find.textContaining('—'), findsNothing);
     });
 
     testWidgets('a known total keeps a determinate bar and "N/M"', (
@@ -1145,7 +1145,7 @@ void main() {
             find.byType(LinearProgressIndicator),
           );
       expect(bar.value, 0.5);
-      expect(find.text('50/100'), findsOneWidget);
+      expect(find.text('Reading history — 50 / 100'), findsOneWidget);
     });
 
     testWidgets('a finished task lingers as a full bar, not a spinning one', (
@@ -1193,7 +1193,7 @@ void main() {
       // must not sit hidden behind the first one's 3-second linger.
       await pumpTasks(tester, <BackgroundTask>[scan()]);
       await pumpTasks(tester, const <BackgroundTask>[]);
-      expect(find.text('Reading history'), findsOneWidget);
+      expect(find.text('Reading history — 1,200'), findsOneWidget);
 
       await pumpTasks(tester, <BackgroundTask>[
         BackgroundTask.gitCommand(
@@ -1204,12 +1204,12 @@ void main() {
       ]);
 
       expect(find.text('Pulling'), findsOneWidget);
-      expect(find.text('Reading history'), findsNothing);
+      expect(find.textContaining('Reading history'), findsNothing);
 
       // And when that one finishes, it is the one that lingers.
       await pumpTasks(tester, const <BackgroundTask>[]);
       expect(find.text('Pulling'), findsOneWidget);
-      expect(find.text('Reading history'), findsNothing);
+      expect(find.textContaining('Reading history'), findsNothing);
       await tester.pump(const Duration(seconds: 3));
     });
 
@@ -1238,6 +1238,200 @@ void main() {
           )
           .toList();
       expect(bars.map((b) => b.value), <double?>[0.5, null]);
+    });
+  });
+
+  // P10's status bar mock, taken whole (open-with-apps-spec.html screen 3,
+  // rulings Q2「這個分支整條 bar 改成照 mock」 and Q7「S1–S8 全做」). The
+  // container, verbatim: `gap:9px;height:26px;padding:0 10px;
+  // background:var(--surface-panel);font-size:10.5px;color:var(--text-tertiary)`.
+  group('StatusBar follows the P10 mock', () {
+    final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+
+    Future<void> pumpBar(
+      WidgetTester tester, {
+      List<BackgroundTask> tasks = const <BackgroundTask>[],
+      int ahead = 2,
+      int behind = 0,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: StatusBar(
+                currentBranch: 'main',
+                ahead: ahead,
+                behind: behind,
+                commitCount: 10,
+                lastScanDuration: const Duration(milliseconds: 100),
+                graphLaneCapacity: 6,
+                backgroundTasks: tasks,
+                hasUnreadLog: false,
+                onOpenLog: () {},
+                onCancelTask: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    BackgroundTask clone({int current = 12480, int total = 31206}) =>
+        BackgroundTask(
+          id: 'clone',
+          label: 'Cloning design-tokens',
+          current: current,
+          total: total,
+          cancellable: true,
+        );
+
+    // The painted style, not `Text.style`: the bar sets its size and colour
+    // once through DefaultTextStyle, so a field read would see null.
+    TextStyle styleOf(WidgetTester tester, String text) =>
+        tester.renderObject<RenderParagraph>(find.text(text)).text.style!;
+
+    testWidgets('S1: 26 high, 10 from the left edge', (tester) async {
+      await pumpBar(tester);
+      expect(tester.getSize(find.byType(StatusBar)).height, 26);
+      expect(
+        tester.getTopLeft(find.text('main ↑2 ↓0')).dx -
+            tester.getTopLeft(find.byType(StatusBar)).dx,
+        10,
+      );
+    });
+
+    testWidgets('S2: the branch run is 10.5 textTertiary, not emphasised', (
+      tester,
+    ) async {
+      await pumpBar(tester);
+      final TextStyle style = styleOf(tester, 'main ↑2 ↓0');
+      expect(style.fontSize, 10.5);
+      expect(style.color, colors.textTertiary);
+      expect(style.fontWeight, isNot(GbmTypography.weightMedium));
+      expect(styleOf(tester, '10c').fontSize, 10.5);
+    });
+
+    testWidgets('S3: arrows lead, and a zero is still written', (tester) async {
+      await pumpBar(tester, ahead: 0, behind: 0);
+      expect(find.text('main ↑0 ↓0'), findsOneWidget);
+    });
+
+    testWidgets('items sit 9 apart', (tester) async {
+      await pumpBar(tester);
+      expect(
+        tester.getTopLeft(find.text('10c')).dx -
+            tester.getTopRight(find.text('main ↑2 ↓0')).dx,
+        9,
+      );
+    });
+
+    testWidgets('S5: a 1×12 rule after zone 1, and one before +N task', (
+      tester,
+    ) async {
+      final Finder rules = find.byKey(const ValueKey<String>('status-rule'));
+      await pumpBar(tester, tasks: <BackgroundTask>[clone()]);
+      expect(rules, findsOneWidget);
+      expect(tester.getSize(rules), const Size(1, 12));
+      expect((tester.widget<Container>(rules).color), colors.borderSubtle);
+
+      await pumpBar(
+        tester,
+        tasks: <BackgroundTask>[
+          clone(),
+          clone().copyWith(id: 'b'),
+        ],
+      );
+      expect(rules, findsNWidgets(2));
+      expect(
+        tester.getTopLeft(rules.last).dx,
+        lessThan(tester.getTopLeft(find.text('+1 task')).dx),
+      );
+      expect(
+        tester.getTopLeft(rules.last).dx,
+        greaterThan(tester.getTopLeft(find.text('Cancel')).dx),
+      );
+      await tester.pumpWidget(const SizedBox());
+    });
+
+    testWidgets('S6: one line -- loader, label with count, 74×4 bar, Cancel', (
+      tester,
+    ) async {
+      await pumpBar(tester, tasks: <BackgroundTask>[clone()]);
+
+      final LucideIcon loader = tester.widget<LucideIcon>(
+        find.byType(LucideIcon),
+      );
+      expect(loader.name, 'loader-circle');
+      expect(loader.size, 12);
+      expect(loader.color, colors.accent);
+
+      final Finder label = find.text('Cloning design-tokens — 12,480 / 31,206');
+      expect(label, findsOneWidget);
+
+      final Finder bar = find.byType(LinearProgressIndicator);
+      expect(tester.getSize(bar), const Size(74, 4));
+      final LinearProgressIndicator indicator = tester
+          .widget<LinearProgressIndicator>(bar);
+      expect(indicator.backgroundColor, colors.surfaceSunken);
+      expect(
+        (indicator.valueColor! as AlwaysStoppedAnimation<Color>).value,
+        colors.accent,
+      );
+      expect(
+        tester
+            .widget<ClipRRect>(
+              find.ancestor(of: bar, matching: find.byType(ClipRRect)),
+            )
+            .borderRadius,
+        BorderRadius.circular(999),
+      );
+
+      // Same row, in the mock's order.
+      final double y = tester.getCenter(label).dy;
+      expect(tester.getCenter(bar).dy, y);
+      expect(tester.getCenter(find.text('Cancel')).dy, y);
+      expect(
+        tester.getTopLeft(bar).dx,
+        greaterThan(tester.getTopRight(label).dx),
+      );
+      expect(
+        tester.getTopLeft(find.text('Cancel')).dx,
+        greaterThan(tester.getTopRight(bar).dx),
+      );
+      final TextStyle cancel = styleOf(tester, 'Cancel');
+      expect(cancel.color, colors.textLink);
+      expect(cancel.fontSize, 10.5);
+    });
+
+    testWidgets('counts are grouped by thousands', (tester) async {
+      await pumpBar(
+        tester,
+        tasks: <BackgroundTask>[clone(current: 100000, total: 1000000)],
+      );
+      expect(
+        find.text('Cloning design-tokens — 100,000 / 1,000,000'),
+        findsOneWidget,
+      );
+      await pumpBar(
+        tester,
+        tasks: <BackgroundTask>[clone(current: 999, total: 1000)],
+      );
+      expect(find.text('Cloning design-tokens — 999 / 1,000'), findsOneWidget);
+    });
+
+    testWidgets('S7: +N task is textTertiary', (tester) async {
+      await pumpBar(
+        tester,
+        tasks: <BackgroundTask>[
+          clone(),
+          clone().copyWith(id: 'b'),
+        ],
+      );
+      expect(styleOf(tester, '+1 task').color, colors.textTertiary);
+      expect(styleOf(tester, '+1 task').fontSize, 10.5);
     });
   });
 }

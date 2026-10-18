@@ -10,6 +10,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_panel.dart';
+import '../../widgets/lucide_icon.dart';
 import 'background_task.dart';
 
 /// A horizontal status bar with three zones:
@@ -184,255 +185,176 @@ class _StatusBarState extends State<StatusBar> {
 
     final conflictLabel = _buildConflictLabel();
 
+    // P10's mock, taken whole (open-with-apps-spec.html screen 3, rulings
+    // Q2 and Q7). Its container, verbatim: `gap:9px;height:26px;padding:0
+    // 10px;border-top:1px solid var(--border-subtle);background:
+    // var(--surface-panel);font-size:10.5px;color:var(--text-tertiary)`.
+    // Zone 1 and the progress zone share the space left of zone 3, each
+    // loose, so zone 3 stays at the right edge (`<span style="flex:1">`).
     return Container(
-      height: 32,
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space4,
-        vertical: GbmSpacing.space1,
-      ),
+      height: _kBarHeight,
+      padding: const EdgeInsets.symmetric(horizontal: _kBarPadding),
       decoration: BoxDecoration(
         color: widget.conflictActive
             ? colors.danger.withValues(alpha: 0.15)
             : colors.surfacePanel,
         border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
-      child: Row(
-        children: <Widget>[
-          // Zone 1: Repo status or conflict status
-          Expanded(
-            child: widget.conflictActive
-                ? SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          conflictLabel,
-                          style: TextStyle(
-                            fontSize: GbmTypography.textSm,
-                            fontWeight: GbmTypography.weightMedium,
-                            color: colors.danger,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Text(
-                          widget.currentBranch,
-                          style: TextStyle(
-                            fontSize: GbmTypography.textSm,
-                            fontWeight: GbmTypography.weightMedium,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                        // RepoState.describe used to be rendered by TopBar,
-                        // which this round deletes. It is empty for an
-                        // ordinary repository, so this adds no noise -- it
-                        // is non-empty only for a sequencer operation or,
-                        // crucially, for `indexLocked` ("another Git process
-                        // appears to be running"). The conflict branch above
-                        // covers the sequencer half already, but nothing in
-                        // the window covered index-locked: ConflictBanner
-                        // renders on conflictActive, which indexLocked does
-                        // not set. Deleting TopBar without this would have
-                        // dropped that signal silently.
-                        if (widget.repoState?.describe case final String label
-                            when label.isNotEmpty) ...<Widget>[
-                          const SizedBox(width: GbmSpacing.space2),
-                          Text(
-                            label,
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              color: colors.warning,
-                            ),
-                          ),
-                        ],
-                        if (widget.upstreamGone) ...<Widget>[
-                          const SizedBox(width: GbmSpacing.space2),
-                          Text(
-                            'upstream gone',
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              color: colors.warning,
-                            ),
-                          ),
-                        ] else ...<Widget>[
-                          if (widget.ahead > 0) ...<Widget>[
-                            const SizedBox(width: GbmSpacing.space2),
-                            Text(
-                              '${widget.ahead}↑',
-                              style: TextStyle(
-                                fontSize: GbmTypography.textXs,
-                                color: colors.textTertiary,
-                              ),
-                            ),
-                          ],
-                          if (widget.behind > 0) ...<Widget>[
-                            const SizedBox(width: GbmSpacing.space2),
-                            Text(
-                              '${widget.behind}↓',
-                              style: TextStyle(
-                                fontSize: GbmTypography.textXs,
-                                color: colors.textTertiary,
-                              ),
-                            ),
-                          ],
-                        ],
-                        const SizedBox(width: GbmSpacing.space2),
-                        Text(
-                          '${widget.commitCount}c',
-                          style: TextStyle(
-                            fontSize: GbmTypography.textXs,
-                            color: colors.textTertiary,
-                          ),
-                        ),
-                        if (widget.selectionSummary case final summary?) ...[
-                          const SizedBox(width: GbmSpacing.space2),
-                          Text(
-                            '·',
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              color: colors.borderDefault,
-                            ),
-                          ),
-                          const SizedBox(width: GbmSpacing.space2),
-                          Text(
-                            summary,
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ],
-                        if (widget.showRefreshTimings)
-                          if (refreshTimingsLabel(widget.refreshTimings)
-                              case final String label
-                              when label.isNotEmpty) ...[
-                            const SizedBox(width: GbmSpacing.space2),
-                            Text(
-                              '·',
-                              style: TextStyle(
-                                fontSize: GbmTypography.textXs,
-                                color: colors.borderDefault,
-                              ),
-                            ),
-                            const SizedBox(width: GbmSpacing.space2),
-                            Text(
-                              label,
-                              style: TextStyle(
-                                fontSize: GbmTypography.textXs,
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ],
-                      ],
-                    ),
-                  ),
-          ),
-
-          // Zone 2: Progress (if any task is running or lingering)
-          if (visibleTasks.isNotEmpty)
-            Expanded(child: _buildProgressZone(context, visibleTasks)),
-
-          // Zone 3: Error/log badge
-          if (widget.hasUnreadLog) ...<Widget>[
-            const SizedBox(width: GbmSpacing.space2),
-            GestureDetector(
-              onTap: widget.onOpenLog,
-              child: GbmBadge(label: '!', kind: GbmBadgeKind.removed),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(
+          fontSize: GbmTypography.statusBarText,
+          color: colors.textTertiary,
+        ),
+        child: Row(
+          spacing: _kGap,
+          children: <Widget>[
+            Expanded(
+              child: Row(
+                spacing: _kGap,
+                children: <Widget>[
+                  Flexible(child: _buildRepoZone(colors, conflictLabel)),
+                  if (visibleTasks.isNotEmpty) ...<Widget>[
+                    const _Rule(),
+                    Flexible(child: _buildProgressZone(context, visibleTasks)),
+                  ],
+                ],
+              ),
             ),
+
+            // Zone 3: Error/log badge
+            if (widget.hasUnreadLog)
+              GestureDetector(
+                onTap: widget.onOpenLog,
+                child: GbmBadge(label: '!', kind: GbmBadgeKind.removed),
+              ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// Zone 1. The mock's own run is `<span>main ↑2 ↓0</span>`: arrows lead
+  /// and a zero is still written (P10 #1 「永遠顯示分支與 ahead/behind」).
+  /// What the mock does not draw -- the repo state label, `upstream gone`,
+  /// the commit count, the selection summary, refresh timings, the conflict
+  /// label -- comes from other pages and stays, at the bar's own size.
+  Widget _buildRepoZone(GbmColors colors, String conflictLabel) {
+    if (widget.conflictActive) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Text(
+          conflictLabel,
+          style: TextStyle(
+            fontWeight: GbmTypography.weightMedium,
+            color: colors.danger,
+          ),
+        ),
+      );
+    }
+    final TextStyle separator = TextStyle(color: colors.borderDefault);
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        spacing: _kGap,
+        children: <Widget>[
+          // Replaces the counts rather than sitting beside them: they are
+          // distances from an upstream that is not there (spec page 02).
+          Text(
+            widget.upstreamGone
+                ? widget.currentBranch
+                : '${widget.currentBranch} ↑${widget.ahead} ↓${widget.behind}',
+          ),
+          // RepoState.describe used to be rendered by TopBar. It is empty
+          // for an ordinary repository; it is the only surface that says
+          // `indexLocked` ("another Git process appears to be running"),
+          // which ConflictBanner does not cover.
+          if (widget.repoState?.describe case final String label
+              when label.isNotEmpty)
+            Text(label, style: TextStyle(color: colors.warning)),
+          if (widget.upstreamGone)
+            Text('upstream gone', style: TextStyle(color: colors.warning)),
+          Text('${widget.commitCount}c'),
+          if (widget.selectionSummary case final summary?) ...<Widget>[
+            Text('·', style: separator),
+            Text(summary, style: TextStyle(color: colors.textSecondary)),
+          ],
+          if (widget.showRefreshTimings)
+            if (refreshTimingsLabel(widget.refreshTimings)
+                case final String label when label.isNotEmpty) ...<Widget>[
+              Text('·', style: separator),
+              Text(label, style: TextStyle(color: colors.textSecondary)),
+            ],
         ],
       ),
     );
   }
 
+  /// Zone 2, one line as the mock draws it: `{{ icLoader }}`, the label
+  /// with its count (`Cloning design-tokens — 12,480 / 31,206`), a 74×4
+  /// bar, `Cancel` in `--text-link`, then a rule and `+N task`.
   Widget _buildProgressZone(BuildContext context, List<BackgroundTask> tasks) {
     final GbmColors colors = context.gbmColors;
     final BackgroundTask foregroundTask = tasks.first;
     final int extraCount = tasks.length - 1;
 
     return Row(
+      spacing: _kGap,
       children: <Widget>[
-        Icon(Icons.loop, size: 14, color: colors.textSecondary),
-        const SizedBox(width: GbmSpacing.space2),
-        Expanded(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Text(
-                foregroundTask.label,
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: colors.textPrimary,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(2),
-                child: LinearProgressIndicator(
-                  value: _barValue(foregroundTask),
-                  minHeight: 2,
-                  backgroundColor: colors.surfaceSunken,
-                  valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
-                ),
-              ),
-            ],
+        LucideIcon('loader-circle', size: 12, color: colors.accent),
+        Flexible(
+          child: Text(
+            _progressLabel(foregroundTask),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-        // A task that has counted nothing and knows no total draws no count:
-        // a git task never counts (計數「改spec，沒有計畫」), and a lone "0"
-        // would read as a stuck object count.
-        if (foregroundTask.total > 0 || foregroundTask.current > 0) ...<Widget>[
-          const SizedBox(width: GbmSpacing.space2),
-          Text(
-            foregroundTask.total > 0
-                ? '${foregroundTask.current}/${foregroundTask.total}'
-                : '${foregroundTask.current}',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textTertiary,
+        // `width:74px;height:4px;border-radius:999px;
+        // background:var(--surface-sunken)`, filled with `--accent`.
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: SizedBox(
+            width: 74,
+            height: 4,
+            child: LinearProgressIndicator(
+              value: _barValue(foregroundTask),
+              minHeight: 4,
+              backgroundColor: colors.surfaceSunken,
+              valueColor: AlwaysStoppedAnimation<Color>(colors.accent),
             ),
           ),
-        ],
-        const SizedBox(width: GbmSpacing.space2),
-        if (extraCount > 0)
+        ),
+        Tooltip(
+          message: foregroundTask.cancellable
+              ? 'Cancel this operation'
+              : 'Cannot cancel ${foregroundTask.label.toLowerCase()} operation',
+          child: TextButton(
+            onPressed: foregroundTask.cancellable
+                ? () => widget.onCancelTask(foregroundTask.id)
+                : null,
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                fontSize: GbmTypography.statusBarText,
+                color: foregroundTask.cancellable
+                    ? colors.textLink
+                    : colors.textTertiary,
+              ),
+            ),
+          ),
+        ),
+        if (extraCount > 0) ...<Widget>[
+          const _Rule(),
           _ExtraTasksChip(
             extraTasks: tasks.skip(1).toList(growable: false),
             onCancelTask: widget.onCancelTask,
-          )
-        else
-          Tooltip(
-            message: foregroundTask.cancellable
-                ? 'Cancel this operation'
-                : 'Cannot cancel ${foregroundTask.label.toLowerCase()} operation',
-            child: TextButton(
-              onPressed: foregroundTask.cancellable
-                  ? () => widget.onCancelTask(foregroundTask.id)
-                  : null,
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
-                ),
-                minimumSize: const Size(0, 24),
-              ),
-              child: Text(
-                'Cancel',
-                style: TextStyle(
-                  fontSize: GbmTypography.textXs,
-                  color: foregroundTask.cancellable
-                      ? colors.textLink
-                      : colors.textTertiary,
-                ),
-              ),
-            ),
           ),
+        ],
       ],
     );
   }
@@ -497,12 +419,12 @@ class _ExtraTasksChip extends StatelessWidget {
     return GestureDetector(
       onTap: () => _showExtraTasksMenu(context),
       child: Text(
-        // Spec page 10 P10 #2: 「其餘作業摺疊成 +N task」 (mockup: "+1 task").
+        // Spec page 10 P10 #2: 「其餘作業摺疊成 +N task」; the mock draws it
+        // `color:var(--text-tertiary)` (S7), no underline.
         '+${extraTasks.length} task',
         style: TextStyle(
-          fontSize: GbmTypography.textXs,
-          color: colors.textLink,
-          decoration: TextDecoration.underline,
+          fontSize: GbmTypography.statusBarText,
+          color: colors.textTertiary,
         ),
       ),
     );
@@ -607,6 +529,55 @@ class _ExtraTaskRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// P10 mock geometry (open-with-apps-spec.html screen 3).
+const double _kBarHeight = 26;
+const double _kBarPadding = 10;
+const double _kGap = 9;
+
+/// `<span style="width:1px;height:12px;background:var(--border-subtle)">`,
+/// between zone 1 and the progress zone and before `+N task`.
+class _Rule extends StatelessWidget {
+  const _Rule();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    key: const ValueKey<String>('status-rule'),
+    width: 1,
+    height: 12,
+    color: context.gbmColors.borderSubtle,
+  );
+}
+
+/// The foreground task's label with its count, as the mock writes it:
+/// `Cloning design-tokens — 12,480 / 31,206`. A task that knows no total
+/// writes the count alone; one that has counted nothing writes no count,
+/// since a lone "0" reads as a stuck object count (a git task never counts:
+/// 計數「改spec，沒有計畫」).
+String _progressLabel(BackgroundTask task) {
+  if (task.total > 0) {
+    return '${task.label} — ${_formatCount(task.current)} / '
+        '${_formatCount(task.total)}';
+  }
+  if (task.current > 0) return '${task.label} — ${_formatCount(task.current)}';
+  return task.label;
+}
+
+/// `12480` → `12,480`, always with a comma whatever the locale: the mock's
+/// own figures. One left-to-right pass over the digits.
+String _formatCount(int n) {
+  final String digits = n.toString();
+  if (digits.length <= 3) return digits;
+  int first = digits.length % 3;
+  if (first == 0) first = 3;
+  final StringBuffer out = StringBuffer(digits.substring(0, first));
+  for (int i = first; i < digits.length; i += 3) {
+    out
+      ..write(',')
+      ..write(digits.substring(i, i + 3));
+  }
+  return out.toString();
 }
 
 /// What a task's bar draws. A finished task lingers as a full bar; a task

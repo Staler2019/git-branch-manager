@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/external_app_entry.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/chrome_visibility_repository.dart';
 import 'package:gbm_flutter/data/repositories/panel_layout_repository.dart';
@@ -141,6 +144,122 @@ void main() {
       expect(next.autoFetchMinutes, base.autoFetchMinutes);
       expect(next.recordManualOpens, base.recordManualOpens);
       expect(next.logRetentionDays, base.logRetentionDays);
+    });
+  });
+
+  // open-with-apps-spec.html: the worktree panel's ▾ list. Ruling D4 --
+  // one file-manager entry per platform until the user edits the list.
+  group('AppPreferencesRepository.externalApps', () {
+    Future<AppPreferencesRepository> repoWith(
+      Map<String, Object> stored, {
+      String os = 'macos',
+    }) async {
+      SharedPreferences.setMockInitialValues(stored);
+      return AppPreferencesRepository(
+        await SharedPreferences.getInstance(),
+        operatingSystem: os,
+      );
+    }
+
+    List<(String, String)> shape(List<ExternalAppEntry> apps) =>
+        <(String, String)>[for (final e in apps) (e.label, e.command)];
+
+    test(
+      'defaults to the platform file manager when nothing is stored',
+      () async {
+        expect(
+          shape((await repoWith(<String, Object>{})).read().externalApps),
+          <(String, String)>[('Finder', 'open .')],
+        );
+        expect(
+          shape(
+            (await repoWith(
+              <String, Object>{},
+              os: 'windows',
+            )).read().externalApps,
+          ),
+          <(String, String)>[('Explorer', 'explorer .')],
+        );
+        expect(
+          shape(
+            (await repoWith(
+              <String, Object>{},
+              os: 'linux',
+            )).read().externalApps,
+          ),
+          <(String, String)>[('File manager', 'xdg-open .')],
+        );
+      },
+    );
+
+    test(
+      'falls back to the defaults when the stored value is not a list',
+      () async {
+        for (final String bad in <String>['{not json', '{"a":1}', '"x"']) {
+          expect(
+            shape(
+              (await repoWith(<String, Object>{'appPrefs.externalApps': bad}))
+                  .read()
+                  .externalApps,
+            ),
+            <(String, String)>[('Finder', 'open .')],
+            reason: bad,
+          );
+        }
+      },
+    );
+
+    // An entry the factory rejects is dropped on its own; the rest of the
+    // user's list survives (Q3: storage gets no rule create does not apply).
+    test('drops only the entries the factory rejects', () async {
+      final AppPreferencesRepository repo = await repoWith(<String, Object>{
+        'appPrefs.externalApps': jsonEncode(<Object>[
+          <String, String>{'id': 'a', 'label': 'Bad', 'command': '-x'},
+          <String, String>{
+            'id': 'b',
+            'label': 'Bad',
+            'command': "open 'a {path}'",
+          },
+          <String, String>{'id': 'c', 'label': 'Rider', 'command': 'rider .'},
+          'not an object',
+        ]),
+      });
+      expect(shape(repo.read().externalApps), <(String, String)>[
+        ('Rider', 'rider .'),
+      ]);
+    });
+
+    test('an empty stored list stays empty', () async {
+      expect(
+        (await repoWith(<String, Object>{'appPrefs.externalApps': '[]'}))
+            .read()
+            .externalApps,
+        isEmpty,
+      );
+    });
+
+    test('writes the list and reads it back in order', () async {
+      final AppPreferencesRepository repo = await repoWith(<String, Object>{});
+      ExternalAppEntry make(String id, String label, String command) =>
+          (ExternalAppEntry.create(
+            label: label,
+            command: command,
+            newId: () => id,
+          ) as ExternalAppEntryAccepted).entry;
+      await repo.write(
+        repo.read().copyWith(
+          externalApps: <ExternalAppEntry>[
+            make('1', 'VS Code', 'code {path}'),
+            make('2', 'Rider', 'rider .'),
+          ],
+        ),
+      );
+      final List<ExternalAppEntry> back = repo.read().externalApps;
+      expect(shape(back), <(String, String)>[
+        ('VS Code', 'code {path}'),
+        ('Rider', 'rider .'),
+      ]);
+      expect(back.map((e) => e.id), <String>['1', '2']);
     });
   });
 

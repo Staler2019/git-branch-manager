@@ -2265,6 +2265,51 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void recordDraftNotSaved() =>
       _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
 
+  /// Logs a failure of the user's own click that used to be a SnackBar
+  /// (open-with-apps-spec.html, screen 3). The status bar's summary reads it
+  /// back through `operationLogRevision`.
+  void recordTerminalNotFound() =>
+      _appendAppLog(AppLogEvents.terminalNotFound(atEpochMs: _nowEpochMs()));
+
+  /// See [recordTerminalNotFound].
+  void recordExternalAppFailed({
+    required String label,
+    required String detail,
+  }) => _appendAppLog(
+    AppLogEvents.externalAppFailed(
+      label: label,
+      detail: detail,
+      atEpochMs: _nowEpochMs(),
+    ),
+  );
+
+  /// See [recordTerminalNotFound].
+  void recordExportFailed({required String path, required String detail}) =>
+      _appendAppLog(
+        AppLogEvents.exportFailed(
+          path: path,
+          detail: detail,
+          atEpochMs: _nowEpochMs(),
+        ),
+      );
+
+  /// See [recordTerminalNotFound].
+  void recordLogSaveFailed({required String detail}) => _appendAppLog(
+    AppLogEvents.logSaveFailed(detail: detail, atEpochMs: _nowEpochMs()),
+  );
+
+  /// See [recordTerminalNotFound].
+  void recordRepositoryInitFailed({
+    required String path,
+    required String detail,
+  }) => _appendAppLog(
+    AppLogEvents.repositoryInitFailed(
+      path: path,
+      detail: detail,
+      atEpochMs: _nowEpochMs(),
+    ),
+  );
+
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.

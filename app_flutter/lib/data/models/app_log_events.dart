@@ -150,4 +150,73 @@ abstract final class AppLogEvents {
       message: 'Event $eventType: its data could not be decoded',
     );
   }
+
+  // -- Failures of a user's own click -------------------------------------
+  //
+  // These replaced SnackBars: P10 #3 「不使用會自動消失的 toast——錯誤必須
+  // 留到使用者看過」 (open-with-apps-spec.html, screen 3). All are error
+  // level, because only an unread error lights the status bar's summary.
+
+  /// Open in terminal found no terminal emulator to start.
+  static AppLogEntry terminalNotFound({required int atEpochMs}) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'No terminal emulator was found',
+    );
+  }
+
+  /// A worktree's Open-with app exited non-zero, or could not start.
+  /// [detail] is the shell's own last stderr line, or the launcher's reason.
+  static AppLogEntry externalAppFailed({
+    required String label,
+    required String detail,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Could not run "$label": $detail',
+    );
+  }
+
+  /// A file at a revision could not be written out (Open / Save as…).
+  static AppLogEntry exportFailed({
+    required String path,
+    required String detail,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Could not export $path: $detail',
+    );
+  }
+
+  /// The log drawer's Save as… could not write its file.
+  static AppLogEntry logSaveFailed({
+    required String detail,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Could not save the log: $detail',
+    );
+  }
+
+  /// File → New repository… failed. A path, never a URL: Clone's failure is
+  /// deliberately not logged (screen 3, Q4/Q5), since git's message for it
+  /// can quote the remote URL.
+  static AppLogEntry repositoryInitFailed({
+    required String path,
+    required String detail,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Could not create a repository at $path: $detail',
+    );
+  }
 }

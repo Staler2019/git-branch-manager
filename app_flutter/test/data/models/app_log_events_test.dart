@@ -164,4 +164,66 @@ void main() {
       expect(entry.whenEpochMs, 9);
     });
   });
+
+  // Failures a user's own click produced, logged instead of a SnackBar: P10
+  // #3 「不使用會自動消失的 toast——錯誤必須留到使用者看過」
+  // (open-with-apps-spec.html, screen 3). Every one is error level, because
+  // only an error lights the status bar's summary.
+  group('user-triggered failures', () {
+    test('terminalNotFound', () {
+      final AppLogEntry entry = AppLogEvents.terminalNotFound(atEpochMs: 3);
+      expect(entry.message, 'No terminal emulator was found');
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 3);
+    });
+
+    test('externalAppFailed names the app and quotes the detail', () {
+      final AppLogEntry entry = AppLogEvents.externalAppFailed(
+        label: 'Rider',
+        detail: 'zsh:1: command not found: rider',
+        atEpochMs: 4,
+      );
+      expect(
+        entry.message,
+        'Could not run "Rider": zsh:1: command not found: rider',
+      );
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 4);
+    });
+
+    test('exportFailed names the file', () {
+      final AppLogEntry entry = AppLogEvents.exportFailed(
+        path: 'lib/a.dart',
+        detail: 'path not in tree',
+        atEpochMs: 5,
+      );
+      expect(entry.message, 'Could not export lib/a.dart: path not in tree');
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 5);
+    });
+
+    test('logSaveFailed', () {
+      final AppLogEntry entry = AppLogEvents.logSaveFailed(
+        detail: 'Permission denied',
+        atEpochMs: 6,
+      );
+      expect(entry.message, 'Could not save the log: Permission denied');
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 6);
+    });
+
+    test('repositoryInitFailed names the path', () {
+      final AppLogEntry entry = AppLogEvents.repositoryInitFailed(
+        path: '/tmp/new',
+        detail: 'already exists',
+        atEpochMs: 7,
+      );
+      expect(
+        entry.message,
+        'Could not create a repository at /tmp/new: already exists',
+      );
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 7);
+    });
+  });
 }

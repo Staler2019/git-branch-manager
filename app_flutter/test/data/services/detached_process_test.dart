@@ -126,6 +126,40 @@ void main() {
         contains(r"""'-File "C:\Users\o''brien $(calc)\gbm-update.ps1"'"""),
       );
     });
+
+    // PowerShell's tokenizer treats U+2018/2019/201A/201B exactly like an
+    // ASCII `'`, so an undoubled `’` closed the string and ran what followed:
+    // a file named `a’;calc;’.txt` opened through Open file ran calc.
+    test('keeps a typographic single quote in a path out of the command', () {
+      const String dir = 'C:\\r\\a\u2019;calc;\u2018b\u201Ac\u201B';
+      final String c = command(<String>['-File', '$dir\\x.ps1'], dir: dir);
+
+      const String doubled =
+          'C:\\r\\a\u2019\u2019;calc;\u2018\u2018b\u201A\u201Ac\u201B\u201B';
+      expect(
+        c,
+        contains("-WorkingDirectory ([WildcardPattern]::Escape('$doubled'))"),
+      );
+      expect(c, contains("-ArgumentList '-File $doubled\\x.ps1'"));
+    });
+  });
+
+  group('psQuote', () {
+    test('doubles every quote PowerShell reads as a single quote', () {
+      for (final String q in <String>[
+        "'",
+        '\u2018',
+        '\u2019',
+        '\u201A',
+        '\u201B',
+      ]) {
+        expect(
+          psQuote('a${q}b'),
+          "'a$q${q}b'",
+          reason: 'U+${q.codeUnitAt(0).toRadixString(16)}',
+        );
+      }
+    });
   });
 
   // The one assertion that can tell "started" from "reported started": the

@@ -10,7 +10,15 @@
 // (WorktreeInfo.pendingChanges, fed by gbm_worktree_request_pending_counts)
 // and simply not rendered until this panel's P19 rewrite. WorktreesPanel's
 // class doc carries the struck note.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/external_app_entry.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/services/desktop_launcher.dart';
+import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/data/models/worktree_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/worktrees_panel.dart';
@@ -184,11 +192,39 @@ int _metaRequests(PumpedPanel pumped, String oid) => pumped.fake.commandLog
     )
     .length;
 
+/// Records what the worktree panel asked to open, and answers with
+/// whatever the test set -- so no terminal or editor is ever started.
+class _FakeLauncher extends DesktopLauncher {
+  _FakeLauncher({this.terminalOk = true, this.appResult});
+
+  final bool terminalOk;
+  final ExternalAppLaunchResult? appResult;
+  final List<String> terminals = <String>[];
+  final List<(String, String)> apps = <(String, String)>[];
+
+  @override
+  Future<bool> openTerminal(String path) async {
+    terminals.add(path);
+    return terminalOk;
+  }
+
+  @override
+  Future<ExternalAppLaunchResult> openExternalApp(
+    ExternalAppEntry app,
+    String path,
+  ) async {
+    apps.add((app.label, path));
+    return appResult ?? const ExternalAppStarted();
+  }
+}
+
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<WorktreeInfo> worktrees = const <WorktreeInfo>[_main, _locked],
   RefSnapshot? refs,
   List<RouteBase> extraRoutes = const <RouteBase>[],
+  DesktopLauncher? launcher,
+  Map<String, Object> initialPrefs = const <String, Object>{},
 }) => pumpPanel(
   tester,
   WorktreesPanel(identity: panelTestIdentity),
@@ -198,6 +234,10 @@ Future<PumpedPanel> _pump(
     refs: refs ?? RefSnapshot.empty,
   ),
   extraRoutes: extraRoutes,
+  initialPrefs: initialPrefs,
+  overrides: <Override>[
+    if (launcher != null) desktopLauncherProvider.overrideWithValue(launcher),
+  ],
 );
 
 void main() {
@@ -1312,6 +1352,215 @@ void main() {
       await tester.tap(find.widgetWithText(GbmButton, '重新量測'));
       await tester.pumpAndSettle();
       expect(_requests(pumped), before + 1);
+    });
+  });
+
+  // open-with-apps-spec.html, screen 1: Open in terminal becomes a split
+  // button whose ▾ lists Preferences → External apps (rulings D1, D3, D5).
+  group('WorktreesPanel open with', () {
+    final Map<String, Object> twoApps = <String, Object>{
+      'appPrefs.externalApps': jsonEncode(<Map<String, String>>[
+        <String, String>{'id': 'a', 'label': 'Rider', 'command': 'rider .'},
+        <String, String>{
+          'id': 'b',
+          'label': 'VS Code',
+          'command': 'code {path}',
+        },
+      ]),
+    };
+
+    Future<void> select(WidgetTester tester) async {
+      await tester.tap(find.text('gbm-lfs'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openMenu(WidgetTester tester) async {
+      await tester.tap(find.byTooltip('其他開啟方式'));
+      await tester.pumpAndSettle();
+    }
+
+    // A failure is one error line in the session's log, never a toast: P10
+    // #3 「不使用會自動消失的 toast」, P19 rule 5 (open-with-apps-spec.html,
+    // screen 3). The status bar's summary is what the user then sees.
+    void expectLoggedError(PumpedPanel pumped, String message) {
+      final List<GbmLogEntry> errors = pumped.fake.state.operationLog
+          .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
+          .toList();
+      expect(errors.map((GbmLogEntry e) => e.message), <String>[message]);
+      expect(find.byType(SnackBar), findsNothing);
+    }
+
+    testWidgets('the main segment still opens a terminal there', (
+      tester,
+    ) async {
+      final _FakeLauncher launcher = _FakeLauncher();
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: launcher,
+      );
+      await select(tester);
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+      expect(launcher.terminals, <String>['/src/wt/gbm-lfs']);
+      expect(launcher.apps, isEmpty);
+      expect(pumped.fake.state.operationLog, isEmpty);
+    });
+
+    // It used to drop openTerminal's false on the floor.
+    testWidgets('a terminal that cannot start is logged as an error', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: _FakeLauncher(terminalOk: false),
+      );
+      await select(tester);
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+      expectLoggedError(pumped, 'No terminal emulator was found');
+    });
+
+    testWidgets('the ▾ lists the stored names in order, no commands (D1)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: _FakeLauncher(),
+        initialPrefs: twoApps,
+      );
+      await select(tester);
+      await openMenu(tester);
+      expect(
+        tester.getTopLeft(find.text('Rider')).dy,
+        lessThan(tester.getTopLeft(find.text('VS Code')).dy),
+      );
+      expect(
+        tester.getTopLeft(find.text('VS Code')).dy,
+        lessThan(tester.getTopLeft(find.text('Edit apps…')).dy),
+      );
+      expect(find.text('rider .'), findsNothing);
+      expect(find.text('code {path}'), findsNothing);
+    });
+
+    testWidgets('picking an entry opens that worktree with it', (tester) async {
+      final _FakeLauncher launcher = _FakeLauncher();
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: launcher,
+        initialPrefs: twoApps,
+      );
+      await select(tester);
+      await openMenu(tester);
+      await tester.tap(find.text('VS Code'));
+      await tester.pumpAndSettle();
+      expect(launcher.apps, <(String, String)>[('VS Code', '/src/wt/gbm-lfs')]);
+      expect(pumped.fake.state.operationLog, isEmpty);
+    });
+
+    testWidgets('a failed launch is logged, naming the entry (D3)', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: _FakeLauncher(
+          appResult: const ExternalAppLaunchFailed(
+            'zsh:1: command not found: rider',
+          ),
+        ),
+        initialPrefs: twoApps,
+      );
+      await select(tester);
+      await openMenu(tester);
+      await tester.tap(find.text('Rider'));
+      await tester.pumpAndSettle();
+      expectLoggedError(
+        pumped,
+        'Could not run "Rider": zsh:1: command not found: rider',
+      );
+    });
+
+    // A prunable worktree's directory is gone, and Process.start throws for
+    // a working directory that does not exist. Through the real launcher,
+    // so the catch it depends on is the one under test.
+    testWidgets('a worktree whose directory is gone reports, not throws', (
+      tester,
+    ) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt(prunable: true)],
+        launcher: DesktopLauncher(
+          operatingSystem: 'macos',
+          environment: const <String, String>{'SHELL': '/bin/zsh'},
+          spawn: (String e, List<String> a, {String? workingDirectory}) =>
+              throw const ProcessException(
+                '/bin/zsh',
+                <String>[],
+                'No such file or directory',
+                2,
+              ),
+        ),
+        initialPrefs: twoApps,
+      );
+      await select(tester);
+      await openMenu(tester);
+      await tester.tap(find.text('Rider'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expectLoggedError(
+        pumped,
+        'Could not run "Rider": No such file or directory',
+      );
+    });
+
+    testWidgets('an empty list shows a disabled row that does nothing', (
+      tester,
+    ) async {
+      final _FakeLauncher launcher = _FakeLauncher();
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: launcher,
+        initialPrefs: <String, Object>{'appPrefs.externalApps': '[]'},
+      );
+      await select(tester);
+      await openMenu(tester);
+      expect(find.text('還沒有自訂應用'), findsOneWidget);
+      expect(
+        find.byTooltip('在 Preferences → External apps 新增'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('還沒有自訂應用'));
+      await tester.pumpAndSettle();
+      expect(launcher.apps, isEmpty);
+      expect(launcher.terminals, isEmpty);
+    });
+
+    testWidgets('Edit apps… opens Preferences on External apps (D5)', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        worktrees: <WorktreeInfo>[_main, _wt()],
+        launcher: _FakeLauncher(),
+        initialPrefs: twoApps,
+        extraRoutes: <RouteBase>[
+          GoRoute(
+            path: RoutePaths.preferencesDialog,
+            builder: (_, GoRouterState state) =>
+                Text('PREFS ${state.uri.queryParameters['section']}'),
+          ),
+        ],
+      );
+      await select(tester);
+      await openMenu(tester);
+      await tester.tap(find.text('Edit apps…'));
+      await tester.pumpAndSettle();
+      expect(find.text('PREFS externalApps'), findsOneWidget);
     });
   });
 }

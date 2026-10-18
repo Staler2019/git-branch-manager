@@ -956,4 +956,209 @@ void main() {
       expect(clipboardText, contains('git diff --numstat  (limit 120000ms)'));
     });
   });
+
+  // The status bar's red summary 「可點開直接跳到該筆 log」 (P10 #3,
+  // open-with-apps-spec.html screen 3): the drawer scrolls to the row and
+  // paints it `--diff-del-bg`, the mock's own ground for an error row.
+  group('LogDrawer focus (jump from the status bar)', () {
+    final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+    const AppLogEntry target = AppLogEntry(
+      whenEpochMs: 1692000000000,
+      level: OperationLogLevel.error,
+      message: 'Could not run "Rider": boom',
+    );
+    AppLogEntry info(int i) => AppLogEntry(
+      whenEpochMs: 1692000001000 + i,
+      level: OperationLogLevel.info,
+      message: 'info $i',
+    );
+
+    /// Returns the frames it took to settle: each search probe is a frame,
+    /// so this bounds how many the jump spent.
+    Future<int> pumpDrawer(
+      WidgetTester tester,
+      List<GbmLogEntry> records, {
+      GbmLogEntry? focus,
+      int serial = 0,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: SizedBox(
+              height: 300,
+              child: LogDrawer(
+                records: records,
+                focusEntry: focus,
+                focusSerial: serial,
+              ),
+            ),
+          ),
+        ),
+      );
+      return tester.pumpAndSettle();
+    }
+
+    Finder ground() => find.byKey(const ValueKey<String>('log-row-focus'));
+
+    testWidgets('the focused row, and only it, gets diffDelBg', (tester) async {
+      await pumpDrawer(tester, <GbmLogEntry>[info(0), target, info(1)]);
+      expect(ground(), findsNothing);
+
+      await pumpDrawer(
+        tester,
+        <GbmLogEntry>[info(0), target, info(1)],
+        focus: target,
+        serial: 1,
+      );
+      expect(ground(), findsOneWidget);
+      expect(tester.widget<ColoredBox>(ground()).color, colors.diffDelBg);
+      expect(
+        find.descendant(of: ground(), matching: find.text(target.message)),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a filter that hides the row is put back to All', (
+      tester,
+    ) async {
+      final List<GbmLogEntry> records = <GbmLogEntry>[info(0), target];
+      await pumpDrawer(tester, records);
+      await tester.tap(find.text('Info'));
+      await tester.pumpAndSettle();
+      expect(find.text(target.message), findsNothing);
+
+      await pumpDrawer(tester, records, focus: target, serial: 1);
+      expect(find.text(target.message), findsOneWidget);
+      expect(find.text('info 0'), findsOneWidget, reason: 'All, not Error');
+    });
+
+    testWidgets('an Error filter already shows it, and is left alone', (
+      tester,
+    ) async {
+      final List<GbmLogEntry> records = <GbmLogEntry>[info(0), target];
+      await pumpDrawer(tester, records);
+      await tester.tap(find.text('Error'));
+      await tester.pumpAndSettle();
+
+      await pumpDrawer(tester, records, focus: target, serial: 1);
+      expect(find.text(target.message), findsOneWidget);
+      expect(find.text('info 0'), findsNothing);
+    });
+
+    testWidgets('a row far up the list is scrolled into view', (tester) async {
+      // git refreshes keep logging after a failure, so the error is rarely
+      // the newest line: 300 newer rows put it far outside the viewport.
+      // 150 older ones keep it off the end of the scroll range, where the
+      // clamp would make centring impossible.
+      final List<GbmLogEntry> records = <GbmLogEntry>[
+        for (int i = 0; i < 150; i++) info(1000 + i),
+        target,
+        for (int i = 0; i < 300; i++) info(i),
+      ];
+      await pumpDrawer(tester, records);
+      expect(find.text(target.message), findsNothing);
+
+      await pumpDrawer(tester, records, focus: target, serial: 1);
+      final Finder row = find.text(target.message);
+      expect(row, findsOneWidget);
+      final Rect list = tester.getRect(find.byType(ListView));
+      final Rect rect = tester.getRect(row);
+      expect(rect.top, greaterThanOrEqualTo(list.top));
+      expect(rect.bottom, lessThanOrEqualTo(list.bottom));
+      // Centred, not merely somewhere inside: the row is the reason the
+      // drawer moved.
+      final Rect ground = tester.getRect(
+        find.byKey(const ValueKey<String>('log-row-focus')),
+      );
+      expect((ground.center.dy - list.center.dy).abs(), lessThan(1));
+    });
+
+    // Rows wrap, so their heights vary and the first, even-height estimate
+    // lands wide of the row; the steps that follow have to walk the rest of
+    // the way, in the right direction.
+    testWidgets('uneven row heights still reach the row', (tester) async {
+      AppLogEntry tall(int i) => AppLogEntry(
+        whenEpochMs: 1692000002000 + i,
+        level: OperationLogLevel.info,
+        message: 'tall $i ${'x' * 1200}',
+      );
+      // The newest rows, built first, are short; the tall ones sit between
+      // them and the target, so an estimate from what is built undershoots.
+      final List<GbmLogEntry> records = <GbmLogEntry>[
+        for (int i = 0; i < 100; i++) info(1000 + i),
+        target,
+        for (int i = 0; i < 100; i++) tall(i),
+        for (int i = 0; i < 40; i++) info(i),
+      ];
+      await pumpDrawer(tester, records);
+      final int frames = await pumpDrawer(
+        tester,
+        records,
+        focus: target,
+        serial: 1,
+      );
+      final Rect list = tester.getRect(find.byType(ListView));
+      final Rect ground = tester.getRect(
+        find.byKey(const ValueKey<String>('log-row-focus')),
+      );
+      expect((ground.center.dy - list.center.dy).abs(), lessThan(1));
+      // An estimate, doubling, then halving: a handful of probes. Fixed
+      // steps through 100 screen-tall rows would take hundreds.
+      expect(frames, lessThan(25));
+    });
+
+    // The newest rows are tall, so an estimate from them overshoots and the
+    // search has to come back down past rows it has already left.
+    testWidgets('an overshooting estimate comes back to the row', (
+      tester,
+    ) async {
+      AppLogEntry tall(int i) => AppLogEntry(
+        whenEpochMs: 1692000003000 + i,
+        level: OperationLogLevel.info,
+        message: 'tall $i ${'x' * 1200}',
+      );
+      final List<GbmLogEntry> records = <GbmLogEntry>[
+        for (int i = 0; i < 300; i++) info(1000 + i),
+        target,
+        for (int i = 0; i < 60; i++) info(i),
+        for (int i = 0; i < 10; i++) tall(i),
+      ];
+      await pumpDrawer(tester, records);
+      final int frames = await pumpDrawer(
+        tester,
+        records,
+        focus: target,
+        serial: 1,
+      );
+      final Rect list = tester.getRect(find.byType(ListView));
+      final Rect ground = tester.getRect(
+        find.byKey(const ValueKey<String>('log-row-focus')),
+      );
+      expect((ground.center.dy - list.center.dy).abs(), lessThan(1));
+      expect(frames, lessThan(25));
+    });
+
+    testWidgets('the same serial does not jump again', (tester) async {
+      final List<GbmLogEntry> records = <GbmLogEntry>[
+        target,
+        for (int i = 0; i < 300; i++) info(i),
+      ];
+      await pumpDrawer(tester, records, focus: target, serial: 1);
+      // The user scrolls back down to the newest rows by hand.
+      await tester.drag(find.byType(ListView), const Offset(0, -20000));
+      await tester.pumpAndSettle();
+      expect(find.text(target.message), findsNothing);
+
+      // A rebuild with a longer log but the same request must not yank the
+      // view back up.
+      await pumpDrawer(
+        tester,
+        <GbmLogEntry>[...records, info(999)],
+        focus: target,
+        serial: 1,
+      );
+      expect(find.text(target.message), findsNothing);
+    });
+  });
 }

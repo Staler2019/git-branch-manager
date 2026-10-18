@@ -3,12 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/operation_record.dart';
 import '../../data/models/refresh_timings.dart';
 import '../../data/models/repo_state.dart' as model;
 import '../../data/models/working_copy_status.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_panel.dart';
 import '../../widgets/lucide_icon.dart';
 import 'background_task.dart';
@@ -16,7 +16,8 @@ import 'background_task.dart';
 /// A horizontal status bar with three zones:
 /// 1. **Repo status**: branch name, ahead/behind, commit count, scan duration, lane cap
 /// 2. **Progress**: foreground task (icon + label + progress + Cancel), "+N task" fold
-/// 3. **Error/log**: persistent danger badge, visible when unread entries exist
+/// 3. **Error/log**: a red summary of the newest unread error, then a
+///    persistent `Log` entry (P10 #3)
 ///
 /// Presentational widget (no Riverpod/FFI dependency) taking data as constructor
 /// params and callbacks. Completed tasks linger for 3 seconds before removal.
@@ -36,8 +37,9 @@ class StatusBar extends StatefulWidget {
     required this.lastScanDuration,
     required this.graphLaneCapacity,
     required this.backgroundTasks,
-    required this.hasUnreadLog,
-    required this.onOpenLog,
+    this.unreadError,
+    required this.onOpenError,
+    required this.onToggleLog,
     required this.onCancelTask,
     this.repoState,
     this.workingCopyStatus,
@@ -68,8 +70,21 @@ class StatusBar extends StatefulWidget {
   final Duration lastScanDuration;
   final int graphLaneCapacity;
   final List<BackgroundTask> backgroundTasks;
-  final bool hasUnreadLog;
-  final VoidCallback onOpenLog;
+
+  /// The newest error-level log line the user has not seen, or null. Only
+  /// an error lights zone 3 (P10 #3 「有 error 未讀時」; LOGRULES 「error
+  /// 會同時在 status bar 亮紅點，直到使用者開過 log 面板才熄」). The `!`
+  /// badge that lit for any unread line is gone (使用者裁定：「紅色badge
+  /// 亮起來不符合spec，要移除」). [WorkspaceScreen] decides what is unread.
+  final GbmLogEntry? unreadError;
+
+  /// The summary was clicked: open the log at [unreadError] (「可點開直接
+  /// 跳到該筆 log」).
+  final VoidCallback onOpenError;
+
+  /// The `Log` entry was clicked: the same toggle as View → Log
+  /// (Ctrl/Cmd+Shift+L), ruling Q6.
+  final VoidCallback onToggleLog;
   final ValueChanged<String> onCancelTask;
   final model.RepoState? repoState;
   final WorkingCopyStatus? workingCopyStatus;
@@ -221,12 +236,10 @@ class _StatusBarState extends State<StatusBar> {
               ),
             ),
 
-            // Zone 3: Error/log badge
-            if (widget.hasUnreadLog)
-              GestureDetector(
-                onTap: widget.onOpenLog,
-                child: GbmBadge(label: '!', kind: GbmBadgeKind.removed),
-              ),
+            // Zone 3, the mock's order: summary, then Log.
+            if (widget.unreadError case final GbmLogEntry error)
+              _ErrorSummary(entry: error, onTap: widget.onOpenError),
+            _LogEntryButton(onTap: widget.onToggleLog),
           ],
         ),
       ),
@@ -526,6 +539,80 @@ class _ExtraTaskRow extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// `{{ icErr }}Push rejected`: `display:inline-flex;align-items:center;
+/// gap:5px;color:var(--danger);cursor:pointer`, `icErr` being Lucide
+/// `x-circle` 12px danger. The text is the log line itself, one line --
+/// one source, so the summary cannot disagree with the row it jumps to.
+/// 320 wide at most, the rest on hover (both inferred, spec screen 3).
+/// No hover ground: the mock gives only `cursor:pointer`.
+class _ErrorSummary extends StatelessWidget {
+  const _ErrorSummary({required this.entry, required this.onTap});
+
+  final GbmLogEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Tooltip(
+      message: entry.message,
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: onTap,
+          child: ConstrainedBox(
+            key: const ValueKey<String>('status-error-summary'),
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              spacing: 5,
+              children: <Widget>[
+                LucideIcon('circle-x', size: 12, color: colors.danger),
+                Flexible(
+                  child: Text(
+                    entry.message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: colors.danger),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// `{{ icTerminal }}Log`: `gap:4px;cursor:pointer`, `icTerminal` being
+/// Lucide `terminal` 12px textTertiary. Always present: P10 #3 names the
+/// zone 「錯誤與 Log 入口」 and #4 opens the log 「從 status bar」.
+class _LogEntryButton extends StatelessWidget {
+  const _LogEntryButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 4,
+          children: <Widget>[
+            LucideIcon('terminal', size: 12, color: colors.textTertiary),
+            const Text('Log'),
+          ],
+        ),
       ),
     );
   }

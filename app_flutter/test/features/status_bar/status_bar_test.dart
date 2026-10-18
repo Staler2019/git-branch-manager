@@ -8,6 +8,7 @@ import 'package:gbm_flutter/features/status_bar/background_task.dart';
 import 'package:gbm_flutter/features/status_bar/status_bar.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/widgets/gbm_badge.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 
@@ -62,8 +63,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 10),
               graphLaneCapacity: 4,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: const RepoState(
                 flags: 0,
@@ -104,8 +105,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 10),
               graphLaneCapacity: 4,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               // describe is '' for an ordinary repository -- the common case,
               // where this must add no noise to the status bar.
@@ -146,8 +147,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 150),
               graphLaneCapacity: 8,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -158,34 +159,6 @@ void main() {
 
       // P10 mock: `<span>main ↑2 ↓0</span>` -- one run, arrows first.
       expect(find.text('main ↑2 ↓1'), findsOneWidget);
-    });
-
-    testWidgets('shows error badge when hasUnreadLog is true', (tester) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(
-            body: StatusBar(
-              currentBranch: 'main',
-              ahead: 0,
-              behind: 0,
-              commitCount: 10,
-              lastScanDuration: const Duration(milliseconds: 100),
-              graphLaneCapacity: 6,
-              backgroundTasks: const [],
-              hasUnreadLog: true,
-              onOpenLog: () {},
-              onCancelTask: (_) {},
-            ),
-          ),
-        ),
-      );
-
-      await tester.pump();
-
-      // Should show error badge (GbmBadge with ! label)
-      expect(find.byType(GbmBadge), findsOneWidget);
-      expect(find.text('!'), findsOneWidget);
     });
 
     testWidgets('shows single task in progress zone', (tester) async {
@@ -209,8 +182,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: [task],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -265,8 +238,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: tasks,
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -318,8 +291,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: tasks,
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (id) => cancelledId = id,
             ),
           ),
@@ -380,8 +353,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: [task],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -419,8 +392,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: [task],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (id) {
                 cancelledId = id;
               },
@@ -464,8 +437,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 200),
               graphLaneCapacity: 12,
               backgroundTasks: [task],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -477,44 +450,6 @@ void main() {
       // Both repo status and task should be visible
       expect(find.text('develop ↑3 ↓2'), findsOneWidget);
       expect(find.text('Fetching — 50 / 100'), findsOneWidget);
-    });
-
-    testWidgets('tapping error badge calls onOpenLog', (tester) async {
-      var logOpened = false;
-
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-          home: Scaffold(
-            body: StatusBar(
-              currentBranch: 'main',
-              ahead: 0,
-              behind: 0,
-              commitCount: 10,
-              lastScanDuration: const Duration(milliseconds: 100),
-              graphLaneCapacity: 6,
-              backgroundTasks: const [],
-              hasUnreadLog: true,
-              onOpenLog: () {
-                logOpened = true;
-              },
-              onCancelTask: (_) {},
-            ),
-          ),
-        ),
-      );
-
-      await tester.pump();
-
-      // Find and tap the error badge
-      final badge = find.byType(GestureDetector);
-      expect(badge, findsWidgets);
-
-      // Tap the last badge (should be error badge)
-      await tester.tap(badge.last);
-      await tester.pump();
-
-      expect(logOpened, isTrue);
     });
 
     testWidgets('displays rebase conflict status with danger background', (
@@ -548,8 +483,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 150),
               graphLaneCapacity: 8,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -610,8 +545,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -657,8 +592,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -700,8 +635,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -743,8 +678,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -792,8 +727,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: repoState,
               workingCopyStatus: workingCopyStatus,
@@ -823,8 +758,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               selectionSummary: '4 commits \u00b7 contiguous',
             ),
@@ -854,8 +789,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -882,8 +817,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               repoState: const RepoState(
                 flags: RepoStateFlags.merge,
@@ -931,8 +866,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 150),
               graphLaneCapacity: 8,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -997,8 +932,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 10),
               graphLaneCapacity: 4,
               backgroundTasks: const [],
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
               showRefreshTimings: showRefreshTimings,
               refreshTimings: refreshTimings,
@@ -1080,8 +1015,8 @@ void main() {
               lastScanDuration: const Duration(milliseconds: 100),
               graphLaneCapacity: 6,
               backgroundTasks: tasks,
-              hasUnreadLog: false,
-              onOpenLog: () {},
+              onOpenError: () {},
+              onToggleLog: () {},
               onCancelTask: (_) {},
             ),
           ),
@@ -1268,8 +1203,8 @@ void main() {
                 lastScanDuration: const Duration(milliseconds: 100),
                 graphLaneCapacity: 6,
                 backgroundTasks: tasks,
-                hasUnreadLog: false,
-                onOpenLog: () {},
+                onOpenError: () {},
+                onToggleLog: () {},
                 onCancelTask: (_) {},
               ),
             ),
@@ -1361,10 +1296,12 @@ void main() {
     ) async {
       await pumpBar(tester, tasks: <BackgroundTask>[clone()]);
 
+      // The Log entry's terminal icon is a LucideIcon too; ask by name.
       final LucideIcon loader = tester.widget<LucideIcon>(
-        find.byType(LucideIcon),
+        find.byWidgetPredicate(
+          (Widget w) => w is LucideIcon && w.name == 'loader-circle',
+        ),
       );
-      expect(loader.name, 'loader-circle');
       expect(loader.size, 12);
       expect(loader.color, colors.accent);
 
@@ -1432,6 +1369,156 @@ void main() {
       );
       expect(styleOf(tester, '+1 task').color, colors.textTertiary);
       expect(styleOf(tester, '+1 task').fontSize, 10.5);
+    });
+  });
+
+  // Zone 3, P10 #3: 「有 error 未讀時……常駐紅色摘要，可點開直接跳到該筆
+  // log」. The mock: `{{ icErr }}Push rejected` (`gap:5px;color:
+  // var(--danger)`) then `{{ icTerminal }}Log` (`gap:4px`), at the right end
+  // (rulings 「照 mockup：右端、Log 左邊」, Q6 Toggle).
+  group('StatusBar zone 3: error summary and Log entry', () {
+    final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
+    const AppLogEntry error = AppLogEntry(
+      whenEpochMs: 1,
+      level: OperationLogLevel.error,
+      message: 'Could not run "Rider": zsh:1: command not found: rider',
+    );
+
+    late int opened;
+    late int toggled;
+
+    Future<void> pumpZone3(WidgetTester tester, {GbmLogEntry? unread}) async {
+      opened = 0;
+      toggled = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: StatusBar(
+                currentBranch: 'main',
+                ahead: 0,
+                behind: 0,
+                commitCount: 10,
+                lastScanDuration: const Duration(milliseconds: 100),
+                graphLaneCapacity: 6,
+                backgroundTasks: const <BackgroundTask>[],
+                unreadError: unread,
+                onOpenError: () => opened++,
+                onToggleLog: () => toggled++,
+                onCancelTask: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    LucideIcon iconBefore(WidgetTester tester, String text) => tester
+        .widgetList<LucideIcon>(find.byType(LucideIcon))
+        .lastWhere(
+          (LucideIcon icon) =>
+              tester.getTopLeft(find.byWidget(icon)).dx <
+              tester.getTopLeft(find.text(text)).dx,
+        );
+
+    testWidgets('the Log entry is always there, at the right edge', (
+      tester,
+    ) async {
+      await pumpZone3(tester);
+      expect(find.text('Log'), findsOneWidget);
+      expect(find.byType(GbmBadge), findsNothing);
+      expect(
+        tester.getTopRight(find.byType(StatusBar)).dx -
+            tester.getTopRight(find.text('Log')).dx,
+        10,
+      );
+      final LucideIcon icon = iconBefore(tester, 'Log');
+      expect(icon.name, 'terminal');
+      expect(icon.size, 12);
+      expect(icon.color, colors.textTertiary);
+      expect(
+        tester.getTopLeft(find.text('Log')).dx -
+            tester.getTopRight(find.byWidget(icon)).dx,
+        4,
+      );
+    });
+
+    testWidgets('no unread error: no summary at all', (tester) async {
+      await pumpZone3(tester);
+      expect(find.textContaining('Could not run'), findsNothing);
+      expect(
+        find.byWidgetPredicate(
+          (Widget w) => w is LucideIcon && w.name == 'circle-x',
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('an unread error: a red summary left of Log', (tester) async {
+      await pumpZone3(tester, unread: error);
+      final Finder summary = find.text(error.message);
+      expect(summary, findsOneWidget);
+      final RenderParagraph paragraph = tester.renderObject<RenderParagraph>(
+        summary,
+      );
+      expect(paragraph.text.style!.color, colors.danger);
+      expect(paragraph.text.style!.fontSize, 10.5);
+      expect(
+        tester.getTopRight(summary).dx,
+        lessThan(tester.getTopLeft(find.text('Log')).dx),
+      );
+      final LucideIcon icon = iconBefore(tester, error.message);
+      expect(icon.name, 'circle-x');
+      expect(icon.size, 12);
+      expect(icon.color, colors.danger);
+      expect(
+        tester.getTopLeft(summary).dx -
+            tester.getTopRight(find.byWidget(icon)).dx,
+        5,
+      );
+      expect(find.byType(GbmBadge), findsNothing);
+    });
+
+    testWidgets('a long summary stops at 320 and says the rest on hover', (
+      tester,
+    ) async {
+      final AppLogEntry long = AppLogEntry(
+        whenEpochMs: 1,
+        level: OperationLogLevel.error,
+        message: 'x' * 400,
+      );
+      await pumpZone3(tester, unread: long);
+      final Finder summary = find.byKey(
+        const ValueKey<String>('status-error-summary'),
+      );
+      expect(tester.getSize(summary).width, lessThanOrEqualTo(320));
+      final Text text = tester.widget<Text>(find.text(long.message));
+      expect(text.maxLines, 1);
+      expect(text.overflow, TextOverflow.ellipsis);
+      expect(find.byTooltip(long.message), findsOneWidget);
+    });
+
+    testWidgets('the summary jumps; Log toggles', (tester) async {
+      await pumpZone3(tester, unread: error);
+      await tester.tap(find.text(error.message));
+      expect((opened, toggled), (1, 0));
+      await tester.tap(find.text('Log'));
+      expect((opened, toggled), (1, 1));
+    });
+
+    testWidgets('both show a click cursor', (tester) async {
+      await pumpZone3(tester, unread: error);
+      for (final String text in <String>[error.message, 'Log']) {
+        final MouseRegion region = tester.widget<MouseRegion>(
+          find
+              .ancestor(of: find.text(text), matching: find.byType(MouseRegion))
+              .first,
+        );
+        expect(region.cursor, SystemMouseCursors.click, reason: text);
+      }
     });
   });
 }

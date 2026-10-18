@@ -13,6 +13,7 @@ import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/operation_record.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
@@ -106,8 +107,26 @@ const Duration kFocusRefreshThrottle = Duration(seconds: 2);
 class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
 
-  /// [RepoSessionState.operationLogRevision] when the log was last opened.
-  int _lastSeenOperationLogRevision = 0;
+  /// The newest error-level line when the log was last opened, by identity.
+  /// The status bar's red summary shows the newest error only while it is a
+  /// different object: a running row replaced by its outcome is a new
+  /// object, so 執行中 → TIMEOUT lights it, and a newer info line does not
+  /// ([FLU-log-row-is-replaced-by-id]'s case, which a length compare missed).
+  GbmLogEntry? _seenError;
+
+  /// What the drawer is told to jump to, and a counter bumped once per jump
+  /// (see [LogDrawer.focusSerial]). Cleared when the log is closed.
+  GbmLogEntry? _logFocus;
+  int _logFocusSerial = 0;
+
+  static GbmLogEntry? _newestError(RepoSessionState session) {
+    final List<GbmLogEntry> log = session.operationLog;
+    for (int i = log.length - 1; i >= 0; i--) {
+      if (log[i].level == OperationLogLevel.error) return log[i];
+    }
+    return null;
+  }
+
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
   final FocusNode _branchFilterFocusNode = FocusNode();
   final RepoSwitcherController _switcherController = RepoSwitcherController();
@@ -525,12 +544,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ),
     );
 
-    // Unread while the log has moved since it was last opened. ~~(newest
-    // entry > lastSeen index)~~ Compared by revision, not length: a running
-    // row replaced by its outcome, or an append at the cap, leaves the
-    // length where it was.
-    final bool hasUnreadLog =
-        session.operationLogRevision > _lastSeenOperationLogRevision;
+    // P10 #3 lights zone 3 only for an unread *error*. ~~Compared by
+    // revision~~ -- a revision moves for every line, info included; see
+    // [_seenError] for why identity is the comparison.
+    final GbmLogEntry? newestError = _newestError(session);
+    final GbmLogEntry? unreadError = identical(newestError, _seenError)
+        ? null
+        : newestError;
 
     // Build the main scaffold content
     final Widget scaffoldContent = Scaffold(
@@ -623,6 +643,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               children: <Widget>[
                 LogDrawer(
                   records: session.operationLog,
+                  focusEntry: _logFocus,
+                  focusSerial: _logFocusSerial,
                   showTimeouts: ref.watch(
                     appPreferencesProvider.select(
                       (AppPreferences p) => p.showLogTimeouts,
@@ -699,7 +721,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               ),
               refreshTimings: session.refreshTimings,
               backgroundTasks: _backgroundTasks(session),
-              hasUnreadLog: hasUnreadLog,
+              unreadError: unreadError,
               repoState: session.repoState,
               workingCopyStatus: session.workingCopyStatus,
               conflictActive: session.conflictActive,
@@ -724,15 +746,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                       allOids: session.graph.oidsHex,
                     )
                   : null,
-              onOpenLog: () {
+              // 「可點開直接跳到該筆 log」. Plain `open()`, not the toggle: the
+              // summary means 「show me this error」, and closing a drawer
+              // someone is reading would be the opposite. Un-collapses a
+              // drawer never dragged open (GbmSplitPaneController's doc).
+              onOpenError: () {
                 setState(() {
-                  _lastSeenOperationLogRevision = session.operationLogRevision;
+                  _seenError = newestError;
+                  _logFocus = unreadError;
+                  _logFocusSerial++;
                 });
-                // Un-collapse the log drawer if the user has never dragged it
-                // open -- otherwise the badge would clear with nothing visibly
-                // having happened. See GbmSplitPaneController's doc comment.
                 _logDrawerController.open();
               },
+              // Ruling Q6: the always-present `Log` entry is View → Log
+              // itself -- the same closure, so the two cannot drift.
+              onToggleLog: () => actionHandlers[GbmActionId.viewLog]?.call(),
               onCancelTask: _cancelTask,
             ),
         ],
@@ -973,19 +1001,20 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // `open()`, which is a no-op once the drawer is already open, so every
       // press after the first did nothing at all.
       //
-      // The status bar's own badge deliberately keeps plain `open()`: it
-      // means 「show me the log」, and closing the drawer someone is reading
-      // would be the opposite of what the badge says. (It is also a
-      // one-shot in practice -- the badge is drawn only while
-      // `hasUnreadLog`, which opening clears.)
+      // The status bar's `Log` entry calls this same closure (ruling Q6);
+      // its red error summary keeps plain `open()` instead -- see
+      // `onOpenError`.
       GbmActionId.viewLog: () {
         // Marked seen only on the opening half: closing reveals nothing, so
-        // it must not clear a badge for records the user never saw.
-        if (!_logDrawerController.isOpen) {
-          setState(() {
-            _lastSeenOperationLogRevision = session.operationLogRevision;
-          });
-        }
+        // it must not clear a summary for an error the user never saw.
+        // Closing drops the jumped-to row's ground.
+        setState(() {
+          if (_logDrawerController.isOpen) {
+            _logFocus = null;
+          } else {
+            _seenError = _newestError(session);
+          }
+        });
         _logDrawerController.toggle();
       },
       GbmActionId.viewResetPanelSizes: () async {

@@ -130,7 +130,9 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
   /// Acts on a finished export, matched by the destination the capi echoed
   /// back. A failure is surfaced rather than swallowed -- the user asked for
   /// a file and there is no file, and spec's own rule for the terminal
-  /// launcher ("找不到指定的終端機時不靜默失敗") is the same idea.
+  /// launcher ("找不到指定的終端機時不靜默失敗") is the same idea. Surfaced as an
+  /// error line in the log, not a toast (P10 #3, open-with-apps-spec.html
+  /// screen 3); the success path's `Saved to …` stays a SnackBar.
   void _onExportFinished(FileAtRevisionExport export) {
     final _ExportPurpose? purpose = _pendingExports.remove(export.destPath);
     if (purpose == null) return;
@@ -139,14 +141,13 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       context,
     );
     if (!export.succeeded) {
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(
-            export.error?.message ??
-                'Could not read ${export.path} at that revision.',
-          ),
-        ),
-      );
+      ref
+          .read(repoSessionProvider(widget.identity).notifier)
+          .recordExportFailed(
+            path: export.path,
+            detail:
+                export.error?.message ?? 'could not read it at that revision',
+          );
       return;
     }
 

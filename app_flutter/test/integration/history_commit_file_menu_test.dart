@@ -11,6 +11,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -282,8 +283,15 @@ void main() {
     await tester.tap(find.text('Open file at this revision'));
     await tester.pumpAndSettle();
 
-    // Not silent: the user asked for a file and there is no file.
-    expect(find.byType(SnackBar), findsOneWidget);
+    // Not silent: the user asked for a file and there is no file. One error
+    // line in the log, never a toast (open-with-apps-spec.html screen 3).
+    expect(find.byType(SnackBar), findsNothing);
+    expect(
+      pumped.controller.state.operationLog
+          .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
+          .map((GbmLogEntry e) => e.message),
+      <String>['Could not export lib/main.dart: nope'],
+    );
     expect(
       starter.attempted,
       isEmpty,

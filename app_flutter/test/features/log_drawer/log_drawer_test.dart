@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1160,5 +1162,46 @@ void main() {
       );
       expect(find.text(target.message), findsNothing);
     });
+  });
+
+  // Save as… failing is an error line in the session's log, which LogDrawer
+  // cannot reach itself; it hands the reason up (open-with-apps-spec.html
+  // screen 3) instead of a SnackBar.
+  testWidgets('a Save as… that cannot write reports, with no toast', (
+    tester,
+  ) async {
+    final List<String> failures = <String>[];
+    // A parent directory that does not exist fails on every host, Windows
+    // included ([TEST-posix-fixture-on-windows-host]).
+    final Directory missing = Directory(
+      '${Directory.systemTemp.path}/gbm-no-such-dir-${DateTime.now().microsecondsSinceEpoch}/x',
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: LogDrawer(
+            records: const <GbmLogEntry>[
+              AppLogEntry(
+                whenEpochMs: 1,
+                level: OperationLogLevel.info,
+                message: 'a',
+              ),
+            ],
+            documentsDirectory: () async => missing,
+            onSaveFailed: failures.add,
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save As'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    expect(failures, hasLength(1));
+    expect(failures.single, isNotEmpty);
+    expect(find.byType(SnackBar), findsNothing);
   });
 }

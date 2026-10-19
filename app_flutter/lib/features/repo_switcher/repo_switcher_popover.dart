@@ -213,9 +213,14 @@ Future<void> promptOpenRepository(
 /// session exists: there is no `RepoSessionController` yet to dispatch
 /// through, so this reaches `gbm_repo_init()` directly via
 /// `gbmBindingsProvider`.
+///
+/// A failure goes to [onFailed] with the path and git's message; File → New
+/// repository… logs it as an error line, which lights the status bar's red
+/// summary (P10 #3, open-with-apps-spec.html screen 3) -- never a toast.
 Future<void> promptNewRepository(
   BuildContext context,
   WidgetRef ref, {
+  required void Function(String path, String message) onFailed,
   VoidCallback? onDismiss,
 }) async {
   final GoRouter router = GoRouter.of(context);
@@ -235,11 +240,7 @@ Future<void> promptNewRepository(
     malloc.free(pathPtr);
   }
   if (result != 0) {
-    if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
-      );
-    }
+    onFailed(path, _decodeInitCloneErrorMessage(bindings));
     return;
   }
 

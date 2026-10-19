@@ -28,7 +28,18 @@ class LogDrawer extends StatefulWidget {
     this.showColumnHeaders = false,
     this.focusEntry,
     this.focusSerial = 0,
+    this.onSaveFailed,
+    this.documentsDirectory = getApplicationDocumentsDirectory,
   });
+
+  /// Save as… could not write its file; the reason, for the session's log
+  /// (open-with-apps-spec.html screen 3). The drawer has no session of its
+  /// own, so it hands the reason up instead of showing a toast.
+  final ValueChanged<String>? onSaveFailed;
+
+  /// Where Save as… writes. A seam for tests: the platform channel behind
+  /// `path_provider` does not exist in a widget test.
+  final Future<Directory> Function() documentsDirectory;
 
   final List<GbmLogEntry> records;
 
@@ -249,7 +260,7 @@ class _LogDrawerState extends State<LogDrawer> {
       context,
     );
     try {
-      final Directory dir = await getApplicationDocumentsDirectory();
+      final Directory dir = await widget.documentsDirectory();
       // Colons are illegal in Windows filenames, so the ISO timestamp is
       // flattened rather than used verbatim.
       final String stamp = DateTime.now()
@@ -263,9 +274,7 @@ class _LogDrawerState extends State<LogDrawer> {
         SnackBar(content: Text('Log saved to ${file.path}')),
       );
     } on FileSystemException catch (e) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Could not save the log: ${e.message}')),
-      );
+      widget.onSaveFailed?.call(e.message);
     }
   }
 

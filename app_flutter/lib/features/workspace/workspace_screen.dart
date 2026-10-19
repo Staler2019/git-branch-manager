@@ -643,6 +643,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               children: <Widget>[
                 LogDrawer(
                   records: session.operationLog,
+                  onSaveFailed: (String detail) => ref
+                      .read(repoSessionProvider(identity).notifier)
+                      .recordLogSaveFailed(detail: detail),
                   focusEntry: _logFocus,
                   focusSerial: _logFocusSerial,
                   showTimeouts: ref.watch(
@@ -877,7 +880,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // and Clone share the same footer entry points too -- see
       // promptNewRepository()/promptCloneRepository() in
       // repo_switcher_popover.dart.
-      GbmActionId.fileNewRepository: () => promptNewRepository(context, ref),
+      GbmActionId.fileNewRepository: () => promptNewRepository(
+        context,
+        ref,
+        onFailed: (String path, String message) => ref
+            .read(repoSessionProvider(identity).notifier)
+            .recordRepositoryInitFailed(path: path, detail: message),
+      ),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
       GbmActionId.fileCloneRepository: () =>
           promptCloneRepository(context, ref),
@@ -1434,15 +1443,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
   /// Repository → Open in terminal (Ctrl/Cmd+`). Failure is reported into
   /// the operation log rather than a dialog, per spec page 10's rule that
-  /// only user-initiated failures needing a decision open a window.
+  /// only user-initiated failures needing a decision open a window -- and
+  /// not a toast either (P10 #3); the status bar's red summary is what the
+  /// user sees. ~~It showed a SnackBar while this comment said the log.~~
   Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) async {
     final bool started = await ref
         .read(desktopLauncherProvider)
         .openTerminal(identity.workDir);
     if (!started && mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('No terminal emulator was found.')),
-      );
+      ref.read(repoSessionProvider(identity).notifier).recordTerminalNotFound();
     }
   }
 

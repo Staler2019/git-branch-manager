@@ -96,12 +96,20 @@ Future<GoRouter> _pump(
 }
 
 class _NewRepoButton extends ConsumerWidget {
-  const _NewRepoButton();
+  const _NewRepoButton({this.failures});
+
+  /// Every `(path, message)` [promptNewRepository] reports as failed.
+  final List<(String, String)>? failures;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ElevatedButton(
-      onPressed: () => promptNewRepository(context, ref),
+      onPressed: () => promptNewRepository(
+        context,
+        ref,
+        onFailed: (String path, String message) =>
+            failures?.add((path, message)),
+      ),
       child: const Text('New'),
     );
   }
@@ -158,9 +166,12 @@ void main() {
       expect(bindings.lastInitPath, isNull);
     });
 
-    testWidgets('shows the GitError message and stays put when init fails', (
+    // A failure goes to the caller -- File → New repository… logs it as an
+    // error line (open-with-apps-spec.html screen 3) -- never a toast.
+    testWidgets('reports the GitError message and stays put when init fails', (
       tester,
     ) async {
+      final List<(String, String)> failures = <(String, String)>[];
       final _FakeInitCloneBindings bindings = _FakeInitCloneBindings()
         ..initResult = -3
         ..errorJson =
@@ -169,7 +180,7 @@ void main() {
             '"argv":[],"exitCode":0}';
       final GoRouter router = await _pump(
         tester,
-        const _NewRepoButton(),
+        _NewRepoButton(failures: failures),
         bindings,
       );
 
@@ -179,7 +190,10 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
-      expect(find.text('A repository path is required'), findsOneWidget);
+      expect(failures, <(String, String)>[
+        ('/repos/blocked', 'A repository path is required'),
+      ]);
+      expect(find.byType(SnackBar), findsNothing);
       expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
     });
   });

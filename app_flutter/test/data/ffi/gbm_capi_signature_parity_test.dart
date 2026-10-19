@@ -46,7 +46,12 @@ const Map<String, String> _dartAliases = <String, String>{
 
 /// Declared in the header, deliberately not bound in Dart. Binding one of
 /// these means deleting it here too -- the coverage test checks both ways.
-const Set<String> _unboundByDecision = <String>{};
+const Set<String> _unboundByDecision = <String>{
+  // Called only by the desktop runners' main(), through dlsym/GetProcAddress,
+  // before the Dart VM exists: git launches the app as its askpass helper.
+  // Nothing in Dart could call it.
+  'gbm_askpass_main',
+};
 
 class _Signature {
   const _Signature(this.ret, this.params);

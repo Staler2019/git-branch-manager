@@ -943,7 +943,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           _focusHistorySearch(context, ref, identity, repoId),
       GbmActionId.editFilterBranches: () {
         // Reveal the sidebar first if hidden -- there is nothing to focus
-        // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
+        // otherwise (mirrors onOpenError's un-collapse-then-reveal pattern
         // above for the log drawer).
         if (!_sidebarVisible) {
           setState(() => _sidebarVisible = true);

@@ -3,6 +3,9 @@
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
 
+#include <optional>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace gbm {
@@ -35,11 +38,38 @@ GitResult<void> runCloneRepo(IProcessRunner& runner,
         return fail(GitError::Code::InvalidArgument, "A destination path is required");
     }
 
+    if (request.url.front() == '-') {
+        return fail(GitError::Code::InvalidArgument, "A repository URL cannot start with '-'");
+    }
+    if (request.depth < 0) {
+        return fail(GitError::Code::InvalidArgument, "A clone depth cannot be negative");
+    }
+
+    // `--quiet` drops git's chatter but not its meter: withTransferProgress()
+    // adds `--progress`, which wins over it (measured, git 2.56.0).
     GitCommand command;
-    command.args = {"clone", "--quiet", request.url, fsutil::utf8FromPath(request.destPath)};
+    command.args = {"clone", "--quiet"};
+    if (request.recurseSubmodules) {
+        command.args.emplace_back("--recurse-submodules");
+    }
+    if (request.depth > 0) {
+        command.args.emplace_back("--depth");
+        command.args.push_back(std::to_string(request.depth));
+    }
+    command.args.emplace_back("--");
+    command.args.push_back(request.url);
+    command.args.push_back(fsutil::utf8FromPath(request.destPath));
     askpass::wire(command, request.askpassDir);
 
-    auto result = runner.run(command, token);
+    const ProgressSink onChunk = [&request](std::string_view chunk) {
+        if (!request.onProgress) {
+            return;
+        }
+        if (const std::optional<TransferProgress> progress = parseTransferProgress(chunk)) {
+            request.onProgress(*progress);
+        }
+    };
+    auto result = runner.stream(command, [](std::string_view) { return true; }, onChunk, token);
     if (!result) {
         return fail(std::move(result).error());
     }

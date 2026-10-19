@@ -3,8 +3,10 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/Error.h"
 #include "core/git/IProcessRunner.h"
+#include "core/git/TransferProgress.h"
 
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace gbm {
@@ -20,6 +22,15 @@ struct CloneRepoRequest {
     /// empty means "no credential prompt is possible", and an auth failure is
     /// reported immediately instead. Same convention as FetchRequest.
     std::filesystem::path askpassDir;
+    /// DLGS' 「一併 clone submodule」: `--recurse-submodules`.
+    bool recurseSubmodules = false;
+    /// DLGS' 「淺層 clone（--depth 1）」: `--depth <n>` when positive; 0 is the
+    /// full history. Negative is refused.
+    int depth = 0;
+    /// Called with each stderr chunk's latest transfer state, on the thread
+    /// reading stderr -- see parseTransferProgress(). Chunks with none are
+    /// not reported. May be empty.
+    std::function<void(const TransferProgress&)> onProgress;
 };
 
 /// `git init <path>`. These run before any RepoPaths/Session exists -- see
@@ -33,12 +44,10 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
                             const InitRepoRequest& request,
                             CancellationToken token);
 
-/// `git clone <url> <destPath>`. Zero timeout, like every network operation
-/// in this app (see RemoteOps.h's FetchOperation): a slow clone is not a
-/// hang, and cancellation is how the user actually stops it. Per-object
-/// transfer progress is not parsed from stderr -- same scope cut this app
-/// already makes for fetch/pull/push -- so this reports only success or
-/// failure, not a running byte/object count.
+/// `git clone [options] -- <url> <destPath>`. A network command, so it runs
+/// under the idle deadline only (effectiveDeadlines()): a slow clone is not a
+/// hang, and cancellation is how the user actually stops it. A url starting
+/// with '-' is refused before git runs, `--` notwithstanding.
 GitResult<void> runCloneRepo(IProcessRunner& runner,
                              const CloneRepoRequest& request,
                              CancellationToken token);

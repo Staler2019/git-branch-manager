@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../models/app_action.dart';
 import '../models/external_app_entry.dart';
 import 'desktop_launcher.dart';
@@ -92,4 +94,36 @@ AppAction<void> exportFileAtRevisionAction({
     _ => 'Could not export $path: $error',
   },
   describeCancelled: () => 'Cancelled exporting $path',
+);
+
+/// The log drawer's Save as… (spec page 10 `LOGRULES` export row).
+///
+/// Writes [text] into [documentsDirectory] as `gbm-log-<local time>.txt` and
+/// resolves to the file's path. Colons are illegal in Windows filenames, so
+/// the ISO timestamp is flattened. Not cancellable: one small write.
+AppAction<String> saveOperationLogAction({
+  required Future<Directory> Function() documentsDirectory,
+  required String text,
+  DateTime Function() now = DateTime.now,
+}) => AppAction<String>(
+  name: 'saveOperationLog',
+  cancellable: false,
+  body: (_) async {
+    final Directory dir = await documentsDirectory();
+    final String stamp = now()
+        .toIso8601String()
+        .replaceAll(':', '-')
+        .split('.')
+        .first;
+    final File file = File('${dir.path}/gbm-log-$stamp.txt');
+    await file.writeAsString(text);
+    return file.path;
+  },
+  describeSuccess: (String path) => 'Saved the log to $path',
+  describeFailure: (Exception error) => switch (error) {
+    FileSystemException(:final String message) =>
+      'Could not save the log: $message',
+    _ => 'Could not save the log: $error',
+  },
+  describeCancelled: () => 'Cancelled saving the log',
 );

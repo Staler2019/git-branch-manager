@@ -196,6 +196,19 @@ void main() {
     expect(_drawerHeight(tester), 0);
   });
 
+  // The drawer has no session; Save as… logs through the sink it is handed,
+  // and that sink has to be this session's.
+  testWidgets('the drawer logs Save as… into this session', (tester) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: _identity,
+    );
+    expect(
+      tester.widget<LogDrawer>(find.byType(LogDrawer)).sink,
+      pumped.controller.recordAppLog,
+    );
+  });
+
   testWidgets('closing the log drops the jumped-to ground', (tester) async {
     final PumpedWorkspace pumped = await pumpWorkspace(
       tester,

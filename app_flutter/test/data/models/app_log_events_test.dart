@@ -170,16 +170,6 @@ void main() {
   // (open-with-apps-spec.html, screen 3). Every one is error level, because
   // only an error lights the status bar's summary.
   group('user-triggered failures', () {
-    test('logSaveFailed', () {
-      final AppLogEntry entry = AppLogEvents.logSaveFailed(
-        detail: 'Permission denied',
-        atEpochMs: 6,
-      );
-      expect(entry.message, 'Could not save the log: Permission denied');
-      expect(entry.level, OperationLogLevel.error);
-      expect(entry.whenEpochMs, 6);
-    });
-
     test('repositoryInitFailed names the path', () {
       final AppLogEntry entry = AppLogEvents.repositoryInitFailed(
         path: '/tmp/new',

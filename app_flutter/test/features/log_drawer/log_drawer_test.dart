@@ -1164,13 +1164,13 @@ void main() {
     });
   });
 
-  // Save as… failing is an error line in the session's log, which LogDrawer
-  // cannot reach itself; it hands the reason up (open-with-apps-spec.html
-  // screen 3) instead of a SnackBar.
+  // Save as… is an app action (ruling R4): its outcome is one line through
+  // the sink the drawer is given, and a failure is never a SnackBar
+  // (open-with-apps-spec.html screen 3).
   testWidgets('a Save as… that cannot write reports, with no toast', (
     tester,
   ) async {
-    final List<String> failures = <String>[];
+    final List<AppLogEntry> lines = <AppLogEntry>[];
     // A parent directory that does not exist fails on every host, Windows
     // included ([TEST-posix-fixture-on-windows-host]).
     final Directory missing = Directory(
@@ -1189,7 +1189,7 @@ void main() {
               ),
             ],
             documentsDirectory: () async => missing,
-            onSaveFailed: failures.add,
+            sink: lines.add,
           ),
         ),
       ),
@@ -1200,8 +1200,43 @@ void main() {
     });
     await tester.pump();
 
-    expect(failures, hasLength(1));
-    expect(failures.single, isNotEmpty);
+    expect(lines.map((AppLogEntry e) => e.level), <OperationLogLevel>[
+      OperationLogLevel.error,
+    ]);
+    expect(lines.single.message, startsWith('Could not save the log: '));
     expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a Save as… that writes logs where, and says so', (tester) async {
+    final List<AppLogEntry> lines = <AppLogEntry>[];
+    final Directory dir = Directory.systemTemp.createTempSync('gbm-drawer-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: LogDrawer(
+            records: const <GbmLogEntry>[
+              AppLogEntry(
+                whenEpochMs: 1,
+                level: OperationLogLevel.info,
+                message: 'a',
+              ),
+            ],
+            documentsDirectory: () async => dir,
+            sink: lines.add,
+          ),
+        ),
+      ),
+    );
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save As'));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pump();
+
+    expect(lines.single.level, OperationLogLevel.info);
+    expect(lines.single.message, startsWith('Saved the log to ${dir.path}'));
+    expect(find.textContaining('Log saved to ${dir.path}'), findsOneWidget);
   });
 }

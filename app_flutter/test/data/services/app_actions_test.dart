@@ -1,5 +1,7 @@
 // The factories own each action's name and Log wording (ruling R4); the
 // failure wording is the one the error lines already used.
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_action.dart';
 import 'package:gbm_flutter/data/models/app_action_outcome.dart';
@@ -157,6 +159,51 @@ void main() {
       expect(outcome, isA<AppActionFailed<void>>());
       expect(line.level, OperationLogLevel.error);
       expect(line.message, 'Could not export lib/main.dart: nope');
+    });
+  });
+
+  group('saveOperationLogAction', () {
+    test('writes the text under a timestamped name and logs where', () async {
+      final Directory dir = Directory.systemTemp.createTempSync('gbm-log-');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final AppAction<String> action = saveOperationLogAction(
+        documentsDirectory: () async => dir,
+        text: 'line one\n',
+        now: () => DateTime(2026, 10, 19, 21, 5, 7, 123),
+      );
+      expect(action.name, 'saveOperationLog');
+      expect(action.cancellable, isFalse);
+      final List<AppLogEntry> lines = <AppLogEntry>[];
+      final AppActionOutcome<String> outcome = await const AppActionRunner()
+          .run(action, sink: lines.add);
+      final String path = '${dir.path}/gbm-log-2026-10-19T21-05-07.txt';
+      expect((outcome as AppActionSucceeded<String>).value, path);
+      expect(File(path).readAsStringSync(), 'line one\n');
+      expect(lines.single.level, OperationLogLevel.info);
+      expect(lines.single.message, 'Saved the log to $path');
+    });
+
+    test('a directory that cannot be written is one error line', () async {
+      // A missing parent fails on every host ([TEST-posix-fixture-on-windows-host]).
+      final Directory missing = Directory(
+        '${Directory.systemTemp.path}/gbm-no-such-${DateTime.now().microsecondsSinceEpoch}/x',
+      );
+      final List<AppLogEntry> lines = <AppLogEntry>[];
+      final AppActionOutcome<String> outcome = await const AppActionRunner()
+          .run(
+            saveOperationLogAction(
+              documentsDirectory: () async => missing,
+              text: 'x',
+            ),
+            sink: lines.add,
+          );
+      expect(outcome, isA<AppActionFailed<String>>());
+      expect(lines.single.level, OperationLogLevel.error);
+      expect(lines.single.message, startsWith('Could not save the log: '));
+      expect(
+        lines.single.message.length,
+        greaterThan('Could not save the log: '.length),
+      );
     });
   });
 }

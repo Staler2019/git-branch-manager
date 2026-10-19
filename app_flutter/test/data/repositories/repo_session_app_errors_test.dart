@@ -29,11 +29,6 @@ void main() {
     expect(controller.state.operationLogRevision, 1);
   }
 
-  test('recordLogSaveFailed', () {
-    controller.recordLogSaveFailed(detail: 'boom');
-    expectOneError('Could not save the log: boom');
-  });
-
   test('recordRepositoryInitFailed', () {
     controller.recordRepositoryInitFailed(path: '/x', detail: 'boom');
     expectOneError('Could not create a repository at /x: boom');

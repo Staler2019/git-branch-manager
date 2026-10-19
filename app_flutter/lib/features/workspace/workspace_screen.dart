@@ -651,9 +651,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               children: <Widget>[
                 LogDrawer(
                   records: session.operationLog,
-                  onSaveFailed: (String detail) => ref
+                  sink: ref
                       .read(repoSessionProvider(identity).notifier)
-                      .recordLogSaveFailed(detail: detail),
+                      .recordAppLog,
                   focusEntry: _logFocus,
                   focusSerial: _logFocusSerial,
                   showTimeouts: ref.watch(

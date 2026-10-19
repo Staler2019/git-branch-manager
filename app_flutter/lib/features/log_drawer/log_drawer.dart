@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../data/models/operation_record.dart';
+import '../../data/models/app_action_outcome.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/lucide_icon.dart';
@@ -18,8 +21,8 @@ enum _LogLevel { all, info, warning, error }
 /// copying all entries, and saving them to a plain-text file.
 ///
 /// Shows time, level icon, command, exit code, and duration. Entries are
-/// displayed newest-first. No external dependencies — takes record list as
-/// constructor param only.
+/// displayed newest-first. No session dependency — takes the records, and
+/// the [LogDrawer.sink] Save as… reports into, as constructor params.
 class LogDrawer extends StatefulWidget {
   const LogDrawer({
     super.key,
@@ -28,14 +31,16 @@ class LogDrawer extends StatefulWidget {
     this.showColumnHeaders = false,
     this.focusEntry,
     this.focusSerial = 0,
-    this.onSaveFailed,
+    this.sink,
+    this.actionRunner = const AppActionRunner(),
     this.documentsDirectory = getApplicationDocumentsDirectory,
   });
 
-  /// Save as… could not write its file; the reason, for the session's log
-  /// (open-with-apps-spec.html screen 3). The drawer has no session of its
-  /// own, so it hands the reason up instead of showing a toast.
-  final ValueChanged<String>? onSaveFailed;
+  /// Where Save as…'s outcome line goes (ruling R4). The drawer has no
+  /// session of its own; its owner hands in the Log it shows.
+  final AppLogSink? sink;
+
+  final AppActionRunner actionRunner;
 
   /// Where Save as… writes. A seam for tests: the platform channel behind
   /// `path_provider` does not exist in a widget test.
@@ -255,26 +260,24 @@ class _LogDrawerState extends State<LogDrawer> {
   /// path shown afterwards so it can be attached to a bug report, is not a
   /// worse outcome than a save panel, and changing it here was outside that
   /// change's scope.
+  ///
+  /// An app action (ruling R4): success and failure are one line each through
+  /// [LogDrawer.sink]. A failure is never a toast (open-with-apps-spec.html
+  /// screen 3); the success SnackBar stays, because it carries the path to
+  /// attach to a bug report.
   Future<void> _saveAs() async {
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,
     );
-    try {
-      final Directory dir = await widget.documentsDirectory();
-      // Colons are illegal in Windows filenames, so the ISO timestamp is
-      // flattened rather than used verbatim.
-      final String stamp = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .split('.')
-          .first;
-      final File file = File('${dir.path}/gbm-log-$stamp.txt');
-      await file.writeAsString(_exportText);
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Log saved to ${file.path}')),
-      );
-    } on FileSystemException catch (e) {
-      widget.onSaveFailed?.call(e.message);
+    final AppActionOutcome<String> outcome = await widget.actionRunner.run(
+      saveOperationLogAction(
+        documentsDirectory: widget.documentsDirectory,
+        text: _exportText,
+      ),
+      sink: widget.sink,
+    );
+    if (outcome case AppActionSucceeded<String>(:final String value)) {
+      messenger?.showSnackBar(SnackBar(content: Text('Log saved to $value')));
     }
   }
 

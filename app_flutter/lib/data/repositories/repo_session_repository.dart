@@ -2276,14 +2276,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Logs a failure of the user's own click that used to be a SnackBar
   /// (open-with-apps-spec.html, screen 3). The status bar's summary reads it
-  /// back through `operationLogRevision`. Opening a terminal or an external
-  /// app, and exporting a file, go through `AppActionRunner` and
-  /// [recordAppLog] instead.
-  void recordLogSaveFailed({required String detail}) => _appendAppLog(
-    AppLogEvents.logSaveFailed(detail: detail, atEpochMs: _nowEpochMs()),
-  );
-
-  /// See [recordLogSaveFailed].
+  /// back through `operationLogRevision`. Every other app action goes
+  /// through `AppActionRunner` and [recordAppLog] instead.
   void recordRepositoryInitFailed({
     required String path,
     required String detail,

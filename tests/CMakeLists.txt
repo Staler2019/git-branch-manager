@@ -41,6 +41,7 @@ add_executable(gbm_core_tests
     unit/WorktreePrimaryTest.cpp
     unit/WorktreeReadFlagsTest.cpp
     unit/TextTraitsTest.cpp
+    unit/TransferProgressTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests

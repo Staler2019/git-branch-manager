@@ -35,6 +35,7 @@ import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_input_decoration.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
@@ -256,36 +257,54 @@ Future<void> promptNewRepository(
 /// Two fields (unlike New/Open's single path) need their own small dialog
 /// rather than [promptText] -- see `_promptClone` below, which follows
 /// `manage_remotes_dialog.dart`'s `_promptAddRemote()` pattern.
+///
+/// A failure is never logged -- git's message for it can quote the remote
+/// URL (ruling Q4, open-with-apps-spec.html screen 3) -- and never a toast.
+/// With [onFailed] the caller shows it: the list footer keeps it as a red
+/// line (Q5). Without, the dialog comes back with what was typed and the
+/// error under the fields (Q8), for File → Clone repository…, which has no
+/// footer to write under.
 Future<void> promptCloneRepository(
   BuildContext context,
   WidgetRef ref, {
   VoidCallback? onDismiss,
+  ValueChanged<String>? onFailed,
 }) async {
   final GoRouter router = GoRouter.of(context);
-  final ({String url, String destPath})? input = await _promptClone(context);
-  if (input == null) return;
+  ({String url, String destPath})? last;
+  String? error;
+  while (true) {
+    final ({String url, String destPath})? input = await _promptClone(
+      context,
+      initial: last,
+      error: error,
+    );
+    if (input == null) return;
 
-  final GbmBindings bindings = ref.read(gbmBindingsProvider);
-  final Pointer<Utf8> urlPtr = input.url.toNativeUtf8();
-  final Pointer<Utf8> destPtr = input.destPath.toNativeUtf8();
-  final int result;
-  try {
-    result = bindings.repoClone(urlPtr, destPtr);
-  } finally {
-    malloc.free(urlPtr);
-    malloc.free(destPtr);
-  }
-  if (result != 0) {
-    if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
-      );
+    final GbmBindings bindings = ref.read(gbmBindingsProvider);
+    final Pointer<Utf8> urlPtr = input.url.toNativeUtf8();
+    final Pointer<Utf8> destPtr = input.destPath.toNativeUtf8();
+    final int result;
+    try {
+      result = bindings.repoClone(urlPtr, destPtr);
+    } finally {
+      malloc.free(urlPtr);
+      malloc.free(destPtr);
     }
-    return;
+    if (result == 0) {
+      onDismiss?.call();
+      router.go(RoutePaths.workspaceFor(repoIdFor(input.destPath)));
+      return;
+    }
+    final String message = _decodeInitCloneErrorMessage(bindings);
+    if (onFailed != null) {
+      onFailed(message);
+      return;
+    }
+    if (!context.mounted) return;
+    last = input;
+    error = message;
   }
-
-  onDismiss?.call();
-  router.go(RoutePaths.workspaceFor(repoIdFor(input.destPath)));
 }
 
 String _decodeInitCloneErrorMessage(GbmBindings bindings) {
@@ -294,9 +313,17 @@ String _decodeInitCloneErrorMessage(GbmBindings bindings) {
   return GitError.fromJson(jsonDecode(json) as Map<String, dynamic>).message;
 }
 
-Future<({String url, String destPath})?> _promptClone(BuildContext context) {
-  final TextEditingController urlController = TextEditingController();
-  final TextEditingController destController = TextEditingController();
+Future<({String url, String destPath})?> _promptClone(
+  BuildContext context, {
+  ({String url, String destPath})? initial,
+  String? error,
+}) {
+  final TextEditingController urlController = TextEditingController(
+    text: initial?.url,
+  );
+  final TextEditingController destController = TextEditingController(
+    text: initial?.destPath,
+  );
   return showDialog<({String url, String destPath})>(
     context: context,
     builder: (dialogContext) {
@@ -344,6 +371,9 @@ Future<({String url, String destPath})?> _promptClone(BuildContext context) {
               ),
               onSubmitted: (_) => submitIfValid(),
             ),
+            // The last attempt's failure (ruling Q8), in the field-error
+            // style every other dialog uses.
+            gbmFieldError(colors: colors, error: error),
           ],
         ),
         actions: <Widget>[
@@ -587,6 +617,10 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
 
+  /// The last clone's failure, kept under the footer until the next attempt
+  /// starts (ruling Q5): the welcome screen and the popover have no log.
+  String? _cloneError;
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -733,9 +767,24 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
         _FooterAction(
           label: 'Clone repository…',
           shortcut: _shortcutLabel('Shift+N'),
-          onTap: () =>
-              promptCloneRepository(context, ref, onDismiss: widget.onDismiss),
+          onTap: () {
+            setState(() => _cloneError = null);
+            promptCloneRepository(
+              context,
+              ref,
+              onDismiss: widget.onDismiss,
+              onFailed: (String message) {
+                if (mounted) setState(() => _cloneError = message);
+              },
+            );
+          },
         ),
+        // Indented like the footer rows' own text (space2).
+        if (_cloneError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+            child: gbmFieldError(colors: colors, error: _cloneError),
+          ),
       ],
     );
   }

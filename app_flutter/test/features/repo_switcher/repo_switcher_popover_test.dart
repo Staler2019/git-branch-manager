@@ -1,6 +1,9 @@
 // The repository switcher (spec page 02 item 15): the merged recents +
 // discovery list, the search field, the fixed Open / Clone footer, the 05-A
 // row context menu, and the popover the sidebar button opens.
+import 'dart:ffi';
+
+import 'package:ffi/ffi.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -62,6 +65,7 @@ Future<GoRouter> _pump(
   List<RepoRecord> repos = const <RepoRecord>[],
   _TestRecentsRepository? recentsRepository,
   GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
+  _FakeGbmBindings? bindings,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -90,7 +94,7 @@ Future<GoRouter> _pump(
         recentsRepositoryProvider.overrideWithValue(
           recentsRepository ?? _TestRecentsRepository(recents.toList()),
         ),
-        gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
+        gbmBindingsProvider.overrideWithValue(bindings ?? _FakeGbmBindings()),
         discoveryProvider.overrideWith(
           (ref) => _TestDiscoveryController(repos),
         ),
@@ -182,6 +186,59 @@ void main() {
   });
 
   group('RepoSwitcherList', () {
+    // The welcome screen and the popover share this list, and neither has a
+    // log to write to: a failed clone stays as a red line under the footer
+    // until the next attempt (ruling Q5, open-with-apps-spec.html screen 3).
+    testWidgets('a failed clone leaves a red line under the footer', (
+      tester,
+    ) async {
+      final _FakeGbmBindings bindings = _FakeGbmBindings()
+        ..cloneResult = -1
+        ..errorJson =
+            '{"code":1,"codeName":"NotFound",'
+            '"message":"repository not found","detail":"",'
+            '"argv":[],"exitCode":128}';
+      await _pump(tester, const RepoSwitcherList(), bindings: bindings);
+
+      Future<void> startClone() async {
+        await tester.tap(find.text('Clone repository…'));
+        await tester.pumpAndSettle();
+      }
+
+      await startClone();
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Repository URL'),
+        'git@github.com:example/missing.git',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Destination path'),
+        '/repos/cloned',
+      );
+      await tester.tap(find.text('Clone'));
+      await tester.pumpAndSettle();
+
+      final Finder line = find.text('repository not found');
+      expect(line, findsOneWidget);
+      expect(find.text('Clone Repository'), findsNothing);
+      expect(
+        tester.getTopLeft(line).dy,
+        greaterThan(tester.getBottomLeft(find.text('Clone repository…')).dy),
+      );
+      final Text text = tester.widget<Text>(line);
+      expect(
+        text.style!.color,
+        tokensFor(GbmThemeVariant.darkTechnical).danger,
+      );
+      expect(text.style!.fontSize, GbmTypography.textXs);
+      expect(find.byType(SnackBar), findsNothing);
+
+      // It stays until the next attempt starts.
+      await tester.pump(const Duration(seconds: 10));
+      expect(line, findsOneWidget);
+      await startClone();
+      expect(line, findsNothing);
+    });
+
     testWidgets('renders the merged list and the fixed footer', (tester) async {
       await _pump(
         tester,
@@ -578,6 +635,27 @@ void main() {
 /// Fake GbmBindings: nothing in these tests reaches the native layer, so any
 /// call at all is a test bug rather than something to stub out.
 class _FakeGbmBindings implements GbmBindings {
+  /// Clone fails with [errorJson] while this is non-zero.
+  int cloneResult = 0;
+  String errorJson = '';
+
+  @override
+  RepoCloneDart get repoClone =>
+      (Pointer<Utf8> url, Pointer<Utf8> destPath) => cloneResult;
+
+  @override
+  LastResultJsonLenDart get lastResultJsonLen =>
+      () => errorJson.codeUnits.length;
+
+  @override
+  LastResultJsonCopyDart get lastResultJsonCopy =>
+      (Pointer<Uint8> out, int outLen) {
+        final List<int> bytes = errorJson.codeUnits;
+        for (int i = 0; i < outLen && i < bytes.length; i++) {
+          out[i] = bytes[i];
+        }
+      };
+
   @override
   Never noSuchMethod(Invocation invocation) {
     throw UnsupportedError('Not implemented for testing');

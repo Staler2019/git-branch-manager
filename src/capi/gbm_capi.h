@@ -42,6 +42,7 @@
 
 typedef void* GbmSessionHandle;
 typedef void* GbmDiscoveryHandle;
+typedef void* GbmCloneHandle;
 
 // --- Errors --------------------------------------------------------------
 // Mirrors gbm::GitError::Code (src/core/base/Error.h) 1:1. A scalar call
@@ -258,6 +259,17 @@ enum GbmEventType {
     /// failure (with "error" set); a failure also fires
     /// GBM_EVENT_ERROR_OCCURRED with the same GitError, before this reply.
     GBM_EVENT_PREPARED_MESSAGE_READY = 37,
+    /// A clone job's transfer meter (gbm_clone_start). payload:
+    /// {"phase":"receiving"|"resolving","current":n,"total":m}
+    GBM_EVENT_CLONE_PROGRESS = 38,
+    /// A clone job ended, always exactly once. payload: {"ok":bool,
+    /// "error":GitError|null,"removedPath":string|null,
+    /// "removalError":string|null}. removedPath is set when the job was
+    /// cancelled, the destination was the job's own (absent or empty at
+    /// start) and nothing of the clone is left there now -- whether git's
+    /// own cleanup or the job's removed it. removalError says what could not
+    /// be removed when the job's cleanup stopped short.
+    GBM_EVENT_CLONE_FINISHED = 39,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -1486,10 +1498,45 @@ GBM_API int32_t gbm_repo_init(const char* path);
 /// thread -- callers should run this off the UI isolate, e.g. via Dart's
 /// Isolate.run, the same caveat gbm_discovery_scan_all() carries, now
 /// extended to a network operation with no upper bound on how long it may
-/// run). Per-object transfer progress is not reported -- see
-/// InitCloneOps.h's doc comment. Returns 0 on success, or a negative
-/// GbmErrorCode with the staging buffer populated with a GitError JSON.
+/// run). Reports no progress and cannot be cancelled; gbm_clone_start() does
+/// both. Returns 0 on success, or a negative GbmErrorCode with the staging
+/// buffer populated with a GitError JSON.
 GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath);
+
+// --- Clone job ---------------------------------------------------------
+// A clone that needs no open session, run on its own thread. Events arrive
+// through `callback`, whose first argument is the GbmCloneHandle (in the
+// GbmSessionHandle slot), under the same payload ownership contract as a
+// session's: GBM_EVENT_OPERATION_LOG_RECORD for the git invocations it makes,
+// GBM_EVENT_CREDENTIAL_REQUESTED when git asks for a credential (answer with
+// gbm_clone_provide_credential / gbm_clone_cancel_credential),
+// GBM_EVENT_CLONE_PROGRESS, and exactly one GBM_EVENT_CLONE_FINISHED.
+
+/// Starts `git clone [--recurse-submodules] [--depth <depth>] -- <url>
+/// <destPath>`. `destPath` must be absolute, free of `..`, and neither a root
+/// nor the home directory; `url` must not start with '-'; `depth` 0 is the
+/// full history. On cancel the destination is removed -- or, when it was an
+/// existing empty directory, emptied -- only if it was absent or empty at
+/// this call. Returns null and populates the staging buffer with a GitError
+/// JSON when it refuses before git runs.
+GBM_API GbmCloneHandle gbm_clone_start(const char* url,
+                                       const char* destPath,
+                                       int32_t recurseSubmodules,
+                                       int32_t depth,
+                                       GbmEventCallback callback,
+                                       void* userData);
+
+/// Asks the clone to stop. GBM_EVENT_CLONE_FINISHED still fires.
+GBM_API void gbm_clone_cancel(GbmCloneHandle job);
+
+/// Answers / dismisses the clone's outstanding credential prompt, if any.
+GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret);
+GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job);
+
+/// Cancels the clone if still running, waits for its thread, and releases
+/// the job. Nothing is emitted through its callback once this returns, so the
+/// caller may then free the callback. `job` must not be used again.
+GBM_API void gbm_clone_close(GbmCloneHandle job);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

@@ -11,6 +11,7 @@ add_library(gbm_capi SHARED
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
+    CloneJob.cpp
     CommitFiles.cpp
     CommitMetaRequest.cpp
     Compare.cpp

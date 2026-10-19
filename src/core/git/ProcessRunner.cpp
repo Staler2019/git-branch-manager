@@ -423,8 +423,14 @@ public:
         return -1;
     }
 
-    /// SIGTERM, then SIGKILL if the child does not go away. Only ever used for
-    /// read-only commands: a mutating git process is never killed mid-flight.
+    /// SIGTERM, then SIGKILL if the child does not go away. Runs whenever the
+    /// token is cancelled or a deadline passes. It used to say "only ever used
+    /// for read-only commands: a mutating git process is never killed
+    /// mid-flight" -- not true: a clone job cancels `git clone` mid-flight on
+    /// purpose and removes what it leaves (capi/CloneJob.cpp); a queued
+    /// mutation is kept from it by OperationRunner's killableMidFlight().
+    /// Only this child is signalled, not its own children: a transport's ssh
+    /// is left to notice its pipes closing.
     void terminate() {
         const pid_t pid = pid_.load();
         if (pid <= 0) {

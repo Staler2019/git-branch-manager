@@ -194,6 +194,7 @@ if(GBM_BUILD_CAPI)
         capi/CallbackRegistryTest.cpp
         capi/CancelOperationApiTest.cpp
         capi/CherryPickRevertApiTest.cpp
+        capi/CloneJobApiTest.cpp
         capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp
         capi/CompareApiTest.cpp

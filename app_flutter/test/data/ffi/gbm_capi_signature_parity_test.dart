@@ -35,6 +35,7 @@ const Map<String, String> _cToFfi = <String, String>{
   'void*': 'Pointer<Void>',
   'GbmSessionHandle': 'Pointer<Void>',
   'GbmDiscoveryHandle': 'Pointer<Void>',
+  'GbmCloneHandle': 'Pointer<Void>',
   'GbmEventCallback': 'Pointer<NativeFunction<GbmEventCallbackNative>>',
 };
 
@@ -42,6 +43,7 @@ const Map<String, String> _cToFfi = <String, String>{
 const Map<String, String> _dartAliases = <String, String>{
   'GbmSessionHandle': 'Pointer<Void>',
   'GbmDiscoveryHandle': 'Pointer<Void>',
+  'GbmCloneHandle': 'Pointer<Void>',
 };
 
 /// Declared in the header, deliberately not bound in Dart. Binding one of

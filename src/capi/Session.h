@@ -88,6 +88,12 @@ using EffectiveIdentityPtr = std::shared_ptr<const EffectiveIdentity>;
 /// fixes the underlying problem.
 GitResult<GitInstallation> sharedGitInstallation();
 
+/// Installs Session::dispatchOperationLogRecord() as gbm::Log's operation
+/// sink, once per process. Called by every Session and every CloneJob: a
+/// clone started before any repository is open still has its git invocations
+/// logged.
+void ensureOperationLogSinkInstalled();
+
 /// Test-only: clears the cache populated by sharedGitInstallation() so a test
 /// can force re-detection, e.g. after changing GBM_GIT_PATH.
 void resetSharedGitInstallationForTest();

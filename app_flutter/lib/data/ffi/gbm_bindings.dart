@@ -14,6 +14,7 @@ import 'native_library.dart';
 
 typedef GbmSessionHandle = Pointer<Void>;
 typedef GbmDiscoveryHandle = Pointer<Void>;
+typedef GbmCloneHandle = Pointer<Void>;
 
 /// Matches `enum GbmEventType` in gbm_capi.h.
 abstract final class GbmEventType {
@@ -55,6 +56,8 @@ abstract final class GbmEventType {
   static const int commitFileCountsReady = 35;
   static const int squashMessageReady = 36;
   static const int preparedMessageReady = 37;
+  static const int cloneProgress = 38;
+  static const int cloneFinished = 39;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -1256,6 +1259,41 @@ typedef _RepoCloneNative = Int32 Function(
 );
 typedef RepoCloneDart = int Function(Pointer<Utf8> url, Pointer<Utf8> destPath);
 
+typedef _CloneStartNative = Pointer<Void> Function(
+  Pointer<Utf8> url,
+  Pointer<Utf8> destPath,
+  Int32 recurseSubmodules,
+  Int32 depth,
+  Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+  Pointer<Void> userData,
+);
+typedef CloneStartDart = Pointer<Void> Function(
+  Pointer<Utf8> url,
+  Pointer<Utf8> destPath,
+  int recurseSubmodules,
+  int depth,
+  Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+  Pointer<Void> userData,
+);
+
+typedef _CloneCancelNative = Void Function(Pointer<Void> job);
+typedef CloneCancelDart = void Function(Pointer<Void> job);
+
+typedef _CloneProvideCredentialNative = Void Function(
+  Pointer<Void> job,
+  Pointer<Utf8> secret,
+);
+typedef CloneProvideCredentialDart = void Function(
+  Pointer<Void> job,
+  Pointer<Utf8> secret,
+);
+
+typedef _CloneCancelCredentialNative = Void Function(Pointer<Void> job);
+typedef CloneCancelCredentialDart = void Function(Pointer<Void> job);
+
+typedef _CloneCloseNative = Void Function(Pointer<Void> job);
+typedef CloneCloseDart = void Function(Pointer<Void> job);
+
 typedef _DiscoveryOpenNative = Pointer<Void> Function(Pointer<Utf8> dbPath);
 typedef DiscoveryOpenDart = Pointer<Void> Function(Pointer<Utf8> dbPath);
 
@@ -1866,6 +1904,25 @@ class GbmBindings {
       repoClone = library.lookupFunction<_RepoCloneNative, RepoCloneDart>(
         'gbm_repo_clone',
       ),
+      cloneStart = library.lookupFunction<_CloneStartNative, CloneStartDart>(
+        'gbm_clone_start',
+      ),
+      cloneCancel = library.lookupFunction<_CloneCancelNative, CloneCancelDart>(
+        'gbm_clone_cancel',
+      ),
+      cloneProvideCredential = library
+          .lookupFunction<
+            _CloneProvideCredentialNative,
+            CloneProvideCredentialDart
+          >('gbm_clone_provide_credential'),
+      cloneCancelCredential = library
+          .lookupFunction<
+            _CloneCancelCredentialNative,
+            CloneCancelCredentialDart
+          >('gbm_clone_cancel_credential'),
+      cloneClose = library.lookupFunction<_CloneCloseNative, CloneCloseDart>(
+        'gbm_clone_close',
+      ),
       discoveryOpen = library
           .lookupFunction<_DiscoveryOpenNative, DiscoveryOpenDart>(
             'gbm_discovery_open',
@@ -2059,6 +2116,11 @@ class GbmBindings {
   final WriteCommitGraphDart writeCommitGraph;
   final RepoInitDart repoInit;
   final RepoCloneDart repoClone;
+  final CloneStartDart cloneStart;
+  final CloneCancelDart cloneCancel;
+  final CloneProvideCredentialDart cloneProvideCredential;
+  final CloneCancelCredentialDart cloneCancelCredential;
+  final CloneCloseDart cloneClose;
   final DiscoveryOpenDart discoveryOpen;
   final DiscoveryCloseDart discoveryClose;
   final DiscoveryAddBaseFolderDart discoveryAddBaseFolder;

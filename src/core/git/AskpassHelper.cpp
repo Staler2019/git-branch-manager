@@ -166,8 +166,11 @@ int runClientForDir(const std::filesystem::path& dir, const std::string& prompt)
         }
         if (std::filesystem::exists(responsePath, ec)) {
             auto content = fsutil::readSmallFile(responsePath);
-            std::filesystem::remove(responsePath, ec);
+            // Request before response: AskpassPoller takes a vanished
+            // response to mean this request is finished, so any request file
+            // it sees afterwards must be a follow-up client's.
             std::filesystem::remove(dir / std::string(kRequestFile), ec);
+            std::filesystem::remove(responsePath, ec);
             if (!content) {
                 return 1;
             }

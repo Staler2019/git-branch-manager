@@ -13,6 +13,7 @@
 #include <cstring>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -35,6 +36,38 @@ namespace gbm {
 namespace {
 
 constexpr std::size_t kReadBufferSize = 256 * 1024;
+
+/// Whether an inherited environment entry's name is one of git's diagnostic
+/// switches: every `GIT_TRACE*` (packet, curl, setup, trace2 targets, ...)
+/// and `GIT_CURL_VERBOSE`. They make git print argv, packet lines and HTTP
+/// headers to stderr -- the stderr the operation log keeps -- so the child
+/// never inherits them (security review F10). An `envOverrides` entry is
+/// applied after this strip and still reaches git. `foldCase` is Windows,
+/// where environment names are case-insensitive and `git_trace` is
+/// GIT_TRACE. Only the name is compared, never the value.
+template <typename Char>
+bool isGitTraceEnvName(std::basic_string_view<Char> name, bool foldCase) {
+    auto equalsAscii = [foldCase](Char a, char b) {
+        if (foldCase && a >= Char('a') && a <= Char('z')) {
+            a = static_cast<Char>(a - Char('a') + Char('A'));
+        }
+        return a == static_cast<Char>(b);
+    };
+    auto startsWith = [&](std::string_view prefix) {
+        if (name.size() < prefix.size()) {
+            return false;
+        }
+        for (std::size_t i = 0; i < prefix.size(); ++i) {
+            if (!equalsAscii(name[i], prefix[i])) {
+                return false;
+            }
+        }
+        return true;
+    };
+    constexpr std::string_view kCurlVerbose = "GIT_CURL_VERBOSE";
+    return startsWith("GIT_TRACE") ||
+           (name.size() == kCurlVerbose.size() && startsWith(kCurlVerbose));
+}
 
 using Clock = std::chrono::steady_clock;
 
@@ -394,7 +427,11 @@ private:
     static std::vector<std::string> buildEnvironment(const GitCommand& command) {
         std::vector<std::string> entries;
         for (char** env = environ; env != nullptr && *env != nullptr; ++env) {
-            entries.emplace_back(*env);
+            const std::string_view entry(*env);
+            if (isGitTraceEnvName(entry.substr(0, entry.find('=')), /*foldCase=*/false)) {
+                continue;
+            }
+            entries.emplace_back(entry);
         }
         auto setVar = [&entries](const std::string& key, const std::string& value) {
             const std::string prefix = key + "=";
@@ -871,6 +908,11 @@ private:
                 const std::size_t eq = entry.find(L'=');
                 if (eq != std::wstring::npos) {
                     const std::wstring key = entry.substr(0, eq);
+                    // A leading '=' marks a per-drive cwd entry (`=C:=C:\...`):
+                    // eq is 0 there, the key is empty, and nothing matches it.
+                    if (isGitTraceEnvName(std::wstring_view(key), /*foldCase=*/true)) {
+                        continue;
+                    }
                     const bool overridden =
                         std::any_of(overrides.begin(), overrides.end(), [&key](const auto& kv) {
                             return ::_wcsicmp(kv.first.c_str(), key.c_str()) == 0;

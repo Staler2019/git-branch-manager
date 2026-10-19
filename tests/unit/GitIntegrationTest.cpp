@@ -6172,5 +6172,89 @@ TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
         << "the merge commit in the range is part of the fixture";
 }
 
+// --- Inherited diagnostic environment (security review F10) ---------------
+//
+// A GIT_TRACE*/GIT_CURL_VERBOSE the app inherited from whoever launched it
+// makes git print argv, packet lines and HTTP headers to stderr -- and stderr
+// is what the operation log keeps. So the child never sees them unless the
+// app itself asks through envOverrides.
+
+void setTestEnv(const char* key, const char* value) {
+#ifdef _WIN32
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
+void unsetTestEnv(const char* key) {
+#ifdef _WIN32
+    _putenv_s(key, "");
+#else
+    unsetenv(key);
+#endif
+}
+
+TEST_F(RealRepoTest, InheritedGitTraceVariablesNeverReachTheChild) {
+    const std::filesystem::path trace2File = repo_.parent_path() / "gbm-trace2-event.json";
+    std::filesystem::remove(trace2File);
+    const std::string trace2Path = fsutil::utf8FromPath(trace2File);
+    setTestEnv("GIT_TRACE", "1");
+    setTestEnv("GIT_TRACE_SETUP", "1");
+    setTestEnv("GIT_CURL_VERBOSE", "1");
+    setTestEnv("GIT_TRACE2_EVENT", trace2Path.c_str());
+
+    auto result = run({"status", "--porcelain"});
+
+    unsetTestEnv("GIT_TRACE");
+    unsetTestEnv("GIT_TRACE_SETUP");
+    unsetTestEnv("GIT_CURL_VERBOSE");
+    unsetTestEnv("GIT_TRACE2_EVENT");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->err.find("trace:"), std::string::npos) << result->err;
+    EXPECT_FALSE(std::filesystem::exists(trace2File)) << "GIT_TRACE2_EVENT reached git";
+    std::filesystem::remove(trace2File);
+}
+
+TEST_F(RealRepoTest, ATraceVariableTheAppAsksForStillReachesTheChild) {
+    GitCommand command(repo_, {"status", "--porcelain"});
+    command.timeout = std::chrono::seconds(120);
+    command.envOverrides.emplace_back("GIT_TRACE", "1");
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_NE(result->err.find("trace:"), std::string::npos)
+        << "envOverrides are applied after the strip: " << result->err;
+}
+
+TEST_F(RealRepoTest, StrippingTraceVariablesLeavesOtherGitVariablesAlone) {
+    // GIT_ALLOW_PROTOCOL is set by SetUp(); a strip that took every GIT_*
+    // would silently break the submodule tests' file:// transport.
+    GitCommand command(repo_, {"var", "GIT_EDITOR"});
+    command.timeout = std::chrono::seconds(120);
+    setTestEnv("GIT_EDITOR", "gbm-test-editor");
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    unsetTestEnv("GIT_EDITOR");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_NE(result->out.find("gbm-test-editor"), std::string::npos) << result->out;
+}
+
+#ifdef _WIN32
+TEST_F(RealRepoTest, ALowerCaseTraceVariableIsStrippedOnWindows) {
+    // Windows environment names are case-insensitive, and git reads them
+    // through getenv, so `git_trace` is GIT_TRACE there.
+    setTestEnv("git_trace", "1");
+
+    auto result = run({"status", "--porcelain"});
+
+    unsetTestEnv("git_trace");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->err.find("trace:"), std::string::npos) << result->err;
+}
+#endif
+
 }  // namespace
 }  // namespace gbm

@@ -2260,6 +2260,15 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
   }
 
+  /// Appends a line an `AppActionRunner` composed. Bound as the runner's
+  /// sink before the action's first await.
+  /// A no-op once this controller is disposed: an action can outlive the
+  /// session it was started from (security review F7).
+  void recordAppLog(AppLogEntry entry) {
+    if (!mounted) return;
+    _appendAppLog(entry);
+  }
+
   /// Logs that the commit box's draft could not be saved before a commit was
   /// sent -- [submitCommit]'s one failure path that reaches no other screen.
   void recordDraftNotSaved() =>

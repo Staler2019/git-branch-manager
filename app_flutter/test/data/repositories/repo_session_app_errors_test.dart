@@ -53,4 +53,29 @@ void main() {
     controller.recordRepositoryInitFailed(path: '/x', detail: 'boom');
     expectOneError('Could not create a repository at /x: boom');
   });
+
+  test('recordAppLog appends the entry as given', () {
+    controller.recordAppLog(
+      const AppLogEntry(
+        whenEpochMs: 1,
+        level: OperationLogLevel.error,
+        message: 'boom',
+      ),
+    );
+    expectOneError('boom');
+  });
+
+  test('recordAppLog after dispose does nothing and does not throw', () {
+    final FakeRepoSessionController gone = FakeRepoSessionController(
+      RepoIdentity.forWorkDir('/test/gone'),
+      const RepoSessionState(isOpen: true),
+    )..dispose();
+    gone.recordAppLog(
+      const AppLogEntry(
+        whenEpochMs: 1,
+        level: OperationLogLevel.info,
+        message: 'late',
+      ),
+    );
+  });
 }

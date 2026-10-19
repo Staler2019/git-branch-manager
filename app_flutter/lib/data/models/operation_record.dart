@@ -1,3 +1,5 @@
+import 'url_credential_redaction.dart';
+
 /// Which of spec page 10's three `LOGRULES` severity levels an
 /// [OperationRecord] belongs to.
 ///
@@ -64,17 +66,28 @@ class OperationRecord extends GbmLogEntry {
     this.queuedOperationId = 0,
   });
 
+  /// Credentials in a URL are masked here, on the way in (ruling R6,
+  /// security review P3-F): argv and stderr through
+  /// [redactUrlCredentials], and the command line rebuilt from the masked
+  /// argv by [joinCommandLine] instead of trusting the wire's
+  /// `commandLine`, which carries the same secret unmasked.
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
+    final List<String> argv = List<String>.unmodifiable(
+      (json['argv'] as List<dynamic>).cast<String>().map(redactUrlCredentials),
+    );
+    // Read but not used: still a strict key, so a payload missing it is the
+    // loud TypeError every other key here gives.
+    json['commandLine'] as String;
     return OperationRecord(
       id: json['id'] as int,
       running: json['running'] as bool,
       whenEpochMs: json['whenEpochMs'] as int,
       repoDir: json['repoDir'] as String,
-      argv: (json['argv'] as List<dynamic>).cast<String>(),
-      commandLine: json['commandLine'] as String,
+      argv: argv,
+      commandLine: joinCommandLine(argv),
       exitCode: json['exitCode'] as int,
       durationMs: json['durationMs'] as int,
-      stderrText: json['stderrText'] as String,
+      stderrText: redactUrlCredentials(json['stderrText'] as String),
       cancelled: json['cancelled'] as bool,
       timedOut: json['timedOut'] as bool,
       benignExit: json['benignExit'] as bool,
@@ -257,6 +270,28 @@ final class AppLogEntry extends GbmLogEntry {
     OperationLogLevel.error => 'ERROR',
   };
 }
+
+/// Joins [argv] the way core's `OperationRecord::commandLine()`
+/// (src/core/base/Logging.cpp) does: an argument that is empty or holds any
+/// of space, tab, `"`, `'`, `\`, `$`, `*` or `?` is double-quoted, with `"`
+/// and `\` backslash-escaped inside. A port rather than a call, so
+/// [OperationRecord.fromJson] can rebuild the line from argv it has already
+/// masked.
+String joinCommandLine(List<String> argv) {
+  return argv
+      .map((String arg) {
+        if (arg.isNotEmpty && !_needsQuotes.hasMatch(arg)) return arg;
+        final String escaped = arg.replaceAllMapped(
+          _escapedInQuotes,
+          (Match m) => '\\${m[0]}',
+        );
+        return '"$escaped"';
+      })
+      .join(' ');
+}
+
+final RegExp _needsQuotes = RegExp('[ \t"\'\\\\\$*?]');
+final RegExp _escapedInQuotes = RegExp(r'["\\]');
 
 /// Renders C0 control characters (and DEL) as visible escapes, so a command
 /// line that carries one is legible instead of running together.

@@ -4,6 +4,7 @@ import '../models/app_action.dart';
 import '../models/app_action_cancel_token.dart';
 import '../models/app_action_outcome.dart';
 import '../models/operation_record.dart';
+import '../models/url_credential_redaction.dart';
 
 /// Where an action's Log line goes. The caller takes it before the first
 /// await -- `ref.read(repoSessionProvider(identity).notifier).recordAppLog`
@@ -25,6 +26,8 @@ final class AppActionRunner {
     final AppActionCancelToken caller = token ?? AppActionCancelToken.none;
     final DateTime startedAt = clock();
 
+    // Every message is masked before it reaches the outcome or the Log: a
+    // factory's describe* may quote a URL the user typed (ruling R6).
     AppActionOutcome<T> finish(
       OperationLogLevel level,
       String message,
@@ -43,7 +46,7 @@ final class AppActionRunner {
     }
 
     AppActionOutcome<T> cancelled() {
-      final String message = action.describeCancelled();
+      final String message = redactUrlCredentials(action.describeCancelled());
       return finish(
         OperationLogLevel.warning,
         message,
@@ -65,7 +68,9 @@ final class AppActionRunner {
         : AppActionCancelToken.none;
     try {
       final T value = await action.body(bodyToken);
-      final String message = action.describeSuccess(value);
+      final String message = redactUrlCredentials(
+        action.describeSuccess(value),
+      );
       return finish(
         OperationLogLevel.info,
         message,
@@ -81,7 +86,9 @@ final class AppActionRunner {
       return cancelled();
     } on Exception catch (error) {
       // Exceptions only: an Error is a bug and propagates unlogged (F6).
-      final String message = action.describeFailure(error);
+      final String message = redactUrlCredentials(
+        action.describeFailure(error),
+      );
       return finish(
         OperationLogLevel.error,
         message,

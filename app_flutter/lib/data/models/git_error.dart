@@ -1,3 +1,5 @@
+import 'url_credential_redaction.dart';
+
 /// Mirrors `gbm::GitError` (src/core/base/Error.h) as serialized by
 /// `capi::toJson(const GitError&)` (src/capi/JsonCodec.cpp).
 class GitError {
@@ -10,13 +12,19 @@ class GitError {
     required this.exitCode,
   });
 
+  /// Masks credentials in URLs on the way in (ruling R6, security review
+  /// P3-F); see [redactUrlCredentials].
   factory GitError.fromJson(Map<String, dynamic> json) {
     return GitError(
       code: json['code'] as int,
       codeName: json['codeName'] as String,
-      message: json['message'] as String,
-      detail: json['detail'] as String,
-      argv: (json['argv'] as List<dynamic>).cast<String>(),
+      message: redactUrlCredentials(json['message'] as String),
+      detail: redactUrlCredentials(json['detail'] as String),
+      argv: List<String>.unmodifiable(
+        (json['argv'] as List<dynamic>).cast<String>().map(
+          redactUrlCredentials,
+        ),
+      ),
       exitCode: json['exitCode'] as int,
     );
   }

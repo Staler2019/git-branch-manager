@@ -125,6 +125,13 @@ class GbmSplitPaneController {
   /// so the drawer was a one-way door and the menu item did nothing on
   /// every press after the first (使用者回報).
   void toggle() => isOpen ? close() : open();
+
+  /// Called each time extent-mode pane 0 goes from open to collapsed, by
+  /// [close] or by a drag past the bottom, never on open or resize. Lets the
+  /// owner drop state that only makes sense while the pane shows (ruling R3:
+  /// the log's jumped-to row loses its ground when the drawer is dragged
+  /// shut, not on the next open).
+  VoidCallback? onCollapsed;
 }
 
 class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
@@ -276,9 +283,19 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
   void _setExtent(double target) {
     if (widget.spec.defaultExtent == null) return;
     if (target == _currentFlexes[0]) return;
+    final bool wasOpen = _currentFlexes[0] > 0;
     setState(() => _currentFlexes[0] = target);
     widget.onFlexChanged?.call(_currentFlexes);
     unawaited(_persistFlexes());
+    _notifyIfCollapsed(wasOpen);
+  }
+
+  /// The one place [GbmSplitPaneController.onCollapsed] is fired from, for
+  /// both [_setExtent] and a drag-close in [_onDividerDelta].
+  void _notifyIfCollapsed(bool wasOpen) {
+    if (wasOpen && _currentFlexes[0] == 0) {
+      widget.controller?.onCollapsed?.call();
+    }
   }
 
   Future<void> _persistFlexes() async {
@@ -355,12 +372,14 @@ class _GbmSplitPaneState extends ConsumerState<GbmSplitPane> {
           ? 0
           : rawExtent.clamp(minExtent, _availableExtent - minExtent);
 
+      final bool wasOpen = _currentFlexes[0] > 0;
       setState(() {
         _currentFlexes[0] = newExtent;
       });
 
       widget.onFlexChanged?.call(_currentFlexes);
       unawaited(_persistFlexes());
+      _notifyIfCollapsed(wasOpen);
     } else {
       // Flex mode
       final List<double> defaultRatios = widget.spec.flexRatio!;

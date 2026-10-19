@@ -155,6 +155,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   @override
   void initState() {
     super.initState();
+    // However the drawer closes -- View → Log, the status bar's Log entry, or
+    // a drag past the bottom -- the jumped-to row loses its ground at that
+    // moment (ruling R3), not on the next open.
+    _logDrawerController.onCollapsed = () {
+      if (mounted) setState(() => _logFocus = null);
+    };
     // branchFilterQueryProvider outlives the session it was typed into (it is
     // not autoDispose), but a freshly opened C++ session is always unfiltered
     // and `ref.listen` never fires for the value already present when it
@@ -1016,14 +1022,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.viewLog: () {
         // Marked seen only on the opening half: closing reveals nothing, so
         // it must not clear a summary for an error the user never saw.
-        // Closing drops the jumped-to row's ground.
-        setState(() {
-          if (_logDrawerController.isOpen) {
-            _logFocus = null;
-          } else {
-            _seenError = _newestError(session);
-          }
-        });
+        // Closing drops the jumped-to row's ground through the controller's
+        // onCollapsed (initState), the same path a drag-close takes.
+        if (!_logDrawerController.isOpen) {
+          setState(() => _seenError = _newestError(session));
+        }
         _logDrawerController.toggle();
       },
       GbmActionId.viewResetPanelSizes: () async {

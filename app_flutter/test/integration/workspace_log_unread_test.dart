@@ -209,6 +209,54 @@ void main() {
     expect(tester.widget<LogDrawer>(find.byType(LogDrawer)).focusEntry, isNull);
   });
 
+  // Ruling R3: a drag that shuts the drawer drops the ground the same moment,
+  // or the next open shows a highlight for a jump the user has left behind.
+  testWidgets('dragging the log shut drops the jumped-to ground', (
+    tester,
+  ) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: _identity,
+    );
+    pumped.controller.debugHandleEvent(_record(running: false));
+    await tester.pump();
+    await tester.tap(_summary());
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<LogDrawer>(find.byType(LogDrawer)).focusEntry,
+      isNotNull,
+    );
+
+    // The log pane's divider is the one sitting on the drawer's top edge;
+    // the workspace above holds other split panes with the same key.
+    final double drawerTop = tester.getTopLeft(find.byType(LogDrawer)).dy;
+    final Finder divider = find.byKey(const Key('gbm-split-divider-0'));
+    final Element logDivider = divider.evaluate().reduce(
+      (Element a, Element b) =>
+          (tester.getCenter(find.byElementPredicate((e) => e == a)).dy -
+                      drawerTop)
+                  .abs() <=
+              (tester.getCenter(find.byElementPredicate((e) => e == b)).dy -
+                      drawerTop)
+                  .abs()
+          ? a
+          : b,
+    );
+    final TestGesture gesture = await tester.startGesture(
+      tester.getCenter(find.byElementPredicate((e) => e == logDivider)),
+    );
+    await tester.pump();
+    for (int i = 0; i < 20; i++) {
+      await gesture.moveBy(const Offset(0, 20));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(_drawerHeight(tester), 0);
+    expect(tester.widget<LogDrawer>(find.byType(LogDrawer)).focusEntry, isNull);
+  });
+
   // git keeps refreshing after a failure, so the error is rarely the newest
   // line; the jump has to scroll the drawer to it, not only paint it.
   testWidgets('the jump scrolls a far-up error into the drawer', (

@@ -73,11 +73,12 @@ bool isPromptPending(const std::filesystem::path& dir);
 /// Returns 0 with the secret written to stdout, or 1 otherwise.
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt);
 
-/// The askpass client. Called from main() as soon as GBM_ASKPASS_MODE=1 is
-/// found in the environment -- before Qt or anything else starts, since git is
+/// The askpass client. Reached from each desktop runner's `main` through
+/// gbm_askpass_main() (capi) as soon as GBM_ASKPASS_MODE=1 is found in the
+/// environment -- before the engine or anything else starts, since git is
 /// blocked waiting on this process's stdout. `argv[1]` is the prompt text git
 /// supplies (e.g. "Username for 'https://github.com': "). Reads GBM_ASKPASS_DIR
 /// from the environment and delegates to runClientForDir().
-int runClient(int argc, char** argv);
+int runClient(int argc, const char* const* argv);
 
 }  // namespace gbm::askpass

@@ -181,7 +181,7 @@ int runClientForDir(const std::filesystem::path& dir, const std::string& prompt)
     return 1;
 }
 
-int runClient(int argc, char** argv) {
+int runClient(int argc, const char* const* argv) {
     // The parent wrote this variable as UTF-8, widened into a wide
     // environment block (ProcessRunner's buildEnvironmentBlock). On Windows the
     // narrow getenv() would hand it back in the active code page, which loses

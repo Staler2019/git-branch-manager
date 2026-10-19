@@ -1023,6 +1023,20 @@ GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret
 /// cleanly, exactly as if no credential helper were configured at all.
 GBM_API void gbm_cancel_credential(GbmSessionHandle session);
 
+/// The askpass client entry point for the desktop runners. git starts the app
+/// itself as its GIT_ASKPASS / SSH_ASKPASS program (see
+/// core/git/AskpassHelper.h's wire()), so each runner calls this at the very
+/// top of `main` -- before any engine, window or toolkit starts -- through
+/// dlopen/LoadLibrary of this library, and exits with the result when it is
+/// not -1. `argv` is UTF-8; `argv[1]` is git's prompt text.
+///
+/// Returns -1 when the process was not started as askpass (GBM_ASKPASS_MODE
+/// is not "1"): the runner then starts normally. Otherwise blocks until the
+/// running app answers or cancels the prompt, writes the answer to stdout,
+/// and returns 0, or returns 1 (no request directory, cancelled, timed out),
+/// which git reports as a failed credential.
+GBM_API int32_t gbm_askpass_main(int32_t argc, const char* const* argv);
+
 // --- Blame / file history / line history / reflog / undo -----------------
 // Mirrors RepositorySession's blame/file-history/line-history/reflog/undo
 // section -- see src/core/git/{BlameStore,FileHistoryStore,ReflogStore}.h

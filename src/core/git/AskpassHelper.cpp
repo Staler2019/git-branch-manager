@@ -128,7 +128,11 @@ bool writeHandshakeFile(const std::filesystem::path& dir,
 
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt) {
     std::error_code ec;
-    std::filesystem::create_directories(dir, ec);
+    // Never created here: a directory nobody is watching would leave this
+    // process polling for kResponseTimeout with no one to answer it.
+    if (!std::filesystem::is_directory(dir, ec)) {
+        return 1;
+    }
     // The app-side watcher (capi::AskpassPoller) polls for kRequestFile's
     // mere existence; writeHandshakeFile() makes it appear whole or not at
     // all.
@@ -141,6 +145,12 @@ int runClientForDir(const std::filesystem::path& dir, const std::string& prompt)
     const auto deadline = std::chrono::steady_clock::now() + kResponseTimeout;
 
     while (std::chrono::steady_clock::now() < deadline) {
+        // AskpassPoller::stop() removes the directory at the end of every
+        // operation, including a cancelled one whose git was killed under
+        // this process: gone means nobody will ever answer.
+        if (!std::filesystem::exists(dir, ec)) {
+            return 1;
+        }
         if (std::filesystem::exists(cancelPath, ec)) {
             return 1;
         }

@@ -195,5 +195,24 @@ TEST(AskpassPollerTest, TheAnswerIsWrittenOwnerOnly) {
 }
 #endif
 
+TEST(AskpassPollerTest, StopReleasesAClientStillWaitingForAnAnswer) {
+    // A cancelled fetch ends with endAskpass() -> stop() while the askpass
+    // child is still waiting; it must not be left polling for ten minutes.
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    PromptCapture capture;
+    AskpassPoller poller;
+    poller.start(dir, [&capture](std::string prompt) { capture.add(std::move(prompt)); });
+    ScopedClient client(dir, "Password: ");
+    ASSERT_TRUE(capture.waitForCount(1)) << "prompt never seen; client would block";
+
+    const auto stoppedAt = std::chrono::steady_clock::now();
+    poller.stop();
+    client.join();
+
+    EXPECT_EQ(client.exitCode(), 1);
+    EXPECT_LT(std::chrono::steady_clock::now() - stoppedAt, std::chrono::seconds(2));
+}
+
 }  // namespace
 }  // namespace gbm::capi

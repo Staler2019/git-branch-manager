@@ -55,8 +55,10 @@ bool writeHandshakeFile(const std::filesystem::path& dir,
 
 /// The askpass client's core, taking the request directory and prompt
 /// directly rather than reading them from argv/the environment -- this is what
-/// makes the protocol unit-testable without setenv or a subprocess. Blocks
-/// until `dir`/response or `dir`/cancel appears, or kResponseTimeout elapses.
+/// makes the protocol unit-testable without setenv or a subprocess. `dir`
+/// must already exist; it is never created here. Blocks until `dir`/response
+/// or `dir`/cancel appears, `dir` itself disappears, or kResponseTimeout
+/// elapses.
 /// Returns 0 with the secret written to stdout, or 1 otherwise.
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt);
 

@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
@@ -1478,6 +1479,70 @@ TEST(Askpass, AHandshakeFileReplacesAnEarlierOne) {
 
     EXPECT_EQ(fsutil::readSmallFile(dir / std::string(askpass::kResponseFile)),
               std::optional<std::string>("second"));
+    std::filesystem::remove_all(dir);
+}
+
+// --- an orphaned askpass client must not outlive its request (P3-J1) -------
+//
+// git is killed on cancel, but its askpass child is not git's process: it
+// polls on for kResponseTimeout (10 minutes) unless something tells it to
+// stop. The directory going away is that signal -- AskpassPoller::stop()
+// removes it at the end of every operation.
+
+/// Runs the client on its own thread; if it is still running after `limit`,
+/// unblocks it with a cancel file (recreating the directory if needed) so the
+/// test never waits out kResponseTimeout, and reports that it had to.
+struct BoundedClient {
+    std::filesystem::path dir;
+    std::future<int> result;
+
+    BoundedClient(std::filesystem::path d, std::string prompt) : dir(std::move(d)) {
+        result = std::async(std::launch::async, [dir = dir, prompt = std::move(prompt)] {
+            return askpass::runClientForDir(dir, prompt);
+        });
+    }
+
+    bool finishedWithin(std::chrono::milliseconds limit) {
+        if (result.wait_for(limit) == std::future_status::ready) {
+            return true;
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream(dir / std::string(askpass::kCancelFile)) << "x";
+        result.wait();
+        return false;
+    }
+};
+
+TEST(Askpass, ClientGivesUpOnceItsRequestDirectoryIsGone) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    BoundedClient client(dir, "Password: ");
+    const auto request = dir / std::string(askpass::kRequestFile);
+    for (int i = 0; i < 100 && !std::filesystem::exists(request); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(std::filesystem::exists(request));
+
+    std::filesystem::remove_all(dir);
+
+    EXPECT_TRUE(client.finishedWithin(std::chrono::seconds(2)))
+        << "the client kept polling a directory that no longer exists";
+    EXPECT_EQ(client.result.get(), 1);
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, ClientRefusesARequestDirectoryThatDoesNotExist) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    std::filesystem::remove_all(dir);
+
+    BoundedClient client(dir, "Password: ");
+
+    EXPECT_TRUE(client.finishedWithin(std::chrono::seconds(2)));
+    EXPECT_EQ(client.result.get(), 1);
+    EXPECT_FALSE(std::filesystem::exists(dir / std::string(askpass::kRequestFile)))
+        << "the client must not recreate a request directory nobody is watching";
     std::filesystem::remove_all(dir);
 }
 

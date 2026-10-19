@@ -41,6 +41,11 @@ void AskpassPoller::stop() {
         requestSeen_ = false;
     }
     if (!dirToRemove.empty()) {
+        // Cancel first, so a client still waiting fails on its next poll
+        // even if remove_all() below cannot take the whole directory (a
+        // Windows file still open); the client also gives up once the
+        // directory is gone.
+        askpass::writeHandshakeFile(dirToRemove, askpass::kCancelFile, "x");
         std::error_code ec;
         std::filesystem::remove_all(dirToRemove, ec);
     }

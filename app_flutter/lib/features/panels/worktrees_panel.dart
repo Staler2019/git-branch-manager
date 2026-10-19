@@ -12,6 +12,8 @@ import '../../data/models/worktree_info.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
@@ -229,23 +231,28 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
   /// toast」, P19 rule 5) and never a dialog (ruling Q1, open-with-apps-spec
   /// screen 3). Same line as Repository → Open in terminal. This button used
   /// to drop the `false` on the floor.
-  Future<void> _openTerminal(String path) async {
-    final bool ok = await ref.read(desktopLauncherProvider).openTerminal(path);
-    if (ok || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .recordTerminalNotFound();
-  }
+  ///
+  /// Through [AppActionRunner], so a success is logged too (ruling R4) and
+  /// the sink is taken before the first await: the line is written even if
+  /// this panel is gone by the time the launcher answers (verifier A3).
+  Future<void> _openTerminal(String path) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openTerminalAction(ref.read(desktopLauncherProvider), path),
+        sink: ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .recordAppLog,
+      );
 
-  Future<void> _openWith(ExternalAppEntry app, String path) async {
-    final ExternalAppLaunchResult result = await ref
-        .read(desktopLauncherProvider)
-        .openExternalApp(app, path);
-    if (result is! ExternalAppLaunchFailed || !mounted) return;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .recordExternalAppFailed(label: app.label, detail: result.message);
-  }
+  /// See [_openTerminal].
+  Future<void> _openWith(ExternalAppEntry app, String path) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openExternalAppAction(ref.read(desktopLauncherProvider), app, path),
+        sink: ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .recordAppLog,
+      );
 
   /// The ▾ list: names only (ruling D1), then `Edit apps…`, which opens
   /// Preferences on External apps (D5). An empty list shows a disabled row

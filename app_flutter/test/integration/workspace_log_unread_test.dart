@@ -136,7 +136,13 @@ void main() {
     await tester.tap(_summary());
     await tester.pumpAndSettle();
 
-    pumped.controller.recordTerminalNotFound();
+    pumped.controller.recordAppLog(
+      const AppLogEntry(
+        whenEpochMs: 2,
+        level: OperationLogLevel.error,
+        message: 'No terminal emulator was found',
+      ),
+    );
     await tester.pump();
     expect(
       find.descendant(

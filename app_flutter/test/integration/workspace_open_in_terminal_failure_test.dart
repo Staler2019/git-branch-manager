@@ -14,6 +14,13 @@ import 'package:gbm_flutter/features/status_bar/status_bar.dart';
 
 import '../support/pump_workspace.dart';
 
+class _Terminal extends DesktopLauncher {
+  const _Terminal() : super(operatingSystem: 'linux');
+
+  @override
+  Future<bool> openTerminal(String path) async => true;
+}
+
 final RepoIdentity _identity = RepoIdentity.forWorkDir('/test/repo');
 
 class _NoTerminal extends DesktopLauncher {
@@ -54,5 +61,29 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a terminal that starts is one info line', (tester) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: _identity,
+      overrides: <Override>[
+        desktopLauncherProvider.overrideWithValue(const _Terminal()),
+      ],
+    );
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.backquote);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.backquote);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+
+    final List<GbmLogEntry> lines = pumped.controller.state.operationLog
+        .whereType<AppLogEntry>()
+        .toList();
+    expect(lines.map((GbmLogEntry e) => e.message), <String>[
+      'Opened a terminal in /test/repo',
+    ]);
+    expect(lines.single.level, OperationLogLevel.info);
   });
 }

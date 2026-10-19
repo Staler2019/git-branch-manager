@@ -29,16 +29,6 @@ void main() {
     expect(controller.state.operationLogRevision, 1);
   }
 
-  test('recordTerminalNotFound', () {
-    controller.recordTerminalNotFound();
-    expectOneError('No terminal emulator was found');
-  });
-
-  test('recordExternalAppFailed', () {
-    controller.recordExternalAppFailed(label: 'Rider', detail: 'boom');
-    expectOneError('Could not run "Rider": boom');
-  });
-
   test('recordExportFailed', () {
     controller.recordExportFailed(path: 'a.txt', detail: 'boom');
     expectOneError('Could not export a.txt: boom');

@@ -170,27 +170,6 @@ void main() {
   // (open-with-apps-spec.html, screen 3). Every one is error level, because
   // only an error lights the status bar's summary.
   group('user-triggered failures', () {
-    test('terminalNotFound', () {
-      final AppLogEntry entry = AppLogEvents.terminalNotFound(atEpochMs: 3);
-      expect(entry.message, 'No terminal emulator was found');
-      expect(entry.level, OperationLogLevel.error);
-      expect(entry.whenEpochMs, 3);
-    });
-
-    test('externalAppFailed names the app and quotes the detail', () {
-      final AppLogEntry entry = AppLogEvents.externalAppFailed(
-        label: 'Rider',
-        detail: 'zsh:1: command not found: rider',
-        atEpochMs: 4,
-      );
-      expect(
-        entry.message,
-        'Could not run "Rider": zsh:1: command not found: rider',
-      );
-      expect(entry.level, OperationLogLevel.error);
-      expect(entry.whenEpochMs, 4);
-    });
-
     test('exportFailed names the file', () {
       final AppLogEntry entry = AppLogEvents.exportFailed(
         path: 'lib/a.dart',

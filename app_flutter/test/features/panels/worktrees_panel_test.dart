@@ -1404,7 +1404,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(launcher.terminals, <String>['/src/wt/gbm-lfs']);
       expect(launcher.apps, isEmpty);
-      expect(pumped.fake.state.operationLog, isEmpty);
+      // Ruling R4: every action writes its line, a success included.
+      expect(
+        pumped.fake.state.operationLog.map((GbmLogEntry e) => e.message),
+        <String>['Opened a terminal in /src/wt/gbm-lfs'],
+      );
     });
 
     // It used to drop openTerminal's false on the floor.
@@ -1458,7 +1462,10 @@ void main() {
       await tester.tap(find.text('VS Code'));
       await tester.pumpAndSettle();
       expect(launcher.apps, <(String, String)>[('VS Code', '/src/wt/gbm-lfs')]);
-      expect(pumped.fake.state.operationLog, isEmpty);
+      expect(
+        pumped.fake.state.operationLog.map((GbmLogEntry e) => e.message),
+        <String>['Opened /src/wt/gbm-lfs with "VS Code"'],
+      );
     });
 
     testWidgets('a failed launch is logged, naming the entry (D3)', (

@@ -2276,23 +2276,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Logs a failure of the user's own click that used to be a SnackBar
   /// (open-with-apps-spec.html, screen 3). The status bar's summary reads it
-  /// back through `operationLogRevision`.
-  void recordTerminalNotFound() =>
-      _appendAppLog(AppLogEvents.terminalNotFound(atEpochMs: _nowEpochMs()));
-
-  /// See [recordTerminalNotFound].
-  void recordExternalAppFailed({
-    required String label,
-    required String detail,
-  }) => _appendAppLog(
-    AppLogEvents.externalAppFailed(
-      label: label,
-      detail: detail,
-      atEpochMs: _nowEpochMs(),
-    ),
-  );
-
-  /// See [recordTerminalNotFound].
+  /// back through `operationLogRevision`. Opening a terminal or an external
+  /// app goes through `AppActionRunner` and [recordAppLog] instead.
   void recordExportFailed({required String path, required String detail}) =>
       _appendAppLog(
         AppLogEvents.exportFailed(
@@ -2302,12 +2287,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         ),
       );
 
-  /// See [recordTerminalNotFound].
+  /// See [recordExportFailed].
   void recordLogSaveFailed({required String detail}) => _appendAppLog(
     AppLogEvents.logSaveFailed(detail: detail, atEpochMs: _nowEpochMs()),
   );
 
-  /// See [recordTerminalNotFound].
+  /// See [recordExportFailed].
   void recordRepositoryInitFailed({
     required String path,
     required String detail,

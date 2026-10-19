@@ -27,6 +27,8 @@ import '../../data/repositories/panel_layout_repository.dart';
 import '../../data/repositories/deferred_prune_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -1449,14 +1451,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// only user-initiated failures needing a decision open a window -- and
   /// not a toast either (P10 #3); the status bar's red summary is what the
   /// user sees. ~~It showed a SnackBar while this comment said the log.~~
-  Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) async {
-    final bool started = await ref
-        .read(desktopLauncherProvider)
-        .openTerminal(identity.workDir);
-    if (!started && mounted) {
-      ref.read(repoSessionProvider(identity).notifier).recordTerminalNotFound();
-    }
-  }
+  /// Through [AppActionRunner], so a success is an info line (ruling R4).
+  Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openTerminalAction(ref.read(desktopLauncherProvider), identity.workDir),
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+      );
 
   /// Branch → Rename current branch…. Uses the same `promptText` field the
   /// sidebar's own rename uses, so the two entry points behave identically.

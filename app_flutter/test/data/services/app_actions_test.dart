@@ -123,4 +123,40 @@ void main() {
       );
     });
   });
+
+  group('exportFileAtRevisionAction', () {
+    test('a written file is one info line naming both paths', () async {
+      int calls = 0;
+      final AppAction<void> action = exportFileAtRevisionAction(
+        path: 'lib/main.dart',
+        destPath: '/tmp/main-abc.dart',
+        export: () async {
+          calls++;
+          return null;
+        },
+      );
+      expect(action.name, 'exportFileAtRevision');
+      expect(action.cancellable, isFalse);
+      final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+        action,
+      );
+      expect(calls, 1);
+      expect(outcome, isA<AppActionSucceeded<void>>());
+      expect(line.level, OperationLogLevel.info);
+      expect(line.message, 'Exported lib/main.dart to /tmp/main-abc.dart');
+    });
+
+    test('a failed export is the error line it always was', () async {
+      final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+        exportFileAtRevisionAction(
+          path: 'lib/main.dart',
+          destPath: '/tmp/main-abc.dart',
+          export: () async => 'nope',
+        ),
+      );
+      expect(outcome, isA<AppActionFailed<void>>());
+      expect(line.level, OperationLogLevel.error);
+      expect(line.message, 'Could not export lib/main.dart: nope');
+    });
+  });
 }

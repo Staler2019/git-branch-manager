@@ -332,6 +332,13 @@ void main() {
       );
       expect(exported.args['destPath'], '/chosen/somewhere/main.dart');
       expect(exported.args['revision'], 'abc123');
+      // Ruling R4: the export is an action, and a success is logged too.
+      expect(
+        pumped.controller.state.operationLog.whereType<AppLogEntry>().map(
+          (GbmLogEntry e) => e.message,
+        ),
+        <String>['Exported lib/main.dart to /chosen/somewhere/main.dart'],
+      );
     },
   );
 

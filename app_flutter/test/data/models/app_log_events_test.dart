@@ -170,17 +170,6 @@ void main() {
   // (open-with-apps-spec.html, screen 3). Every one is error level, because
   // only an error lights the status bar's summary.
   group('user-triggered failures', () {
-    test('exportFailed names the file', () {
-      final AppLogEntry entry = AppLogEvents.exportFailed(
-        path: 'lib/a.dart',
-        detail: 'path not in tree',
-        atEpochMs: 5,
-      );
-      expect(entry.message, 'Could not export lib/a.dart: path not in tree');
-      expect(entry.level, OperationLogLevel.error);
-      expect(entry.whenEpochMs, 5);
-    });
-
     test('logSaveFailed', () {
       final AppLogEntry entry = AppLogEvents.logSaveFailed(
         detail: 'Permission denied',

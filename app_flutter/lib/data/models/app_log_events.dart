@@ -156,21 +156,9 @@ abstract final class AppLogEvents {
   // These replaced SnackBars: P10 #3 「不使用會自動消失的 toast——錯誤必須
   // 留到使用者看過」 (open-with-apps-spec.html, screen 3). All are error
   // level, because only an unread error lights the status bar's summary.
-  // Opening a terminal or an external app moved to app_actions.dart's
-  // factories, which own both their success and failure wording.
-
-  /// A file at a revision could not be written out (Open / Save as…).
-  static AppLogEntry exportFailed({
-    required String path,
-    required String detail,
-    required int atEpochMs,
-  }) {
-    return AppLogEntry(
-      whenEpochMs: atEpochMs,
-      level: OperationLogLevel.error,
-      message: 'Could not export $path: $detail',
-    );
-  }
+  // Opening a terminal or an external app, and exporting a file, moved to
+  // app_actions.dart's factories, which own both their success and failure
+  // wording.
 
   /// The log drawer's Save as… could not write its file.
   static AppLogEntry logSaveFailed({

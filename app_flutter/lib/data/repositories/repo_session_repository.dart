@@ -2277,22 +2277,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Logs a failure of the user's own click that used to be a SnackBar
   /// (open-with-apps-spec.html, screen 3). The status bar's summary reads it
   /// back through `operationLogRevision`. Opening a terminal or an external
-  /// app goes through `AppActionRunner` and [recordAppLog] instead.
-  void recordExportFailed({required String path, required String detail}) =>
-      _appendAppLog(
-        AppLogEvents.exportFailed(
-          path: path,
-          detail: detail,
-          atEpochMs: _nowEpochMs(),
-        ),
-      );
-
-  /// See [recordExportFailed].
+  /// app, and exporting a file, go through `AppActionRunner` and
+  /// [recordAppLog] instead.
   void recordLogSaveFailed({required String detail}) => _appendAppLog(
     AppLogEvents.logSaveFailed(detail: detail, atEpochMs: _nowEpochMs()),
   );
 
-  /// See [recordExportFailed].
+  /// See [recordLogSaveFailed].
   void recordRepositoryInitFailed({
     required String path,
     required String detail,
@@ -3263,6 +3254,30 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       malloc.free(pathPtr);
       malloc.free(destPtr);
     }
+  }
+
+  /// [exportFileAtRevision] as a Future of its reply, matched by
+  /// [destPath], for an action that has to log the outcome.
+  ///
+  /// Listens *before* requesting, because a reply can arrive synchronously
+  /// (it does under the test fake). Never completes if this controller is
+  /// disposed or has no native session before the reply arrives -- there is
+  /// then no Log left to write the outcome to.
+  Future<FileAtRevisionExport> exportFileAtRevisionAwaiting({
+    required String revision,
+    required String path,
+    required String destPath,
+  }) {
+    final Completer<FileAtRevisionExport> reply =
+        Completer<FileAtRevisionExport>();
+    final RemoveListener stop = addListener((RepoSessionState s) {
+      final FileAtRevisionExport? export = s.lastFileAtRevisionExport;
+      if (export != null && export.destPath == destPath && !reply.isCompleted) {
+        reply.complete(export);
+      }
+    }, fireImmediately: false);
+    exportFileAtRevision(revision: revision, path: path, destPath: destPath);
+    return reply.future.whenComplete(stop);
   }
 
   void requestWorkingTreeContent(String path) {

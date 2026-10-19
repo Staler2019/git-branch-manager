@@ -29,11 +29,6 @@ void main() {
     expect(controller.state.operationLogRevision, 1);
   }
 
-  test('recordExportFailed', () {
-    controller.recordExportFailed(path: 'a.txt', detail: 'boom');
-    expectOneError('Could not export a.txt: boom');
-  });
-
   test('recordLogSaveFailed', () {
     controller.recordLogSaveFailed(detail: 'boom');
     expectOneError('Could not save the log: boom');

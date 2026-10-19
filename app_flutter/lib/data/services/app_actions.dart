@@ -61,3 +61,35 @@ AppAction<void> openExternalAppAction(
   },
   describeCancelled: () => 'Cancelled opening $path with "${app.label}"',
 );
+
+/// [export] failed; [message] is why.
+final class FileExportException implements Exception {
+  const FileExportException(this.message);
+
+  final String message;
+}
+
+/// History's 05-K "Open file at this revision" / "Save this revision as…".
+///
+/// [export] writes [path] to [destPath] and resolves to null on success or
+/// to the reason it failed -- a closure, so this file depends on no session
+/// type. Not cancellable: the capi request cannot be withdrawn.
+AppAction<void> exportFileAtRevisionAction({
+  required String path,
+  required String destPath,
+  required Future<String?> Function() export,
+}) => AppAction<void>(
+  name: 'exportFileAtRevision',
+  cancellable: false,
+  body: (_) async {
+    final String? failure = await export();
+    if (failure != null) throw FileExportException(failure);
+  },
+  describeSuccess: (_) => 'Exported $path to $destPath',
+  describeFailure: (Exception error) => switch (error) {
+    FileExportException(:final String message) =>
+      'Could not export $path: $message',
+    _ => 'Could not export $path: $error',
+  },
+  describeCancelled: () => 'Cancelled exporting $path',
+);

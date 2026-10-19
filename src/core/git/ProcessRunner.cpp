@@ -3,6 +3,7 @@
 #include "core/base/PosixPipe.h"
 #include "core/base/ThreadCheck.h"
 #include "core/base/WinHandleList.h"
+#include "core/git/AskpassHelper.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/OperationId.h"
 #include "core/git/TextTraits.h"
@@ -67,6 +68,18 @@ bool isGitTraceEnvName(std::basic_string_view<Char> name, bool foldCase) {
     constexpr std::string_view kCurlVerbose = "GIT_CURL_VERBOSE";
     return startsWith("GIT_TRACE") ||
            (name.size() == kCurlVerbose.size() && startsWith(kCurlVerbose));
+}
+
+/// The askpass request directory askpass::wire() gave this command, or empty.
+/// Read back out of envOverrides rather than carried in a field of its own:
+/// that variable is the one thing the git child and this runner both see.
+std::filesystem::path askpassDirOf(const GitCommand& command) {
+    for (const auto& [key, value] : command.envOverrides) {
+        if (key == askpass::kDirEnvVar) {
+            return fsutil::pathFromUtf8(value);
+        }
+    }
+    return {};
 }
 
 using Clock = std::chrono::steady_clock;
@@ -251,6 +264,7 @@ public:
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
               std::chrono::milliseconds idleTimeout,
+              const std::filesystem::path& askpassDir,
               bool* timedOut,
               bool* sinkStopped) {
         std::vector<char> buffer(kReadBufferSize);
@@ -300,6 +314,14 @@ public:
                                                lastProgress + idleTimeout - Clock::now())
                                                .count();
                 if (idleRemaining <= 0) {
+                    // A credential prompt is a human typing, and git writes
+                    // nothing while it waits: the silence is not a hang.
+                    // Checked only once the deadline is up, so a busy child
+                    // never pays for the stat.
+                    if (askpass::isPromptPending(askpassDir)) {
+                        lastProgress = Clock::now();
+                        continue;
+                    }
                     *timedOut = true;
                     terminate();
                     break;
@@ -662,6 +684,7 @@ public:
               const std::string* stdinData,
               std::chrono::milliseconds timeout,
               std::chrono::milliseconds idleTimeout,
+              const std::filesystem::path& askpassDir,
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
@@ -753,52 +776,59 @@ public:
                 pumpThread = nullptr;
             }
             if (pumpDone != nullptr && pumpThread != nullptr) {
-                deadlineThread = std::thread([this, pumpDone, pumpThread, timeout, idleTimeout] {
-                    // Waits in slices rather than one long wait, because the idle
-                    // deadline moves: every byte the pump reads pushes it out. A
-                    // slice ends either at the total deadline or at the earliest
-                    // moment the idle one *could* expire, so a quiet child is
-                    // noticed within one slice and a busy one is never disturbed.
-                    //
-                    // The pump publishes progress by storing a timestamp, not by
-                    // signalling an event: a per-read `SetEvent` would put a
-                    // syscall in the hot read path, and bulk output is exactly
-                    // where that would be paid the most. Polling costs nothing
-                    // there -- this thread does the work instead.
-                    const auto started = nowMs();
-                    for (;;) {
-                        std::int64_t sliceMs = 50;
-                        if (timeout.count() > 0) {
-                            const std::int64_t left = timeout.count() - (nowMs() - started);
-                            if (left <= 0) {
-                                break;
+                deadlineThread =
+                    std::thread([this, pumpDone, pumpThread, timeout, idleTimeout, askpassDir] {
+                        // Waits in slices rather than one long wait, because the idle
+                        // deadline moves: every byte the pump reads pushes it out. A
+                        // slice ends either at the total deadline or at the earliest
+                        // moment the idle one *could* expire, so a quiet child is
+                        // noticed within one slice and a busy one is never disturbed.
+                        //
+                        // The pump publishes progress by storing a timestamp, not by
+                        // signalling an event: a per-read `SetEvent` would put a
+                        // syscall in the hot read path, and bulk output is exactly
+                        // where that would be paid the most. Polling costs nothing
+                        // there -- this thread does the work instead.
+                        const auto started = nowMs();
+                        for (;;) {
+                            std::int64_t sliceMs = 50;
+                            if (timeout.count() > 0) {
+                                const std::int64_t left = timeout.count() - (nowMs() - started);
+                                if (left <= 0) {
+                                    break;
+                                }
+                                sliceMs = std::min<std::int64_t>(sliceMs, left);
                             }
-                            sliceMs = std::min<std::int64_t>(sliceMs, left);
-                        }
-                        if (idleTimeout.count() > 0) {
-                            const std::int64_t left =
-                                idleTimeout.count() - (nowMs() - lastProgress_.load());
-                            if (left <= 0) {
-                                break;
+                            if (idleTimeout.count() > 0) {
+                                const std::int64_t left =
+                                    idleTimeout.count() - (nowMs() - lastProgress_.load());
+                                if (left <= 0) {
+                                    // See the POSIX pump: a waiting credential
+                                    // prompt is not a hung child.
+                                    if (askpass::isPromptPending(askpassDir)) {
+                                        lastProgress_.store(nowMs());
+                                        continue;
+                                    }
+                                    break;
+                                }
+                                sliceMs = std::min<std::int64_t>(sliceMs, left);
                             }
-                            sliceMs = std::min<std::int64_t>(sliceMs, left);
+                            if (::WaitForSingleObject(pumpDone,
+                                                      static_cast<DWORD>(std::max<std::int64_t>(
+                                                          sliceMs, 1))) != WAIT_TIMEOUT) {
+                                return;  // The pump finished first; nothing to do.
+                            }
                         }
-                        if (::WaitForSingleObject(
-                                pumpDone, static_cast<DWORD>(std::max<std::int64_t>(sliceMs, 1))) !=
-                            WAIT_TIMEOUT) {
-                            return;  // The pump finished first; nothing to do.
+                        timedOut_.store(true);
+                        terminate();
+                        // Retried for the reason cancelBlockedIoAndJoin retries
+                        // it: `CancelSynchronousIo` answers ERROR_NOT_FOUND when
+                        // the target is not inside an I/O call *yet*. Bounded by
+                        // the event, which the pump sets on its way out.
+                        while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
+                            ::CancelSynchronousIo(pumpThread);
                         }
-                    }
-                    timedOut_.store(true);
-                    terminate();
-                    // Retried for the reason cancelBlockedIoAndJoin retries
-                    // it: `CancelSynchronousIo` answers ERROR_NOT_FOUND when
-                    // the target is not inside an I/O call *yet*. Bounded by
-                    // the event, which the pump sets on its way out.
-                    while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
-                        ::CancelSynchronousIo(pumpThread);
-                    }
-                });
+                    });
             }
         }
 
@@ -1112,6 +1142,7 @@ private:
                     command.stdinData ? &*command.stdinData : nullptr,
                     deadlines.total,
                     deadlines.idle,
+                    askpassDirOf(command),
                     &result.timedOut,
                     &sinkStopped);
 

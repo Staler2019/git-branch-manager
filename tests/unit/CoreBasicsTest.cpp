@@ -1546,5 +1546,24 @@ TEST(Askpass, ClientRefusesARequestDirectoryThatDoesNotExist) {
     std::filesystem::remove_all(dir);
 }
 
+TEST(Askpass, APromptIsPendingOnlyUntilItIsAnsweredOrCancelled) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "no request yet";
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kRequestFile, "Password: "));
+    EXPECT_TRUE(askpass::isPromptPending(dir));
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "s3cret"));
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "answered";
+
+    std::filesystem::remove(dir / std::string(askpass::kResponseFile));
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kCancelFile, "x"));
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "cancelled";
+
+    EXPECT_FALSE(askpass::isPromptPending({})) << "no askpass directory at all";
+    std::filesystem::remove_all(dir);
+}
+
 }  // namespace
 }  // namespace gbm

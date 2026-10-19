@@ -19,6 +19,11 @@ inline constexpr std::string_view kRequestFile = "request";
 inline constexpr std::string_view kResponseFile = "response";
 inline constexpr std::string_view kCancelFile = "cancel";
 
+/// The environment variable wire() uses to tell the askpass child where its
+/// request directory is; ProcessRunner reads it back out of envOverrides to
+/// know which directory to watch for a pending prompt.
+inline constexpr std::string_view kDirEnvVar = "GBM_ASKPASS_DIR";
+
 /// How long the askpass child waits for an answer before giving up and failing
 /// the git invocation. Generous, because the human might be looking something
 /// up (a password manager, a hardware key), but not unbounded: an abandoned
@@ -52,6 +57,12 @@ std::filesystem::path makeRequestDir();
 bool writeHandshakeFile(const std::filesystem::path& dir,
                         std::string_view fileName,
                         std::string_view content);
+
+/// Whether a credential prompt in `dir` is waiting for the user: the client
+/// has written `kRequestFile` and neither an answer nor a cancel has arrived.
+/// git writes nothing while it waits, so ProcessRunner suspends a command's
+/// idle deadline for as long as this holds. False for an empty `dir`.
+bool isPromptPending(const std::filesystem::path& dir);
 
 /// The askpass client's core, taking the request directory and prompt
 /// directly rather than reading them from argv/the environment -- this is what

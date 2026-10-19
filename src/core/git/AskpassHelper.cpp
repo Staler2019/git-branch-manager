@@ -37,7 +37,7 @@ void wire(GitCommand& command, const std::filesystem::path& dir) {
     command.envOverrides.emplace_back("SSH_ASKPASS_REQUIRE", "force");
     command.envOverrides.emplace_back("DISPLAY", ":0");
     command.envOverrides.emplace_back("GBM_ASKPASS_MODE", "1");
-    command.envOverrides.emplace_back("GBM_ASKPASS_DIR", fsutil::utf8FromPath(dir));
+    command.envOverrides.emplace_back(std::string(kDirEnvVar), fsutil::utf8FromPath(dir));
 }
 
 std::filesystem::path makeRequestDir() {
@@ -124,6 +124,16 @@ bool writeHandshakeFile(const std::filesystem::path& dir,
     std::error_code ec;
     std::filesystem::rename(tmp, target, ec);
     return !ec;
+}
+
+bool isPromptPending(const std::filesystem::path& dir) {
+    if (dir.empty()) {
+        return false;
+    }
+    std::error_code ec;
+    return std::filesystem::exists(dir / std::string(kRequestFile), ec) &&
+           !std::filesystem::exists(dir / std::string(kResponseFile), ec) &&
+           !std::filesystem::exists(dir / std::string(kCancelFile), ec);
 }
 
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt) {

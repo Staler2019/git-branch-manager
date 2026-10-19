@@ -70,7 +70,10 @@ class _CredentialDialogContentState
               .select((state) => state.credentialPrompt),
         ) ??
         '';
-    final bool obscure = prompt.toLowerCase().contains('password');
+    // Masked unless this is git's own Username prompt. Matching "password"
+    // instead left an SSH key passphrase ("Enter passphrase for key …") in
+    // plain sight; a prompt nobody recognises is safer hidden.
+    final bool obscure = !prompt.startsWith('Username for');
 
     return GbmDialogShell(
       title: 'Credentials Required',

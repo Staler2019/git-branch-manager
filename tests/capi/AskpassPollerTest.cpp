@@ -176,5 +176,24 @@ TEST(AskpassPollerTest, SecondPromptInTheSameDirectoryIsDetectedAfterTheFirstIsA
     poller.stop();
 }
 
+#ifndef _WIN32
+TEST(AskpassPollerTest, TheAnswerIsWrittenOwnerOnly) {
+    // No client consumes it here, so the file is still there to inspect.
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    AskpassPoller poller;
+    poller.start(dir, [](std::string) {});
+
+    poller.answer("hunter2");
+
+    const auto file = dir / std::string(askpass::kResponseFile);
+    ASSERT_TRUE(std::filesystem::exists(file));
+    const auto perms = std::filesystem::status(file).permissions();
+    EXPECT_EQ(perms & std::filesystem::perms::all,
+              std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+    poller.stop();
+}
+#endif
+
 }  // namespace
 }  // namespace gbm::capi

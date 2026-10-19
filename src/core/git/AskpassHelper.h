@@ -36,11 +36,22 @@ inline constexpr auto kResponseTimeout = std::chrono::minutes(10);
 /// cleanly on an auth prompt, since GIT_TERMINAL_PROMPT is always 0).
 void wire(GitCommand& command, const std::filesystem::path& dir);
 
-/// Creates a fresh, empty per-request directory under the system temp
-/// directory. Returns an empty path on failure (out of disk space, no temp
-/// directory), in which case the caller should proceed without askpass wiring
-/// rather than fail the whole operation over a UI nicety.
+/// Creates a fresh, empty, owner-only per-request directory under the system
+/// temp directory -- `mkdtemp` on POSIX (0700, unpredictable name, never an
+/// existing directory), since on Linux that is the shared /tmp. Returns an
+/// empty path on failure (out of disk space, no temp directory), in which case
+/// the caller should proceed without askpass wiring rather than fail the whole
+/// operation over a UI nicety.
 std::filesystem::path makeRequestDir();
+
+/// Writes one handshake file (`kRequestFile`, `kResponseFile` or
+/// `kCancelFile`) into `dir`: owner read/write only (0600 on POSIX; on
+/// Windows the per-user %TEMP% ACL), and atomically, through a temp file and
+/// a same-directory rename, so the polling side never reads it half written.
+/// Replaces an earlier file of the same name. Returns false on any failure.
+bool writeHandshakeFile(const std::filesystem::path& dir,
+                        std::string_view fileName,
+                        std::string_view content);
 
 /// The askpass client's core, taking the request directory and prompt
 /// directly rather than reading them from argv/the environment -- this is what

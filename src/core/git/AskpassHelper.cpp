@@ -10,6 +10,12 @@
 #include <string>
 #include <thread>
 
+#ifndef _WIN32
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
+
 namespace gbm::askpass {
 
 void wire(GitCommand& command, const std::filesystem::path& dir) {
@@ -40,39 +46,93 @@ std::filesystem::path makeRequestDir() {
     if (ec) {
         return {};
     }
-    static std::atomic<std::uint64_t> counter{0};
-    const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto dir =
-        base / ("gbm-askpass-" + std::to_string(now) + "-" + std::to_string(counter.fetch_add(1)));
-    std::filesystem::create_directories(dir, ec);
-    if (ec) {
+#ifndef _WIN32
+    // mkdtemp: an unpredictable name, created 0700, and failing rather than
+    // reusing a directory that already exists. On Linux the base is the
+    // shared /tmp, and the response file in here is the user's password.
+    std::string pattern = fsutil::utf8FromPath(base / "gbm-askpass-XXXXXX");
+    if (::mkdtemp(pattern.data()) == nullptr) {
         return {};
     }
-    return dir;
+    return fsutil::pathFromUtf8(pattern);
+#else
+    // %TEMP% is already per-user with an owner-only ACL. create_directory()
+    // reports an existing directory as `false`, never reused.
+    static std::atomic<std::uint64_t> counter{0};
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const auto now = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto dir = base / ("gbm-askpass-" + std::to_string(now) + "-" +
+                                 std::to_string(counter.fetch_add(1)));
+        if (std::filesystem::create_directory(dir, ec)) {
+            return dir;
+        }
+        if (ec) {
+            return {};
+        }
+    }
+    return {};
+#endif
+}
+
+bool writeHandshakeFile(const std::filesystem::path& dir,
+                        std::string_view fileName,
+                        std::string_view content) {
+    // Written to a temp file and renamed into place: the other side polls for
+    // the file's mere existence, so a direct write would let it read a
+    // truncated or empty prompt or secret. A same-directory rename is atomic
+    // on every platform this app targets.
+    const std::filesystem::path target = dir / std::string(fileName);
+    const std::filesystem::path tmp = dir / (std::string(fileName) + ".tmp");
+#ifndef _WIN32
+    // 0600 from the moment it exists; O_NOFOLLOW so a planted link is never
+    // written through.
+    const int fd = ::open(fsutil::utf8FromPath(tmp).c_str(),
+                          O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+                          0600);
+    if (fd < 0) {
+        return false;
+    }
+    const char* data = content.data();
+    std::size_t left = content.size();
+    while (left > 0) {
+        const ssize_t written = ::write(fd, data, left);
+        if (written < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            ::close(fd);
+            return false;
+        }
+        data += written;
+        left -= static_cast<std::size_t>(written);
+    }
+    if (::close(fd) != 0) {
+        return false;
+    }
+#else
+    {
+        std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            return false;
+        }
+        out.write(content.data(), static_cast<std::streamsize>(content.size()));
+        if (!out) {
+            return false;
+        }
+    }
+#endif
+    std::error_code ec;
+    std::filesystem::rename(tmp, target, ec);
+    return !ec;
 }
 
 int runClientForDir(const std::filesystem::path& dir, const std::string& prompt) {
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    // Written to a temp file and renamed into place rather than written
-    // directly to kRequestFile: the app-side watcher (AskpassWatcher /
-    // capi::AskpassPoller) polls for kRequestFile's mere existence, so a
-    // direct write would let it observe the file after creation but before
-    // `prompt` is fully flushed, reading a truncated or empty prompt. A
-    // same-directory rename is atomic on every platform this app targets,
-    // so the watcher only ever sees kRequestFile fully written or not at
+    // The app-side watcher (capi::AskpassPoller) polls for kRequestFile's
+    // mere existence; writeHandshakeFile() makes it appear whole or not at
     // all.
-    const std::filesystem::path requestPath = dir / std::string(kRequestFile);
-    const std::filesystem::path tmpPath = dir / (std::string(kRequestFile) + ".tmp");
-    {
-        std::ofstream request(tmpPath, std::ios::binary | std::ios::trunc);
-        if (!request) {
-            return 1;
-        }
-        request << prompt;
-    }
-    std::filesystem::rename(tmpPath, requestPath, ec);
-    if (ec) {
+    if (!writeHandshakeFile(dir, kRequestFile, prompt)) {
         return 1;
     }
 

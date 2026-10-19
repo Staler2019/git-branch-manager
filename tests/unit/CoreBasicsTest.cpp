@@ -1405,5 +1405,81 @@ TEST(Askpass, ClientPrintsTheAnswerOnceAResponseArrives) {
     std::filesystem::remove_all(dir);
 }
 
+// --- askpass handshake files are the user's secret (security review P2-B) -
+//
+// The response file holds a password or token. On Linux the request
+// directory lives in the shared /tmp, so both it and the files in it must be
+// unreadable to anyone but the owner, and the directory must be a fresh one
+// no other user could have planted under a predictable name.
+
+#ifndef _WIN32
+TEST(Askpass, TheRequestDirectoryIsFreshAndOwnerOnly) {
+    const auto first = askpass::makeRequestDir();
+    const auto second = askpass::makeRequestDir();
+    ASSERT_FALSE(first.empty());
+    ASSERT_FALSE(second.empty());
+
+    EXPECT_NE(first, second);
+    const auto perms = std::filesystem::status(first).permissions();
+    EXPECT_EQ(perms & std::filesystem::perms::all, std::filesystem::perms::owner_all)
+        << "group/other must have no access to the request directory";
+
+    std::filesystem::remove_all(first);
+    std::filesystem::remove_all(second);
+}
+#endif
+
+TEST(Askpass, AHandshakeFileIsWrittenWholeAndOwnerOnly) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "s3cret"));
+
+    const auto file = dir / std::string(askpass::kResponseFile);
+    EXPECT_EQ(fsutil::readSmallFile(file), std::optional<std::string>("s3cret"));
+#ifndef _WIN32
+    const auto perms = std::filesystem::status(file).permissions();
+    EXPECT_EQ(perms & std::filesystem::perms::all,
+              std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+#endif
+    std::size_t entries = 0;
+    for ([[maybe_unused]] const auto& entry : std::filesystem::directory_iterator(dir)) {
+        ++entries;
+    }
+    EXPECT_EQ(entries, 1u) << "the temporary file is renamed into place, not left behind";
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, AStaleTemporaryFileDoesNotLeakIntoTheAnswer) {
+    // A writer that died between its write and its rename leaves `.tmp`
+    // behind; the next write must not inherit its tail.
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    {
+        std::ofstream stale(dir / (std::string(askpass::kResponseFile) + ".tmp"), std::ios::binary);
+        stale << "a-much-longer-stale-answer";
+    }
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "fresh"));
+
+    EXPECT_EQ(fsutil::readSmallFile(dir / std::string(askpass::kResponseFile)),
+              std::optional<std::string>("fresh"));
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, AHandshakeFileReplacesAnEarlierOne) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    ASSERT_TRUE(
+        askpass::writeHandshakeFile(dir, askpass::kResponseFile, "a-much-longer-first-answer"));
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "second"));
+
+    EXPECT_EQ(fsutil::readSmallFile(dir / std::string(askpass::kResponseFile)),
+              std::optional<std::string>("second"));
+    std::filesystem::remove_all(dir);
+}
+
 }  // namespace
 }  // namespace gbm

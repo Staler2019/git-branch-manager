@@ -4,7 +4,6 @@
 #include "core/git/AskpassHelper.h"
 
 #include <chrono>
-#include <fstream>
 
 namespace gbm::capi {
 
@@ -94,9 +93,7 @@ void AskpassPoller::answer(const std::string& secret) {
     if (dir.empty()) {
         return;
     }
-    std::ofstream out(dir / std::string(askpass::kResponseFile),
-                      std::ios::binary | std::ios::trunc);
-    out << secret;
+    askpass::writeHandshakeFile(dir, askpass::kResponseFile, secret);
 }
 
 void AskpassPoller::cancelPrompt() {
@@ -108,8 +105,7 @@ void AskpassPoller::cancelPrompt() {
     if (dir.empty()) {
         return;
     }
-    std::ofstream out(dir / std::string(askpass::kCancelFile), std::ios::binary | std::ios::trunc);
-    out << "x";
+    askpass::writeHandshakeFile(dir, askpass::kCancelFile, "x");
 }
 
 }  // namespace gbm::capi

@@ -29,11 +29,6 @@ void main() {
     expect(controller.state.operationLogRevision, 1);
   }
 
-  test('recordRepositoryInitFailed', () {
-    controller.recordRepositoryInitFailed(path: '/x', detail: 'boom');
-    expectOneError('Could not create a repository at /x: boom');
-  });
-
   test('recordAppLog appends the entry as given', () {
     controller.recordAppLog(
       const AppLogEntry(

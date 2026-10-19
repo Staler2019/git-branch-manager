@@ -206,4 +206,35 @@ void main() {
       );
     });
   });
+
+  group('initRepositoryAction', () {
+    test('a created repository is one info line naming the path', () async {
+      int calls = 0;
+      final AppAction<void> action = initRepositoryAction(
+        path: '/repos/new',
+        init: () {
+          calls++;
+          return null;
+        },
+      );
+      expect(action.name, 'initRepository');
+      expect(action.cancellable, isFalse);
+      final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+        action,
+      );
+      expect(calls, 1);
+      expect(outcome, isA<AppActionSucceeded<void>>());
+      expect(line.level, OperationLogLevel.info);
+      expect(line.message, 'Created a repository at /repos/new');
+    });
+
+    test('a failed init is the error line it always was', () async {
+      final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+        initRepositoryAction(path: '/repos/x', init: () => 'boom'),
+      );
+      expect(outcome, isA<AppActionFailed<void>>());
+      expect(line.level, OperationLogLevel.error);
+      expect(line.message, 'Could not create a repository at /repos/x: boom');
+    });
+  });
 }

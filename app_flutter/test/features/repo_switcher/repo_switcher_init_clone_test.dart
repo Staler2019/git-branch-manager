@@ -17,6 +17,7 @@ import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:go_router/go_router.dart';
 
 class _FakeInitCloneBindings implements GbmBindings {
@@ -96,20 +97,15 @@ Future<GoRouter> _pump(
 }
 
 class _NewRepoButton extends ConsumerWidget {
-  const _NewRepoButton({this.failures});
+  const _NewRepoButton({this.lines});
 
-  /// Every `(path, message)` [promptNewRepository] reports as failed.
-  final List<(String, String)>? failures;
+  /// Every line [promptNewRepository]'s action logs.
+  final List<AppLogEntry>? lines;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return ElevatedButton(
-      onPressed: () => promptNewRepository(
-        context,
-        ref,
-        onFailed: (String path, String message) =>
-            failures?.add((path, message)),
-      ),
+      onPressed: () => promptNewRepository(context, ref, sink: lines?.add),
       child: const Text('New'),
     );
   }
@@ -138,9 +134,10 @@ void main() {
       tester,
     ) async {
       final _FakeInitCloneBindings bindings = _FakeInitCloneBindings();
+      final List<AppLogEntry> lines = <AppLogEntry>[];
       final GoRouter router = await _pump(
         tester,
-        const _NewRepoButton(),
+        _NewRepoButton(lines: lines),
         bindings,
       );
 
@@ -151,6 +148,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(bindings.lastInitPath, '/repos/new-project');
+      // Ruling R4: a success is logged too.
+      expect(lines.map((AppLogEntry e) => e.message), <String>[
+        'Created a repository at /repos/new-project',
+      ]);
       expect(
         router.routerDelegate.currentConfiguration.uri.toString(),
         RoutePaths.workspaceFor(Uri.encodeComponent('/repos/new-project')),
@@ -176,7 +177,7 @@ void main() {
     testWidgets('reports the GitError message and stays put when init fails', (
       tester,
     ) async {
-      final List<(String, String)> failures = <(String, String)>[];
+      final List<AppLogEntry> lines = <AppLogEntry>[];
       final _FakeInitCloneBindings bindings = _FakeInitCloneBindings()
         ..initResult = -3
         ..errorJson =
@@ -185,7 +186,7 @@ void main() {
             '"argv":[],"exitCode":0}';
       final GoRouter router = await _pump(
         tester,
-        _NewRepoButton(failures: failures),
+        _NewRepoButton(lines: lines),
         bindings,
       );
 
@@ -195,9 +196,16 @@ void main() {
       await tester.tap(find.text('OK'));
       await tester.pumpAndSettle();
 
-      expect(failures, <(String, String)>[
-        ('/repos/blocked', 'A repository path is required'),
-      ]);
+      expect(
+        lines.map((AppLogEntry e) => (e.level, e.message)),
+        <(OperationLogLevel, String)>[
+          (
+            OperationLogLevel.error,
+            'Could not create a repository at /repos/blocked: '
+                'A repository path is required',
+          ),
+        ],
+      );
       expect(find.byType(SnackBar), findsNothing);
       expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
     });

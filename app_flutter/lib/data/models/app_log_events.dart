@@ -151,27 +151,8 @@ abstract final class AppLogEvents {
     );
   }
 
-  // -- Failures of a user's own click -------------------------------------
-  //
-  // These replaced SnackBars: P10 #3 「不使用會自動消失的 toast——錯誤必須
-  // 留到使用者看過」 (open-with-apps-spec.html, screen 3). All are error
-  // level, because only an unread error lights the status bar's summary.
-  // Opening a terminal or an external app, exporting a file and saving the
-  // log moved to app_actions.dart's factories, which own both their success
-  // and failure wording.
-
-  /// File → New repository… failed. A path, never a URL: Clone's failure is
-  /// deliberately not logged (screen 3, Q4/Q5), since git's message for it
-  /// can quote the remote URL.
-  static AppLogEntry repositoryInitFailed({
-    required String path,
-    required String detail,
-    required int atEpochMs,
-  }) {
-    return AppLogEntry(
-      whenEpochMs: atEpochMs,
-      level: OperationLogLevel.error,
-      message: 'Could not create a repository at $path: $detail',
-    );
-  }
+  // Failures (and successes) of a user's own click -- open a terminal or an
+  // external app, export a file, save the log, create a repository -- are
+  // app actions now: app_actions.dart's factories own their wording and
+  // AppActionRunner writes the line (ruling R4).
 }

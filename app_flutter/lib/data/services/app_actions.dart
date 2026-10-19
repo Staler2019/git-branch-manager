@@ -127,3 +127,34 @@ AppAction<String> saveOperationLogAction({
   },
   describeCancelled: () => 'Cancelled saving the log',
 );
+
+/// [init] failed; [message] is git's reason.
+final class RepositoryInitException implements Exception {
+  const RepositoryInitException(this.message);
+
+  final String message;
+}
+
+/// File → New repository….
+///
+/// [init] runs `gbm_repo_init()` and returns null on success or git's
+/// message -- a closure, so this file depends on no FFI type. Not
+/// cancellable: the call is synchronous.
+AppAction<void> initRepositoryAction({
+  required String path,
+  required String? Function() init,
+}) => AppAction<void>(
+  name: 'initRepository',
+  cancellable: false,
+  body: (_) async {
+    final String? failure = init();
+    if (failure != null) throw RepositoryInitException(failure);
+  },
+  describeSuccess: (_) => 'Created a repository at $path',
+  describeFailure: (Exception error) => switch (error) {
+    RepositoryInitException(:final String message) =>
+      'Could not create a repository at $path: $message',
+    _ => 'Could not create a repository at $path: $error',
+  },
+  describeCancelled: () => 'Cancelled creating a repository at $path',
+);

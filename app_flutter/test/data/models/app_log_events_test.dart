@@ -165,23 +165,6 @@ void main() {
     });
   });
 
-  // Failures a user's own click produced, logged instead of a SnackBar: P10
-  // #3 「不使用會自動消失的 toast——錯誤必須留到使用者看過」
-  // (open-with-apps-spec.html, screen 3). Every one is error level, because
-  // only an error lights the status bar's summary.
-  group('user-triggered failures', () {
-    test('repositoryInitFailed names the path', () {
-      final AppLogEntry entry = AppLogEvents.repositoryInitFailed(
-        path: '/tmp/new',
-        detail: 'already exists',
-        atEpochMs: 7,
-      );
-      expect(
-        entry.message,
-        'Could not create a repository at /tmp/new: already exists',
-      );
-      expect(entry.level, OperationLogLevel.error);
-      expect(entry.whenEpochMs, 7);
-    });
-  });
+  // The user-triggered failures that used to be here are app actions now;
+  // their wording is pinned in test/data/services/app_actions_test.dart.
 }

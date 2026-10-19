@@ -2274,21 +2274,6 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void recordDraftNotSaved() =>
       _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
 
-  /// Logs a failure of the user's own click that used to be a SnackBar
-  /// (open-with-apps-spec.html, screen 3). The status bar's summary reads it
-  /// back through `operationLogRevision`. Every other app action goes
-  /// through `AppActionRunner` and [recordAppLog] instead.
-  void recordRepositoryInitFailed({
-    required String path,
-    required String detail,
-  }) => _appendAppLog(
-    AppLogEvents.repositoryInitFailed(
-      path: path,
-      detail: detail,
-      atEpochMs: _nowEpochMs(),
-    ),
-  );
-
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.

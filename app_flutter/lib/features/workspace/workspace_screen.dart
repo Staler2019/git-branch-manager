@@ -891,9 +891,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.fileNewRepository: () => promptNewRepository(
         context,
         ref,
-        onFailed: (String path, String message) => ref
-            .read(repoSessionProvider(identity).notifier)
-            .recordRepositoryInitFailed(path: path, detail: message),
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
       ),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
       GbmActionId.fileCloneRepository: () =>

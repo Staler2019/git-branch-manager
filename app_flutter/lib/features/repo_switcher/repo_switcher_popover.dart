@@ -40,6 +40,9 @@ import '../../widgets/gbm_menu.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../../routing/dialog_route.dart';
+import '../../data/models/app_action_outcome.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 
 /// Minimum popover width. The spec has the popover follow the sidebar's
 /// width; below this the repository names stop being readable, so a narrow
@@ -215,13 +218,14 @@ Future<void> promptOpenRepository(
 /// through, so this reaches `gbm_repo_init()` directly via
 /// `gbmBindingsProvider`.
 ///
-/// A failure goes to [onFailed] with the path and git's message; File → New
-/// repository… logs it as an error line, which lights the status bar's red
-/// summary (P10 #3, open-with-apps-spec.html screen 3) -- never a toast.
+/// An app action (ruling R4): success and failure are one line each through
+/// [sink] -- File → New repository… passes the session it was started from,
+/// so a failure lights that window's red summary (P10 #3) and is never a
+/// toast. Taken before the prompt opens, so it outlives the menu.
 Future<void> promptNewRepository(
   BuildContext context,
   WidgetRef ref, {
-  required void Function(String path, String message) onFailed,
+  required AppLogSink? sink,
   VoidCallback? onDismiss,
 }) async {
   final GoRouter router = GoRouter.of(context);
@@ -233,17 +237,24 @@ Future<void> promptNewRepository(
   if (path == null) return;
 
   final GbmBindings bindings = ref.read(gbmBindingsProvider);
-  final Pointer<Utf8> pathPtr = path.toNativeUtf8();
-  final int result;
-  try {
-    result = bindings.repoInit(pathPtr);
-  } finally {
-    malloc.free(pathPtr);
-  }
-  if (result != 0) {
-    onFailed(path, _decodeInitCloneErrorMessage(bindings));
-    return;
-  }
+  final AppActionOutcome<void> outcome = await ref
+      .read(appActionRunnerProvider)
+      .run(
+        initRepositoryAction(
+          path: path,
+          init: () {
+            final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+            try {
+              if (bindings.repoInit(pathPtr) == 0) return null;
+            } finally {
+              malloc.free(pathPtr);
+            }
+            return _decodeInitCloneErrorMessage(bindings);
+          },
+        ),
+        sink: sink,
+      );
+  if (outcome is! AppActionSucceeded<void>) return;
 
   onDismiss?.call();
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));

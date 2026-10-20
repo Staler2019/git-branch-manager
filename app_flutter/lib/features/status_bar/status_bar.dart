@@ -681,7 +681,8 @@ class _Rule extends StatelessWidget {
 /// 計數「改spec，沒有計畫」).
 String _progressLabel(BackgroundTask task) {
   if (task.total > 0) {
-    return '${task.label} — ${formatCount(task.current)} / '
+    final String phase = task.phase.isEmpty ? '' : '${task.phase} ';
+    return '${task.label} — $phase${formatCount(task.current)} / '
         '${formatCount(task.total)}';
   }
   if (task.current > 0) return '${task.label} — ${formatCount(task.current)}';

@@ -1291,6 +1291,29 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
 
+    // W-D7: TASKS' two phases 「各自顯示實際數字」 -- without the phase word
+    // the count restarting at resolving would read as going backwards.
+    testWidgets('a task with a phase names it before the count', (
+      tester,
+    ) async {
+      await pumpBar(
+        tester,
+        tasks: <BackgroundTask>[
+          BackgroundTask.cloneJob(
+            id: 'clone-1',
+            label: 'Cloning design-tokens',
+            phase: 'resolving deltas',
+            current: 3912,
+            total: 20477,
+          ),
+        ],
+      );
+      expect(
+        find.text('Cloning design-tokens — resolving deltas 3,912 / 20,477'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('S6: one line -- loader, label with count, 74×4 bar, Cancel', (
       tester,
     ) async {

@@ -49,11 +49,21 @@ void invokeFocusedTextIntent(Intent intent) {
 /// "select every row" over a list (spec page 13's `MULTIKEYS`) and "select all
 /// text" inside an editor. Focus is the only thing that can tell them apart,
 /// so this offers the list intent first and falls back to the text one when
-/// nothing consumed it.
+/// no list is above the focus.
+///
+/// Whether a list is there is asked with `maybeFind`, never read off
+/// `maybeInvoke`'s result: that is the action's return value, and both list
+/// actions return null, so the text intent used to fire as well.
 void invokeFocusedSelectAll() {
   final BuildContext? focused = primaryFocus?.context;
   if (focused == null) return;
-  if (Actions.maybeInvoke(focused, const GbmSelectAllIntent()) != null) {
+  const GbmSelectAllIntent listIntent = GbmSelectAllIntent();
+  final Action<GbmSelectAllIntent>? list = Actions.maybeFind(
+    focused,
+    intent: listIntent,
+  );
+  if (list != null && list.isEnabled(listIntent)) {
+    Actions.invoke(focused, listIntent);
     return;
   }
   Actions.maybeInvoke(

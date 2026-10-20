@@ -18,9 +18,16 @@ Future<FocusNode> _pumpFocused(
     MaterialApp(
       home: Actions(
         actions: <Type, Action<Intent>>{
+          // Returns null, as both real list actions do
+          // (`branch_selection_shortcuts.dart`, `commit_graph_view.dart`):
+          // `maybeInvoke`'s result is the action's return value, so it cannot
+          // say whether a list took the intent.
           if (handlesListIntent)
             GbmSelectAllIntent: CallbackAction<GbmSelectAllIntent>(
-              onInvoke: (_) => calls.add('list'),
+              onInvoke: (_) {
+                calls.add('list');
+                return null;
+              },
             ),
           SelectAllTextIntent: CallbackAction<SelectAllTextIntent>(
             onInvoke: (_) => calls.add('text'),
@@ -36,6 +43,15 @@ Future<FocusNode> _pumpFocused(
 }
 
 void main() {
+  testWidgets('Select all goes to a focused list first, and only there', (
+    tester,
+  ) async {
+    final List<String> calls = <String>[];
+    await _pumpFocused(tester, calls: calls, handlesListIntent: true);
+    invokeFocusedSelectAll();
+    expect(calls, <String>['list']);
+  });
+
   testWidgets('Select all falls back to the text intent', (tester) async {
     final List<String> calls = <String>[];
     await _pumpFocused(tester, calls: calls, handlesListIntent: false);

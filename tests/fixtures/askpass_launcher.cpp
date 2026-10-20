@@ -22,8 +22,13 @@
 #include <vector>
 
 #ifdef _WIN32
-#include <shellapi.h>
+// clang-format off
+// shellapi.h needs windows.h first (it uses EXTERN_C and DECLSPEC_IMPORT), and
+// WIN32_LEAN_AND_MEAN (Warnings.cmake) keeps windows.h from including it for
+// CommandLineToArgvW. Sorted alphabetically it comes first and MSVC fails.
 #include <windows.h>
+#include <shellapi.h>
+// clang-format on
 #else
 #include <climits>
 #include <dlfcn.h>

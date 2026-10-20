@@ -87,8 +87,8 @@ struct EventLog {
     }
 
     bool waitForFinished() {
-        return waitFor([](const Events& events) {
-            for (const auto& [type, payload] : events) {
+        return waitFor([](const Events& seen) {
+            for (const auto& [type, payload] : seen) {
                 if (type == GBM_EVENT_CLONE_FINISHED) return true;
             }
             return false;

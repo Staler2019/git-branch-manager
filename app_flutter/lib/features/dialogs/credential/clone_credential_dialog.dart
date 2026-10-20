@@ -38,6 +38,16 @@ class _CloneCredentialDialogContentState
   void initState() {
     super.initState();
     _jobs = ref.read(cloneJobsProvider.notifier);
+    // The listener in build() fires only when the prompt *changes* to null
+    // ([FLU-listen-misses-the-current-value]). A job that ended before this
+    // first build, or a `?job=` naming no live job, leaves it null from the
+    // start, so that case is checked once here (verifier A1). initState runs
+    // inside a frame's build, so the callback runs at the end of that same
+    // frame; nothing has to schedule one ([FLU-postframe-no-frame]), and
+    // neither an answer nor a dispose can have happened before it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_prompt(ref.read(cloneJobsProvider)) == null) _close();
+    });
   }
 
   @override

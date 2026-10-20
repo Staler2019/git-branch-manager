@@ -545,11 +545,10 @@ GoRoute cloneRepositoryDialogRoute() => dialogRoute(
 );
 
 /// App-level; `?job=` is the clone job asking. An id that does not parse
-/// names no job, ~~and the dialog then closes itself as a stale one would~~
-/// and the dialog then stays open with an empty prompt until dismissed: it
-/// closes only when the prompt *changes* to null, and here it is null from
-/// the first build. The same holds when the job finishes before that build
-/// (verifier A1, P4, deferred).
+/// names no job, and the dialog then closes itself after its first frame,
+/// as it does when the job ended before that frame (verifier A1). ~~and the
+/// dialog then stays open with an empty prompt until dismissed~~ -- true until
+/// A1 was fixed; the listener alone missed a prompt already null.
 GoRoute cloneCredentialDialogRoute() => dialogRoute(
   path: RoutePaths.cloneCredentialDialog,
   builder: (context, state) => CloneCredentialDialogContent(

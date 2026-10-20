@@ -151,6 +151,37 @@ void main() {
     expect(h.native.jobs.single.calls, <String>['close']);
   });
 
+  // Verifier A1: the dialog closed only when its prompt *changed* to null,
+  // so one whose prompt was already gone at its first build stayed up.
+  testWidgets('a job that ends before the dialog builds still closes it', (
+    tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    h.start();
+    h.ask('Password for x');
+    h.native.emit(0, GbmEventType.cloneFinished, <String, Object>{'ok': false});
+    await tester.pumpAndSettle();
+    expect(find.byType(CloneCredentialDialogContent), findsNothing);
+    expect(h.native.jobs.single.calls, <String>['close']);
+  });
+
+  testWidgets('a dialog for no live job closes itself', (tester) async {
+    final _Harness h = await _pump(tester);
+    for (final String location in <String>[
+      RoutePaths.cloneCredentialDialogPath(41),
+      '${RoutePaths.cloneCredentialDialog}?job=not-a-number',
+    ]) {
+      h.router.push(location);
+      await tester.pumpAndSettle();
+      expect(
+        find.byType(CloneCredentialDialogContent),
+        findsNothing,
+        reason: location,
+      );
+      expect(h.location, '/', reason: location);
+    }
+  });
+
   testWidgets('a successful clone opens the new repository (R10)', (
     tester,
   ) async {

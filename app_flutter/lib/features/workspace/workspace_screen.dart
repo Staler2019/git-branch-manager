@@ -10,8 +10,8 @@ import '../../actions/gbm_action_id.dart';
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../diff/temporary_scope_provider.dart';
+import '../../actions/gbm_edit_intents.dart';
 import '../../actions/gbm_menu_model.dart';
-import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
 import '../../data/models/operation_record.dart';
 import '../../data/models/ref_snapshot.dart';
@@ -917,27 +917,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       GbmActionId.filePreferences: () =>
           pushDialogRoute(context, RoutePaths.preferencesDialog),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow
-      // Edit
-      // The five clipboard/history verbs dispatch Flutter's own text-editing
-      // intents, so they act on whichever field has focus (commit message,
-      // filter box, conflict editor) instead of needing a per-field wiring.
-      // Unfocused, `maybeInvoke` finds no action and does nothing, which is
-      // the correct behaviour for "Copy" with no text selected.
-      GbmActionId.editUndo: () => _invokeTextIntent(
-        const UndoTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editRedo: () => _invokeTextIntent(
-        const RedoTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editCut: () => _invokeTextIntent(
-        const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editCopy: () =>
-          _invokeTextIntent(CopySelectionTextIntent.copy),
-      GbmActionId.editPaste: () => _invokeTextIntent(
-        const PasteTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editSelectAll: _invokeSelectAll,
+      // Edit: shared with the welcome screen (gbm_edit_intents.dart).
+      ...buildEditActionHandlers(),
       // Both searches live on the History view: commit search filters the
       // commit list, and "find in files" is the same field scoped to paths.
       // Navigating there first means the shortcut works from Working Copy
@@ -1390,39 +1371,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           .read(repoSessionProvider(identity).notifier)
           .pushChanges(forceWithLease: true);
     }
-  }
-
-  /// Dispatches a Flutter text-editing intent at the currently focused
-  /// widget, which is how Edit → Undo/Redo/Cut/Copy/Paste reach whichever
-  /// field has focus. Silently does nothing when no editable widget is
-  /// focused -- the correct outcome for "Copy" with nothing selected.
-  /// Ctrl/Cmd+A has to mean two different things depending on what has
-  /// focus: "select every row" over a list (spec page 13's `MULTIKEYS`) and
-  /// "select all text" inside an editor. Focus is the only thing that can
-  /// tell them apart, so this offers the list intent first and falls back
-  /// to the text one when nothing consumed it.
-  ///
-  /// The handler-map entry is deliberately **non-null**. All three dispatch
-  /// paths read this one map (see CLAUDE.md's Intent / Action layer), and a
-  /// null here would grey the macOS menu item out and make the keyboard
-  /// path a no-op while leaving the in-window menu working -- the exact
-  /// split `workspace_intent_dispatch_parity_test.dart` exists to catch.
-  void _invokeSelectAll() {
-    final BuildContext? focused = primaryFocus?.context;
-    if (focused == null) return;
-    if (Actions.maybeInvoke(focused, const GbmSelectAllIntent()) != null) {
-      return;
-    }
-    Actions.maybeInvoke(
-      focused,
-      const SelectAllTextIntent(SelectionChangedCause.keyboard),
-    );
-  }
-
-  void _invokeTextIntent(Intent intent) {
-    final BuildContext? focused = primaryFocus?.context;
-    if (focused == null) return;
-    Actions.maybeInvoke(focused, intent);
   }
 
   /// Navigates to History (the only view the commit filter exists on) and

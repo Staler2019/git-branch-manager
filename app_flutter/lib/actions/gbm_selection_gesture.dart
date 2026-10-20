@@ -64,7 +64,7 @@ SelectionGesture currentSelectionGesture() => selectionGestureFromKeys(
 /// only thing that can tell them apart is which one holds focus. The
 /// workspace's `editSelectAll` handler offers this one first and falls back
 /// to the text intent when no list consumed it -- see
-/// `workspace_screen.dart`'s `_invokeSelectAll`.
+/// `gbm_edit_intents.dart`'s `invokeFocusedSelectAll`.
 class GbmSelectAllIntent extends Intent {
   const GbmSelectAllIntent();
 }

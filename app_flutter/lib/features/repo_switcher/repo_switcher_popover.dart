@@ -31,9 +31,7 @@ import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
 import '../../data/models/app_action.dart';
-import '../../data/repositories/repo_identity.dart';
-import '../../data/repositories/repo_session_repository.dart';
-import '../../data/repositories/window_log_repository.dart';
+import '../../data/repositories/app_log_sink.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../data/services/file_save_picker.dart';
 import '../../routing/app_router.dart';
@@ -533,17 +531,9 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
   /// list belongs to: the repository's when one is open, otherwise the
   /// welcome screen's own Log (R13). Taken before the launcher answers, so
   /// it outlives the popover.
-  Future<void> _launch(AppAction<void> action) {
-    final String? workDir = widget.currentWorkDir;
-    final AppLogSink sink = workDir == null
-        ? ref.read(windowLogProvider.notifier).recordAppLog
-        : ref
-              .read(
-                repoSessionProvider(RepoIdentity.forWorkDir(workDir)).notifier,
-              )
-              .recordAppLog;
-    return ref.read(appActionRunnerProvider).run(action, sink: sink);
-  }
+  Future<void> _launch(AppAction<void> action) => ref
+      .read(appActionRunnerProvider)
+      .run(action, sink: appLogSinkFor(ref, widget.currentWorkDir));
 
   void _switchTo(String workDir) {
     final GoRouter router = GoRouter.of(context);

@@ -138,7 +138,7 @@ fail → 留在 origin；Removed <path>（warning）／Could not remove <path>: 
 | 2 | C1 + C2，8 項主張 | CONFIRMED，2 個 P4 | ctest 872/872；沒有殘留的 fake-ssh process；另寫探測程式：目標路徑本身是指向外部的 symlink 時，取消後外部資料夾還在 |
 | 3 | C3，8 項主張 | CONFIRMED，2 個 P4 | flutter +3859 ~8；`CloneJobApiTest`、`InitCloneApiTest` 24 個通過；確認原生 payload 與 `GbmEventType` 38、39 一致，`"Cancelled"` 字串與 `Error.cpp:126` 相符 |
 
-第 3 次的兩個 P4，處置為 DEFER：
+第 3 次的兩個 P4，~~處置為 DEFER~~ 更正：起初處置為 DEFER，使用者裁定（2026-10-21）「ok a1 a2 修掉」，已修，見文末〈A1、A2 修正〉：
 
 - A1（信心 medium，只讀程式）：如果 `CLONE_FINISHED` 在對話框 push 之後、第一次 build 之前到達，或者 `?job=` 無法解析，prompt 在 build 時就已經是 null，`ref.listen` 不會觸發，對話框會留在畫面上直到使用者關掉。時間窗很窄，也可以恢復。`app_router.dart` 裡寫著「closes itself as a stale one would」的註解對這種情況是錯的，~~已就地更正~~ 更正：寫下這行時還沒改，480be293 才劃掉並改寫。
 - A2（信心 low）：成功後轉頁用的是使用者輸入的路徑，capi 端會正規化，例如去掉結尾的 `/`。結尾帶 `/` 時，identity 會和正規化後的路徑不一致。本輪沒有觀察到錯誤。
@@ -251,4 +251,31 @@ memory-steward 列出 6 處，實際 grep 共 12 處；它漏列的是 `submodul
 ### 本輪的註解更正
 
 - `app_router.dart` 的 `cloneCredentialDialogRoute`：「closes itself as a stale one would」已劃掉並改寫（480be293，verifier A1）。A1 那一列原本寫「已就地更正」，寫的時候其實還沒改，已在那一列劃掉更正。
+
+### A1、A2 修正（2026-10-21，使用者裁定「ok a1 a2 修掉」）
+
+| Commit | 內容 | Mutation（run / reddened） |
+| --- | --- | --- |
+| bd7a7fb0 | A1：對話框第一個 frame 結束時 prompt 已是 null 就自行關閉，不送出憑證 | 主條件 1 / 1（紅 2 個）；`_resolved`、`ensureVisualUpdate`、`mounted` 三個 guard 存活，判定多餘並刪除 |
+| 58f2225e | A2（C++）：`CLONE_FINISHED` 帶 `destPath`，即 git 實際使用的正規化路徑 | 2 / 2 |
+| d923d37a | A2（Dart）：成功時以 `finished.destPath ?? job.destPath` 開啟並歸屬 Log | 4 / 4，每個紅 1 個 |
+
+- A2 改了 payload 格式（serialization 觸發），實作前 plan-verifier 回 READY；實作後 verifier 回 CONFIRMED。verifier 另以 ctypes 實際 clone 驗證：非 ASCII、引號、反斜線、`/./`、`//`、結尾 `/` 都正確正規化與跳脫。
+- verifier 的三個 P4：
+  - 「Dart 測試只驗了 opened，沒驗 Log」→ **REJECT**：setUp 的 `repositoryLog` 本身就斷言 `dest == '/src/design-tokens'`，mutation D2（只改 Log 那一半）也轉紅。
+  - Windows 上 `lexically_normal()` 會把 `/` 變成 `\`，開啟的 identity 是否與 recents 等其他入口一致，本機無法驗證 → **DEFER**。
+  - post-frame callback 沒有 guard → **DEFER**：verifier 也找不到能觸發的路徑。
+- 完整測試 +3903 ~8；ctest 874/874。
+
+### PR #191 的 CI 修正（2026-10-21）
+
+- GitHub 不套用 `.gitattributes` 的 `merge=union`，PR 顯示 `docs/ledger/INDEX.md` 衝突，CI 因此一直沒有啟動。本機合併 main 後解開。
+- 第一次真正跑起來的 CI 有五類紅燈，都是本分支造成的：
+  - GCC `-Wshadow`：lambda 參數 `events` 遮蔽同名成員（26685764）。本機以 g++-16 `-Werror` 全量建置，只有這一個錯誤。
+  - MSVC：`shellapi.h` 被 clang-format 排到 `windows.h` 前面（26685764）。
+  - cq：測試用 `std::system("cmd /c mklink /J")` 建 junction。新增 `makeDirectoryLink`，改用 Win32 API；cq 的 grep 改用 `-w`，`std::system_category()` 不再被誤判（5d9f2e32）。DirLinkTest 起初共用暫存目錄，`ctest -j8` 平行時互相干擾，改成每個測試各用一個目錄。
+  - Flutter UI - Linux：runner 以 C++14 建置，`main.cc` 卻用了 C++17 的 if 初始化（7ef3814c）。
+  - TSan、ASan：`gbm_askpass_launcher` 沒有連結 sanitizer runtime，dlopen instrumented 的 `libgbm_capi` 時失敗（「ThreadSanitizer is loaded too late」），本機重現後修正（f4673715）。
+- 計畫 5.3 把「`AskpassClientTest` 在三個平台的 CI 都綠」列為 verifier 第 1 次的驗收，但分支在這之前從未 push，那一項當時沒有證據（verifier 那一列也只寫了 Windows、Linux「只讀程式」）。這次才第一次在 CI 上跑：capi Windows、Linux、macOS 都綠；GUI subsystem 的 host 在 Windows 上能經由 pipe 寫 stdout，5.3 的 Windows 停止條件沒有觸發。
+- GitGuardian 標出遮罩測試裡的假帳密（`alice:s3cret@…`），由使用者在 dashboard 標成誤報。
 

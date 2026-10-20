@@ -239,7 +239,10 @@ if(GBM_BUILD_CAPI)
     if(WIN32)
         set_target_properties(gbm_askpass_launcher PROPERTIES WIN32_EXECUTABLE TRUE)
     endif()
-    target_link_libraries(gbm_askpass_launcher PRIVATE gbm_warnings ${CMAKE_DL_LIBS})
+    # gbm_sanitizers: the launcher dlopens gbm_capi, and an instrumented
+    # library cannot bring its sanitizer runtime in by dlopen ("ThreadSanitizer
+    # is loaded too late"); the executable has to carry it from the start.
+    target_link_libraries(gbm_askpass_launcher PRIVATE gbm_warnings gbm_sanitizers ${CMAKE_DL_LIBS})
     target_compile_definitions(gbm_capi_tests PRIVATE
         GBM_ASKPASS_LAUNCHER_EXE="$<TARGET_FILE:gbm_askpass_launcher>"
         GBM_CAPI_LIBRARY_FILE="$<TARGET_FILE:gbm_capi>")

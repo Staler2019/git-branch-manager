@@ -206,7 +206,7 @@ fail → 留在 origin；Removed <path>（warning）／Could not remove <path>: 
   - 機密在記憶體中沒有清零（P4）。
   - 繼承的 `GIT_TRACE2*` 不覆蓋，以免關掉企業遙測。
   - Remotes 面板直接顯示 fetchUrl 原文：那是畫面，不是 Log，不在 R6 的範圍內。
-- F5（`wt.exe -d` 的 `;`）要不要開 issue，仍等使用者決定。
+- ~~F5（`wt.exe -d` 的 `;`）要不要開 issue，仍等使用者決定。~~ 更正：使用者裁定（2026-10-21）：「f5問題先注記，不開issue.因為未側等我觀察」。不開 issue；這個問題沒有實測過，先記在這裡，等使用者觀察。
 - ~~memory-steward 列出的 drift：有幾個地方直接呼叫 DesktopLauncher，沒有經過 AppActionRunner，違反 R4。處置見 S6 的 commit。~~ 更正：這在 R4 的範圍內，依 standing rule 1 本輪修好了，見下一節。
 
 ### R4 drift：直接呼叫 launcher 的地方

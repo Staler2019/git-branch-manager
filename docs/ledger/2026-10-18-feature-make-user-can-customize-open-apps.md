@@ -175,6 +175,6 @@ commit 1–5 的數字只留在 session 對話裡，沒有搬進這份 ledger。
 
 ### 尚未決定
 
-- F5：`wt.exe` 的 `;` 問題，要不要開 issue 等使用者決定。
+- ~~F5：`wt.exe` 的 `;` 問題，要不要開 issue 等使用者決定。~~ 更正：使用者裁定（2026-10-21）：「f5問題先注記，不開issue.因為未側等我觀察」。不開 issue；這個問題沒有實測過，先記在這裡，等使用者觀察。
 - status bar 的 Cancel 是 TextButton，hover 時會出現預設的 overlay；mock 沒有 hover 樣式，這點沒改。
 - 歡迎畫面本身和 spec 不同，使用者說之後會改（Q5 的附註）。

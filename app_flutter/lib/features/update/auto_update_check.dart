@@ -62,8 +62,8 @@ final Provider<DateTime Function()> autoUpdateClockProvider =
 /// [onUpdateAvailable].
 ///
 /// Mounted above the router rather than inside `WorkspaceScreen`: with no
-/// repository open the app renders `WelcomeScreen`, which has no menu bar
-/// and would never run a check hung off the workspace.
+/// repository open the app renders `WelcomeScreen`, ~~which has no menu bar
+/// and~~ which would never run a check hung off the workspace.
 ///
 /// Renders [child] unchanged -- this widget contributes no layout.
 class AutoUpdateCheck extends ConsumerStatefulWidget {

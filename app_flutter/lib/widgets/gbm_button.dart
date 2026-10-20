@@ -49,6 +49,7 @@ class GbmButton extends StatelessWidget {
     this.lineThrough = false,
     this.borderColor,
     this.borderRadius,
+    this.alignment,
   });
 
   final String label;
@@ -88,6 +89,11 @@ class GbmButton extends StatelessWidget {
   /// left-only radius so its main segment and its ▾ segment read as one
   /// control (open-with-apps-spec.html). Null is every other call site.
   final BorderRadius? borderRadius;
+
+  /// Where the label sits when the button is wider than it. Null centres it
+  /// (TextButton's default). The welcome screen's three fixed-width buttons
+  /// pass `centerLeft` for P15 A's `justify-content:flex-start`.
+  final AlignmentGeometry? alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -179,6 +185,7 @@ class GbmButton extends StatelessWidget {
         EdgeInsets.symmetric(horizontal: horizontalPadding),
       ),
       minimumSize: const WidgetStatePropertyAll<Size>(Size(0, 0)),
+      alignment: alignment,
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
     final Text labelWidget = Text(

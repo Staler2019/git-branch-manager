@@ -26,8 +26,8 @@ class GbmApp extends ConsumerWidget {
       theme: buildGbmTheme(ref.watch(themeVariantProvider)),
       routerConfig: ref.watch(appRouterProvider),
       // Above the router rather than inside WorkspaceScreen: with no
-      // repository open the app renders WelcomeScreen, which has no menu
-      // bar, and a check hung off the workspace would never run there.
+      // repository open the app renders WelcomeScreen, and a check hung off
+      // the workspace would never run there.
       builder: (BuildContext context, Widget? child) => AutoUpdateCheck(
         // Pushed through the router instance rather than `context.push`:
         // this builder sits above the Navigator the route resolves against,

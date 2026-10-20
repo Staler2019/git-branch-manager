@@ -446,6 +446,8 @@ ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 80
       <li>第二段的範例數字（3,912 / 20,477）與兩段的進度條比例：示意用。</li>
       <li>畫面 2 d 的錯誤訊息內容：示意 URL 遮罩後的樣子（R7：有 <code>:</code> 只遮密碼段）。</li>
       <li>沒有開 repo 時切換按鈕上的文字「No repository」與它的 textTertiary 顏色：P02 #15 只寫「顯示目前 repo 的按鈕」，沒有「沒有目前 repo」的樣子。git-fork 圖示路徑照 Lucide 手抄（app 已有 asset）。</li>
+      <li>（實作時補，2026-10-20）掃描失敗原本由歡迎畫面的 banner 顯示（<code>discovery.lastError</code> 唯一的 reader）；banner 隨舊外觀拿掉，失敗改寫進視窗的 Log（<code>AppLogEvents.errorOccurred</code>），status bar 紅色摘要照未讀 error 規則亮起。依據 P15 B「只是通知結果的留在 log 抽屜與狀態列」與 R11；只記歡迎畫面開著時發生的新失敗。</li>
+      <li>（實作時補，2026-10-20）三顆按鈕旁的 kbd 沿用 app 既有的 <code>GbmKbdChip</code>（<code>worktree-dialogs-spec.html</code> 已核定的 kbd：左右 8、上下 2、11px、textSecondary），不照這頁 [KIT] <code>.kbd</code> 的 10.5px / 1·5 / textPrimary，避免同一個元件兩種畫法（W-D13 採已核定前例）。顯示的是平台實際的組合鍵（<code>Ctrl+O</code>、<code>⌘O</code>），不是 mock 的 <code>Ctrl/Cmd+O</code>。</li>
       <li><span style="text-decoration:line-through">folder-open 圖示路徑照 Lucide 公開圖示手抄；實作時從 Lucide 原檔加入 <code>assets/icons/folder-open.svg</code>（目前只有 <code>folder-git-2.svg</code>），不從這頁複製。</span> （Recent 撤銷，不需要這個圖示）</li>
     </ul>
   </section>

@@ -7,9 +7,9 @@ import 'gbm_icon_button.dart';
 
 /// The design doc's three theme swatches (`.gbm-iconbtn` row), shared by
 /// every surface that needs a theme-switching entry point -- currently
-/// [TopBar] (workspace) and `WelcomeScreen` (shown when no repository is
-/// open, which otherwise has no way to reach `neutralProfessional` at all
-/// once the old [ThemeMode]-based `_ThemeMenu` was removed there).
+/// Preferences → Appearance only. ~~[TopBar] (workspace) and
+/// `WelcomeScreen`~~: neither draws it any more; `WelcomeScreen` lost its
+/// AppBar to spec page 15 A, and Preferences is reachable from both windows.
 class ThemeSwitcherButtons extends ConsumerWidget {
   const ThemeSwitcherButtons({super.key});
 

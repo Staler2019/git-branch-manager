@@ -15,6 +15,7 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/app.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
@@ -24,6 +25,8 @@ import 'package:gbm_flutter/data/repositories/update_repository.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
+import 'package:gbm_flutter/features/welcome/welcome_screen.dart';
+import 'package:gbm_flutter/features/workspace/widgets/workspace_action_shortcuts.dart';
 import 'package:integration_test/integration_test.dart';
 
 import 'support/real_repo_harness.dart';
@@ -128,8 +131,10 @@ void main() {
   });
 
   // Leg 2: the chain a user actually walks with no repository open --
-  // WelcomeScreen has no menu bar, so the About dialog's button is the only
-  // entry point in this state.
+  // ~~WelcomeScreen has no menu bar, so the About dialog's button is the only
+  // entry point in this state.~~ WelcomeScreen has the menu bar now (spec page
+  // 15 A); Help has no Check for updates item, so it is still Help → About,
+  // then the About dialog's button.
   group('checking for updates from WelcomeScreen', () {
     late Set<String> tempDirsBefore;
 
@@ -170,12 +175,19 @@ void main() {
       );
 
       expect(
-        find.byTooltip('About'),
+        find.byType(WelcomeScreen),
         findsOneWidget,
         reason: 'expected WelcomeScreen, so no repository was opened',
       );
 
-      await tester.tap(find.byTooltip('About'));
+      // Help → About. On macOS that item lives in the system menu bar, which
+      // a test cannot click; this is the handler its `onSelected` is
+      // (PlatformMenuBarHost reads the same map the keyboard does).
+      tester
+          .widget<WorkspaceActionShortcuts>(
+            find.byType(WorkspaceActionShortcuts),
+          )
+          .handlers[GbmActionId.helpAbout]!();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Check for updates…'));
 

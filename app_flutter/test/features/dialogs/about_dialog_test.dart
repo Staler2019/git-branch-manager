@@ -46,10 +46,11 @@ void main() {
       expect(find.textContaining('0.0.0'), findsNothing);
     });
 
-    // `WelcomeScreen` renders no menu bar at all, so Help → Check for
-    // updates… is unreachable with no repository open. This button is the
-    // whole entry surface in that state -- routed, not a callback, so it
-    // works identically from either screen.
+    // Help has no Check for updates… item, in either window, so this button
+    // is the whole entry surface for it (~~`WelcomeScreen` renders no menu
+    // bar at all~~ -- it does since spec page 15 A, and Help → About opens
+    // this dialog there too). Routed, not a callback, so it works
+    // identically from either screen.
     testWidgets('offers a route to the update check', (
       WidgetTester tester,
     ) async {

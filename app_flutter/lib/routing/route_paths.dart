@@ -294,13 +294,26 @@ abstract final class RoutePaths {
 
   /// App-level; takes no repoId. Kept next to the repo-scoped helpers so the
   /// asymmetry with [repositorySettingsDialogFor] is visible at the call site.
-  static String preferencesDialogPath({PreferencesSection? section}) =>
-      section == null
-      ? preferencesDialog
-      : Uri(
-          path: preferencesDialog,
-          queryParameters: <String, String>{'section': section.name},
-        ).toString();
+  /// [originWorkDir] as for [cloneRepositoryDialogPath]: the repository
+  /// window it was opened from, so what it logs goes there (R4, R13).
+  static String preferencesDialogPath({
+    PreferencesSection? section,
+    String? originWorkDir,
+  }) => _withQuery(preferencesDialog, <String, String>{
+    'section': ?section?.name,
+    'origin': ?originWorkDir,
+  });
+
+  /// See [preferencesDialogPath]. About passes its origin on to Update.
+  static String aboutDialogPath({String? originWorkDir}) =>
+      _withQuery(aboutDialog, <String, String>{'origin': ?originWorkDir});
+
+  /// See [preferencesDialogPath]. Its Open releases page is logged there.
+  static String updateDialogPath({String? originWorkDir}) =>
+      _withQuery(updateDialog, <String, String>{'origin': ?originWorkDir});
+
+  static String _withQuery(String path, Map<String, String> query) =>
+      query.isEmpty ? path : Uri(path: path, queryParameters: query).toString();
 
   /// [originWorkDir] is the repository window the dialog was opened from;
   /// null for the window with none (R13).

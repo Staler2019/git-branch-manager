@@ -55,6 +55,17 @@ import 'route_paths.dart';
 /// never scanned.
 String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 
+/// The work dir of the repository screen at [router]'s base location, or
+/// null on the welcome screen. For a caller above the Navigator, which has
+/// no [BuildContext] to ask -- `app.dart`'s automatic update check tags the
+/// dialog it pushes with the window it appears over. A pushed dialog does
+/// not move the base location (`dialog_route.dart`), so the answer is the
+/// screen under any dialog already open. go_router hands path parameters
+/// over already decoded (measured: `%2Fa%2F100%25` arrives as `/a/100%`),
+/// so decoding again would break a work dir containing `%`.
+String? originWorkDirOf(GoRouter router) =>
+    router.routerDelegate.currentConfiguration.pathParameters['repoId'];
+
 RepoIdentity repoIdentityFromRouteParam(String repoId) =>
     RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
 

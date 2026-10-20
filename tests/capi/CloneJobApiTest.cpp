@@ -256,6 +256,26 @@ TEST_F(CloneJobApiTest, ClonesARepositoryAndFinishesOk) {
     EXPECT_EQ(log.payloadsOf(GBM_EVENT_CLONE_FINISHED).size(), 1u);
 }
 
+// Verifier A2: Dart opened the destination as typed, while git cloned into
+// the normalised path -- `<base>/cloned/` opened a different identity from
+// `<base>/cloned`. The finished event names the path git actually used.
+TEST_F(CloneJobApiTest, TheFinishedEventNamesTheNormalisedDestination) {
+    const std::string url = makeBareOriginUrl();
+    const std::filesystem::path dest = base_ / "cloned";
+    const std::string spelled = fsutil::utf8FromPath(base_) + "/./cloned/";
+    EventLog log;
+
+    GbmCloneHandle job = gbm_clone_start(url.c_str(), spelled.c_str(), 0, 0, &logCallback, &log);
+    JobGuard jobGuard(job);
+    ASSERT_NE(job, nullptr) << lastResultJson();
+    ASSERT_TRUE(log.waitForFinished());
+    jobGuard.close();
+
+    EXPECT_TRUE(contains(log.finished(), "\"ok\":true")) << log.finished();
+    EXPECT_TRUE(contains(log.finished(), "\"destPath\":" + jsonString(fsutil::utf8FromPath(dest))))
+        << log.finished();
+}
+
 // R10 opens the clone straight away, so what the job leaves behind must be
 // a repository an ordinary session opens. Moved here from InitCloneApiTest
 // when gbm_repo_clone was deleted.

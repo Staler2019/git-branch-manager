@@ -268,6 +268,10 @@ void CloneJob::emitFinished(const GitResult<void>& result) {
                             : std::nullopt);
     payload += ",\"removalError\":";
     appendOptionalString(payload, cleanup.error);
+    // The normalised path git ran against, so the app opens that and not the
+    // spelling it was given (`/a/b/` and `/a/b` must be one repository).
+    payload += ",\"destPath\":";
+    appendOptionalString(payload, fsutil::utf8FromPath(request_.destPath));
     payload += '}';
     callbacks_.emit(GBM_EVENT_CLONE_FINISHED, payload);
 }

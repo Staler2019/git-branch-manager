@@ -235,6 +235,8 @@ memory-steward 列出 6 處，實際 grep 共 12 處；它漏列的是 `submodul
 
 - 00c4a74f 的先紅後綠：兩批各 −4，都是行為上的紅燈。O2（`updateDialogRoute` 解析 `?origin=`）第一次跑的紅燈數是空的：沒有任何測試掛上真的 route。補上「route 把 ?origin= 交給對話框」的測試；第一次重跑是 ('0','1')，那是測試檔漏了 import 的編譯錯誤，不算數；修正後是 27 綠 1 紅。
 - 完整測試 +3898 ~8，analyze 0，format 0。
+- 裝置測試：`integration_test/` 裡只有 `update_check_flow` 會經過 About 和 Update 的路徑（另一個命中的是 harness），在 macOS 重跑 2/2 綠。
+- G3 sweep：新增的 symbol 兩個方向都有 caller 和 reader；`repoClone`、`gbm_repo_clone` 在 `lib/` 和 `src/` 都已經沒有命中；新加的 InkWell 都用 `surfaceHover`。
 
 #### 順帶發現的既有缺陷：repoId 被解碼兩次
 

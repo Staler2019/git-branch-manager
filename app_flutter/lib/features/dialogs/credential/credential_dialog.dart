@@ -4,11 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
-import '../../../theme/gbm_theme.dart';
-import '../../../theme/tokens.dart';
-import '../../../widgets/gbm_button.dart';
-import '../../../widgets/gbm_dialog_shell.dart';
-import '../../../widgets/gbm_input_decoration.dart';
+import 'credential_form_body.dart';
 
 /// The Dart analog of `CredentialDialog` (src/app/dialogs/
 /// CredentialDialog.cpp), the askpass UI half of gbm_capi's credential
@@ -61,87 +57,26 @@ class _CredentialDialogContentState
     super.dispose();
   }
 
+  void _answer(void Function(RepoSessionController session) send) {
+    _resolved = true;
+    send(_session);
+    context.pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
     final String prompt =
         ref.watch(
           repoSessionProvider(widget.identity)
               .select((state) => state.credentialPrompt),
         ) ??
         '';
-    // Masked unless this is git's own Username prompt. Matching "password"
-    // instead left an SSH key passphrase ("Enter passphrase for key …") in
-    // plain sight; a prompt nobody recognises is safer hidden.
-    final bool obscure = !prompt.startsWith('Username for');
-
-    return GbmDialogShell(
-      title: 'Credentials Required',
-      actions: <Widget>[
-        GbmButton(
-          label: 'Cancel',
-          onPressed: () {
-            _resolved = true;
-            ref
-                .read(repoSessionProvider(widget.identity).notifier)
-                .cancelCredential();
-            context.pop();
-          },
-        ),
-        GbmButton(
-          label: 'Submit',
-          kind: GbmButtonKind.primary,
-          onPressed: () {
-            _resolved = true;
-            ref
-                .read(repoSessionProvider(widget.identity).notifier)
-                .provideCredential(_secretController.text);
-            context.pop();
-          },
-        ),
-      ],
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Semantics(
-            liveRegion: true,
-            child: Text(
-              prompt,
-              style: TextStyle(
-                fontSize: GbmTypography.textSm,
-                color: colors.textSecondary,
-              ),
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space2),
-          Text(
-            obscure ? 'Token / 密碼' : '帳號',
-            style: TextStyle(
-              fontSize: GbmTypography.textXs,
-              color: colors.textSecondary,
-            ),
-          ),
-          const SizedBox(height: GbmSpacing.space1),
-          SizedBox(
-            height: GbmSpacing.inputHeight,
-            child: TextField(
-              key: const Key('credential-secret-field'),
-              controller: _secretController,
-              obscureText: obscure,
-              autofocus: true,
-              onSubmitted: (_) {
-                _resolved = true;
-                ref
-                    .read(repoSessionProvider(widget.identity).notifier)
-                    .provideCredential(_secretController.text);
-                context.pop();
-              },
-              decoration: gbmInputDecoration(colors: colors),
-            ),
-          ),
-        ],
-      ),
+    return CredentialFormBody(
+      prompt: prompt,
+      controller: _secretController,
+      onCancel: () => _answer((s) => s.cancelCredential()),
+      onSubmit: () =>
+          _answer((s) => s.provideCredential(_secretController.text)),
     );
   }
 }

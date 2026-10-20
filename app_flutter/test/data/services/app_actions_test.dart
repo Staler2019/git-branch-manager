@@ -19,7 +19,26 @@ class _Launcher extends DesktopLauncher {
 
   final bool terminalOk;
   final ExternalAppLaunchResult appResult;
+  bool openOk = true;
   final List<String> calls = <String>[];
+
+  @override
+  Future<bool> openFile(String path) async {
+    calls.add('file $path');
+    return openOk;
+  }
+
+  @override
+  Future<bool> openInFileManager(String path) async {
+    calls.add('manager $path');
+    return openOk;
+  }
+
+  @override
+  Future<bool> openUrl(String url) async {
+    calls.add('url $url');
+    return openOk;
+  }
 
   @override
   Future<bool> openTerminal(String path) async {
@@ -124,6 +143,83 @@ void main() {
         'Could not run "Rider": zsh:1: command not found: rider',
       );
     });
+  });
+
+  // The three launcher calls that used to bypass the runner (ruling R4,
+  // 「每個動作都要有log」): one line each way, naming what was opened.
+  group('open file / file manager / url', () {
+    final List<
+      (
+        String,
+        AppAction<void> Function(DesktopLauncher),
+        String,
+        String,
+        String,
+      )
+    >
+    cases =
+        <
+          (
+            String,
+            AppAction<void> Function(DesktopLauncher),
+            String,
+            String,
+            String,
+          )
+        >[
+          (
+            'openFile',
+            (DesktopLauncher l) => openFileAction(l, '/src/a.txt'),
+            'file /src/a.txt',
+            'Opened /src/a.txt',
+            'Could not open /src/a.txt',
+          ),
+          (
+            'openInFileManager',
+            (DesktopLauncher l) => openInFileManagerAction(l, '/src/wt'),
+            'manager /src/wt',
+            'Showed /src/wt in the file manager',
+            'Could not show /src/wt in the file manager',
+          ),
+          (
+            'openUrl',
+            (DesktopLauncher l) => openUrlAction(l, 'https://example.com/docs'),
+            'url https://example.com/docs',
+            'Opened https://example.com/docs',
+            'Could not open https://example.com/docs',
+          ),
+        ];
+    for (final (
+          String name,
+          AppAction<void> Function(DesktopLauncher) make,
+          String call,
+          String ok,
+          String failed,
+        )
+        in cases) {
+      test('$name: a started open is one info line', () async {
+        final _Launcher launcher = _Launcher();
+        final AppAction<void> action = make(launcher);
+        expect(action.name, name);
+        expect(action.cancellable, isFalse);
+        final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+          action,
+        );
+        expect(launcher.calls, <String>[call]);
+        expect(outcome, isA<AppActionSucceeded<void>>());
+        expect(line.level, OperationLogLevel.info);
+        expect(line.message, ok);
+      });
+
+      test('$name: a refused open is one error line', () async {
+        final (AppActionOutcome<void> outcome, AppLogEntry line) = await _run(
+          make(_Launcher()..openOk = false),
+        );
+        expect(outcome, isA<AppActionFailed<void>>());
+        expect(line.level, OperationLogLevel.error);
+        expect(line.message, failed);
+      });
+    }
   });
 
   group('exportFileAtRevisionAction', () {

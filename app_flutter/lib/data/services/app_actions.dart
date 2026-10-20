@@ -35,6 +35,64 @@ AppAction<void> openTerminalAction(DesktopLauncher launcher, String path) =>
       describeCancelled: () => 'Cancelled opening a terminal in $path',
     );
 
+/// The OS refused to open what [DesktopLauncher.openFile],
+/// [DesktopLauncher.openInFileManager] or [DesktopLauncher.openUrl] was
+/// handed; the launcher reports only that it failed, never why.
+final class DesktopOpenException implements Exception {
+  const DesktopOpenException();
+}
+
+AppAction<void> _desktopOpen({
+  required String name,
+  required Future<bool> Function() open,
+  required String succeeded,
+  required String failed,
+  required String cancelled,
+}) => AppAction<void>(
+  name: name,
+  cancellable: false,
+  body: (_) async {
+    if (!await open()) throw const DesktopOpenException();
+  },
+  describeSuccess: (_) => succeeded,
+  describeFailure: (_) => failed,
+  describeCancelled: () => cancelled,
+);
+
+/// 05-F "Open file", and History's "Open file at this revision" once the
+/// export has written it. Not cancellable: the OS either takes it or not.
+AppAction<void> openFileAction(DesktopLauncher launcher, String path) =>
+    _desktopOpen(
+      name: 'openFile',
+      open: () => launcher.openFile(path),
+      succeeded: 'Opened $path',
+      failed: 'Could not open $path',
+      cancelled: 'Cancelled opening $path',
+    );
+
+/// 05-A / 05-F "Show in file manager", and the submodule panel's Open.
+AppAction<void> openInFileManagerAction(
+  DesktopLauncher launcher,
+  String path,
+) => _desktopOpen(
+  name: 'openInFileManager',
+  open: () => launcher.openInFileManager(path),
+  succeeded: 'Showed $path in the file manager',
+  failed: 'Could not show $path in the file manager',
+  cancelled: 'Cancelled showing $path in the file manager',
+);
+
+/// Help → Documentation / Report an issue. The runner redacts the message,
+/// so a URL with credentials in it is never logged as typed.
+AppAction<void> openUrlAction(DesktopLauncher launcher, String url) =>
+    _desktopOpen(
+      name: 'openUrl',
+      open: () => launcher.openUrl(url),
+      succeeded: 'Opened $url',
+      failed: 'Could not open $url',
+      cancelled: 'Cancelled opening $url',
+    );
+
 /// One entry of the worktree panel's ▾ list.
 ///
 /// Not cancellable: cancelling could only stop the launcher's 5 s wait for an

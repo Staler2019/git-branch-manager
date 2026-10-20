@@ -264,7 +264,7 @@ memory-steward 列出 6 處，實際 grep 共 12 處；它漏列的是 `submodul
 - verifier 的三個 P4：
   - 「Dart 測試只驗了 opened，沒驗 Log」→ **REJECT**：setUp 的 `repositoryLog` 本身就斷言 `dest == '/src/design-tokens'`，mutation D2（只改 Log 那一半）也轉紅。
   - Windows 上 `lexically_normal()` 會把 `/` 變成 `\`，開啟的 identity 是否與 recents 等其他入口一致，本機無法驗證 → ~~**DEFER**~~ 更正：改由 Windows CI 驗證，見下面「Windows 路徑」那一行。
-  - post-frame callback 沒有 guard → ~~**DEFER**：verifier 也找不到能觸發的路徑。~~ 更正：使用者要求以測試鎖住前提（2026-10-21）。6d9aa186 要求對話框在建出後的下一個 frame 已經消失；8 次逐 frame 實測後才找到能區分的斷言，location 在兩種情況都是 `/`，不能拿來斷言。後一個 commit 加上 smoke test：建出後的下一個 frame 就拆掉整棵樹。三種版本實測：initState 註冊 → 綠；移到 microtask 之後、沒有 guard → `StateError: Cannot use "ref" after the widget was disposed`；移到 microtask 之後、加上 mounted → 綠。三個移出 frame 的 mutation 各讓兩個測試轉紅。
+  - post-frame callback 沒有 guard → ~~**DEFER**：verifier 也找不到能觸發的路徑。~~ 更正：使用者要求以測試鎖住前提（2026-10-21）。6d9aa186 要求對話框在建出後的下一個 frame 已經消失；~~8 次逐 frame 實測後才找到能區分的斷言~~ 更正：實測只有一次（目前的程式與一個 mutant，各看 5 個 frame）；前兩版測試的三個 mutant 全部存活，看了逐 frame 結果才找到能區分的斷言，location 在兩種情況都是 `/`，不能拿來斷言。後一個 commit 加上 smoke test：建出後的下一個 frame 就拆掉整棵樹。三種版本實測：initState 註冊 → 綠；移到 microtask 之後、沒有 guard → `StateError: Cannot use "ref" after the widget was disposed`；移到 microtask 之後、加上 mounted → 綠。三個移出 frame 的 mutation 各讓兩個測試轉紅。
   - Windows 路徑：使用者要求加測試（2026-10-21）。16a7a6ab 的 `TheClonedPathIsSpelledAsDiscoveryAndAPickerSpellIt` 以正斜線、`/./`、結尾 `/` 輸入，要求 `destPath` 與 `RepoClassifier`（recents 的來源）和原生分隔符的路徑逐字相同。POSIX 上三者自然一致；分隔符那一半只有 Windows CI 驗得到。
 - 完整測試 +3903 ~8；ctest 874/874。
 

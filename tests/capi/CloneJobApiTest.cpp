@@ -255,6 +255,25 @@ TEST_F(CloneJobApiTest, ClonesARepositoryAndFinishesOk) {
     EXPECT_EQ(log.payloadsOf(GBM_EVENT_CLONE_FINISHED).size(), 1u);
 }
 
+// R10 opens the clone straight away, so what the job leaves behind must be
+// a repository an ordinary session opens. Moved here from InitCloneApiTest
+// when gbm_repo_clone was deleted.
+TEST_F(CloneJobApiTest, ANewlyClonedRepositoryOpensANormalSession) {
+    const std::filesystem::path dest = base_ / "cloned";
+    EventLog log;
+
+    GbmCloneHandle job = start(makeBareOriginUrl(), dest, log);
+    JobGuard jobGuard(job);
+    ASSERT_NE(job, nullptr) << lastResultJson();
+    ASSERT_TRUE(log.waitForFinished());
+    jobGuard.close();
+
+    GbmSessionHandle session =
+        gbm_session_open(dest.string().c_str(), (dest / ".git").string().c_str(), nullptr);
+    ASSERT_NE(session, nullptr);
+    gbm_session_close(session);
+}
+
 TEST_F(CloneJobApiTest, ItsGitInvocationIsLoggedToTheJob) {
     // Running and outcome, the pair every invocation is recorded as.
     const std::string url = makeBareOriginUrl();

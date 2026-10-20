@@ -1488,20 +1488,12 @@ GBM_API void gbm_write_commit_graph(GbmSessionHandle session);
 // gbm_session_open() -- neither function opens or returns a session itself.
 
 /// Runs `git init <path>` synchronously (blocks the calling thread -- init
-/// is local and fast, so this is safe to call directly, unlike clone below).
+/// is local and fast, so this is safe to call directly; clone is a job,
+/// gbm_clone_start()).
 /// `path` is created if it doesn't already exist. Returns 0 on success, or a
 /// negative GbmErrorCode with the staging buffer populated with a GitError
 /// JSON.
 GBM_API int32_t gbm_repo_init(const char* path);
-
-/// Runs `git clone <url> <destPath>` synchronously (blocks the calling
-/// thread -- callers should run this off the UI isolate, e.g. via Dart's
-/// Isolate.run, the same caveat gbm_discovery_scan_all() carries, now
-/// extended to a network operation with no upper bound on how long it may
-/// run). Reports no progress and cannot be cancelled; gbm_clone_start() does
-/// both. Returns 0 on success, or a negative GbmErrorCode with the staging
-/// buffer populated with a GitError JSON.
-GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath);
 
 /// Populates the staging buffer with the git every invocation runs, as
 /// `{"major":n,"minor":n,"patch":n}` -- the clone dialog defaults "clone

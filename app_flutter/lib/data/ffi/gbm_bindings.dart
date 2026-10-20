@@ -1253,6 +1253,9 @@ typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
 typedef _RepoInitNative = Int32 Function(Pointer<Utf8> path);
 typedef RepoInitDart = int Function(Pointer<Utf8> path);
 
+typedef _GitVersionJsonNative = Int32 Function();
+typedef GitVersionJsonDart = int Function();
+
 typedef _RepoCloneNative = Int32 Function(
   Pointer<Utf8> url,
   Pointer<Utf8> destPath,
@@ -1901,6 +1904,10 @@ class GbmBindings {
       repoInit = library.lookupFunction<_RepoInitNative, RepoInitDart>(
         'gbm_repo_init',
       ),
+      gitVersionJson = library
+          .lookupFunction<_GitVersionJsonNative, GitVersionJsonDart>(
+            'gbm_git_version_json',
+          ),
       repoClone = library.lookupFunction<_RepoCloneNative, RepoCloneDart>(
         'gbm_repo_clone',
       ),
@@ -2115,6 +2122,10 @@ class GbmBindings {
   final HasCommitGraphDart hasCommitGraph;
   final WriteCommitGraphDart writeCommitGraph;
   final RepoInitDart repoInit;
+
+  /// `{"major","minor","patch"}` of the git every invocation runs, into
+  /// the staging buffer; negative with a GitError when none is usable.
+  final GitVersionJsonDart gitVersionJson;
   final RepoCloneDart repoClone;
   final CloneStartDart cloneStart;
   final CloneCancelDart cloneCancel;

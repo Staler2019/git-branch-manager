@@ -1503,6 +1503,13 @@ GBM_API int32_t gbm_repo_init(const char* path);
 /// buffer populated with a GitError JSON.
 GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath);
 
+/// Populates the staging buffer with the git every invocation runs, as
+/// `{"major":n,"minor":n,"patch":n}` -- the clone dialog defaults "clone
+/// submodules" off below the release that fixed CVE-2025-48384. Returns 0, or
+/// a negative GbmErrorCode with the staging buffer holding a GitError JSON
+/// when no usable git was found.
+GBM_API int32_t gbm_git_version_json(void);
+
 // --- Clone job ---------------------------------------------------------
 // A clone that needs no open session, run on its own thread. Events arrive
 // through `callback`, whose first argument is the GbmCloneHandle (in the

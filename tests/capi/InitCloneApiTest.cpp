@@ -4,6 +4,7 @@
 // filesystem transport, which needs no credentials -- git never invokes
 // askpass for it, so this stays fully offline, same as RemoteApiTest.cpp.
 #include "capi/gbm_capi.h"
+#include "core/base/Error.h"
 #include "core/git/GitExecutable.h"
 #include "support/GitCli.h"
 
@@ -141,6 +142,25 @@ TEST_F(InitCloneApiTest, ANewlyClonedRepositoryOpensANormalSession) {
         gbm_session_open(dest.string().c_str(), (dest / ".git").string().c_str(), nullptr);
     ASSERT_NE(session, nullptr);
     gbm_session_close(session);
+}
+
+// The clone dialog decides whether "clone submodules" starts checked from the
+// detected git's version (welcome-and-clone-spec.html W-D5), so the capi
+// reports exactly what core detected -- the same installation every git
+// invocation runs.
+TEST_F(InitCloneApiTest, GitVersionJsonReportsTheDetectedInstallation) {
+    // The same lookup sharedGitInstallation() makes, GBM_GIT_PATH included.
+    const char* overridePath = std::getenv("GBM_GIT_PATH");
+    const GitResult<GitInstallation> detected = GitExecutable::detect(
+        overridePath != nullptr ? std::filesystem::path(overridePath) : std::filesystem::path{});
+    ASSERT_TRUE(detected);
+    const GitVersion& v = detected.value().version;
+
+    ASSERT_EQ(gbm_git_version_json(), 0);
+
+    EXPECT_EQ(lastResultJson(),
+              "{\"major\":" + std::to_string(v.major) + ",\"minor\":" + std::to_string(v.minor) +
+                  ",\"patch\":" + std::to_string(v.patch) + "}");
 }
 
 }  // namespace

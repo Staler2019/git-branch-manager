@@ -25,6 +25,7 @@ import '../models/line_history_chunk.dart';
 import '../models/operation_choice.dart';
 import '../models/app_log_events.dart';
 import '../models/operation_record.dart';
+import '../models/operation_record.dart' as log_rules show retractLogEntries;
 import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
@@ -2243,6 +2244,27 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void recordAppLog(AppLogEntry entry) {
     if (!mounted) return;
     _appendAppLog(entry);
+  }
+
+  /// Appends any line produced outside this session's own events -- a clone
+  /// job's git record or running row. A no-op once disposed, as
+  /// [recordAppLog] is.
+  void recordLogEntry(GbmLogEntry entry) {
+    if (!mounted) return;
+    state = state.withOperationRecord(
+      entry,
+      maxEntries: maxOperationLogEntries,
+    );
+  }
+
+  /// Takes back the git records with these ids: a successful clone started
+  /// here moves its rows to the new repository's Log (R12).
+  void retractLogEntries(Set<int> ids) {
+    if (!mounted) return;
+    state = state.copyWith(
+      operationLog: log_rules.retractLogEntries(state.operationLog, ids),
+      operationLogRevision: state.operationLogRevision + 1,
+    );
   }
 
   /// Logs that the commit box's draft could not be saved before a commit was

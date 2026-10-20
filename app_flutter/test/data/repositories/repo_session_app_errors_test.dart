@@ -53,4 +53,48 @@ void main() {
       ),
     );
   });
+
+  // A clone job's rows arrive outside any session event, and a successful
+  // clone takes its rows back from the session it was started in (R12).
+  OperationRecord git(int id, {bool running = false}) => OperationRecord(
+    whenEpochMs: id,
+    repoDir: '',
+    argv: const <String>['clone'],
+    commandLine: 'git clone',
+    exitCode: 0,
+    durationMs: 0,
+    stderrText: '',
+    cancelled: false,
+    timedOut: false,
+    id: id,
+    running: running,
+  );
+
+  test('recordLogEntry replaces a running row by id, moving the revision', () {
+    controller.recordLogEntry(git(7, running: true));
+    controller.recordLogEntry(git(7));
+    final GbmLogEntry entry = controller.state.operationLog.single;
+    expect((entry as OperationRecord).running, isFalse);
+    expect(controller.state.operationLogRevision, 2);
+  });
+
+  test('retractLogEntries removes those records, moving the revision', () {
+    controller.recordLogEntry(git(1));
+    controller.recordLogEntry(git(2));
+    controller.retractLogEntries(<int>{1});
+    expect(
+      controller.state.operationLog.map((GbmLogEntry e) => e.whenEpochMs),
+      <int>[2],
+    );
+    expect(controller.state.operationLogRevision, 3);
+  });
+
+  test('both are no-ops after dispose', () {
+    final FakeRepoSessionController gone = FakeRepoSessionController(
+      RepoIdentity.forWorkDir('/test/gone'),
+      const RepoSessionState(isOpen: true),
+    )..dispose();
+    expect(() => gone.recordLogEntry(git(1)), returnsNormally);
+    expect(() => gone.retractLogEntries(<int>{1}), returnsNormally);
+  });
 }

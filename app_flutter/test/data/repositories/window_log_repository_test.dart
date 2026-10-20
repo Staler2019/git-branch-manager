@@ -32,7 +32,7 @@ void main() {
   test('records app lines and git records in order, moving the revision', () {
     final WindowLogController log = WindowLogController(maxEntries: 10);
     log.recordAppLog(_app(1));
-    log.recordOperation(_git(2));
+    log.recordLogEntry(_git(2));
     expect(log.state.entries.map((GbmLogEntry e) => e.whenEpochMs), <int>[
       1,
       2,
@@ -42,8 +42,8 @@ void main() {
 
   test('a git outcome replaces its running row', () {
     final WindowLogController log = WindowLogController(maxEntries: 10);
-    log.recordOperation(_git(5, running: true));
-    log.recordOperation(_git(5));
+    log.recordLogEntry(_git(5, running: true));
+    log.recordLogEntry(_git(5));
     expect(log.state.entries.length, 1);
     expect((log.state.entries.single as OperationRecord).running, isFalse);
   });
@@ -59,11 +59,26 @@ void main() {
     ]);
   });
 
+  // R12: a successful clone's rows leave the window that started it.
+  test('retract removes those git records and moves the revision', () {
+    final WindowLogController log = WindowLogController(maxEntries: 10);
+    log.recordAppLog(_app(1));
+    log.recordLogEntry(_git(2));
+    log.recordLogEntry(_git(3));
+    log.retractLogEntries(<int>{2});
+    expect(log.state.entries.map((GbmLogEntry e) => e.whenEpochMs), <int>[
+      1,
+      3,
+    ]);
+    expect(log.state.revision, 4);
+  });
+
   test('a line arriving after dispose is dropped, not thrown', () {
     final WindowLogController log = WindowLogController(maxEntries: 10);
     log.dispose();
     expect(() => log.recordAppLog(_app(1)), returnsNormally);
-    expect(() => log.recordOperation(_git(1)), returnsNormally);
+    expect(() => log.recordLogEntry(_git(1)), returnsNormally);
+    expect(() => log.retractLogEntries(<int>{1}), returnsNormally);
   });
 
   test(

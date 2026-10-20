@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/operation_record.dart';
+import '../models/operation_record.dart' as log_rules show retractLogEntries;
 import 'app_preferences_repository.dart';
 
 /// The Log of a window with no repository open (R13). A clone started from
@@ -31,8 +32,19 @@ class WindowLogController extends StateNotifier<WindowLogState> {
   /// disposed, since an action can outlive the window that started it.
   void recordAppLog(AppLogEntry entry) => _record(entry);
 
-  /// A git invocation's running row or outcome, same rule as a session's.
-  void recordOperation(OperationRecord record) => _record(record);
+  /// Any line -- a clone job's git record, its running row with progress,
+  /// or an app line -- under the session's append rule.
+  void recordLogEntry(GbmLogEntry entry) => _record(entry);
+
+  /// Takes back the git records with these ids: a successful clone's rows
+  /// move to the new repository's Log (R12).
+  void retractLogEntries(Set<int> ids) {
+    if (!mounted) return;
+    state = WindowLogState(
+      entries: log_rules.retractLogEntries(state.entries, ids),
+      revision: state.revision + 1,
+    );
+  }
 
   void _record(GbmLogEntry entry) {
     if (!mounted) return;

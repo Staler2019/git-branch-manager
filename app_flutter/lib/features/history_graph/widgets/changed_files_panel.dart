@@ -87,30 +87,32 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,
     );
-    final AppActionOutcome<void> outcome = await ref
-        .read(appActionRunnerProvider)
-        .run(
-          exportFileAtRevisionAction(
-            path: path,
-            destPath: destPath,
-            export: () async {
-              final FileAtRevisionExport reply = await session
-                  .exportFileAtRevisionAwaiting(
-                    revision: revision,
-                    path: path,
-                    destPath: destPath,
-                  );
-              if (reply.succeeded) return null;
-              return reply.error?.message ??
-                  'could not read it at that revision';
-            },
-          ),
-          sink: session.recordAppLog,
-        );
+    final AppActionRunner runner = ref.read(appActionRunnerProvider);
+    final AppActionOutcome<void> outcome = await runner.run(
+      exportFileAtRevisionAction(
+        path: path,
+        destPath: destPath,
+        export: () async {
+          final FileAtRevisionExport reply = await session
+              .exportFileAtRevisionAwaiting(
+                revision: revision,
+                path: path,
+                destPath: destPath,
+              );
+          if (reply.succeeded) return null;
+          return reply.error?.message ?? 'could not read it at that revision';
+        },
+      ),
+      sink: session.recordAppLog,
+    );
     if (outcome is! AppActionSucceeded<void>) return;
     switch (purpose) {
       case _ExportPurpose.openWithOs:
-        launcher.openFile(destPath);
+        // Ruling R4: the hand-off to the OS is its own Log line.
+        await runner.run(
+          openFileAction(launcher, destPath),
+          sink: session.recordAppLog,
+        );
       case _ExportPurpose.saveAs:
         messenger?.showSnackBar(SnackBar(content: Text('Saved to $destPath')));
     }
@@ -247,8 +249,15 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       // 05-K → "Open terminal here". The repository work dir, matching what
       // 05-A and 05-F already open -- a historical commit's file has no
       // directory of its own to open a terminal in.
-      onOpenTerminal: (String _) =>
-          ref.read(desktopLauncherProvider).openTerminal(identity.workDir),
+      onOpenTerminal: (String _) => ref
+          .read(appActionRunnerProvider)
+          .run(
+            openTerminalAction(
+              ref.read(desktopLauncherProvider),
+              identity.workDir,
+            ),
+            sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+          ),
       // 05-K → More actions → "Restore file to this state" and "Restore and
       // stage". Both need the commit's oid as well as the path, which is why
       // they are bound here rather than inside the presentational half, and

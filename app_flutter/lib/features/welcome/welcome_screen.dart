@@ -16,6 +16,8 @@ import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/clone_job_repository.dart';
 import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/window_log_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/dialog_route.dart';
 import '../../routing/route_paths.dart';
@@ -69,6 +71,15 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   GbmLogEntry? _seenError;
   GbmLogEntry? _logFocus;
   int _logFocusSerial = 0;
+
+  /// Help → Documentation / Report an issue, as a line in this window's own
+  /// Log (rulings R4, R13).
+  Future<void> _openUrl(String url) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openUrlAction(ref.read(desktopLauncherProvider), url),
+        sink: ref.read(windowLogProvider.notifier).recordAppLog,
+      );
 
   @override
   void initState() {
@@ -236,12 +247,10 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         }
         _logDrawerController.toggle();
       },
-      GbmActionId.helpDocumentation: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
+      GbmActionId.helpDocumentation: () => _openUrl(GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
-      GbmActionId.helpReportAnIssue: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
+      GbmActionId.helpReportAnIssue: () => _openUrl(GbmUrls.reportAnIssue),
       GbmActionId.helpAbout: () =>
           pushDialogRoute(context, RoutePaths.aboutDialog),
     };

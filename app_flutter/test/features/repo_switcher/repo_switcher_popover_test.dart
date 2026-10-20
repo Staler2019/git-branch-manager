@@ -12,13 +12,22 @@ import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/fake_repo_session.dart';
 
 const String _workDir1 = '/Users/test/repo1';
 const String _workDir2 = '/Users/test/repo2';
@@ -44,6 +53,24 @@ RepoRecord _record({
   );
 }
 
+class _Launcher extends DesktopLauncher {
+  _Launcher() : super(operatingSystem: 'linux');
+
+  final List<String> calls = <String>[];
+
+  @override
+  Future<bool> openInFileManager(String path) async {
+    calls.add('manager $path');
+    return true;
+  }
+
+  @override
+  Future<bool> openTerminal(String path) async {
+    calls.add('terminal $path');
+    return true;
+  }
+}
+
 Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   final TestGesture gesture = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -66,6 +93,7 @@ Future<GoRouter> _pump(
   GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
   _FakeGbmBindings? bindings,
   _FakeFolderPicker? picker,
+  List<Override> overrides = const <Override>[],
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -109,6 +137,7 @@ Future<GoRouter> _pump(
         discoveryProvider.overrideWith(
           (ref) => _TestDiscoveryController(repos),
         ),
+        ...overrides,
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(variant),
@@ -349,6 +378,88 @@ void main() {
 
       expect(recents.read(), isEmpty);
       expect(find.text('spike'), findsNothing);
+    });
+  });
+
+  // Ruling R4 「每個動作都要有log」: 05-A's two launcher items go through
+  // AppActionRunner, into the window the list belongs to -- the welcome
+  // screen's own Log with no repository open (R13), the repository's when
+  // one is.
+  group('05-A launcher items are logged', () {
+    testWidgets('with no repository open, into the window Log', (tester) async {
+      final _Launcher launcher = _Launcher();
+      // The window Log reads its cap from preferences.
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      late WidgetRef scope;
+      await _pump(
+        tester,
+        Consumer(
+          builder: (context, ref, _) {
+            scope = ref;
+            return const RepoSwitcherList();
+          },
+        ),
+        repos: <RepoRecord>[_record()],
+        overrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(launcher),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in file manager'));
+      await tester.pumpAndSettle();
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+
+      expect(launcher.calls, <String>[
+        'manager $_workDir1',
+        'terminal $_workDir1',
+      ]);
+      expect(
+        scope
+            .read(windowLogProvider)
+            .entries
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message),
+        <String>[
+          'Showed $_workDir1 in the file manager',
+          'Opened a terminal in $_workDir1',
+        ],
+      );
+    });
+
+    testWidgets('inside a repository, into that repository\'s Log', (
+      tester,
+    ) async {
+      final _Launcher launcher = _Launcher();
+      final RepoIdentity current = RepoIdentity.forWorkDir(_workDir2);
+      final FakeRepoSessionController session = FakeRepoSessionController(
+        current,
+        const RepoSessionState(isOpen: true),
+      );
+      await _pump(
+        tester,
+        const RepoSwitcherList(currentWorkDir: _workDir2),
+        repos: <RepoRecord>[_record()],
+        overrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(launcher),
+          repoSessionProvider(current).overrideWith((ref) => session),
+        ],
+      );
+
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+
+      expect(
+        session.state.operationLog.whereType<AppLogEntry>().map(
+          (AppLogEntry e) => e.message,
+        ),
+        <String>['Opened a terminal in $_workDir1'],
+      );
     });
   });
 

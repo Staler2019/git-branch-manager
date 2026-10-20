@@ -18,6 +18,7 @@ import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/log_drawer/log_drawer.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
@@ -54,6 +55,19 @@ final RepoRecord _repo = RepoRecord(
 
 late _TestDiscoveryController _discovery;
 late FakeCloneJobNative _cloneNative;
+late _Launcher _launcher;
+
+class _Launcher extends DesktopLauncher {
+  _Launcher() : super(operatingSystem: 'linux');
+
+  final List<String> opened = <String>[];
+
+  @override
+  Future<bool> openUrl(String url) async {
+    opened.add(url);
+    return true;
+  }
+}
 
 Future<(GoRouter, ProviderContainer)> _pump(
   WidgetTester tester, {
@@ -70,6 +84,7 @@ Future<(GoRouter, ProviderContainer)> _pump(
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   _discovery = _TestDiscoveryController(repos);
   _cloneNative = FakeCloneJobNative();
+  _launcher = _Launcher();
 
   final GoRouter router = GoRouter(
     initialLocation: RoutePaths.welcome,
@@ -101,6 +116,7 @@ Future<(GoRouter, ProviderContainer)> _pump(
       fileSavePickerProvider.overrideWithValue(_FakeFolderPicker(_workDir)),
       discoveryProvider.overrideWith((ref) => _discovery),
       cloneJobNativeProvider.overrideWithValue(_cloneNative),
+      desktopLauncherProvider.overrideWithValue(_launcher),
     ],
   );
   addTearDown(container.dispose);
@@ -450,6 +466,30 @@ void main() {
       );
     });
   });
+  // Ruling R4 「每個動作都要有log」: Help's two links go through
+  // AppActionRunner into this window's own Log (R13).
+  for (final (String item, String url) in <(String, String)>[
+    ('Documentation', GbmUrls.documentation),
+    ('Report an issue', GbmUrls.reportAnIssue),
+  ]) {
+    testWidgets('Help → $item opens the page and logs it', (tester) async {
+      final (_, ProviderContainer container) = await _pump(tester);
+      await tester.tap(find.text('Help'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item));
+      await tester.pumpAndSettle();
+
+      expect(_launcher.opened, <String>[url]);
+      expect(
+        container
+            .read(windowLogProvider)
+            .entries
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message),
+        <String>['Opened $url'],
+      );
+    });
+  }
 }
 
 /// Fake GbmBindings: nothing on this screen reaches the native layer once

@@ -209,6 +209,13 @@ void main() {
           'a historical commit\'s file has no directory of its own, so '
           'this opens the repository work dir like 05-A and 05-F do',
     );
+    // Ruling R4: through AppActionRunner, so it is a Log line.
+    expect(
+      pumped.controller.state.operationLog.whereType<AppLogEntry>().map(
+        (AppLogEntry e) => e.message,
+      ),
+      <String>['Opened a terminal in ${_identity.workDir}'],
+    );
   });
 
   testWidgets(
@@ -254,6 +261,14 @@ void main() {
 
       // The launcher really got the exported file -- macOS `open <path>`.
       expect(starter.attempted, <String>['open']);
+      // Ruling R4: the export and the open are each a Log line.
+      expect(
+        pumped.controller.state.operationLog
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message)
+            .last,
+        'Opened $destPath',
+      );
     },
   );
 

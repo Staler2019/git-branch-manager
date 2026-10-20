@@ -1238,11 +1238,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
       // Help
       GbmActionId.helpDocumentation: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
+          _openUrl(ref, identity, GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
+          _openUrl(ref, identity, GbmUrls.reportAnIssue),
       GbmActionId.helpAbout: () =>
           pushDialogRoute(context, RoutePaths.aboutDialog),
     };
@@ -1418,6 +1418,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       .read(appActionRunnerProvider)
       .run(
         openTerminalAction(ref.read(desktopLauncherProvider), identity.workDir),
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+      );
+
+  /// Help → Documentation / Report an issue, as a Log line (ruling R4).
+  Future<void> _openUrl(WidgetRef ref, RepoIdentity identity, String url) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openUrlAction(ref.read(desktopLauncherProvider), url),
         sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
       );
 

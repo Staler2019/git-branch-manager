@@ -30,6 +30,10 @@ import '../../data/models/repo_record.dart';
 import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
+import '../../data/models/app_action.dart';
+import '../../data/repositories/repo_identity.dart';
+import '../../data/repositories/repo_session_repository.dart';
+import '../../data/repositories/window_log_repository.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../data/services/file_save_picker.dart';
 import '../../routing/app_router.dart';
@@ -525,6 +529,22 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
   /// `showGeneralDialog` is an imperative route on the root navigator, so
   /// `go()` alone would rebuild the page stack underneath and leave the
   /// popover floating on top of the repository it just switched to.
+  /// 05-A's launcher items, as a Log line (ruling R4) in the window this
+  /// list belongs to: the repository's when one is open, otherwise the
+  /// welcome screen's own Log (R13). Taken before the launcher answers, so
+  /// it outlives the popover.
+  Future<void> _launch(AppAction<void> action) {
+    final String? workDir = widget.currentWorkDir;
+    final AppLogSink sink = workDir == null
+        ? ref.read(windowLogProvider.notifier).recordAppLog
+        : ref
+              .read(
+                repoSessionProvider(RepoIdentity.forWorkDir(workDir)).notifier,
+              )
+              .recordAppLog;
+    return ref.read(appActionRunnerProvider).run(action, sink: sink);
+  }
+
   void _switchTo(String workDir) {
     final GoRouter router = GoRouter.of(context);
     widget.onDismiss?.call();
@@ -631,12 +651,18 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
                   entry: entry,
                   isCurrent: entry.workDir == widget.currentWorkDir,
                   onTap: () => _switchTo(entry.workDir),
-                  onOpenInFileManager: () => ref
-                      .read(desktopLauncherProvider)
-                      .openInFileManager(entry.workDir),
-                  onOpenInTerminal: () => ref
-                      .read(desktopLauncherProvider)
-                      .openTerminal(entry.workDir),
+                  onOpenInFileManager: () => _launch(
+                    openInFileManagerAction(
+                      ref.read(desktopLauncherProvider),
+                      entry.workDir,
+                    ),
+                  ),
+                  onOpenInTerminal: () => _launch(
+                    openTerminalAction(
+                      ref.read(desktopLauncherProvider),
+                      entry.workDir,
+                    ),
+                  ),
                   onRemoveFromList: entry.isManual
                       ? () => _removeFromList(entry)
                       : null,

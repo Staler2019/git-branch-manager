@@ -25,6 +25,9 @@ import '../../data/repositories/repo_session_repository.dart'
         workingCopyDiffKey;
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
+import '../../data/models/app_action.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -851,9 +854,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         onStageToggle: () => fromStaged
             ? wc.unstageFiles(ref, widget.identity, targets)
             : wc.stageFiles(ref, widget.identity, targets),
-        onOpenFile: () => launcher.openFile(absolutePath),
-        onShowInFileManager: () => launcher.openInFileManager(absolutePath),
-        onOpenTerminal: () => launcher.openTerminal(widget.identity.workDir),
+        onOpenFile: () => _launch(openFileAction(launcher, absolutePath)),
+        onShowInFileManager: () =>
+            _launch(openInFileManagerAction(launcher, absolutePath)),
+        onOpenTerminal: () =>
+            _launch(openTerminalAction(launcher, widget.identity.workDir)),
         onCopyPath: () =>
             Clipboard.setData(ClipboardData(text: targets.join('\n'))),
         onDiscard: fromStaged ? null : () => _discardFiles(targets),
@@ -890,6 +895,16 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// depend on): git always reports `/`-separated relative paths, and
   /// [DesktopLauncher] normalizes separators for the Windows shell utilities
   /// that care.
+  /// 05-F's launcher items, as a Log line (ruling R4).
+  Future<void> _launch(AppAction<void> action) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        action,
+        sink: ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .recordAppLog,
+      );
+
   String _absolutePathOf(String repoRelativePath) {
     final String base = widget.identity.workDir;
     final String trimmed = base.endsWith('/') || base.endsWith(r'\')

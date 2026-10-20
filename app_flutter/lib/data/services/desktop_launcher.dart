@@ -169,7 +169,9 @@ class DesktopLauncher {
 
   /// Runs [app]'s command in the worktree at [path] -- the worktree panel's
   /// ▾ list (open-with-apps-spec.html). Never throws: every way it can go
-  /// wrong is an [ExternalAppLaunchFailed] the caller paints as a SnackBar.
+  /// wrong is an [ExternalAppLaunchFailed] ~~the caller paints as a
+  /// SnackBar~~ that `openExternalAppAction` turns into an error line in the
+  /// Log through AppActionRunner (ruling R4; no toast, P10 #3).
   ///
   /// macOS/Linux, working directory [path]:
   /// `<shell> -lic '{ <command>\n} </dev/null >/dev/null' gbm <path>`.

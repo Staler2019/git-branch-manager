@@ -12,6 +12,7 @@
 #include "capi/JsonWriter.h"
 #include "capi/gbm_capi.h"
 #include "core/base/FsUtil.h"
+#include "core/discovery/RepoClassifier.h"
 #include "support/DirLink.h"
 #include "support/GitCli.h"
 
@@ -274,6 +275,36 @@ TEST_F(CloneJobApiTest, TheFinishedEventNamesTheNormalisedDestination) {
     EXPECT_TRUE(contains(log.finished(), "\"ok\":true")) << log.finished();
     EXPECT_TRUE(contains(log.finished(), "\"destPath\":" + jsonString(fsutil::utf8FromPath(dest))))
         << log.finished();
+}
+
+// The app compares repositories by path string (RepoIdentity), so the path a
+// clone opens must be spelled exactly as the other entry points spell the
+// same folder: discovery (Scanner -> RepoClassifier, which is where recents
+// come from) and a folder picker (native separators). Typed with forward
+// slashes, `/./` and a trailing `/`, it must still come back that way. On
+// POSIX the three agree trivially; on Windows this is the check that `/`
+// came back as `\`.
+TEST_F(CloneJobApiTest, TheClonedPathIsSpelledAsDiscoveryAndAPickerSpellIt) {
+    const std::string url = makeBareOriginUrl();
+    const std::u8string generic = base_.generic_u8string();
+    const std::string spelled = std::string(generic.begin(), generic.end()) + "/./cloned/";
+    EventLog log;
+
+    GbmCloneHandle job = gbm_clone_start(url.c_str(), spelled.c_str(), 0, 0, &logCallback, &log);
+    JobGuard jobGuard(job);
+    ASSERT_NE(job, nullptr) << lastResultJson();
+    ASSERT_TRUE(log.waitForFinished());
+    jobGuard.close();
+    ASSERT_TRUE(contains(log.finished(), "\"ok\":true")) << log.finished();
+
+    const std::filesystem::path native = std::filesystem::path(base_ / "cloned").make_preferred();
+    const ClassifiedRepo discovered = RepoClassifier::classify(native);
+    ASSERT_TRUE(discovered.isRepo());
+    const std::string discoveredWorkDir = fsutil::utf8FromPath(discovered.paths.workDir());
+
+    EXPECT_EQ(discoveredWorkDir, fsutil::utf8FromPath(native));
+    EXPECT_TRUE(contains(log.finished(), "\"destPath\":" + jsonString(discoveredWorkDir)))
+        << log.finished() << "\nexpected destPath " << discoveredWorkDir;
 }
 
 // R10 opens the clone straight away, so what the job leaves behind must be

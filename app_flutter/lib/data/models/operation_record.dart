@@ -334,3 +334,33 @@ String escapeControlChars(String text) {
   }
   return out.toString();
 }
+
+/// [log] with [entry] added: a git invocation's outcome replaces its own
+/// running row where it stands (same non-zero [OperationRecord.id]), so a
+/// slow command is one row that changes rather than two; anything else is
+/// appended, then the oldest are evicted once over [maxEntries]. An outcome
+/// whose running row the cap already trimmed is appended, never dropped.
+///
+/// The one append rule for every log in the app -- a repository session's
+/// and the no-repository window's -- so the two cannot drift.
+List<GbmLogEntry> appendLogEntry(
+  List<GbmLogEntry> log,
+  GbmLogEntry entry, {
+  required int maxEntries,
+}) {
+  final int runningAt = entry is OperationRecord && entry.id != 0
+      ? log.indexWhere(
+          (GbmLogEntry e) =>
+              e is OperationRecord && e.running && e.id == entry.id,
+        )
+      : -1;
+  if (runningAt >= 0) {
+    return <GbmLogEntry>[
+      for (int i = 0; i < log.length; i++) i == runningAt ? entry : log[i],
+    ];
+  }
+  final List<GbmLogEntry> updated = <GbmLogEntry>[...log, entry];
+  return updated.length > maxEntries
+      ? updated.sublist(updated.length - maxEntries)
+      : updated;
+}

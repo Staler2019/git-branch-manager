@@ -1097,34 +1097,10 @@ class RepoSessionState {
   RepoSessionState withOperationRecord(
     GbmLogEntry record, {
     required int maxEntries,
-  }) {
-    final int runningAt = _runningRowOf(record);
-    if (runningAt >= 0) {
-      return copyWith(
-        operationLog: <GbmLogEntry>[
-          for (int i = 0; i < operationLog.length; i++)
-            i == runningAt ? record : operationLog[i],
-        ],
-        operationLogRevision: operationLogRevision + 1,
-      );
-    }
-    final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
-    return copyWith(
-      operationLog: updated.length > maxEntries
-          ? updated.sublist(updated.length - maxEntries)
-          : updated,
-      operationLogRevision: operationLogRevision + 1,
-    );
-  }
-
-  /// Index of the running row [record] finishes, or -1. id 0 is not from
-  /// core's sequence and matches nothing.
-  int _runningRowOf(GbmLogEntry record) {
-    if (record is! OperationRecord || record.id == 0) return -1;
-    return operationLog.indexWhere(
-      (GbmLogEntry e) => e is OperationRecord && e.running && e.id == record.id,
-    );
-  }
+  }) => copyWith(
+    operationLog: appendLogEntry(operationLog, record, maxEntries: maxEntries),
+    operationLogRevision: operationLogRevision + 1,
+  );
 }
 
 /// Runtime-settable behaviour flags for the refresh pipeline -- the

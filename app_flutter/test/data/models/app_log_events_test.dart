@@ -165,6 +165,33 @@ void main() {
     });
   });
 
+  // TASKS: a cancelled clone 「在 log 寫明刪了哪個路徑」; the wording is
+  // welcome-and-clone-spec.html W-D12.
+  group('clone cleanup', () {
+    test('Removed <path> is a warning', () {
+      final AppLogEntry entry = AppLogEvents.cloneDestinationRemoved(
+        '/Users/alice/src/design-tokens',
+        atEpochMs: 3,
+      );
+      expect(entry.message, 'Removed /Users/alice/src/design-tokens');
+      expect(entry.level, OperationLogLevel.warning);
+      expect(entry.whenEpochMs, 3);
+    });
+
+    test('Could not remove <path>: <reason> is an error', () {
+      final AppLogEntry entry = AppLogEvents.cloneDestinationNotRemoved(
+        '/Users/alice/src/design-tokens',
+        reason: 'Permission denied',
+        atEpochMs: 4,
+      );
+      expect(
+        entry.message,
+        'Could not remove /Users/alice/src/design-tokens: Permission denied',
+      );
+      expect(entry.level, OperationLogLevel.error);
+    });
+  });
+
   // The user-triggered failures that used to be here are app actions now;
   // their wording is pinned in test/data/services/app_actions_test.dart.
 }

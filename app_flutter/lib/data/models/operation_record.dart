@@ -64,6 +64,7 @@ class OperationRecord extends GbmLogEntry {
     this.timeoutMs = 0,
     this.idleTimeoutMs = 0,
     this.queuedOperationId = 0,
+    this.progress = '',
   });
 
   /// Credentials in a URL are masked here, on the way in (ruling R6,
@@ -100,6 +101,33 @@ class OperationRecord extends GbmLogEntry {
       queuedOperationId: json['queuedOperationId'] as int? ?? 0,
     );
   }
+
+  /// What a [running] transfer has reached so far -- `receiving objects
+  /// 12,480 / 31,206` -- or empty. Never on the wire: the clone job sends
+  /// progress as its own event and lays it over the running row with
+  /// [withProgress] (W-D7, P10's Log mock).
+  final String progress;
+
+  /// This record with [progress] replaced; every other field, the [id] the
+  /// outcome replaces it by included, is kept.
+  OperationRecord withProgress(String progress) => OperationRecord(
+    whenEpochMs: whenEpochMs,
+    repoDir: repoDir,
+    argv: argv,
+    commandLine: commandLine,
+    exitCode: exitCode,
+    durationMs: durationMs,
+    stderrText: stderrText,
+    cancelled: cancelled,
+    timedOut: timedOut,
+    benignExit: benignExit,
+    id: id,
+    running: running,
+    timeoutMs: timeoutMs,
+    idleTimeoutMs: idleTimeoutMs,
+    queuedOperationId: queuedOperationId,
+    progress: progress,
+  );
 
   /// Names one invocation process-wide: core records it twice, at spawn
   /// ([running]) and at its end, under the same id.
@@ -225,8 +253,12 @@ class OperationRecord extends GbmLogEntry {
           OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
         };
 
+  /// The command line; a running row with [progress] also says how far it
+  /// has got, after a dash (P10: `git clone https://…/design-tokens —
+  /// receiving objects 12,480 / 31,206`).
   @override
-  String get message => commandLine;
+  String get message =>
+      running && progress.isNotEmpty ? '$commandLine — $progress' : commandLine;
 }
 
 /// An app-level event: something the app did that no single `git` invocation
@@ -364,3 +396,12 @@ List<GbmLogEntry> appendLogEntry(
       ? updated.sublist(updated.length - maxEntries)
       : updated;
 }
+
+/// [log] without the git records whose non-zero [OperationRecord.id] is in
+/// [ids]. A successful clone's rows move to the new repository's Log (R12),
+/// and the window that started it takes them back with this.
+List<GbmLogEntry> retractLogEntries(List<GbmLogEntry> log, Set<int> ids) =>
+    <GbmLogEntry>[
+      for (final GbmLogEntry e in log)
+        if (!(e is OperationRecord && e.id != 0 && ids.contains(e.id))) e,
+    ];

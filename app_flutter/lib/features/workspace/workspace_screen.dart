@@ -13,11 +13,13 @@ import '../diff/temporary_scope_provider.dart';
 import '../../actions/gbm_edit_intents.dart';
 import '../../actions/gbm_menu_model.dart';
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/clone_job.dart';
 import '../../data/models/operation_record.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/app_preferences_repository.dart';
+import '../../data/repositories/clone_job_repository.dart';
 import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/panel_tabs_repository.dart';
@@ -47,6 +49,7 @@ import '../sidebar/branch_tree_builder.dart';
 import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
+import '../status_bar/clone_job_tasks.dart';
 import '../status_bar/running_git_tasks.dart';
 import '../status_bar/status_bar.dart';
 import 'widgets/action_toolbar.dart';
@@ -730,7 +733,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                 ),
               ),
               refreshTimings: session.refreshTimings,
-              backgroundTasks: _backgroundTasks(session),
+              backgroundTasks: _backgroundTasks(
+                session,
+                ref.watch(cloneJobsProvider),
+              ),
               unreadError: unreadError,
               repoState: session.repoState,
               workingCopyStatus: session.workingCopyStatus,
@@ -1246,9 +1252,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///
   /// Derived from session state rather than tracked separately, so a task
   /// cannot linger on screen after the operation that owns it has finished.
-  /// Three sources, in this order: every running git command of this
+  /// Four sources, in this order: every running git command of this
   /// session's queued operations (`backgroundTasksFromOperationLog`, the same
-  /// rows the log drawer shows as RUNNING), the history scan
+  /// rows the log drawer shows as RUNNING), every running clone -- app-wide,
+  /// since a clone outlives the window that started it
+  /// (`backgroundTasksFromCloneJobs`) --, the history scan
   /// (`isRefreshing`), and a sequencer operation stopped on the user, whose
   /// step counts `RepoState` carries.
   ///
@@ -1257,10 +1265,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// 2026-10-15, though this comment said so. They are indeterminate now: core
   /// surfaces no object counts, and 使用者裁定 has the spec's
   /// "12,480 / 31,206" 「改spec，沒有計畫」.
-  List<BackgroundTask> _backgroundTasks(RepoSessionState session) {
-    final List<BackgroundTask> tasks = backgroundTasksFromOperationLog(
-      session.operationLog,
-    );
+  List<BackgroundTask> _backgroundTasks(
+    RepoSessionState session,
+    List<CloneJob> cloneJobs,
+  ) {
+    final List<BackgroundTask> tasks = <BackgroundTask>[
+      ...backgroundTasksFromOperationLog(session.operationLog),
+      ...backgroundTasksFromCloneJobs(cloneJobs),
+    ];
 
     if (session.isRefreshing) {
       tasks.add(
@@ -1318,6 +1330,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// re-requesting the snapshot. The sequencer entry is built with
   /// `cancellable: false`, so this is never called with its id.
   void _cancelTask(String id) {
+    if (cloneJobIdOf(id) case final int job) {
+      ref.read(cloneJobsProvider.notifier).cancel(job);
+      return;
+    }
     final RepoSessionState session = ref.read(
       repoSessionProvider(widget.identity),
     );

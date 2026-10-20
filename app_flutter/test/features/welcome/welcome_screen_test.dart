@@ -13,6 +13,7 @@ import 'package:gbm_flutter/data/models/app_log_events.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
+import 'package:gbm_flutter/data/repositories/clone_job_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
@@ -33,6 +34,8 @@ import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/fake_clone_job_native.dart';
+
 const String _workDir = '/Users/test/repo1';
 
 final RepoRecord _repo = RepoRecord(
@@ -50,6 +53,7 @@ final RepoRecord _repo = RepoRecord(
 );
 
 late _TestDiscoveryController _discovery;
+late FakeCloneJobNative _cloneNative;
 
 Future<(GoRouter, ProviderContainer)> _pump(
   WidgetTester tester, {
@@ -65,6 +69,7 @@ Future<(GoRouter, ProviderContainer)> _pump(
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   _discovery = _TestDiscoveryController(repos);
+  _cloneNative = FakeCloneJobNative();
 
   final GoRouter router = GoRouter(
     initialLocation: RoutePaths.welcome,
@@ -95,6 +100,7 @@ Future<(GoRouter, ProviderContainer)> _pump(
       gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
       fileSavePickerProvider.overrideWithValue(_FakeFolderPicker(_workDir)),
       discoveryProvider.overrideWith((ref) => _discovery),
+      cloneJobNativeProvider.overrideWithValue(_cloneNative),
     ],
   );
   addTearDown(container.dispose);
@@ -214,6 +220,41 @@ void main() {
     await tester.tap(find.widgetWithText(GbmButton, 'Clone repository…'));
     await tester.pumpAndSettle();
     expect(find.text('clone from null'), findsOneWidget);
+  });
+
+  // welcome-and-clone-spec screen 2: the clone started here runs in this
+  // window's status bar, and its Cancel reaches the job.
+  testWidgets('a running clone is a status-bar row with a working Cancel', (
+    tester,
+  ) async {
+    final (_, ProviderContainer container) = await _pump(tester);
+    container
+        .read(cloneJobsProvider.notifier)
+        .start(
+          url: 'https://h/design-tokens.git',
+          destPath: '/src/design-tokens',
+          recurseSubmodules: false,
+          shallow: false,
+          origin: CloneLogTarget.window(
+            container.read(windowLogProvider.notifier),
+          ),
+        );
+    await tester.pump();
+    expect(
+      find.descendant(
+        of: find.byType(StatusBar),
+        matching: find.text('Cloning design-tokens'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(StatusBar),
+        matching: find.text('Cancel'),
+      ),
+    );
+    await tester.pump();
+    expect(_cloneNative.jobs.single.calls, <String>['cancel']);
   });
 
   // [ACT-one-handler-map]: the keyboard, the macOS menu and the in-window

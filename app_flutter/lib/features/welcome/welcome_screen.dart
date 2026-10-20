@@ -13,6 +13,7 @@ import '../../data/models/git_error.dart';
 import '../../data/models/operation_record.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/chrome_visibility_repository.dart';
+import '../../data/repositories/clone_job_repository.dart';
 import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/window_log_repository.dart';
 import '../../data/services/desktop_launcher.dart';
@@ -25,6 +26,7 @@ import '../../widgets/gbm_kbd_chip.dart';
 import '../../widgets/split_pane.dart';
 import '../log_drawer/log_drawer.dart';
 import '../repo_switcher/repo_switcher_popover.dart';
+import '../status_bar/clone_job_tasks.dart';
 import '../status_bar/status_bar.dart';
 import '../workspace/widgets/menu_bar_row.dart';
 import '../workspace/widgets/platform_menu_bar_host.dart';
@@ -174,7 +176,9 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
           if (chrome.statusBarVisible)
             StatusBar.window(
               windowSummary: scanSummaryLabel(discovery),
-              backgroundTasks: const [],
+              backgroundTasks: backgroundTasksFromCloneJobs(
+                ref.watch(cloneJobsProvider),
+              ),
               unreadError: unreadError,
               onOpenError: () {
                 setState(() {
@@ -185,7 +189,11 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
                 _logDrawerController.open();
               },
               onToggleLog: () => handlers[GbmActionId.viewLog]?.call(),
-              onCancelTask: (_) {},
+              onCancelTask: (String id) {
+                if (cloneJobIdOf(id) case final int job) {
+                  ref.read(cloneJobsProvider.notifier).cancel(job);
+                }
+              },
             ),
         ],
       ),

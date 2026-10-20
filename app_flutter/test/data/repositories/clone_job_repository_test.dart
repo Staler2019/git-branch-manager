@@ -129,9 +129,13 @@ void main() {
   });
   tearDown(() => controller.dispose());
 
-  int start({bool recurse = true, bool shallow = false}) => controller.start(
+  int start({
+    bool recurse = true,
+    bool shallow = false,
+    String destPath = '/src/design-tokens',
+  }) => controller.start(
     url: 'https://h/design-tokens.git',
-    destPath: '/src/design-tokens',
+    destPath: destPath,
     recurseSubmodules: recurse,
     shallow: shallow,
     origin: origin.target,
@@ -234,6 +238,19 @@ void main() {
     final int id = start();
     controller.cancel(id);
     expect(native.jobs.single.calls, <String>['cancel']);
+  });
+
+  // Verifier A2: the destination as typed (`/src/design-tokens/`) is not the
+  // repository core cloned into; the finished event's path is.
+  test('success opens the path core cloned into, not the spelling', () async {
+    start(destPath: '/src/design-tokens/');
+    native.emit(0, GbmEventType.cloneFinished, <String, Object>{
+      'ok': true,
+      'destPath': '/src/design-tokens',
+    });
+    await settle();
+
+    expect(opened, <String>['/src/design-tokens']);
   });
 
   test(

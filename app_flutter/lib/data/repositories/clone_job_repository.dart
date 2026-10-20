@@ -178,11 +178,14 @@ class CloneJobController extends StateNotifier<List<CloneJob>> {
     };
     if (finished.ok) {
       run.origin.retract(ids);
-      final CloneLogTarget target = _repositoryLog(job.destPath);
+      // Core's normalised path, so `/src/r/` opens the same repository as
+      // `/src/r` (verifier A2); the typed one only if core named none.
+      final String dest = finished.destPath ?? job.destPath;
+      final CloneLogTarget target = _repositoryLog(dest);
       for (final GbmLogEntry row in run.rows) {
         target.record(row);
       }
-      _opened.add(job.destPath);
+      _opened.add(dest);
       return;
     }
     final GitError? error = finished.error;

@@ -53,6 +53,7 @@ class CloneFinished {
     this.error,
     this.removedPath,
     this.removalError,
+    this.destPath,
   });
 
   factory CloneFinished.fromJson(Map<String, dynamic> json) => CloneFinished(
@@ -63,6 +64,7 @@ class CloneFinished {
     },
     removedPath: json['removedPath'] as String?,
     removalError: json['removalError'] as String?,
+    destPath: json['destPath'] as String?,
   );
 
   final bool ok;
@@ -75,4 +77,8 @@ class CloneFinished {
 
   /// Why the cancelled job's cleanup stopped short.
   final String? removalError;
+
+  /// The normalised destination git cloned into -- `/src/r` for a job
+  /// started as `/src/r/` (verifier A2). The repository to open is this one.
+  final String? destPath;
 }

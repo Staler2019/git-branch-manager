@@ -60,11 +60,20 @@ void main() {
         'error': null,
         'removedPath': null,
         'removalError': null,
+        'destPath': '/src/r',
       });
       expect(f.ok, isTrue);
       expect(f.error, isNull);
       expect(f.removedPath, isNull);
       expect(f.removalError, isNull);
+      expect(f.destPath, '/src/r');
+    });
+
+    test('a payload without destPath parses with none', () {
+      final CloneFinished f = CloneFinished.fromJson(<String, dynamic>{
+        'ok': true,
+      });
+      expect(f.destPath, isNull);
     });
 
     test('cancelled with the destination removed', () {

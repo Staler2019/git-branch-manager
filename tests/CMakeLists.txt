@@ -1,7 +1,7 @@
 include(GoogleTest)
 
 # Test doubles live here rather than in the shipped library.
-add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp support/GitCli.cpp)
+add_library(gbm_test_support STATIC support/DirLink.cpp support/FakeProcessRunner.cpp support/GitCli.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
@@ -14,6 +14,7 @@ add_executable(gbm_core_tests
     unit/CoreBasicsTest.cpp
     unit/DelayTimerTest.cpp
     unit/DiscoveryTest.cpp
+    unit/DirLinkTest.cpp
     unit/GitCliTest.cpp
     unit/GitExecutableTest.cpp
     unit/GitIntegrationTest.cpp

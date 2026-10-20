@@ -12,6 +12,7 @@
 #include "capi/JsonWriter.h"
 #include "capi/gbm_capi.h"
 #include "core/base/FsUtil.h"
+#include "support/DirLink.h"
 #include "support/GitCli.h"
 
 #include <chrono>
@@ -490,14 +491,9 @@ TEST_F(CloneJobApiTest, CancelNeverFollowsALinkOutOfTheDestination) {
     JobGuard jobGuard(job);
     ASSERT_NE(job, nullptr) << lastResultJson();
     ASSERT_TRUE(waitUntil([&] { return std::filesystem::exists(dest / ".git"); }));
-#ifdef _WIN32
-    // A junction needs no privilege, unlike a directory symlink.
-    const std::string mklink =
-        "cmd /c mklink /J \"" + (dest / "link").string() + "\" \"" + outside.string() + "\" >NUL";
-    ASSERT_EQ(std::system(mklink.c_str()), 0);
-#else
-    std::filesystem::create_directory_symlink(outside, dest / "link");
-#endif
+    std::error_code linkError;
+    ASSERT_TRUE(gbm::testing::makeDirectoryLink(outside, dest / "link", linkError))
+        << linkError.message();
     gbm_clone_cancel(job);
     ASSERT_TRUE(log.waitForFinished());
     jobGuard.close();
@@ -667,14 +663,8 @@ protected:
     }
 
     static void link(const std::filesystem::path& target, const std::filesystem::path& at) {
-#ifdef _WIN32
-        // A junction needs no privilege, unlike a directory symlink.
-        const std::string mklink =
-            "cmd /c mklink /J \"" + at.string() + "\" \"" + target.string() + "\" >NUL";
-        ASSERT_EQ(std::system(mklink.c_str()), 0);
-#else
-        std::filesystem::create_directory_symlink(target, at);
-#endif
+        std::error_code ec;
+        ASSERT_TRUE(gbm::testing::makeDirectoryLink(target, at, ec)) << ec.message();
     }
 
     std::filesystem::path base_;

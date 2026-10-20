@@ -66,8 +66,12 @@ String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 String? originWorkDirOf(GoRouter router) =>
     router.routerDelegate.currentConfiguration.pathParameters['repoId'];
 
+/// [repoId] as a route builder receives it: go_router has already decoded
+/// it, so it *is* the work dir. ~~`Uri.decodeComponent(repoId)`~~ decoded it
+/// a second time, which threw on a work dir containing a bare `%` and read
+/// `100%25` as `100%`.
 RepoIdentity repoIdentityFromRouteParam(String repoId) =>
-    RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
+    RepoIdentity.forWorkDir(repoId);
 
 /// `/`, `/repo/:repoId/history`, `/repo/:repoId/working-copy`, plus the
 /// first four dialog routes (M3: about, keyboard shortcuts, manage base
@@ -112,8 +116,11 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RoutePaths.workspace,
         redirect: (context, state) {
-          final String repoId = state.pathParameters['repoId']!;
-          return RoutePaths.historyFor(repoId);
+          // Re-encoded: the parameter arrives decoded, and spliced back raw
+          // a work dir's `/` made `/repo//src/x/history`, which no route
+          // matches.
+          final String workDir = state.pathParameters['repoId']!;
+          return RoutePaths.historyFor(repoIdFor(workDir));
         },
       ),
       ShellRoute(

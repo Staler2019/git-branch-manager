@@ -25,9 +25,11 @@ int RunAskpassIfRequested(int argc, char** argv) {
     return -1;
   }
 
+  // No `if` initializers here: linux/CMakeLists.txt builds the runner as
+  // C++14 (cxx_std_14), and CI's -Werror makes that extension an error.
   std::string library_path;
-  if (const char* override_path = std::getenv("GBM_CAPI_LIBRARY_PATH");
-      override_path != nullptr && *override_path != '\0') {
+  const char* override_path = std::getenv("GBM_CAPI_LIBRARY_PATH");
+  if (override_path != nullptr && *override_path != '\0') {
     library_path = override_path;
   } else {
     char executable[PATH_MAX];
@@ -59,8 +61,8 @@ int RunAskpassIfRequested(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (const int askpass_code = RunAskpassIfRequested(argc, argv);
-      askpass_code >= 0) {
+  const int askpass_code = RunAskpassIfRequested(argc, argv);
+  if (askpass_code >= 0) {
     return askpass_code;
   }
 

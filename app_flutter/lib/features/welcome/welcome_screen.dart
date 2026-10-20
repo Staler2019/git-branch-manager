@@ -213,11 +213,12 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         ref,
         sink: ref.read(windowLogProvider.notifier).recordAppLog,
       ),
-      GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
+      GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () =>
           promptCloneRepository(context, ref),
       GbmActionId.fileSwitchRepository: _switcherController.open,
-      GbmActionId.fileAddLocalRepository: () => promptOpenRepository(context),
+      GbmActionId.fileAddLocalRepository: () =>
+          promptOpenRepository(context, ref),
       GbmActionId.filePreferences: () =>
           pushDialogRoute(context, RoutePaths.preferencesDialog),
       ...buildEditActionHandlers(),

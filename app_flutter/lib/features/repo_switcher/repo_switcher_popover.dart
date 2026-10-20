@@ -31,6 +31,7 @@ import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
 import '../../data/services/desktop_launcher.dart';
+import '../../data/services/file_save_picker.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -179,30 +180,29 @@ List<RepoSwitcherEntry> filterRepoSwitcherEntries(
       .toList(growable: false);
 }
 
-/// Asks for a working-directory path and switches the window to it, then
-/// dismisses [onDismiss]'s surface (the switcher popover, when called from
-/// its footer).
+/// Asks for a working directory with the system folder picker and switches
+/// the window to it, then dismisses [onDismiss]'s surface (the switcher
+/// popover, when called from its footer).
 ///
-/// Deliberately a path prompt and not a native folder picker: this app has
-/// no file-dialog plugin wired up (the same M1 limitation the base-folder
-/// field in Preferences carries). Prompting *before* dismissing means Esc on
-/// the prompt leaves the switcher exactly as it was, which is what "Esc 關閉
-/// 不切換" asks for.
+/// ~~Deliberately a path prompt and not a native folder picker: this app has
+/// no file-dialog plugin wired up~~ -- `file_selector` is wired up
+/// ([fileSavePickerProvider]), and spec page 01 lists the system file picker
+/// among what the app takes from the OS; W-D2b (welcome-and-clone-spec.html)
+/// ruled the picker. Asking *before* dismissing means cancelling the picker
+/// leaves the switcher exactly as it was, which is what "Esc 關閉不切換" asks
+/// for.
 ///
 /// Backs both the popover footer's `Open repository…` and File → Open
 /// repository… / Add local repository… (see `workspace_screen.dart`); the
 /// opened path lands in the manually-opened list via `RecentsRepository`
 /// when its session opens.
 Future<void> promptOpenRepository(
-  BuildContext context, {
+  BuildContext context,
+  WidgetRef ref, {
   VoidCallback? onDismiss,
 }) async {
   final GoRouter router = GoRouter.of(context);
-  final String? path = await promptText(
-    context,
-    title: 'Open Repository',
-    label: 'Path to the working directory',
-  );
+  final String? path = await ref.read(fileSavePickerProvider).pickDirectory();
   if (path == null) return;
   onDismiss?.call();
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));
@@ -776,7 +776,7 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
           label: 'Open repository…',
           shortcut: _shortcutLabel('O'),
           onTap: () =>
-              promptOpenRepository(context, onDismiss: widget.onDismiss),
+              promptOpenRepository(context, ref, onDismiss: widget.onDismiss),
         ),
         _FooterAction(
           label: 'Clone repository…',

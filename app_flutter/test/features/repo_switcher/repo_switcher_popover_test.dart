@@ -14,6 +14,7 @@ import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -66,6 +67,7 @@ Future<GoRouter> _pump(
   _TestRecentsRepository? recentsRepository,
   GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
   _FakeGbmBindings? bindings,
+  _FakeFolderPicker? picker,
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -95,6 +97,9 @@ Future<GoRouter> _pump(
           recentsRepository ?? _TestRecentsRepository(recents.toList()),
         ),
         gbmBindingsProvider.overrideWithValue(bindings ?? _FakeGbmBindings()),
+        fileSavePickerProvider.overrideWithValue(
+          picker ?? _FakeFolderPicker(null),
+        ),
         discoveryProvider.overrideWith(
           (ref) => _TestDiscoveryController(repos),
         ),
@@ -256,6 +261,51 @@ void main() {
       expect(find.text('test-repo-2'), findsOneWidget);
       expect(find.text('Open repository…'), findsOneWidget);
       expect(find.text('Clone repository…'), findsOneWidget);
+    });
+
+    // W-D2b: the system folder picker, not a typed path (spec page 01 lists
+    // the file picker among what the app takes from the OS).
+    testWidgets('Open repository… asks for a folder and opens it', (
+      tester,
+    ) async {
+      final _FakeFolderPicker picker = _FakeFolderPicker(_workDir2);
+      int dismissed = 0;
+      final GoRouter router = await _pump(
+        tester,
+        RepoSwitcherList(onDismiss: () => dismissed++),
+        picker: picker,
+      );
+
+      await tester.tap(find.text('Open repository…'));
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(dismissed, 1);
+      expect(
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        RoutePaths.workspaceFor(Uri.encodeComponent(_workDir2)),
+      );
+    });
+
+    // Esc on the picker leaves the switcher exactly as it was (P02 #15
+    // 「Esc 關閉不切換」).
+    testWidgets('cancelling the folder picker changes nothing', (tester) async {
+      final _FakeFolderPicker picker = _FakeFolderPicker(null);
+      int dismissed = 0;
+      final GoRouter router = await _pump(
+        tester,
+        RepoSwitcherList(onDismiss: () => dismissed++),
+        picker: picker,
+      );
+
+      await tester.tap(find.text('Open repository…'));
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(dismissed, 0);
+      expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
+      // No typed-path prompt either: the search box is the only field.
+      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets('the search field filters the list', (tester) async {
@@ -732,4 +782,18 @@ class _TestDiscoveryController extends StateNotifier<DiscoveryState>
 
   @override
   void setBaseFolderDepth(int baseFolderId, int maxDepth) {}
+}
+
+/// Returns [path] from the folder picker and counts the asks.
+class _FakeFolderPicker extends FileSavePicker {
+  _FakeFolderPicker(this.path);
+
+  final String? path;
+  int calls = 0;
+
+  @override
+  Future<String?> pickDirectory() async {
+    calls++;
+    return path;
+  }
 }

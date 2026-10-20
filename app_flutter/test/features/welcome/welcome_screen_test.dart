@@ -17,6 +17,7 @@ import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/log_drawer/log_drawer.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/features/status_bar/status_bar.dart';
@@ -86,6 +87,7 @@ Future<(GoRouter, ProviderContainer)> _pump(
       sharedPreferencesProvider.overrideWithValue(prefs),
       recentsRepositoryProvider.overrideWithValue(RecentsRepository(prefs)),
       gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
+      fileSavePickerProvider.overrideWithValue(_FakeFolderPicker(_workDir)),
       discoveryProvider.overrideWith((ref) => _discovery),
     ],
   );
@@ -281,6 +283,16 @@ void main() {
     expect(find.byType(RepoSwitcherList), findsOneWidget);
   });
 
+  testWidgets('Open repository… opens the picked folder', (tester) async {
+    final (GoRouter router, _) = await _pump(tester);
+    await tester.tap(find.text('Open repository…'));
+    await tester.pumpAndSettle();
+    expect(
+      router.routerDelegate.currentConfiguration.uri.toString(),
+      RoutePaths.workspaceFor(Uri.encodeComponent(_workDir)),
+    );
+  });
+
   testWidgets('the status bar writes the scan summary', (tester) async {
     await _pump(tester, repos: <RepoRecord>[_repo]);
     // No enabled source folder in the fake: scanSummaryLabel's first case.
@@ -412,4 +424,13 @@ class _TestDiscoveryController extends StateNotifier<DiscoveryState>
 
   @override
   void setBaseFolderDepth(int baseFolderId, int maxDepth) {}
+}
+
+class _FakeFolderPicker extends FileSavePicker {
+  const _FakeFolderPicker(this.path);
+
+  final String? path;
+
+  @override
+  Future<String?> pickDirectory() async => path;
 }

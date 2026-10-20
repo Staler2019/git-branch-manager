@@ -880,9 +880,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     return {
       // File
       // Open and Add-local are the same act here -- point the app at an
-      // existing working directory -- and both go through the same path
-      // prompt the switcher popover's footer uses, since this app has no
-      // native folder-picker dependency (see pubspec.yaml). Opening one
+      // existing working directory -- and both go through the same system
+      // folder picker the switcher popover's footer uses (~~since this app
+      // has no native folder-picker dependency~~ -- it has, W-D2b). Opening one
       // records it in the manually-opened list (spec page 11 item 6). New
       // and Clone share the same footer entry points too -- see
       // promptNewRepository()/promptCloneRepository() in
@@ -892,7 +892,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         ref,
         sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
       ),
-      GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
+      GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () =>
           promptCloneRepository(context, ref),
       GbmActionId.fileSwitchRepository: () {
@@ -909,7 +909,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         }
         _switcherController.open();
       },
-      GbmActionId.fileAddLocalRepository: () => promptOpenRepository(context),
+      GbmActionId.fileAddLocalRepository: () =>
+          promptOpenRepository(context, ref),
       // Closes this workspace back to the welcome screen. Not
       // SystemNavigator.pop -- that is Exit, and the two must stay
       // distinguishable.

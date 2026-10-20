@@ -182,6 +182,32 @@ void main() {
     }
   });
 
+  // The first-frame check has no `mounted` guard because it runs inside the
+  // frame that built the dialog, where nothing can dispose it. That holds
+  // only while it is registered in initState: moved behind an `await`, it
+  // runs a frame later, unguarded. Measured: registered in initState, the
+  // dialog is gone one frame after the frame that built it; moved behind a
+  // microtask, it is still there then.
+  testWidgets('the first-frame check runs in the frame that built the dialog', (
+    tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    final Finder dialog = find.byType(
+      CloneCredentialDialogContent,
+      skipOffstage: false,
+    );
+    h.router.push(RoutePaths.cloneCredentialDialogPath(41));
+    // The push resolves asynchronously; find the frame that builds it.
+    int frames = 0;
+    while (dialog.evaluate().isEmpty) {
+      await tester.pump();
+      expect(++frames, lessThan(10), reason: 'the dialog never built');
+    }
+
+    await tester.pump();
+    expect(dialog, findsNothing);
+  });
+
   testWidgets('a successful clone opens the new repository (R10)', (
     tester,
   ) async {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/count_format.dart';
 import '../../data/models/operation_record.dart';
 import '../../data/models/refresh_timings.dart';
 import '../../data/models/repo_state.dart' as model;
@@ -680,27 +681,11 @@ class _Rule extends StatelessWidget {
 /// 計數「改spec，沒有計畫」).
 String _progressLabel(BackgroundTask task) {
   if (task.total > 0) {
-    return '${task.label} — ${_formatCount(task.current)} / '
-        '${_formatCount(task.total)}';
+    return '${task.label} — ${formatCount(task.current)} / '
+        '${formatCount(task.total)}';
   }
-  if (task.current > 0) return '${task.label} — ${_formatCount(task.current)}';
+  if (task.current > 0) return '${task.label} — ${formatCount(task.current)}';
   return task.label;
-}
-
-/// `12480` → `12,480`, always with a comma whatever the locale: the mock's
-/// own figures. One left-to-right pass over the digits.
-String _formatCount(int n) {
-  final String digits = n.toString();
-  if (digits.length <= 3) return digits;
-  int first = digits.length % 3;
-  if (first == 0) first = 3;
-  final StringBuffer out = StringBuffer(digits.substring(0, first));
-  for (int i = first; i < digits.length; i += 3) {
-    out
-      ..write(',')
-      ..write(digits.substring(i, i + 3));
-  }
-  return out.toString();
 }
 
 /// What a task's bar draws. A finished task lingers as a full bar; a task

@@ -580,10 +580,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             MenuBarRow(
               repoId: repoId,
               sidebarVisible: _sidebarVisible,
-              // Always non-null: viewToggleSidebar has no state-dependent
-              // gate (see gbm_action_availability.dart), so
-              // _buildActionHandlers always populates it.
-              onToggleSidebar: actionHandlers[GbmActionId.viewToggleSidebar]!,
+              // Always non-null here: viewToggleSidebar has no
+              // state-dependent gate (see gbm_action_availability.dart).
+              onToggleSidebar: actionHandlers[GbmActionId.viewToggleSidebar],
               onFetch: actionHandlers[GbmActionId.repositoryFetch],
               onPull: actionHandlers[GbmActionId.repositoryPull],
               onPush: actionHandlers[GbmActionId.repositoryPush],

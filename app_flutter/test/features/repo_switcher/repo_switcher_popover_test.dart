@@ -589,6 +589,35 @@ void main() {
       expect(find.text('test-repo-1'), findsOneWidget);
     });
 
+    // A window with no repository open (P15 A) still shows the switcher; P02
+    // #15 draws no empty state for it, so the label is the design page's
+    // inferred 「No repository」 in textTertiary (welcome-and-clone-spec.html).
+    testWidgets('with no repository reads "No repository" and still opens', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const SizedBox(width: 240, child: RepoSwitcherButton()),
+        repos: <RepoRecord>[_record()],
+      );
+
+      expect(
+        tester.widget<Text>(find.text('No repository')).style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(RepoSwitcherButton),
+          matching: find.byType(Tooltip),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.byType(RepoSwitcherButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(RepoSwitcherList), findsOneWidget);
+    });
+
     testWidgets('Esc closes the popover without switching', (tester) async {
       final GoRouter router = await _pump(
         tester,

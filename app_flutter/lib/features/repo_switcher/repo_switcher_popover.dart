@@ -405,13 +405,12 @@ Future<({String url, String destPath})?> _promptClone(
 /// The sidebar's top row: which repository this window is showing, and the
 /// way to change it.
 class RepoSwitcherButton extends StatefulWidget {
-  const RepoSwitcherButton({
-    super.key,
-    required this.currentWorkDir,
-    this.controller,
-  });
+  const RepoSwitcherButton({super.key, this.currentWorkDir, this.controller});
 
-  final String currentWorkDir;
+  /// Null in a window with no repository open (spec page 15 A): the button
+  /// then reads 「No repository」 in textTertiary -- P02 #15 draws no empty
+  /// state, so that label is welcome-and-clone-spec.html's inferred one.
+  final String? currentWorkDir;
 
   /// Optional external trigger for Cmd/Ctrl+R -- see [RepoSwitcherController].
   final RepoSwitcherController? controller;
@@ -466,6 +465,46 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String? workDir = widget.currentWorkDir;
+    final Widget button = InkWell(
+      onTap: openPopover,
+      onHover: (bool hovered) => setState(() => _hovered = hovered),
+      hoverColor: Colors.transparent,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+      // P2's mockup, in both drawings of it: `height:26px;padding:0 7px`
+      // inline -- not `.gbm-btn`'s 30, which this element does not use.
+      child: Container(
+        height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
+          border: Border.all(color: colors.borderDefault),
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+        ),
+        child: Row(
+          children: <Widget>[
+            LucideIcon('git-fork', size: 14, color: colors.textSecondary),
+            const SizedBox(width: GbmSpacing.space2),
+            Expanded(
+              child: Text(
+                workDir == null ? 'No repository' : repoDisplayName(workDir),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  fontWeight: GbmTypography.weightSemibold,
+                  color: workDir == null
+                      ? colors.textTertiary
+                      : colors.textPrimary,
+                ),
+              ),
+            ),
+            Icon(Icons.expand_more, size: 16, color: colors.textTertiary),
+          ],
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         GbmSpacing.space3,
@@ -473,46 +512,10 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
         GbmSpacing.space3,
         0,
       ),
-      child: Tooltip(
-        message: widget.currentWorkDir,
-        child: InkWell(
-          onTap: openPopover,
-          onHover: (bool hovered) => setState(() => _hovered = hovered),
-          hoverColor: Colors.transparent,
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-          // P2's mockup, in both drawings of it: `height:26px;padding:0 7px`
-          // inline -- not `.gbm-btn`'s 30, which this element does not use.
-          child: Container(
-            height: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            decoration: BoxDecoration(
-              color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
-              border: Border.all(color: colors.borderDefault),
-              borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-            ),
-            child: Row(
-              children: <Widget>[
-                LucideIcon('git-fork', size: 14, color: colors.textSecondary),
-                const SizedBox(width: GbmSpacing.space2),
-                Expanded(
-                  child: Text(
-                    repoDisplayName(widget.currentWorkDir),
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      fontWeight: GbmTypography.weightSemibold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ),
-                Icon(Icons.expand_more, size: 16, color: colors.textTertiary),
-              ],
-            ),
-          ),
-        ),
-      ),
+      // No path to show without a repository.
+      child: workDir == null
+          ? button
+          : Tooltip(message: workDir, child: button),
     );
   }
 }

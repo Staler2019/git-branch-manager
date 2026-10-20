@@ -243,14 +243,23 @@ final Provider<CloneJobNative> cloneJobNativeProvider =
       (ref) => GbmCloneJobNative(ref.watch(gbmBindingsProvider)),
     );
 
+/// The Log a successful clone's rows move to (R12): the new repository's
+/// session, created here if nothing has opened it yet -- the same instance
+/// the workspace then watches. A provider so a test can stand in for it.
+final Provider<CloneLogTarget Function(String destPath)>
+cloneRepositoryLogProvider = Provider<CloneLogTarget Function(String)>(
+  (ref) =>
+      (String dest) => CloneLogTarget.session(
+        ref.read(repoSessionProvider(RepoIdentity.forWorkDir(dest)).notifier),
+      ),
+);
+
 /// App-wide: a clone outlives the window and route that started it.
 final StateNotifierProvider<CloneJobController, List<CloneJob>>
 cloneJobsProvider = StateNotifierProvider<CloneJobController, List<CloneJob>>(
   (ref) => CloneJobController(
     native: ref.read(cloneJobNativeProvider),
-    repositoryLog: (String dest) => CloneLogTarget.session(
-      ref.read(repoSessionProvider(RepoIdentity.forWorkDir(dest)).notifier),
-    ),
+    repositoryLog: ref.read(cloneRepositoryLogProvider),
     nowEpochMs: () => DateTime.now().millisecondsSinceEpoch,
   ),
 );

@@ -33,6 +33,10 @@ abstract final class RoutePaths {
   /// so a refusal or failure is logged there ([cloneRepositoryDialogPath]).
   static const String cloneRepositoryDialog = '/dialogs/clone-repository';
 
+  /// App-level: a clone job's credential prompt, wherever the user is
+  /// (P3-J3). `?job=` names the job ([cloneCredentialDialogPath]).
+  static const String cloneCredentialDialog = '/dialogs/clone-credential';
+
   /// App-level, not repo-scoped: an update is not a property of any open
   /// repository, and this must be reachable from `WelcomeScreen`, which has
   /// none. Same reasoning as [aboutDialog] and [preferencesDialog].
@@ -307,6 +311,11 @@ abstract final class RoutePaths {
           path: cloneRepositoryDialog,
           queryParameters: <String, String>{'origin': originWorkDir},
         ).toString();
+
+  static String cloneCredentialDialogPath(int jobId) => Uri(
+    path: cloneCredentialDialog,
+    queryParameters: <String, String>{'job': '$jobId'},
+  ).toString();
 
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>

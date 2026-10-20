@@ -16,6 +16,7 @@ import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
 import '../features/dialogs/clone_repository/clone_repository_dialog.dart';
 import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
+import '../features/dialogs/credential/clone_credential_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
 import '../features/dialogs/delete_branch/delete_branch_dialog.dart';
 import '../features/dialogs/delete_branches/delete_branches_dialog.dart';
@@ -246,6 +247,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
       preferencesDialogRoute(),
       cloneRepositoryDialogRoute(),
+      cloneCredentialDialogRoute(),
       dialogRoute(
         path: RoutePaths.repositorySettingsDialog,
         builder: (context, state) {
@@ -510,5 +512,14 @@ GoRoute cloneRepositoryDialogRoute() => dialogRoute(
   path: RoutePaths.cloneRepositoryDialog,
   builder: (context, state) => CloneRepositoryDialogContent(
     originWorkDir: state.uri.queryParameters['origin'],
+  ),
+);
+
+/// App-level; `?job=` is the clone job asking. An id that does not parse
+/// names no job, and the dialog then closes itself as a stale one would.
+GoRoute cloneCredentialDialogRoute() => dialogRoute(
+  path: RoutePaths.cloneCredentialDialog,
+  builder: (context, state) => CloneCredentialDialogContent(
+    jobId: int.tryParse(state.uri.queryParameters['job'] ?? '') ?? 0,
   ),
 );

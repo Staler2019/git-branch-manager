@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
+import 'features/app_lifecycle/clone_job_listener.dart';
 import 'features/update/auto_update_check.dart';
 import 'features/update/update_leftover_sweep.dart';
 import 'routing/app_router.dart';
@@ -43,7 +44,11 @@ class GbmApp extends ConsumerWidget {
         // just both need to sit above the router for the same reason
         // AutoUpdateCheck does (see above).
         child: UpdateLeftoverSweep(
-          child: AppExitSessionCleanup(child: child ?? const SizedBox.shrink()),
+          child: AppExitSessionCleanup(
+            // A clone outlives the window that started it, so its prompt
+            // and its success navigation live up here too.
+            child: CloneJobListener(child: child ?? const SizedBox.shrink()),
+          ),
         ),
       ),
     );

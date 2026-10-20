@@ -47,7 +47,35 @@ class StatusBar extends StatefulWidget {
     this.selectionSummary,
     this.showRefreshTimings = false,
     this.refreshTimings = const RefreshTimings(),
-  });
+  }) : windowSummary = null;
+
+  /// The bar of a window with no repository open (spec page 15 A #5): zone 1
+  /// states [windowSummary] -- the scan result -- in place of a branch; the
+  /// progress zone and zone 3 are the same as a repository's.
+  const StatusBar.window({
+    super.key,
+    required String this.windowSummary,
+    required this.backgroundTasks,
+    this.unreadError,
+    required this.onOpenError,
+    required this.onToggleLog,
+    required this.onCancelTask,
+  }) : currentBranch = '',
+       ahead = 0,
+       behind = 0,
+       upstreamGone = false,
+       commitCount = 0,
+       lastScanDuration = Duration.zero,
+       graphLaneCapacity = 0,
+       repoState = null,
+       workingCopyStatus = null,
+       conflictActive = false,
+       selectionSummary = null,
+       showRefreshTimings = false,
+       refreshTimings = const RefreshTimings();
+
+  /// Set only by [StatusBar.window]; when set, zone 1 is this text alone.
+  final String? windowSummary;
 
   final String currentBranch;
   final int ahead;
@@ -227,7 +255,15 @@ class _StatusBarState extends State<StatusBar> {
               child: Row(
                 spacing: _kGap,
                 children: <Widget>[
-                  Flexible(child: _buildRepoZone(colors, conflictLabel)),
+                  Flexible(
+                    child: widget.windowSummary == null
+                        ? _buildRepoZone(colors, conflictLabel)
+                        : Text(
+                            widget.windowSummary!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                  ),
                   if (visibleTasks.isNotEmpty) ...<Widget>[
                     const _Rule(),
                     Flexible(child: _buildProgressZone(context, visibleTasks)),

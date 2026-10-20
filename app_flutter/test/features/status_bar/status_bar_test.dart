@@ -1376,6 +1376,77 @@ void main() {
   // log」. The mock: `{{ icErr }}Push rejected` (`gap:5px;color:
   // var(--danger)`) then `{{ icTerminal }}Log` (`gap:4px`), at the right end
   // (rulings 「照 mockup：右端、Log 左邊」, Q6 Toggle).
+  // The no-repository window (P15 A #5) reuses this bar: zone 1 states the
+  // scan result in place of a branch, zones 2 and 3 are unchanged.
+  group('StatusBar.window', () {
+    Future<void> pumpWindow(
+      WidgetTester tester, {
+      List<BackgroundTask> tasks = const <BackgroundTask>[],
+      GbmLogEntry? unread,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+          home: Scaffold(
+            body: Align(
+              alignment: Alignment.bottomCenter,
+              child: StatusBar.window(
+                windowSummary: '掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms',
+                backgroundTasks: tasks,
+                unreadError: unread,
+                onOpenError: () {},
+                onToggleLog: () {},
+                onCancelTask: (_) {},
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('zone 1 is the summary, with no branch or commit count', (
+      tester,
+    ) async {
+      await pumpWindow(tester);
+      expect(
+        find.text('掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('↑'), findsNothing);
+      expect(find.text('0c'), findsNothing);
+      expect(find.text('Log'), findsOneWidget);
+    });
+
+    testWidgets('keeps the progress zone and the error summary', (
+      tester,
+    ) async {
+      await pumpWindow(
+        tester,
+        tasks: const <BackgroundTask>[
+          BackgroundTask(
+            id: 'clone-1',
+            label: 'Cloning design-tokens',
+            current: 12480,
+            total: 31206,
+            cancellable: true,
+          ),
+        ],
+        unread: const AppLogEntry(
+          whenEpochMs: 1,
+          level: OperationLogLevel.error,
+          message: 'git clone failed',
+        ),
+      );
+      expect(
+        find.text('Cloning design-tokens — 12,480 / 31,206'),
+        findsOneWidget,
+      );
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('git clone failed'), findsOneWidget);
+    });
+  });
+
   group('StatusBar zone 3: error summary and Log entry', () {
     final GbmColors colors = tokensFor(GbmThemeVariant.darkTechnical);
     const AppLogEntry error = AppLogEntry(

@@ -208,6 +208,29 @@ void main() {
     expect(dialog, findsNothing);
   });
 
+  // The hazard the test above exists for, driven for real: the dialog is
+  // disposed in the frame right after it was built. Registered in initState,
+  // the check has already run; registered any later, it runs on a disposed
+  // State and `ref` throws.
+  testWidgets('disposing the dialog right after it builds is safe', (
+    tester,
+  ) async {
+    final _Harness h = await _pump(tester);
+    final Finder dialog = find.byType(
+      CloneCredentialDialogContent,
+      skipOffstage: false,
+    );
+    h.router.push(RoutePaths.cloneCredentialDialogPath(41));
+    int frames = 0;
+    while (dialog.evaluate().isEmpty) {
+      await tester.pump();
+      expect(++frames, lessThan(10), reason: 'the dialog never built');
+    }
+
+    await tester.pumpWidget(const SizedBox());
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a successful clone opens the new repository (R10)', (
     tester,
   ) async {

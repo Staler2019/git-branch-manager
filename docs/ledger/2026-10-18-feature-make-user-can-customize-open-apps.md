@@ -63,9 +63,10 @@ SnackBar 同時違反兩條 spec：
 - Q1：不另開錯誤視窗。P10 #5 是必要條件，不是一定要開；repo 也沒有這個元件。
 - 未讀 error 的判斷：比對「最新一筆 error 的物件身分」，不比 `operationLogRevision`。revision 對每一行都會前進，info 也算。running row 被 outcome 取代後是新物件，所以「執行中 → TIMEOUT」仍然會亮。
 - 點紅色摘要：用 `open()`，不用 toggle；篩選看不到那一筆時切回 All；捲到該筆並置中，該列底色 `diffDelBg`。Log 入口則是 View → Log 的同一個 closure（Q6）。
-- Clone 失敗不寫進 Log，因為 git 的訊息可能帶有含憑證的 URL（Q4，LOGRULES「不記什麼」）：
-  - 從清單 footer 觸發：footer 下方常駐紅字（Q5）。
-  - 從 File 選單觸發：重新打開對話框並顯示錯誤（Q8）。
+- ~~Clone 失敗不寫進 Log，因為 git 的訊息可能帶有含憑證的 URL（Q4，LOGRULES「不記什麼」）：~~
+  - ~~從清單 footer 觸發：footer 下方常駐紅字（Q5）。~~
+  - ~~從 File 選單觸發：重新打開對話框並顯示錯誤（Q8）。~~
+- **更正（2026-10-20）**：上面三行已被使用者推翻。R1 推翻 Q4，Clone 的記錄照樣寫進 Log；R6、R7 改成在來源處遮掉憑證；R14 撤掉 Q5、Q8。現在 Clone 是一般的背景 git 作業，失敗或取消時寫進發起視窗的 Log，成功時跟著搬到新 repo 的 Log（R12）。見 [ledger: clone 背景作業](2026-10-20-feature-make-user-can-customize-open-apps-clone.md)。
 - 仍是 SnackBar 的只剩三個成功提示：`Saved to …`、`Copied to clipboard`、`Log saved to …`。
 
 ### 跳到該筆：靠實際執行才發現的兩個缺陷
@@ -109,7 +110,7 @@ SnackBar 同時違反兩條 spec：
 | 6d | f19778ce | 紅色摘要、Log 入口、跳到該筆 |
 | — | facb9210 | 設計稿 Q8 |
 | 6e1 | 4e74d2cb | terminal、匯出、存 Log、New repository 改寫 Log |
-| 6e2 | d8449edd | Clone 失敗：footer 紅字與對話框 |
+| 6e2 | d8449edd | Clone 失敗：footer 紅字與對話框（~~現行~~ 已由 2026-10-20 那輪移除，R14） |
 | — | 5cd29fd1 | 註解改指向 onOpenError |
 
 ### Mutation（mutations-run / tests-reddened）

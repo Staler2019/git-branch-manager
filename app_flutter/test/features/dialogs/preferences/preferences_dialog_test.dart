@@ -485,6 +485,45 @@ void main() {
       expect(find.text('update-dialog'), findsOneWidget);
     });
 
+    // See about_dialog_test's 'passes its origin on to the update check'.
+    testWidgets('passes its origin on to the update check', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final GoRouter router = GoRouter(
+        initialLocation: RoutePaths.preferencesDialogPath(
+          originWorkDir: '/src/r',
+        ),
+        routes: <RouteBase>[
+          preferencesDialogRoute(),
+          dialogRoute(
+            path: RoutePaths.updateDialog,
+            builder: (BuildContext context, GoRouterState state) =>
+                Text('update from ${state.uri.queryParameters['origin']}'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+          ],
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('update from /src/r'), findsOneWidget);
+    });
+
     // A suppression the user can neither see nor undo is hidden material
     // state -- the same class this app's own UX rubric flags. The row only
     // appears once something is actually being skipped, so it costs nothing

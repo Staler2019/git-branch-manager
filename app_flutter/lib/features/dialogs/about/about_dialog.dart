@@ -21,7 +21,11 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// 15 A `WelcomeScreen` has the menu bar too, and Help → About reaches this
 /// dialog from both windows.
 class AboutDialogContent extends ConsumerWidget {
-  const AboutDialogContent({super.key});
+  const AboutDialogContent({super.key, this.originWorkDir});
+
+  /// The repository window it was opened over, passed on to Update so what
+  /// that logs goes there (rulings R4, R13); null with no repository open.
+  final String? originWorkDir;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +43,9 @@ class AboutDialogContent extends ConsumerWidget {
         GbmButton(
           label: 'Check for updates…',
           kind: GbmButtonKind.primary,
-          onPressed: () => context.pushReplacement(RoutePaths.updateDialog),
+          onPressed: () => context.pushReplacement(
+            RoutePaths.updateDialogPath(originWorkDir: originWorkDir),
+          ),
         ),
       ],
       child: Column(

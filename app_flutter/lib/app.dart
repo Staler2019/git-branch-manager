@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
@@ -33,10 +34,16 @@ class GbmApp extends ConsumerWidget {
         // Pushed through the router instance rather than `context.push`:
         // this builder sits above the Navigator the route resolves against,
         // so its context has no GoRouter of its own to reach.
-        onUpdateAvailable: () => pushDialogRouteOn(
-          ref.read(appRouterProvider),
-          RoutePaths.updateDialog,
-        ),
+        // Tagged with the repository it appears over, so Open releases page
+        // is logged there (使用者裁定 2026-10-21 「自動檢查更新也改用目前路由
+        // 所在的 repo」); none over the welcome screen.
+        onUpdateAvailable: () {
+          final GoRouter router = ref.read(appRouterProvider);
+          pushDialogRouteOn(
+            router,
+            RoutePaths.updateDialogPath(originWorkDir: originWorkDirOf(router)),
+          );
+        },
         // Nested rather than a second builder: the sweep is unconditional
         // where the check is not, so they are two jobs, not one.
         // AppExitSessionCleanup is innermost only because nesting order

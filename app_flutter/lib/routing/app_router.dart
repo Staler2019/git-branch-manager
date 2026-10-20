@@ -166,14 +166,8 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      dialogRoute(
-        path: RoutePaths.aboutDialog,
-        builder: (context, state) => const AboutDialogContent(),
-      ),
-      dialogRoute(
-        path: RoutePaths.updateDialog,
-        builder: (context, state) => const UpdateDialogContent(),
-      ),
+      aboutDialogRoute(),
+      updateDialogRoute(),
       dialogRoute(
         path: RoutePaths.keyboardShortcutsDialog,
         builder: (context, state) => const KeyboardShortcutsDialogContent(),
@@ -505,6 +499,22 @@ Widget buildComparePageRoute(BuildContext context, GoRouterState state) {
   );
 }
 
+/// App-level; `?origin=` is the repository window it was opened over
+/// ([RoutePaths.aboutDialogPath]). A function of its own, like
+/// [preferencesDialogRoute], so a test can mount the real route.
+GoRoute aboutDialogRoute() => dialogRoute(
+  path: RoutePaths.aboutDialog,
+  builder: (context, state) =>
+      AboutDialogContent(originWorkDir: state.uri.queryParameters['origin']),
+);
+
+/// See [aboutDialogRoute].
+GoRoute updateDialogRoute() => dialogRoute(
+  path: RoutePaths.updateDialog,
+  builder: (context, state) =>
+      UpdateDialogContent(originWorkDir: state.uri.queryParameters['origin']),
+);
+
 /// App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
 /// `?section=` picks where it opens (ruling D5); a missing or unknown value
 /// is General, which is what every push without one has always got. A
@@ -519,6 +529,7 @@ GoRoute preferencesDialogRoute() => dialogRoute(
         (PreferencesSection s) => s.name == name,
         orElse: () => PreferencesSection.general,
       ),
+      originWorkDir: state.uri.queryParameters['origin'],
     );
   },
 );

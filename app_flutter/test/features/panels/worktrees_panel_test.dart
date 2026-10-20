@@ -1558,8 +1558,10 @@ void main() {
         extraRoutes: <RouteBase>[
           GoRoute(
             path: RoutePaths.preferencesDialog,
-            builder: (_, GoRouterState state) =>
-                Text('PREFS ${state.uri.queryParameters['section']}'),
+            builder: (_, GoRouterState state) => Text(
+              'PREFS ${state.uri.queryParameters['section']} '
+              'from ${state.uri.queryParameters['origin']}',
+            ),
           ),
         ],
       );
@@ -1567,7 +1569,11 @@ void main() {
       await openMenu(tester);
       await tester.tap(find.text('Edit apps…'));
       await tester.pumpAndSettle();
-      expect(find.text('PREFS externalApps'), findsOneWidget);
+      // `?origin=` too, so Preferences → Check for updates now logs here.
+      expect(
+        find.text('PREFS externalApps from ${panelTestIdentity.workDir}'),
+        findsOneWidget,
+      );
     });
   });
 }

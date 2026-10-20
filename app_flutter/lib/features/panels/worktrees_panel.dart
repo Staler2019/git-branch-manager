@@ -280,6 +280,7 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           context,
           RoutePaths.preferencesDialogPath(
             section: PreferencesSection.externalApps,
+            originWorkDir: widget.identity.workDir,
           ),
         ),
       ),

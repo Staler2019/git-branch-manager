@@ -921,8 +921,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // SystemNavigator.pop -- that is Exit, and the two must stay
       // distinguishable.
       GbmActionId.fileCloseWindow: () => context.go(RoutePaths.welcome),
-      GbmActionId.filePreferences: () =>
-          pushDialogRoute(context, RoutePaths.preferencesDialog),
+      GbmActionId.filePreferences: () => pushDialogRoute(
+        context,
+        RoutePaths.preferencesDialogPath(originWorkDir: identity.workDir),
+      ),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow
       // Edit: shared with the welcome screen (gbm_edit_intents.dart).
       ...buildEditActionHandlers(),
@@ -1243,8 +1245,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
           _openUrl(ref, identity, GbmUrls.reportAnIssue),
-      GbmActionId.helpAbout: () =>
-          pushDialogRoute(context, RoutePaths.aboutDialog),
+      GbmActionId.helpAbout: () => pushDialogRoute(
+        context,
+        RoutePaths.aboutDialogPath(originWorkDir: identity.workDir),
+      ),
     };
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/repositories/build_version_repository.dart';
 import 'package:gbm_flutter/features/dialogs/about/about_dialog.dart';
+import 'package:gbm_flutter/routing/app_router.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -91,6 +92,43 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('update-dialog'), findsOneWidget);
+    });
+
+    // `?origin=` rides from About on to Update, so Update's log line lands
+    // in the window the user started from (rulings R4, R13).
+    testWidgets('passes its origin on to the update check', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final GoRouter router = GoRouter(
+        initialLocation: RoutePaths.aboutDialogPath(originWorkDir: '/src/r'),
+        routes: <RouteBase>[
+          aboutDialogRoute(),
+          dialogRoute(
+            path: RoutePaths.updateDialog,
+            builder: (BuildContext context, GoRouterState state) =>
+                Text('update from ${state.uri.queryParameters['origin']}'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+            buildVersionProvider.overrideWithValue(const AppVersion(0, 30, 0)),
+          ],
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates…'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('update from /src/r'), findsOneWidget);
     });
 
     testWidgets('keeps the existing description', (WidgetTester tester) async {

@@ -43,7 +43,12 @@ class PreferencesDialogContent extends ConsumerStatefulWidget {
   const PreferencesDialogContent({
     super.key,
     this.initialSection = PreferencesSection.general,
+    this.originWorkDir,
   });
+
+  /// The repository window it was opened over, passed on to Update (see
+  /// [AboutDialogContent.originWorkDir]).
+  final String? originWorkDir;
 
   /// Where the dialog opens. `Edit apps…` in the worktree panel's ▾ list
   /// passes [PreferencesSection.externalApps] (ruling D5) through
@@ -115,7 +120,9 @@ class _PreferencesDialogContentState
                 padding: const EdgeInsets.only(left: GbmSpacing.space4),
                 child: SingleChildScrollView(
                   child: switch (_section) {
-                    PreferencesSection.general => const _GeneralSection(),
+                    PreferencesSection.general => _GeneralSection(
+                      originWorkDir: widget.originWorkDir,
+                    ),
                     PreferencesSection.repositorySources =>
                       const _RepositorySourcesSection(),
                     PreferencesSection.git => const _GitSection(),
@@ -324,7 +331,10 @@ class _NumberFieldState extends State<_NumberField> {
 }
 
 class _GeneralSection extends ConsumerWidget {
-  const _GeneralSection();
+  const _GeneralSection({this.originWorkDir});
+
+  /// Passed on to Update; see [PreferencesDialogContent.originWorkDir].
+  final String? originWorkDir;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -441,7 +451,9 @@ class _GeneralSection extends ConsumerWidget {
             GbmButton(
               label: 'Check for updates now',
               kind: GbmButtonKind.secondary,
-              onPressed: () => context.pushReplacement(RoutePaths.updateDialog),
+              onPressed: () => context.pushReplacement(
+                RoutePaths.updateDialogPath(originWorkDir: originWorkDir),
+              ),
             ),
           ],
         ),

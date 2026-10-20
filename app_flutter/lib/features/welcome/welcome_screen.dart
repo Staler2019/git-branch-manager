@@ -214,8 +214,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
         sink: ref.read(windowLogProvider.notifier).recordAppLog,
       ),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
-      GbmActionId.fileCloneRepository: () =>
-          promptCloneRepository(context, ref),
+      GbmActionId.fileCloneRepository: () => promptCloneRepository(context),
       GbmActionId.fileSwitchRepository: _switcherController.open,
       GbmActionId.fileAddLocalRepository: () =>
           promptOpenRepository(context, ref),

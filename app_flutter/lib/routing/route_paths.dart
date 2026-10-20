@@ -28,6 +28,11 @@ abstract final class RoutePaths {
   /// has to open from the repo list, where there is no `:repoId` to scope to.
   static const String preferencesDialog = '/dialogs/preferences';
 
+  /// App-level: a clone may start where no repository is open (P15). The
+  /// window that started it, if it was a repository's, rides as `?origin=`
+  /// so a refusal or failure is logged there ([cloneRepositoryDialogPath]).
+  static const String cloneRepositoryDialog = '/dialogs/clone-repository';
+
   /// App-level, not repo-scoped: an update is not a property of any open
   /// repository, and this must be reachable from `WelcomeScreen`, which has
   /// none. Same reasoning as [aboutDialog] and [preferencesDialog].
@@ -291,6 +296,16 @@ abstract final class RoutePaths {
       : Uri(
           path: preferencesDialog,
           queryParameters: <String, String>{'section': section.name},
+        ).toString();
+
+  /// [originWorkDir] is the repository window the dialog was opened from;
+  /// null for the window with none (R13).
+  static String cloneRepositoryDialogPath({String? originWorkDir}) =>
+      originWorkDir == null
+      ? cloneRepositoryDialog
+      : Uri(
+          path: cloneRepositoryDialog,
+          queryParameters: <String, String>{'origin': originWorkDir},
         ).toString();
 
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';

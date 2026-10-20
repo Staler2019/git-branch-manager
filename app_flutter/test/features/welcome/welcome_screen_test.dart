@@ -74,6 +74,12 @@ Future<(GoRouter, ProviderContainer)> _pump(
         builder: (context, state) => WelcomeScreen(isMacOS: isMacOS),
       ),
       GoRoute(
+        path: RoutePaths.cloneRepositoryDialog,
+        builder: (context, state) => Scaffold(
+          body: Text('clone from ${state.uri.queryParameters['origin']}'),
+        ),
+      ),
+      GoRoute(
         path: RoutePaths.history,
         builder: (context, state) => Scaffold(
           body: Text('workspace: ${state.pathParameters['repoId']}'),
@@ -197,6 +203,17 @@ void main() {
     expect(_centre('Ctrl+O'), findsOneWidget);
     expect(_centre('Ctrl+Shift+N'), findsOneWidget);
     expect(_centre('Ctrl+N'), findsOneWidget);
+  });
+
+  // R13: no repository here, so the Clone dialog names no origin and its
+  // refusal goes to this window's Log.
+  testWidgets('Clone repository… opens the Clone dialog with no origin', (
+    tester,
+  ) async {
+    await _pump(tester);
+    await tester.tap(find.widgetWithText(GbmButton, 'Clone repository…'));
+    await tester.pumpAndSettle();
+    expect(find.text('clone from null'), findsOneWidget);
   });
 
   // [ACT-one-handler-map]: the keyboard, the macOS menu and the in-window

@@ -13,6 +13,7 @@ import '../features/dialogs/update/update_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
+import '../features/dialogs/clone_repository/clone_repository_dialog.dart';
 import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
@@ -244,6 +245,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       ),
       // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
       preferencesDialogRoute(),
+      cloneRepositoryDialogRoute(),
       dialogRoute(
         path: RoutePaths.repositorySettingsDialog,
         builder: (context, state) {
@@ -499,4 +501,14 @@ GoRoute preferencesDialogRoute() => dialogRoute(
       ),
     );
   },
+);
+
+/// App-level, like [preferencesDialogRoute]; `?origin=` names the repository
+/// window it was opened from (absent: the window with none). A function of
+/// its own for the same reason.
+GoRoute cloneRepositoryDialogRoute() => dialogRoute(
+  path: RoutePaths.cloneRepositoryDialog,
+  builder: (context, state) => CloneRepositoryDialogContent(
+    originWorkDir: state.uri.queryParameters['origin'],
+  ),
 );

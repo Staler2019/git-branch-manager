@@ -1,10 +1,10 @@
 // Covers promptNewRepository()/promptCloneRepository() in
 // repo_switcher_popover.dart: File → New repository…/Clone repository… and
-// the switcher popover footer's Clone repository… all funnel through these
-// two functions. Both reach gbm_repo_init()/gbm_repo_clone() directly via
-// gbmBindingsProvider (there is no session yet for a RepoSessionController
-// to dispatch through), so this drives a configurable fake GbmBindings
-// rather than a FakeRepoSessionController.
+// the switcher popover footer's entries all funnel through these two
+// functions. New reaches gbm_repo_init() directly via gbmBindingsProvider
+// (there is no session yet for a RepoSessionController to dispatch
+// through), so this drives a configurable fake GbmBindings. Clone only
+// opens the routed Clone dialog; the dialog's own test covers the rest.
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
@@ -22,23 +22,13 @@ import 'package:go_router/go_router.dart';
 
 class _FakeInitCloneBindings implements GbmBindings {
   int initResult = 0;
-  int cloneResult = 0;
   String errorJson = '';
   String? lastInitPath;
-  String? lastCloneUrl;
-  String? lastCloneDest;
 
   @override
   RepoInitDart get repoInit => (Pointer<Utf8> path) {
     lastInitPath = path.toDartString();
     return initResult;
-  };
-
-  @override
-  RepoCloneDart get repoClone => (Pointer<Utf8> url, Pointer<Utf8> destPath) {
-    lastCloneUrl = url.toDartString();
-    lastCloneDest = destPath.toDartString();
-    return cloneResult;
   };
 
   @override
@@ -73,6 +63,14 @@ Future<GoRouter> _pump(
       GoRoute(
         path: '/',
         builder: (context, state) => Scaffold(body: child),
+      ),
+      GoRoute(
+        path: RoutePaths.cloneRepositoryDialog,
+        builder: (context, state) => Scaffold(
+          body: Text(
+            'clone dialog from ${state.uri.queryParameters['origin']}',
+          ),
+        ),
       ),
       GoRoute(
         path: RoutePaths.history,
@@ -111,18 +109,20 @@ class _NewRepoButton extends ConsumerWidget {
   }
 }
 
-class _CloneRepoButton extends ConsumerWidget {
-  const _CloneRepoButton({this.failures});
+class _CloneRepoButton extends StatelessWidget {
+  const _CloneRepoButton({this.origin, this.onDismiss});
 
-  /// When set, failures go to `onFailed` (the list footer's path); when
-  /// null, the dialog shows them itself (File → Clone repository…).
-  final List<String>? failures;
+  final String? origin;
+  final VoidCallback? onDismiss;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final List<String>? sink = failures;
+  Widget build(BuildContext context) {
     return ElevatedButton(
-      onPressed: () => promptCloneRepository(context, ref, onFailed: sink?.add),
+      onPressed: () => promptCloneRepository(
+        context,
+        originWorkDir: origin,
+        onDismiss: onDismiss,
+      ),
       child: const Text('Open Clone Prompt'),
     );
   }
@@ -211,138 +211,32 @@ void main() {
     });
   });
 
+  // DLGS: the dialog closes on Clone and the job runs in the background, so
+  // there is nothing left here to drive -- only which dialog opens, from
+  // which window (R13), and that the caller's popover is dismissed first.
   group('promptCloneRepository', () {
-    testWidgets(
-      'runs gbm_repo_clone with both fields and switches to the clone',
-      (tester) async {
-        final _FakeInitCloneBindings bindings = _FakeInitCloneBindings();
-        final GoRouter router = await _pump(
-          tester,
-          const _CloneRepoButton(),
-          bindings,
-        );
-
-        await tester.tap(find.text('Open Clone Prompt'));
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Repository URL'),
-          'git@github.com:example/repo.git',
-        );
-        await tester.enterText(
-          find.widgetWithText(TextField, 'Destination path'),
-          '/repos/cloned',
-        );
-        await tester.tap(find.text('Clone'));
-        await tester.pumpAndSettle();
-
-        expect(bindings.lastCloneUrl, 'git@github.com:example/repo.git');
-        expect(bindings.lastCloneDest, '/repos/cloned');
-        expect(
-          router.routerDelegate.currentConfiguration.uri.toString(),
-          RoutePaths.workspaceFor(Uri.encodeComponent('/repos/cloned')),
-        );
-      },
-    );
-
-    testWidgets('does not submit while the destination path is still empty', (
+    testWidgets('opens the Clone dialog naming the window it came from', (
       tester,
     ) async {
-      final _FakeInitCloneBindings bindings = _FakeInitCloneBindings();
-      await _pump(tester, const _CloneRepoButton(), bindings);
-
+      int dismissed = 0;
+      await _pump(
+        tester,
+        _CloneRepoButton(origin: '/repos/here', onDismiss: () => dismissed++),
+        _FakeInitCloneBindings(),
+      );
       await tester.tap(find.text('Open Clone Prompt'));
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Repository URL'),
-        'git@github.com:example/repo.git',
-      );
-      await tester.tap(find.text('Clone'));
-      await tester.pumpAndSettle();
-
-      expect(bindings.lastCloneUrl, isNull);
-      // The dialog is still open with what was typed still in place.
-      expect(find.text('git@github.com:example/repo.git'), findsOneWidget);
+      expect(find.text('clone dialog from /repos/here'), findsOneWidget);
+      expect(dismissed, 1);
     });
 
-    Future<void> fillAndClone(WidgetTester tester) async {
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Repository URL'),
-        'git@github.com:example/missing.git',
-      );
-      await tester.enterText(
-        find.widgetWithText(TextField, 'Destination path'),
-        '/repos/cloned',
-      );
-      await tester.tap(find.text('Clone'));
-      await tester.pumpAndSettle();
-    }
-
-    const String notFound =
-        '{"code":1,"codeName":"NotFound",'
-        '"message":"repository not found","detail":"",'
-        '"argv":[],"exitCode":128}';
-
-    // File → Clone repository… has no list footer to write under: the
-    // dialog comes back with what was typed and the error in it (ruling Q8,
-    // open-with-apps-spec.html screen 3). Never a toast, never the log --
-    // git's message can quote the remote URL (Q4).
-    testWidgets(
-      'with no onFailed, a failure reopens the dialog with the error',
-      (tester) async {
-        final _FakeInitCloneBindings bindings = _FakeInitCloneBindings()
-          ..cloneResult = -1
-          ..errorJson = notFound;
-        final GoRouter router = await _pump(
-          tester,
-          const _CloneRepoButton(),
-          bindings,
-        );
-
-        await tester.tap(find.text('Open Clone Prompt'));
-        await tester.pumpAndSettle();
-        await fillAndClone(tester);
-
-        expect(find.text('Clone Repository'), findsOneWidget);
-        expect(find.text('git@github.com:example/missing.git'), findsOneWidget);
-        expect(find.text('/repos/cloned'), findsOneWidget);
-        final Text error = tester.widget<Text>(
-          find.text('repository not found'),
-        );
-        expect(
-          error.style!.color,
-          tokensFor(GbmThemeVariant.darkTechnical).danger,
-        );
-        expect(error.style!.fontSize, GbmTypography.textXs);
-        expect(find.byType(SnackBar), findsNothing);
-        expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
-
-        // Fixed and retried from the same dialog.
-        bindings.cloneResult = 0;
-        await tester.tap(find.text('Clone'));
-        await tester.pumpAndSettle();
-        expect(
-          router.routerDelegate.currentConfiguration.uri.toString(),
-          RoutePaths.workspaceFor(Uri.encodeComponent('/repos/cloned')),
-        );
-      },
-    );
-
-    testWidgets('with onFailed, the failure goes there and the dialog closes', (
+    testWidgets('from a window with no repository, it names none', (
       tester,
     ) async {
-      final List<String> failures = <String>[];
-      final _FakeInitCloneBindings bindings = _FakeInitCloneBindings()
-        ..cloneResult = -1
-        ..errorJson = notFound;
-      await _pump(tester, _CloneRepoButton(failures: failures), bindings);
-
+      await _pump(tester, const _CloneRepoButton(), _FakeInitCloneBindings());
       await tester.tap(find.text('Open Clone Prompt'));
       await tester.pumpAndSettle();
-      await fillAndClone(tester);
-
-      expect(failures, <String>['repository not found']);
-      expect(find.text('Clone Repository'), findsNothing);
-      expect(find.byType(SnackBar), findsNothing);
+      expect(find.text('clone dialog from null'), findsOneWidget);
     });
   });
 }

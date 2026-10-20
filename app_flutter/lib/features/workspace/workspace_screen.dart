@@ -894,7 +894,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () =>
-          promptCloneRepository(context, ref),
+          promptCloneRepository(context, originWorkDir: identity.workDir),
       GbmActionId.fileSwitchRepository: () {
         // Same reveal-then-act pattern as editFilterBranches below: the
         // popover anchors to the sidebar's repository button, which is not

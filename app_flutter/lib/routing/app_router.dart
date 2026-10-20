@@ -13,8 +13,10 @@ import '../features/dialogs/update/update_dialog.dart';
 import '../features/dialogs/checkout/checkout_dialog.dart';
 import '../features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
 import '../features/dialogs/cherry_pick/cherry_pick_dialog.dart';
+import '../features/dialogs/clone_repository/clone_repository_dialog.dart';
 import '../features/dialogs/clean_untracked/clean_untracked_dialog.dart';
 import '../features/dialogs/create_tag/create_tag_dialog.dart';
+import '../features/dialogs/credential/clone_credential_dialog.dart';
 import '../features/dialogs/credential/credential_dialog.dart';
 import '../features/dialogs/delete_branch/delete_branch_dialog.dart';
 import '../features/dialogs/delete_branches/delete_branches_dialog.dart';
@@ -53,8 +55,23 @@ import 'route_paths.dart';
 /// never scanned.
 String repoIdFor(String workDir) => Uri.encodeComponent(workDir);
 
+/// The work dir of the repository screen at [router]'s base location, or
+/// null on the welcome screen. For a caller above the Navigator, which has
+/// no [BuildContext] to ask -- `app.dart`'s automatic update check tags the
+/// dialog it pushes with the window it appears over. A pushed dialog does
+/// not move the base location (`dialog_route.dart`), so the answer is the
+/// screen under any dialog already open. go_router hands path parameters
+/// over already decoded (measured: `%2Fa%2F100%25` arrives as `/a/100%`),
+/// so decoding again would break a work dir containing `%`.
+String? originWorkDirOf(GoRouter router) =>
+    router.routerDelegate.currentConfiguration.pathParameters['repoId'];
+
+/// [repoId] as a route builder receives it: go_router has already decoded
+/// it, so it *is* the work dir. ~~`Uri.decodeComponent(repoId)`~~ decoded it
+/// a second time, which threw on a work dir containing a bare `%` and read
+/// `100%25` as `100%`.
 RepoIdentity repoIdentityFromRouteParam(String repoId) =>
-    RepoIdentity.forWorkDir(Uri.decodeComponent(repoId));
+    RepoIdentity.forWorkDir(repoId);
 
 /// `/`, `/repo/:repoId/history`, `/repo/:repoId/working-copy`, plus the
 /// first four dialog routes (M3: about, keyboard shortcuts, manage base
@@ -99,8 +116,11 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: RoutePaths.workspace,
         redirect: (context, state) {
-          final String repoId = state.pathParameters['repoId']!;
-          return RoutePaths.historyFor(repoId);
+          // Re-encoded: the parameter arrives decoded, and spliced back raw
+          // a work dir's `/` made `/repo//src/x/history`, which no route
+          // matches.
+          final String workDir = state.pathParameters['repoId']!;
+          return RoutePaths.historyFor(repoIdFor(workDir));
         },
       ),
       ShellRoute(
@@ -146,14 +166,8 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
           ),
         ],
       ),
-      dialogRoute(
-        path: RoutePaths.aboutDialog,
-        builder: (context, state) => const AboutDialogContent(),
-      ),
-      dialogRoute(
-        path: RoutePaths.updateDialog,
-        builder: (context, state) => const UpdateDialogContent(),
-      ),
+      aboutDialogRoute(),
+      updateDialogRoute(),
       dialogRoute(
         path: RoutePaths.keyboardShortcutsDialog,
         builder: (context, state) => const KeyboardShortcutsDialogContent(),
@@ -243,10 +257,9 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
-      dialogRoute(
-        path: RoutePaths.preferencesDialog,
-        builder: (context, state) => const PreferencesDialogContent(),
-      ),
+      preferencesDialogRoute(),
+      cloneRepositoryDialogRoute(),
+      cloneCredentialDialogRoute(),
       dialogRoute(
         path: RoutePaths.repositorySettingsDialog,
         builder: (context, state) {
@@ -485,3 +498,60 @@ Widget buildComparePageRoute(BuildContext context, GoRouterState state) {
     tabId: tabId,
   );
 }
+
+/// App-level; `?origin=` is the repository window it was opened over
+/// ([RoutePaths.aboutDialogPath]). A function of its own, like
+/// [preferencesDialogRoute], so a test can mount the real route.
+GoRoute aboutDialogRoute() => dialogRoute(
+  path: RoutePaths.aboutDialog,
+  builder: (context, state) =>
+      AboutDialogContent(originWorkDir: state.uri.queryParameters['origin']),
+);
+
+/// See [aboutDialogRoute].
+GoRoute updateDialogRoute() => dialogRoute(
+  path: RoutePaths.updateDialog,
+  builder: (context, state) =>
+      UpdateDialogContent(originWorkDir: state.uri.queryParameters['origin']),
+);
+
+/// App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
+/// `?section=` picks where it opens (ruling D5); a missing or unknown value
+/// is General, which is what every push without one has always got. A
+/// function of its own so a test can mount the real route on a small router
+/// without the workspace's FFI-backed screens.
+GoRoute preferencesDialogRoute() => dialogRoute(
+  path: RoutePaths.preferencesDialog,
+  builder: (context, state) {
+    final String? name = state.uri.queryParameters['section'];
+    return PreferencesDialogContent(
+      initialSection: PreferencesSection.values.firstWhere(
+        (PreferencesSection s) => s.name == name,
+        orElse: () => PreferencesSection.general,
+      ),
+      originWorkDir: state.uri.queryParameters['origin'],
+    );
+  },
+);
+
+/// App-level, like [preferencesDialogRoute]; `?origin=` names the repository
+/// window it was opened from (absent: the window with none). A function of
+/// its own for the same reason.
+GoRoute cloneRepositoryDialogRoute() => dialogRoute(
+  path: RoutePaths.cloneRepositoryDialog,
+  builder: (context, state) => CloneRepositoryDialogContent(
+    originWorkDir: state.uri.queryParameters['origin'],
+  ),
+);
+
+/// App-level; `?job=` is the clone job asking. An id that does not parse
+/// names no job, and the dialog then closes itself after its first frame,
+/// as it does when the job ended before that frame (verifier A1). ~~and the
+/// dialog then stays open with an empty prompt until dismissed~~ -- true until
+/// A1 was fixed; the listener alone missed a prompt already null.
+GoRoute cloneCredentialDialogRoute() => dialogRoute(
+  path: RoutePaths.cloneCredentialDialog,
+  builder: (context, state) => CloneCredentialDialogContent(
+    jobId: int.tryParse(state.uri.queryParameters['job'] ?? '') ?? 0,
+  ),
+);

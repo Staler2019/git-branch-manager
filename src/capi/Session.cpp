@@ -1,5 +1,6 @@
 #include "capi/Session.h"
 
+#include "capi/CloneJob.h"
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
@@ -72,12 +73,6 @@ void unregisterLiveSession(Session* session) {
     sessions.erase(std::remove(sessions.begin(), sessions.end(), session), sessions.end());
 }
 
-void ensureOperationLogSinkInstalled() {
-    static std::once_flag flag;
-    std::call_once(flag,
-                   [] { Log::instance().setOperationSink(&Session::dispatchOperationLogRecord); });
-}
-
 std::mutex& gitInstallationMutex() {
     static std::mutex mutex;
     return mutex;
@@ -114,6 +109,12 @@ GitResult<GitInstallation> sharedGitInstallation() {
         gitInstallationResolved() = cachedGitInstallation().hasValue();
     }
     return cachedGitInstallation();
+}
+
+void ensureOperationLogSinkInstalled() {
+    static std::once_flag flag;
+    std::call_once(flag,
+                   [] { Log::instance().setOperationSink(&Session::dispatchOperationLogRecord); });
 }
 
 void resetSharedGitInstallationForTest() {
@@ -1252,6 +1253,11 @@ void Session::publishOperationLogRecord(const OperationRecord& record) {
 }
 
 void Session::dispatchOperationLogRecord(const OperationRecord& record) {
+    // A clone job's records are its own, even when a session is open on a
+    // directory the clone happens to match.
+    if (CloneJob::dispatchLogRecord(record)) {
+        return;
+    }
     std::lock_guard<std::mutex> lock(liveSessionsMutex());
     for (Session* session : liveSessions()) {
         // Its own directory, plus every linked worktree it last listed:

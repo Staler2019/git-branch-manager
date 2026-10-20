@@ -1,3 +1,5 @@
+import '../features/dialogs/preferences/preferences_section.dart';
+
 /// Typed route path/name constants -- see app_router.dart for the actual
 /// GoRouter route table this backs, and the plan's routing-table section for
 /// the full design (including routes not yet implemented: diff, conflicts,
@@ -25,6 +27,15 @@ abstract final class RoutePaths {
   /// Repository → Settings… instead ([repositorySettingsDialog]). It also
   /// has to open from the repo list, where there is no `:repoId` to scope to.
   static const String preferencesDialog = '/dialogs/preferences';
+
+  /// App-level: a clone may start where no repository is open (P15). The
+  /// window that started it, if it was a repository's, rides as `?origin=`
+  /// so a refusal or failure is logged there ([cloneRepositoryDialogPath]).
+  static const String cloneRepositoryDialog = '/dialogs/clone-repository';
+
+  /// App-level: a clone job's credential prompt, wherever the user is
+  /// (P3-J3). `?job=` names the job ([cloneCredentialDialogPath]).
+  static const String cloneCredentialDialog = '/dialogs/clone-credential';
 
   /// App-level, not repo-scoped: an update is not a property of any open
   /// repository, and this must be reachable from `WelcomeScreen`, which has
@@ -283,7 +294,41 @@ abstract final class RoutePaths {
 
   /// App-level; takes no repoId. Kept next to the repo-scoped helpers so the
   /// asymmetry with [repositorySettingsDialogFor] is visible at the call site.
-  static String preferencesDialogPath() => preferencesDialog;
+  /// [originWorkDir] as for [cloneRepositoryDialogPath]: the repository
+  /// window it was opened from, so what it logs goes there (R4, R13).
+  static String preferencesDialogPath({
+    PreferencesSection? section,
+    String? originWorkDir,
+  }) => _withQuery(preferencesDialog, <String, String>{
+    'section': ?section?.name,
+    'origin': ?originWorkDir,
+  });
+
+  /// See [preferencesDialogPath]. About passes its origin on to Update.
+  static String aboutDialogPath({String? originWorkDir}) =>
+      _withQuery(aboutDialog, <String, String>{'origin': ?originWorkDir});
+
+  /// See [preferencesDialogPath]. Its Open releases page is logged there.
+  static String updateDialogPath({String? originWorkDir}) =>
+      _withQuery(updateDialog, <String, String>{'origin': ?originWorkDir});
+
+  static String _withQuery(String path, Map<String, String> query) =>
+      query.isEmpty ? path : Uri(path: path, queryParameters: query).toString();
+
+  /// [originWorkDir] is the repository window the dialog was opened from;
+  /// null for the window with none (R13).
+  static String cloneRepositoryDialogPath({String? originWorkDir}) =>
+      originWorkDir == null
+      ? cloneRepositoryDialog
+      : Uri(
+          path: cloneRepositoryDialog,
+          queryParameters: <String, String>{'origin': originWorkDir},
+        ).toString();
+
+  static String cloneCredentialDialogPath(int jobId) => Uri(
+    path: cloneCredentialDialog,
+    queryParameters: <String, String>{'job': '$jobId'},
+  ).toString();
 
   static String conflictsFor(String repoId) => '/repo/$repoId/conflicts';
   static String compareFor(String repoId, String tabId) =>

@@ -7,6 +7,7 @@
 // cannot prove workspace_screen.dart ever computes a true one. Per CLAUDE.md's
 // testing tiers, that seam is what this file is for.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/status_bar/status_bar.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -62,8 +63,7 @@ void main() {
   ) async {
     await pumpWorkspace(tester, identity: _identity, initialState: _state());
 
-    expect(find.text('2↑'), findsOneWidget);
-    expect(find.text('1↓'), findsOneWidget);
+    expect(_statusBarCounts(), findsOneWidget);
     expect(find.text('upstream gone'), findsNothing);
   });
 
@@ -78,8 +78,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('upstream gone'), findsOneWidget);
-    expect(find.text('2↑'), findsNothing);
-    expect(find.text('1↓'), findsNothing);
+    expect(_statusBarCounts(), findsNothing);
   });
 
   testWidgets('git reporting [gone] flips it too, with no pending set', (
@@ -134,8 +133,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('upstream gone'), findsNothing);
-    expect(find.text('2↑'), findsOneWidget);
-    expect(find.text('1↓'), findsOneWidget);
+    expect(_statusBarCounts(), findsOneWidget);
   });
 
   testWidgets('a pending ref for a different branch leaves HEAD alone', (
@@ -157,6 +155,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('upstream gone'), findsNothing);
-    expect(find.text('2↑'), findsOneWidget);
+    expect(_statusBarCounts(), findsOneWidget);
   });
 }
+
+// The sidebar's branch row draws the same `↑2 ↓1`, so this asks the status
+// bar alone.
+Finder _statusBarCounts() => find.descendant(
+  of: find.byType(StatusBar),
+  matching: find.textContaining('↑2 ↓1'),
+);

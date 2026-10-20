@@ -73,6 +73,34 @@ void main() {
         expect(size.height, 30);
       });
 
+      // The welcome screen's fixed-width buttons, P15 A's
+      // `justify-content:flex-start`. A two-letter label in a 172 box, so
+      // centring and left-aligning are far apart even in test-font terms.
+      testWidgets('alignment moves the label within a wider button', (
+        tester,
+      ) async {
+        await _pump(
+          tester,
+          variant,
+          Center(
+            child: SizedBox(
+              width: 172,
+              child: GbmButton(
+                label: 'Go',
+                size: GbmButtonSize.sm,
+                alignment: Alignment.centerLeft,
+                onPressed: () {},
+              ),
+            ),
+          ),
+        );
+        final double inset =
+            tester.getTopLeft(find.text('Go')).dx -
+            tester.getTopLeft(find.byType(GbmButton)).dx;
+        // .gbm-btn-sm's 0 8px padding, and nothing more.
+        expect(inset, GbmSpacing.space2);
+      });
+
       testWidgets('primary kind uses accent background', (tester) async {
         await _pump(
           tester,

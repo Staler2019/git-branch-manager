@@ -25,6 +25,7 @@ import '../models/line_history_chunk.dart';
 import '../models/operation_choice.dart';
 import '../models/app_log_events.dart';
 import '../models/operation_record.dart';
+import '../models/operation_record.dart' as log_rules show retractLogEntries;
 import '../models/parsed_conflict_file.dart';
 import '../models/parsed_diff.dart';
 import '../models/rebase_todo_entry.dart';
@@ -1097,34 +1098,10 @@ class RepoSessionState {
   RepoSessionState withOperationRecord(
     GbmLogEntry record, {
     required int maxEntries,
-  }) {
-    final int runningAt = _runningRowOf(record);
-    if (runningAt >= 0) {
-      return copyWith(
-        operationLog: <GbmLogEntry>[
-          for (int i = 0; i < operationLog.length; i++)
-            i == runningAt ? record : operationLog[i],
-        ],
-        operationLogRevision: operationLogRevision + 1,
-      );
-    }
-    final List<GbmLogEntry> updated = <GbmLogEntry>[...operationLog, record];
-    return copyWith(
-      operationLog: updated.length > maxEntries
-          ? updated.sublist(updated.length - maxEntries)
-          : updated,
-      operationLogRevision: operationLogRevision + 1,
-    );
-  }
-
-  /// Index of the running row [record] finishes, or -1. id 0 is not from
-  /// core's sequence and matches nothing.
-  int _runningRowOf(GbmLogEntry record) {
-    if (record is! OperationRecord || record.id == 0) return -1;
-    return operationLog.indexWhere(
-      (GbmLogEntry e) => e is OperationRecord && e.running && e.id == record.id,
-    );
-  }
+  }) => copyWith(
+    operationLog: appendLogEntry(operationLog, record, maxEntries: maxEntries),
+    operationLogRevision: operationLogRevision + 1,
+  );
 }
 
 /// Runtime-settable behaviour flags for the refresh pipeline -- the
@@ -2260,6 +2237,36 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
   }
 
+  /// Appends a line an `AppActionRunner` composed. Bound as the runner's
+  /// sink before the action's first await.
+  /// A no-op once this controller is disposed: an action can outlive the
+  /// session it was started from (security review F7).
+  void recordAppLog(AppLogEntry entry) {
+    if (!mounted) return;
+    _appendAppLog(entry);
+  }
+
+  /// Appends any line produced outside this session's own events -- a clone
+  /// job's git record or running row. A no-op once disposed, as
+  /// [recordAppLog] is.
+  void recordLogEntry(GbmLogEntry entry) {
+    if (!mounted) return;
+    state = state.withOperationRecord(
+      entry,
+      maxEntries: maxOperationLogEntries,
+    );
+  }
+
+  /// Takes back the git records with these ids: a successful clone started
+  /// here moves its rows to the new repository's Log (R12).
+  void retractLogEntries(Set<int> ids) {
+    if (!mounted) return;
+    state = state.copyWith(
+      operationLog: log_rules.retractLogEntries(state.operationLog, ids),
+      operationLogRevision: state.operationLogRevision + 1,
+    );
+  }
+
   /// Logs that the commit box's draft could not be saved before a commit was
   /// sent -- [submitCommit]'s one failure path that reaches no other screen.
   void recordDraftNotSaved() =>
@@ -3224,6 +3231,30 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       malloc.free(pathPtr);
       malloc.free(destPtr);
     }
+  }
+
+  /// [exportFileAtRevision] as a Future of its reply, matched by
+  /// [destPath], for an action that has to log the outcome.
+  ///
+  /// Listens *before* requesting, because a reply can arrive synchronously
+  /// (it does under the test fake). Never completes if this controller is
+  /// disposed or has no native session before the reply arrives -- there is
+  /// then no Log left to write the outcome to.
+  Future<FileAtRevisionExport> exportFileAtRevisionAwaiting({
+    required String revision,
+    required String path,
+    required String destPath,
+  }) {
+    final Completer<FileAtRevisionExport> reply =
+        Completer<FileAtRevisionExport>();
+    final RemoveListener stop = addListener((RepoSessionState s) {
+      final FileAtRevisionExport? export = s.lastFileAtRevisionExport;
+      if (export != null && export.destPath == destPath && !reply.isCompleted) {
+        reply.complete(export);
+      }
+    }, fireImmediately: false);
+    exportFileAtRevision(revision: revision, path: path, destPath: destPath);
+    return reply.future.whenComplete(stop);
   }
 
   void requestWorkingTreeContent(String path) {

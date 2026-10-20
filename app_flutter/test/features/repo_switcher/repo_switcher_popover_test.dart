@@ -1,6 +1,7 @@
 // The repository switcher (spec page 02 item 15): the merged recents +
 // discovery list, the search field, the fixed Open / Clone footer, the 05-A
 // row context menu, and the popover the sidebar button opens.
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,12 +12,22 @@ import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/recents_repository.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/desktop_launcher.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../support/fake_repo_session.dart';
 
 const String _workDir1 = '/Users/test/repo1';
 const String _workDir2 = '/Users/test/repo2';
@@ -42,6 +53,24 @@ RepoRecord _record({
   );
 }
 
+class _Launcher extends DesktopLauncher {
+  _Launcher() : super(operatingSystem: 'linux');
+
+  final List<String> calls = <String>[];
+
+  @override
+  Future<bool> openInFileManager(String path) async {
+    calls.add('manager $path');
+    return true;
+  }
+
+  @override
+  Future<bool> openTerminal(String path) async {
+    calls.add('terminal $path');
+    return true;
+  }
+}
+
 Future<void> _rightClick(WidgetTester tester, Finder finder) async {
   final TestGesture gesture = await tester.createGesture(
     kind: PointerDeviceKind.mouse,
@@ -62,6 +91,9 @@ Future<GoRouter> _pump(
   List<RepoRecord> repos = const <RepoRecord>[],
   _TestRecentsRepository? recentsRepository,
   GbmThemeVariant variant = GbmThemeVariant.darkTechnical,
+  _FakeGbmBindings? bindings,
+  _FakeFolderPicker? picker,
+  List<Override> overrides = const <Override>[],
 }) async {
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -69,6 +101,14 @@ Future<GoRouter> _pump(
       GoRoute(
         path: '/',
         builder: (context, state) => Scaffold(body: child),
+      ),
+      GoRoute(
+        path: RoutePaths.cloneRepositoryDialog,
+        builder: (context, state) => Scaffold(
+          body: Text(
+            'clone dialog from ${state.uri.queryParameters['origin']}',
+          ),
+        ),
       ),
       GoRoute(
         path: RoutePaths.history,
@@ -90,10 +130,14 @@ Future<GoRouter> _pump(
         recentsRepositoryProvider.overrideWithValue(
           recentsRepository ?? _TestRecentsRepository(recents.toList()),
         ),
-        gbmBindingsProvider.overrideWithValue(_FakeGbmBindings()),
+        gbmBindingsProvider.overrideWithValue(bindings ?? _FakeGbmBindings()),
+        fileSavePickerProvider.overrideWithValue(
+          picker ?? _FakeFolderPicker(null),
+        ),
         discoveryProvider.overrideWith(
           (ref) => _TestDiscoveryController(repos),
         ),
+        ...overrides,
       ],
       child: MaterialApp.router(
         theme: buildGbmTheme(variant),
@@ -182,6 +226,18 @@ void main() {
   });
 
   group('RepoSwitcherList', () {
+    // Q5's red line under the footer is gone (R14): a clone is a background
+    // job whose failure goes to the Log. The footer only opens the dialog,
+    // naming this list's repository as the window it came from.
+    testWidgets('Clone repository… opens the Clone dialog for this window', (
+      tester,
+    ) async {
+      await _pump(tester, const RepoSwitcherList(currentWorkDir: _workDir1));
+      await tester.tap(find.text('Clone repository…'));
+      await tester.pumpAndSettle();
+      expect(find.text('clone dialog from $_workDir1'), findsOneWidget);
+    });
+
     testWidgets('renders the merged list and the fixed footer', (tester) async {
       await _pump(
         tester,
@@ -199,6 +255,51 @@ void main() {
       expect(find.text('test-repo-2'), findsOneWidget);
       expect(find.text('Open repository…'), findsOneWidget);
       expect(find.text('Clone repository…'), findsOneWidget);
+    });
+
+    // W-D2b: the system folder picker, not a typed path (spec page 01 lists
+    // the file picker among what the app takes from the OS).
+    testWidgets('Open repository… asks for a folder and opens it', (
+      tester,
+    ) async {
+      final _FakeFolderPicker picker = _FakeFolderPicker(_workDir2);
+      int dismissed = 0;
+      final GoRouter router = await _pump(
+        tester,
+        RepoSwitcherList(onDismiss: () => dismissed++),
+        picker: picker,
+      );
+
+      await tester.tap(find.text('Open repository…'));
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(dismissed, 1);
+      expect(
+        router.routerDelegate.currentConfiguration.uri.toString(),
+        RoutePaths.workspaceFor(Uri.encodeComponent(_workDir2)),
+      );
+    });
+
+    // Esc on the picker leaves the switcher exactly as it was (P02 #15
+    // 「Esc 關閉不切換」).
+    testWidgets('cancelling the folder picker changes nothing', (tester) async {
+      final _FakeFolderPicker picker = _FakeFolderPicker(null);
+      int dismissed = 0;
+      final GoRouter router = await _pump(
+        tester,
+        RepoSwitcherList(onDismiss: () => dismissed++),
+        picker: picker,
+      );
+
+      await tester.tap(find.text('Open repository…'));
+      await tester.pumpAndSettle();
+
+      expect(picker.calls, 1);
+      expect(dismissed, 0);
+      expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
+      // No typed-path prompt either: the search box is the only field.
+      expect(find.byType(TextField), findsOneWidget);
     });
 
     testWidgets('the search field filters the list', (tester) async {
@@ -277,6 +378,88 @@ void main() {
 
       expect(recents.read(), isEmpty);
       expect(find.text('spike'), findsNothing);
+    });
+  });
+
+  // Ruling R4 「每個動作都要有log」: 05-A's two launcher items go through
+  // AppActionRunner, into the window the list belongs to -- the welcome
+  // screen's own Log with no repository open (R13), the repository's when
+  // one is.
+  group('05-A launcher items are logged', () {
+    testWidgets('with no repository open, into the window Log', (tester) async {
+      final _Launcher launcher = _Launcher();
+      // The window Log reads its cap from preferences.
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      late WidgetRef scope;
+      await _pump(
+        tester,
+        Consumer(
+          builder: (context, ref, _) {
+            scope = ref;
+            return const RepoSwitcherList();
+          },
+        ),
+        repos: <RepoRecord>[_record()],
+        overrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(launcher),
+          sharedPreferencesProvider.overrideWithValue(prefs),
+        ],
+      );
+
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in file manager'));
+      await tester.pumpAndSettle();
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+
+      expect(launcher.calls, <String>[
+        'manager $_workDir1',
+        'terminal $_workDir1',
+      ]);
+      expect(
+        scope
+            .read(windowLogProvider)
+            .entries
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message),
+        <String>[
+          'Showed $_workDir1 in the file manager',
+          'Opened a terminal in $_workDir1',
+        ],
+      );
+    });
+
+    testWidgets('inside a repository, into that repository\'s Log', (
+      tester,
+    ) async {
+      final _Launcher launcher = _Launcher();
+      final RepoIdentity current = RepoIdentity.forWorkDir(_workDir2);
+      final FakeRepoSessionController session = FakeRepoSessionController(
+        current,
+        const RepoSessionState(isOpen: true),
+      );
+      await _pump(
+        tester,
+        const RepoSwitcherList(currentWorkDir: _workDir2),
+        repos: <RepoRecord>[_record()],
+        overrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(launcher),
+          repoSessionProvider(current).overrideWith((ref) => session),
+        ],
+      );
+
+      await _rightClick(tester, find.text('test-repo-1'));
+      await tester.tap(find.text('Open in terminal'));
+      await tester.pumpAndSettle();
+
+      expect(
+        session.state.operationLog.whereType<AppLogEntry>().map(
+          (AppLogEntry e) => e.message,
+        ),
+        <String>['Opened a terminal in $_workDir1'],
+      );
     });
   });
 
@@ -532,6 +715,35 @@ void main() {
       expect(find.text('test-repo-1'), findsOneWidget);
     });
 
+    // A window with no repository open (P15 A) still shows the switcher; P02
+    // #15 draws no empty state for it, so the label is the design page's
+    // inferred 「No repository」 in textTertiary (welcome-and-clone-spec.html).
+    testWidgets('with no repository reads "No repository" and still opens', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const SizedBox(width: 240, child: RepoSwitcherButton()),
+        repos: <RepoRecord>[_record()],
+      );
+
+      expect(
+        tester.widget<Text>(find.text('No repository')).style?.color,
+        tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+      );
+      expect(
+        find.descendant(
+          of: find.byType(RepoSwitcherButton),
+          matching: find.byType(Tooltip),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.byType(RepoSwitcherButton));
+      await tester.pumpAndSettle();
+      expect(find.byType(RepoSwitcherList), findsOneWidget);
+    });
+
     testWidgets('Esc closes the popover without switching', (tester) async {
       final GoRouter router = await _pump(
         tester,
@@ -625,4 +837,18 @@ class _TestDiscoveryController extends StateNotifier<DiscoveryState>
 
   @override
   void setBaseFolderDepth(int baseFolderId, int maxDepth) {}
+}
+
+/// Returns [path] from the folder picker and counts the asks.
+class _FakeFolderPicker extends FileSavePicker {
+  _FakeFolderPicker(this.path);
+
+  final String? path;
+  int calls = 0;
+
+  @override
+  Future<String?> pickDirectory() async {
+    calls++;
+    return path;
+  }
 }

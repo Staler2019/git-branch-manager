@@ -40,23 +40,15 @@ GBM_API int32_t gbm_repo_init(const char* path) {
     return 0;
 }
 
-GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath) {
+GBM_API int32_t gbm_git_version_json(void) {
     const GitResult<GitInstallation> installation = sharedGitInstallation();
     if (!installation) {
         setStagingBuffer(toJson(installation.error()));
         return errorCodeOrdinal(installation.error());
     }
-    std::unique_ptr<IProcessRunner> runner = makeProcessRunner(installation.value().executable);
-
-    CloneRepoRequest request;
-    request.url = url != nullptr ? url : "";
-    request.destPath = fsutil::pathFromUtf8(destPath != nullptr ? destPath : "");
-
-    const CancellationSource cancel;  // Synchronous, like gbm_discovery_scan_all.
-    const GitResult<void> result = runCloneRepo(*runner, request, cancel.token());
-    if (!result) {
-        setStagingBuffer(toJson(result.error()));
-        return errorCodeOrdinal(result.error());
-    }
+    const GitVersion& version = installation.value().version;
+    setStagingBuffer("{\"major\":" + std::to_string(version.major) +
+                     ",\"minor\":" + std::to_string(version.minor) +
+                     ",\"patch\":" + std::to_string(version.patch) + "}");
     return 0;
 }

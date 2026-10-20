@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>歡迎畫面與 Clone</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a spec sheet. Each screen is a framed mock drawn in the app's own tokens
+   (--gbm-*, from app_flutter/lib/theme/tokens.dart: light = _lightIde, dark = _darkTechnical),
+   followed by its value-source table. Page chrome uses --pg-* only, so it never bleeds into a mock.
+   Source tags: [P15] spec page 15 A mock · [P10] spec page 10 status bar / Log mock ·
+   [DLGS] spec DLGS entry · [DLGF] spec dlgFields() · [KIT] .gbm-* component CSS ·
+   [TASKS] spec TASKS table · [P6] spec page 06 full-size dialog mock · [P17] spec page 17 dialog field layout · [PREC] worktree-dialogs-spec.html, already ruled and implemented (gbm_dialog_field_kinds.dart textXs/textSm) · [APP] the existing Flutter widget, file:line given in the table. */
+
+/* ---------- page chrome (not drawn values) ---------- */
+:root {
+  --pg-ground: #f4f5f7; --pg-surface: #ffffff; --pg-line: #dcdfe4; --pg-ink: #14181d;
+  --pg-ink-2: #4f5966; --pg-accent: #1857b8; --pg-warn-bg: #fff4db; --pg-warn-ink: #7a5200;
+  --pg-rule-bg: #e6f6ec; --pg-rule-ink: #136c37; --pg-code-bg: #e4edfd; --pg-code-ink: #1857b8;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --pg-ground: #0b0e12; --pg-surface: #12161c; --pg-line: #232a33; --pg-ink: #e7edf4;
+  --pg-ink-2: #9aa4b1; --pg-accent: #6fa8ff; --pg-warn-bg: #3a2a05; --pg-warn-ink: #f2c366;
+  --pg-rule-bg: #0f2e1a; --pg-rule-ink: #7ee2a8; --pg-code-bg: #0d2a4d; --pg-code-ink: #8dbbff;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --pg-ground: #0b0e12; --pg-surface: #12161c; --pg-line: #232a33; --pg-ink: #e7edf4;
+  --pg-ink-2: #9aa4b1; --pg-accent: #6fa8ff; --pg-warn-bg: #3a2a05; --pg-warn-ink: #f2c366;
+  --pg-rule-bg: #0f2e1a; --pg-rule-ink: #7ee2a8; --pg-code-bg: #0d2a4d; --pg-code-ink: #8dbbff;
+  color-scheme: dark; }
+
+/* ---------- app tokens (drawn values) — tokens.dart:290-398 ---------- */
+:root {
+  --gbm-surface-panel: #FFFFFF; --gbm-surface-panel-raised: #FFFFFF; --gbm-surface-sunken: #F5F6F8;
+  --gbm-surface-hover: #F0F2F5; --gbm-surface-overlay: #FFFFFF;
+  --gbm-border-subtle: #EAECEF; --gbm-border-default: #DCDFE4; --gbm-border-strong: #C6CAD1;
+  --gbm-text-primary: #1C2128; --gbm-text-secondary: #57606A; --gbm-text-tertiary: #8B949E;
+  --gbm-text-on-accent: #FFFFFF; --gbm-text-link: #1857B8; --gbm-accent: #2F81F7;
+  --gbm-danger: #CF222E; --gbm-warning: #9A6700; --gbm-diff-del-bg: #FFEBE9; --gbm-diff-del-text: #82241F;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.12); /* tokens.dart:488-495 shadowMd */
+  --gbm-shadow-lg: 0 12px 32px rgba(0,0,0,.18); /* tokens.dart:498-505 shadowLg */
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --gbm-surface-panel: #0D1117; --gbm-surface-panel-raised: #161B22; --gbm-surface-sunken: #010409;
+  --gbm-surface-hover: #161B22; --gbm-surface-overlay: #1C2128;
+  --gbm-border-subtle: #21262D; --gbm-border-default: #30363D; --gbm-border-strong: #3D444D;
+  --gbm-text-primary: #E6EDF3; --gbm-text-secondary: #9198A1; --gbm-text-tertiary: #6E7681;
+  --gbm-text-on-accent: #FFFFFF; --gbm-text-link: #4C9BFF; --gbm-accent: #2F81F7;
+  --gbm-danger: #F85149; --gbm-warning: #D29922; --gbm-diff-del-bg: #3A1414; --gbm-diff-del-text: #FF9B93;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.5); --gbm-shadow-lg: 0 12px 32px rgba(0,0,0,.6); } }
+:root[data-theme="dark"] {
+  --gbm-surface-panel: #0D1117; --gbm-surface-panel-raised: #161B22; --gbm-surface-sunken: #010409;
+  --gbm-surface-hover: #161B22; --gbm-surface-overlay: #1C2128;
+  --gbm-border-subtle: #21262D; --gbm-border-default: #30363D; --gbm-border-strong: #3D444D;
+  --gbm-text-primary: #E6EDF3; --gbm-text-secondary: #9198A1; --gbm-text-tertiary: #6E7681;
+  --gbm-text-on-accent: #FFFFFF; --gbm-text-link: #4C9BFF; --gbm-accent: #2F81F7;
+  --gbm-danger: #F85149; --gbm-warning: #D29922; --gbm-diff-del-bg: #3A1414; --gbm-diff-del-text: #FF9B93;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.5); --gbm-shadow-lg: 0 12px 32px rgba(0,0,0,.6); }
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--pg-ground); color: var(--pg-ink);
+  font-family: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 32px 16px 72px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.top-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.eyebrow { font-family: "JetBrains Mono", monospace; font-size: 11.5px; letter-spacing: .06em; color: var(--pg-ink-2); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; line-height: 1.35; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--pg-ink-2); font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+.lede { color: var(--pg-ink-2); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--pg-line); padding-top: 18px; }
+.theme-toggle { display: inline-flex; border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; }
+.theme-toggle button { font: inherit; font-size: 12.5px; padding: 4px 12px; border: 0; background: var(--pg-surface); color: var(--pg-ink-2); cursor: pointer; }
+.theme-toggle button[aria-pressed="true"] { background: var(--pg-code-bg); color: var(--pg-code-ink); }
+.tag { font-family: "JetBrains Mono", monospace; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--pg-code-bg); color: var(--pg-code-ink); }
+.tag.new { background: var(--pg-warn-bg); color: var(--pg-warn-ink); }
+.tag.rule { background: var(--pg-rule-bg); color: var(--pg-rule-ink); }
+.stage { overflow-x: auto; padding: 20px; background: var(--pg-surface); border: 1px solid var(--pg-line); border-radius: 8px; }
+.stage-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.cap { font-size: 12px; color: var(--pg-ink-2); margin-bottom: 6px; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--pg-line); vertical-align: top; }
+th { font-weight: 600; color: var(--pg-ink-2); font-size: 12px; }
+td code, p code, li code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 80ch; }
+.callout { border-left: 3px solid var(--pg-warn-ink); padding: 8px 12px; background: var(--pg-warn-bg); color: var(--pg-warn-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 84ch; }
+/* page glue: callout numbers on a mock, same look as the spec's own .cal */
+.cal { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; background: var(--gbm-accent); color: var(--gbm-text-on-accent); font-size: 10.5px; font-weight: 700; font-family: "JetBrains Mono", monospace; flex-shrink: 0; } /* [KIT] .cal */
+
+/* =====================================================================
+   SPECIMENS — class names are the Flutter widgets
+   ===================================================================== */
+.mock { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; color: var(--gbm-text-primary); /* [APP] tokens.dart:409 fontUi; CJK fallback = page glue */
+  background: var(--gbm-surface-panel); border: 1px solid var(--gbm-border-default); border-radius: 10px; overflow: hidden; } /* [KIT] .mock */
+.mono { font-family: "JetBrains Mono", monospace; } /* [APP] tokens.dart:410 */
+.frame { width: 920px; } .frame.strip { border-radius: 0; } /* page glue: specimen frame width, strip frames */
+
+/* --- MenuBarRow (menu_bar_row.dart:71-93, :251-258) — reused unchanged, non-macOS only --- */
+.menu-bar-row { display: flex; align-items: center; height: 32px; padding: 0 8px;            /* [APP] :71-72 */
+  background: var(--gbm-surface-panel); border-bottom: 1px solid var(--gbm-border-subtle); }  /* [APP] :73-75 */
+.menu-bar-row .brand { display: flex; align-items: center; gap: 6px; padding-right: 12px;    /* [APP] :80-84 */
+  font-size: 12.5px; font-weight: 600; color: var(--gbm-text-secondary); }                    /* [APP] :88-91 */
+.menu-bar-row .m { padding: 6px 10px; font-size: 12.5px; color: var(--gbm-text-secondary); } /* [APP] :251-258 */
+.menu-bar-row .m.off { opacity: .45; }                                                        /* [P15] opacity:.45 */
+
+/* --- WelcomeScreen body --- */
+.welcome-body { display: flex; height: 352px; }                                                /* [P15] height:352px */
+.welcome-sidebar { width: 250px; flex-shrink: 0; border-right: 1px solid var(--gbm-border-subtle); /* [APP] tokens.dart:554 sidebarDefaultWidth; [P15] border-right */
+  background: var(--gbm-surface-panel); }                                                      /* [KIT] .mkpane */
+.welcome-center { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; padding: 22px 26px; } /* [P15] */
+.welcome-cols { display: flex; gap: 44px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }        /* [P15] */
+.welcome-actions-col { display: flex; flex-direction: column; gap: 14px; max-width: 280px; }   /* [P15] */
+.product-name { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }                  /* [P15] */
+.welcome-lede { font-size: 11.5px; color: var(--gbm-text-tertiary); line-height: 1.75; }      /* [P15] */
+.welcome-acts { display: flex; flex-direction: column; gap: 6px; }                             /* [P15] */
+.welcome-act { display: flex; align-items: center; gap: 8px; }                                 /* [P15] */
+
+/* GbmButton .sm (gbm_button.dart) */
+.gbm-btn { font-family: inherit; font-weight: 500; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; /* [KIT] .gbm-btn */
+  border: 1px solid transparent; white-space: nowrap; cursor: pointer; } /* [KIT] .gbm-btn */
+.gbm-btn.sm { height: 24px; font-size: 11px; padding: 0 8px; }                                /* [KIT] .gbm-btn-sm */
+.gbm-btn.primary { background: var(--gbm-accent); color: var(--gbm-text-on-accent); }         /* [KIT] .gbm-btn-primary */
+.gbm-btn.secondary { background: var(--gbm-surface-panel-raised); border-color: var(--gbm-border-default); color: var(--gbm-text-primary); } /* [KIT] .gbm-btn-secondary */
+.welcome-act .gbm-btn { width: 172px; flex-shrink: 0; justify-content: flex-start; }             /* [P15] width; no-shrink = 使用者裁定「按鈕要等寬」 */
+.kbd { font-family: "JetBrains Mono", monospace; font-size: 10.5px; color: var(--gbm-text-primary); background: var(--gbm-surface-sunken); /* [KIT] .kbd */
+  border: 1px solid var(--gbm-border-default); border-radius: 4px; padding: 1px 5px; white-space: nowrap; display: inline-block; } /* [KIT] .kbd */
+
+/* RepoSwitcherButton (P02 #15), reused unchanged — repo_switcher_popover.dart:466-512 */
+.sidebar-switcher { padding: 12px 12px 0; }                                                    /* [APP] :470-475 */
+.repo-switcher-button { display: flex; align-items: center; gap: 8px; height: 26px; padding: 0 7px; /* [APP] :488-489, :498 */
+  background: var(--gbm-surface-panel-raised); border: 1px solid var(--gbm-border-default); border-radius: 6px; } /* [APP] :490-494 */
+.repo-switcher-button .ic { display: inline-flex; color: var(--gbm-text-secondary); }          /* [APP] :497 git-fork 14 */
+.repo-switcher-button .nm { flex: 1; min-width: 0; font-size: 12.5px; color: var(--gbm-text-tertiary); } /* [APP] :504 textSm; tertiary placeholder inferred */
+.repo-switcher-button .chev { display: inline-flex; color: var(--gbm-text-tertiary); }         /* [APP] :510 expand_more 16 */
+
+/* Recent column — 撤銷（使用者裁定「recent就不用做了」），樣式保留只為了 W-D3/4/6 的刪除線紀錄 */
+.recent-col { display: flex; flex-direction: column; gap: 7px; min-width: 260px; }             /* [P15] */
+.recent-head { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--gbm-text-tertiary); } /* [P15] */
+.recent-list { display: flex; flex-direction: column; gap: 1px; }                              /* [P15] */
+.recent-row { display: flex; align-items: center; gap: 9px; height: 38px; padding: 0 12px; border-radius: 4px; cursor: pointer; } /* [P15] h38 gap9; [KIT] .gbm-row pad 0 --space-3, --radius-sm */
+.recent-row:hover { background: var(--gbm-surface-hover); }                                    /* [KIT] .gbm-row:hover */
+.recent-row .ic { display: inline-flex; color: var(--gbm-text-tertiary); }                    /* [P15] icFolderOpen 13 tertiary */
+.recent-row .txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }   /* [P15] */
+.recent-row .nm { font-size: 11.5px; color: var(--gbm-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* [P15] */
+.recent-row .pt { font-family: "JetBrains Mono", monospace; font-size: 9.5px; color: var(--gbm-text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* [P15] */
+.recent-row .meta { font-size: 9.5px; color: var(--gbm-text-tertiary); flex-shrink: 0; }       /* [P15] */
+.recent-row.missing .nm, .recent-row.missing .pt { text-decoration: line-through; }           /* [P15] note 4 刪除線 */
+.recent-row.missing { cursor: default; }
+
+/* --- StatusBar (status_bar.dart:204-243) — reused; P10 mock taken whole by ruling Q2/Q7 --- */
+.status-bar { display: flex; align-items: center; gap: 9px; height: 26px; padding: 0 10px;     /* [P10] / [APP] :204-224, :622 */
+  border-top: 1px solid var(--gbm-border-subtle); background: var(--gbm-surface-panel);   /* [P10] */
+  font-size: 10.5px; color: var(--gbm-text-tertiary); } /* [P10] */
+.status-bar { white-space: nowrap; overflow: hidden; } /* page glue: keep the specimen on one line */
+.status-bar .rule { width: 1px; height: 12px; background: var(--gbm-border-subtle); flex-shrink: 0; } /* [P10] */
+.status-bar .bar { width: 74px; height: 4px; border-radius: 999px; background: var(--gbm-surface-sunken); overflow: hidden; flex-shrink: 0; } /* [P10] */
+.status-bar .bar > span { display: block; height: 100%; background: var(--gbm-accent); }      /* [P10] */
+.status-bar .link { color: var(--gbm-text-link); cursor: pointer; }                            /* [P10] Cancel */
+.status-bar .sp { flex: 1; }                                                                   /* [P10] */
+.status-bar .err { display: inline-flex; align-items: center; gap: 5px; color: var(--gbm-danger); cursor: pointer; } /* [P10] */
+.status-bar .log { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }    /* [P10] */
+.status-bar .ic, .log-row .ic { display: inline-flex; }
+.ic.loader { color: var(--gbm-accent); } .ic.err { color: var(--gbm-danger); } .ic.warn { color: var(--gbm-warning); } .ic.term { color: var(--gbm-text-tertiary); } /* [P10] icLoader accent, icErr danger, icWarn warning, icTerminal tertiary (spec lucideIcon calls) */
+/* P15's own status bar, drawn only in the W-D1 comparison */
+.status-bar.p15 { gap: 8px; height: 24px; background: var(--gbm-surface-panel-raised); }      /* [P15] */
+
+/* --- Log rows (LogDrawer, reused unchanged) — content only; row metrics are [P10]'s mock --- */
+.log-rows { padding: 5px 0; font-family: "JetBrains Mono", monospace; font-size: 10px; line-height: 1.85; background: var(--gbm-surface-panel); } /* [P10] */
+.log-row { display: flex; gap: 8px; padding: 1px 11px; }                                       /* [P10] */
+.log-row .t { color: var(--gbm-text-tertiary); flex-shrink: 0; }                               /* [P10] */
+.log-row .ic { flex-shrink: 0; }
+.log-row .msg { color: var(--gbm-text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* [P10] */
+.log-row.warn .msg { color: var(--gbm-warning); }                                              /* [P10] */
+.log-row.error { background: var(--gbm-diff-del-bg); }                                         /* [P10] */
+.log-row.error .msg { color: var(--gbm-diff-del-text); }                                       /* [P10] */
+
+/* --- context menu: showGbmMenu (gbm_menu.dart) — same values as open-with-apps-spec.html --- */
+.gbm-menu { display: inline-block; min-width: 220px; padding: 4px; border-radius: 6px; border: 1px solid var(--gbm-border-default); /* [APP] gbm_menu.dart:213 */
+  background: var(--gbm-surface-overlay); box-shadow: var(--gbm-shadow-lg); font-family: "Inter", sans-serif; } /* [APP] gbm_menu.dart:219 shadowLg */
+.gbm-menu-item { display: flex; align-items: center; gap: 12px; padding: 6px 10px; border-radius: 4px; font-size: 12.5px; color: var(--gbm-text-primary); } /* [APP] gbm_menu.dart */
+.gbm-menu-item.danger { color: var(--gbm-danger); }
+.gbm-menu-sep { height: 1px; background: var(--gbm-border-subtle); margin: 4px 6px; }          /* [APP] gbm_menu.dart */
+
+/* --- GbmDialogShell (P6 full-size mock; same block as worktree-dialogs-spec.html) --- */
+.gbm-dialog-shell { width: 480px; max-width: 100%; background: var(--gbm-surface-panel-raised); /* [P17] 對話框最寬 480px; tokens.dart:557; [KIT] .gbm-panel-raised */
+  border: 1px solid var(--gbm-border-default); border-radius: 10px; box-shadow: var(--gbm-shadow-md); /* [P6] border; [KIT] --radius-lg, --shadow-md */
+  font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; color: var(--gbm-text-primary); overflow: hidden; }
+.mkbar { display: flex; align-items: center; gap: 8px; padding: 12px 15px; border-bottom: 1px solid var(--gbm-border-subtle); } /* [P6] padding, border; [KIT] .mkbar gap */
+.mkbar__title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; } /* [P6] */
+.dlg-body { padding: 14px 15px; display: flex; flex-direction: column; gap: 11px; }             /* [P6] */
+.fld { display: flex; flex-direction: column; gap: 4px; }                                       /* [P17] */
+.fld__label { font-size: 11px; color: var(--gbm-text-secondary); }            /* [P6] */
+.fld__hint { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.6; }              /* [PREC] size (P17 says 10, W-D13); [P17] colour, line-height */
+.box { display: flex; align-items: center; height: 30px; padding: 0 12px; font-size: 12.5px;    /* [KIT] .gbm-input */
+  border: 1px solid var(--gbm-border-default); border-radius: 6px; background: var(--gbm-surface-panel); /* [DLGF] */
+  color: var(--gbm-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.box--focus { border-color: var(--gbm-accent); }                                                /* [DLGF] k:'focus' */
+.box--mono { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }                     /* [DLGF] mono family; [PREC] size (DLGF says 11, W-D13) */
+.opt { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.5; } /* [P17] gap; [DLGF] line-height; [PREC] size (DLGF/P6 say 11.5, W-D13) */
+.opt__mark { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; border-radius: 3px;    /* [KIT] .gbm-checkbox 15 r3 */
+  border: 1.5px solid var(--gbm-border-strong); background: var(--gbm-surface-panel); }          /* [KIT] .gbm-checkbox (DLGF off = transparent) */
+.opt[data-on="1"] .opt__mark { background: var(--gbm-accent); border-color: var(--gbm-accent); display: grid; place-items: center; } /* [DLGF] chk-on */
+.opt[data-on="1"] .opt__mark::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); } /* inferred: check glyph, see #inferred */
+.opt__hint { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.6; padding-left: 23px; } /* same as .fld__hint; indent inferred */
+.note { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.7; }                   /* [DLGF] colour, line-height; [PREC] size (DLGF says 10.5, W-D13) */
+.dlg-actions { display: flex; justify-content: flex-end; gap: 7px; padding: 11px 15px; border-top: 1px solid var(--gbm-border-subtle); } /* [P6] */
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- Lucide folder-open (spec icFolderOpen = lucideIcon('folder-open', 13, ...)) -->
+  <symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+  <!-- Lucide git-fork / search, hand-copied (see #inferred) -->
+  <symbol id="i-git-fork" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59 12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></symbol>
+  <symbol id="i-loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19h8"/><path d="m4 17 6-6-6-6"/></symbol>
+  <symbol id="i-circle-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></symbol>
+  <symbol id="i-merge" viewBox="0 0 24 24" fill="currentColor"><path d="M17 20.41 18.41 19 15 15.59 13.59 17 17 20.41zM7.5 8H11v5.59L5.59 19 7 20.41l6-6V8h3.5L12 3.5 7.5 8z"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="top">
+    <div class="top-row">
+      <div class="eyebrow">W0 · G1 設計稿 · feature/make-user-can-customize-open-apps · 2026-10-20</div>
+      <div class="theme-toggle" role="group" aria-label="配色">
+        <button type="button" data-set="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-set="light" aria-pressed="false">Light</button>
+      </div>
+    </div>
+    <h1>沒開 repository 的視窗照 P15 A 重做，Clone 走背景作業列</h1>
+    <p class="lede">三個畫面：歡迎畫面本體（P15 A）、歡迎畫面的 status bar 與 Log（P10 / TASKS）、Clone 對話框（DLGS）。每個值後面標出處；沒有出處的值列在 <a href="#inferred">推測值</a>；需要你決定的列在 <a href="#decisions">待裁定</a>（W-D1–W-D13）。畫面上畫的是<strong>建議方案</strong>，替代方案寫在待裁定表裡。</p>
+    <p class="lede">已有的裁定：R10 成功直接轉到新 repo；R11 不彈錯誤視窗、照一般 Log；R12 成功那一列記在新 repo 的 Log、失敗或取消留在發起的視窗；R13 歡迎畫面也有 Log；R14 撤掉 footer 紅字與重開對話框；R15 兩段進度與取消刪除；R16 整頁照 P15 A；R17 不做「該 repository 列」的進度；R18 兩個勾選；ASK-3 (a)。</p>
+  </header>
+
+  <!-- ===================== 1. Welcome ===================== -->
+  <section class="screen" id="welcome">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · P15 A</div>
+      <h2>沒有開啟 repository 的視窗</h2>
+      <p class="lede">取代現在的 <code>WelcomeScreen</code>（AppBar + 探索到的 repo 清單）。menu bar、status bar、sidebar 頂端的 repo 切換（P02 #15）都沿用 workspace 已有的 widget；中央區照 P15 A mock。與 P15 不同的兩處是你的裁定：sidebar 頂端有 repo 切換按鈕（P15 #2「內容為空」）；不做 Recent 欄（P15 #4）。</p>
+    </div>
+    <div class="stage">
+      <div class="mock frame">
+        <div class="menu-bar-row">
+          <span class="brand"><svg width="14" height="14"><use href="#i-merge"/></svg>git-branch-manager</span>
+          <span class="m">File</span><span class="m">Edit</span>
+          <span class="m off">View</span><span class="m off">Repository</span><span class="m off">Branch</span>
+          <span class="m off">Remote</span><span class="m off">Tools</span><span class="m">Help</span>
+          <span style="flex:1"></span><span class="cal">1</span>
+        </div>
+        <div class="welcome-body">
+          <div class="welcome-sidebar">
+            <div class="sidebar-switcher">
+              <div class="repo-switcher-button"><span class="ic"><svg width="14" height="14"><use href="#i-git-fork"/></svg></span><span class="nm">No repository</span><span class="chev"><svg width="16" height="16"><use href="#i-down"/></svg></span></div>
+            </div>
+          </div>
+          <div class="welcome-center">
+            <div class="welcome-cols">
+              <div class="welcome-actions-col">
+                <div style="display:flex;gap:7px;align-items:center"><span class="product-name">git-branch-manager</span></div>
+                <div class="welcome-lede">沒有開啟的 repository。掃描的來源資料夾設定在 Preferences → Repository sources。</div>
+                <div class="welcome-acts">
+                  <div class="welcome-act"><button class="gbm-btn sm primary">Open repository…</button><span class="kbd">Ctrl/Cmd+O</span></div>
+                  <div class="welcome-act"><button class="gbm-btn sm secondary">Clone repository…</button><span class="kbd">Ctrl/Cmd+Shift+N</span></div>
+                  <div class="welcome-act"><button class="gbm-btn sm secondary">New repository…</button><span class="kbd">Ctrl/Cmd+N</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="status-bar"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span><span class="sp"></span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>元件</th><th>值</th><th>出處</th><th>現在的 app</th></tr></thead>
+      <tbody>
+        <tr><td>menu bar</td><td>沿用 <code>MenuBarRow</code>：32 高、左右 8、textSm、品牌字樣。View / Repository / Branch / Remote / Tools 整個選單 disabled（.45）；File / Edit / Help 可用</td><td>[APP] <code>menu_bar_row.dart:71-93</code>；disabled 名單與 .45 [P15] #1</td><td>歡迎畫面沒有 menu bar。macOS 用原生選單（<code>PlatformMenuBarHost</code>），只在 workspace 掛載。<strong>W-D8</strong></td></tr>
+        <tr><td>body</td><td>高 352（mock 畫面高度，實際隨視窗）</td><td>[P15]</td><td>—</td></tr>
+        <tr><td>sidebar</td><td>寬 250、右邊框 borderSubtle；最上方是 P02 #15 的 repo 切換按鈕（<code>RepoSwitcherButton</code>，原樣沿用），點擊或 <code>Ctrl/Cmd+R</code> 開切換彈窗；彈窗內容、底部 Open / Clone、05-A 右鍵都照 P02 #15，不另外設計</td><td>寬 [APP] <code>tokens.dart:554</code>；按鈕 [APP] <code>repo_switcher_popover.dart:466-512</code>；P02 #15；<span class="tag rule">裁定</span> W-D2「放本來branch上方那邊」、「repo切換就是spec02的15，不用特別寫」</td><td>同一份清單現在佔滿歡迎畫面中央</td></tr>
+        <tr><td>中央區</td><td>padding 22 / 26；置中；只剩左欄（產品名、說明、三顆按鈕）</td><td>[P15]；Recent 欄拿掉是 <span class="tag rule">裁定</span>「recent就不用做了」</td><td>maxWidth 420 單欄 + AppBar</td></tr>
+        <tr><td>產品名</td><td>17px、600、letter-spacing -.01em；沒有 logo</td><td>[P15] #3</td><td>textLg 18 + git-fork 圖示 + 「No repository open」</td></tr>
+        <tr><td>說明</td><td>11.5px、textTertiary、行高 1.75；文字照 mock，只把「Repositories」改成 app 的段名「Repository sources」</td><td>[P15]；段名 [APP] <code>preferences_dialog.dart:67</code></td><td>英文一句。<strong>W-D10</strong></td></tr>
+        <tr><td>三顆按鈕</td><td>GbmButton sm（24 高、11px、左右 8）、<strong>三顆等寬 172、不得被壓縮</strong>、靠左；Open 為 primary，其他 secondary；各接一個 kbd；按鈕間距 6，按鈕與 kbd 間距 8</td><td>[P15] + [KIT] .gbm-btn-sm / .kbd；等寬 <span class="tag rule">裁定</span>。上一版的錯：左欄 max-width 280，172 + 8 + 「Ctrl/Cmd+Shift+N」的 kbd 超過 280，flex 把 Clone 那顆壓窄了（spec 的 mock 本身也有這個問題）。實作用 <code>SizedBox(width: 172)</code></td><td>沒有這三顆。<strong>W-D2b</strong> Open 開什麼</td></tr>
+        <tr><td>Recent 標題</td><td><span style="text-decoration:line-through">10px、uppercase、.06em、textTertiary；與清單間距 7</span></td><td><span style="text-decoration:line-through">[P15]</span></td><td><span style="text-decoration:line-through">—</span> <span class="tag rule">裁定</span>「recent就不用做了」</td></tr>
+        <tr><td>Recent 列</td><td><span style="text-decoration:line-through">38 高、gap 9、左右 12、圓角 4；folder-open 13 textTertiary；名稱 11.5 textPrimary；路徑 mono 9.5 textTertiary；meta 9.5 textTertiary；列距 1</span></td><td><span style="text-decoration:line-through">[P15]；左右 12 與圓角 [KIT] .gbm-row</span></td><td><span style="text-decoration:line-through"><code>RepoSwitcherList</code> 混排 recents 與探索結果；上限 10（<code>recents_repository.dart:9</code>）。<strong>W-D3</strong></span> <span class="tag rule">裁定</span>「recent就不用做了」</td></tr>
+        <tr><td>Recent 上限</td><td><span style="text-decoration:line-through">8 筆</span></td><td><span style="text-decoration:line-through">[P15] #4</span></td><td><span style="text-decoration:line-through">10</span> <span class="tag rule">裁定</span>「recent就不用做了」</td></tr>
+        <tr><td>找不到路徑</td><td><span style="text-decoration:line-through">名稱與路徑加刪除線；meta 位置改寫「找不到路徑」；點了不開</span></td><td><span style="text-decoration:line-through">刪除線與字串 [P15] #4；位置與「點了不開」推測</span></td><td><span style="text-decoration:line-through">沒有。<strong>W-D6</strong></span> <span class="tag rule">裁定</span>「recent就不用做了」</td></tr>
+        <tr><td>出現時機</td><td>只在一個 repo 都沒開時出現；關掉最後一個 repo 回到這裡，不是關閉視窗</td><td>[P15] 結尾句</td><td>File → Close window 已回到 <code>/</code>（<code>welcome_screen.dart</code> doc）</td></tr>
+        <tr><td>sidebar 佔位字</td><td>不畫。mock 裡「Sidebar 保留但為空 / 不畫假的分支清單」是給讀者的註解；現在 sidebar 也不再是空的</td><td>[P15] #2；W-D2 裁定</td><td>—</td></tr>
+        <tr><td>status bar</td><td>沿用 <code>StatusBar</code>（P10 mock：26 高、gap 9、surfacePanel）；zone 1 寫掃描結果</td><td>[APP] <code>status_bar.dart:204-224</code>；字串 [P15] #5</td><td>沒有。<strong>W-D1</strong>、<strong>W-D11</strong></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== 2. Status bar & Log ===================== -->
+  <section class="screen" id="status">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · P10 / TASKS / R11–R15</div>
+      <h2>歡迎畫面的 status bar 與 Log：掃描、Clone 進度、取消、失敗</h2>
+      <p class="lede">Clone 不卡對話框（DLGS note），進度走 status bar 的背景作業區，記錄寫進這個視窗的 Log（歡迎畫面是新的 <code>AppWindowLog</code>，R13）。成功時直接轉到新 repo（R10），clone 那一列跟著搬到新 repo 的 Log（R12）。</p>
+    </div>
+    <div class="stage" style="display:grid;gap:18px">
+      <div>
+        <div class="cap">a · 掃描中</div>
+        <div class="mock frame strip">
+          <div class="status-bar"><span>正在掃描 3 個來源資料夾…</span><span class="sp"></span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="cap">b · Clone 進行中，第一段（receiving objects）</div>
+        <div class="mock frame strip">
+          <div class="status-bar"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span><span class="rule"></span><span class="ic loader"><svg width="12" height="12"><use href="#i-loader"/></svg></span><span>Cloning design-tokens — receiving objects 12,480 / 31,206</span><span class="bar"><span style="width:40%"></span></span><span class="link">Cancel</span><span class="sp"></span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="cap">c · 第二段（resolving deltas），數字換成這一段自己的</div>
+        <div class="mock frame strip">
+          <div class="status-bar"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span><span class="rule"></span><span class="ic loader"><svg width="12" height="12"><use href="#i-loader"/></svg></span><span>Cloning design-tokens — resolving deltas 3,912 / 20,477</span><span class="bar"><span style="width:19%"></span></span><span class="link">Cancel</span><span class="sp"></span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="cap">d · 失敗：zone 3 出現紅色摘要，點了打開 Log 並跳到那一列（沿用 6d 的行為）</div>
+        <div class="mock frame strip">
+          <div class="status-bar"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span><span class="sp"></span><span class="err"><span class="ic err"><svg width="12" height="12"><use href="#i-circle-x"/></svg></span>git clone https://alice:••••@git.example.com/design-tokens.git — exit 128 · Authentication failed</span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div>
+        </div>
+      </div>
+      <div>
+        <div class="cap">e · 歡迎畫面的 Log 內容（<code>LogDrawer</code> 原樣沿用，這裡只畫列）</div>
+        <div class="mock frame strip">
+          <div class="log-rows">
+            <div class="log-row"><span class="t">14:23:02</span><span class="ic loader"><svg width="12" height="12"><use href="#i-loader"/></svg></span><span class="msg">git clone https://…/design-tokens — receiving objects 12,480 / 31,206</span></div>
+            <div class="log-row warn"><span class="t">14:23:40</span><span class="ic warn"><svg width="12" height="12"><use href="#i-warn"/></svg></span><span class="msg">git clone https://…/design-tokens — cancelled · 38.1 s</span></div>
+            <div class="log-row warn"><span class="t">14:23:41</span><span class="ic warn"><svg width="12" height="12"><use href="#i-warn"/></svg></span><span class="msg">Removed /Users/alice/src/design-tokens</span></div>
+            <div class="log-row error"><span class="t">14:25:12</span><span class="ic err"><svg width="12" height="12"><use href="#i-circle-x"/></svg></span><span class="msg">git clone https://alice:••••@git.example.com/design-tokens.git — exit 128 · Authentication failed</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>項目</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>進度區排法</td><td>loader 圖示、標籤、74×4 進度條（sunken 底、accent 填色、999 圓角）、<code>Cancel</code>（textLink）；多個作業時加分隔線與 <code>+N task</code></td><td>[P10]；[APP] <code>status_bar.dart:309-370</code> 已照做</td></tr>
+        <tr><td>標籤文字</td><td><code>Cloning &lt;repo 名&gt; — &lt;phase&gt; &lt;n&gt; / &lt;m&gt;</code>，數字千分位</td><td>格式 [P10]「Cloning design-tokens — 12,480 / 31,206」；phase 字樣取自同頁 Log 列「receiving objects 12,480 / 31,206」與 [TASKS]「兩段進度…各自顯示實際數字」。<strong>W-D7</strong></td></tr>
+        <tr><td>還沒有數字時</td><td>標籤只寫 <code>Cloning &lt;repo 名&gt;</code>，進度條不定長（<code>total &lt;= 0</code> 時既有的行為）</td><td>[APP] <code>status_bar.dart</code> <code>_barValue</code>；小 repo 的 git 不印進度（實測，見 ledger）</td></tr>
+        <tr><td>Cancel</td><td>呼叫 <code>gbm_clone_cancel</code>；完成後 FINISHED 帶 <code>removedPath</code></td><td>[TASKS]「可取消」；C2 已實作</td></tr>
+        <tr><td>取消的記錄</td><td>git 那一列以 warning 結束；接著一列 <code>Removed &lt;path&gt;</code>（warning）。刪除被拒或只刪一部分時改寫 <code>Could not remove &lt;path&gt;: &lt;原因&gt;</code>（error）</td><td>[TASKS]「在 log 寫明刪了哪個路徑」；字串推測。<strong>W-D12</strong></td></tr>
+        <tr><td>失敗</td><td>git 那一列 error；status bar zone 3 紅色摘要＝那一列的訊息；不彈窗</td><td>R11；[P10] zone 3（mock 的摘要是短標題「Push rejected」，和 Log 列不同）；用 Log 訊息是先前的裁定 Q3（<code>open-with-apps-spec.html</code>）；6d 已實作</td></tr>
+        <tr><td>URL 遮罩</td><td>Log、摘要、標籤裡的 URL 一律經 <code>CredentialRedactor</code>（S1b 已在 <code>OperationRecord.fromJson</code> 套用）</td><td>R6、R7、ASK-4</td></tr>
+        <tr><td>Log 入口</td><td>status bar 的 <code>Log</code> toggle 歡迎畫面的 <code>LogDrawer</code>（讀 <code>AppWindowLog</code>）</td><td>R13；入口行為 Q6。<strong>W-D9</strong></td></tr>
+        <tr><td>成功</td><td><code>router.go</code> 到新 repo；clone 那一列併入新 repo 的 Log，不留在歡迎畫面</td><td>R10、R12；DLGS note「完成後自動開啟」</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== 3. Recent context menu ===================== -->
+  <section class="screen" id="recent-menu">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 3 · <span style="text-decoration:line-through">P15 A #4 Recent 右鍵選單</span> 撤銷</div>
+      <h2>Recent 欄不做，右鍵選單沿用清單列既有的 05-A</h2>
+      <p class="lede"><span class="tag rule">裁定</span>「recent就不用做了」。repo 的右鍵選單是 P02 #15 彈窗裡既有的 05-A，原樣沿用。原本這裡畫的 <code>Remove from Recent</code> / <code>Clear Recent</code> 隨之撤銷。</p>
+    </div>
+  </section>
+
+  <!-- ===================== 4. Clone dialog ===================== -->
+  <section class="screen" id="clone">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 4 · DLGS Clone repository</div>
+      <h2>Clone 對話框：補上兩個勾選，按下就關</h2>
+      <p class="lede">取代 <code>_promptClone</code> 的 <code>AlertDialog</code>。按 <code>Clone</code> 後對話框立刻關閉，進度走畫面 2；沒有 footer 紅字、失敗也不重開（R14）。</p>
+    </div>
+    <div class="stage stage-row">
+      <div>
+        <div class="cap">a · git 已修正（≥ 2.50.1）：submodule 預設勾</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">Clone repository</span><span class="kbd">Ctrl/Cmd+Shift+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">URL</div><div class="box box--focus box--mono">git@github.com:Staler2019/git-branch-manager.git</div></div>
+            <div class="fld"><div class="fld__label">目標路徑</div><div class="box box--mono">~/src/git-branch-manager</div><div class="fld__hint">URL 貼上後自動帶出資料夾名，可手改</div></div>
+            <div class="opt" data-on="1"><span class="opt__mark"></span><span>一併 clone submodule</span></div>
+            <div class="opt" data-on="0"><span class="opt__mark"></span><span>淺層 clone（--depth 1）</span></div>
+            <div class="note">進行中不卡 dialog：進度走 P10 背景作業列，完成後自動開啟。</div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary">Clone</button></div>
+        </div>
+      </div>
+      <div>
+        <div class="cap">b · git 低於 2.50.1：預設不勾，下方說明（ASK-3 (a)）</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">Clone repository</span><span class="kbd">Ctrl/Cmd+Shift+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">URL</div><div class="box box--focus box--mono">git@github.com:Staler2019/git-branch-manager.git</div></div>
+            <div class="fld"><div class="fld__label">目標路徑</div><div class="box box--mono">~/src/git-branch-manager</div><div class="fld__hint">URL 貼上後自動帶出資料夾名，可手改</div></div>
+            <div class="fld" style="gap:2px">
+              <div class="opt" data-on="0"><span class="opt__mark"></span><span>一併 clone submodule</span></div>
+              <div class="opt__hint">git 2.39.5 低於 2.50.1，clone 不信任的 repository 時遞迴 submodule 有已知漏洞（CVE-2025-48384），所以預設不勾。</div>
+            </div>
+            <div class="opt" data-on="0"><span class="opt__mark"></span><span>淺層 clone（--depth 1）</span></div>
+            <div class="note">進行中不卡 dialog：進度走 P10 背景作業列，完成後自動開啟。</div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary">Clone</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>元件</th><th>值</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>外框、標題列、內容、按鈕列</td><td>480 寬；title 13 / 600、padding 12 15；body 14 15、gap 11；actions 11 15、gap 7、兩顆都是 sm</td><td>[P6]；同 <code>worktree-dialogs-spec.html</code> 已核定的 <code>GbmDialogShell</code></td></tr>
+        <tr><td>標題、快捷鍵、主要按鈕</td><td><code>Clone repository</code>、<code>Ctrl/Cmd+Shift+N</code>、<code>Clone</code></td><td>[DLGS]</td></tr>
+        <tr><td>URL</td><td>focus（accent 邊框）、mono</td><td>[DLGS] k:'focus' mono</td></tr>
+        <tr><td>目標路徑</td><td>text、mono、hint「URL 貼上後自動帶出資料夾名，可手改」</td><td>[DLGS]</td></tr>
+        <tr><td>兩個勾選</td><td>「一併 clone submodule」chk-on；「淺層 clone（--depth 1）」chk。勾選框 15、圓角 3、1.5 borderStrong；勾起來 accent 填滿</td><td>[DLGS]；框 [KIT] .gbm-checkbox；顏色 [DLGF]</td></tr>
+        <tr><td>「淺」字</td><td>畫的是建議的「淺」；spec 原文是簡體「浅」</td><td>[DLGS] 原字「浅」。<strong>W-D10</strong></td></tr>
+        <tr><td>note</td><td>原文照抄</td><td>[DLGS] k:'note'</td></tr>
+        <tr><td>低版本說明</td><td>勾選下方一行 hint（11、textTertiary），縮排對齊勾選文字；版本取自偵測到的 git</td><td>樣式 [P17] hint；文字與縮排推測。<strong>W-D5</strong></td></tr>
+        <tr><td>按下 Clone</td><td>對話框關閉 → <code>gbm_clone_start(url, dest, recurse, depth: 勾 ? 1 : 0)</code></td><td>DLGS note；C2</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Inferred ===================== -->
+  <section class="screen" id="inferred">
+    <div class="screen-head">
+      <div class="eyebrow">推測值</div>
+      <h2>沒有出處、我自己填的值</h2>
+    </div>
+    <ul class="notes">
+      <li><span style="text-decoration:line-through">Recent 列 hover 底色 <code>surfaceHover</code>：mock 只寫 <code>.gbm-row</code> 與 <code>cursor:pointer</code>，沒畫 hover。</span> 更正（spec-auditor）：<code>.gbm-row:hover{background:var(--surface-hover)}</code> 就在 KIT 裡，這個值有出處，不是推測。</li>
+      <li><span style="text-decoration:line-through">「找不到路徑」放在 meta 的位置、顏色維持 textTertiary、該列點了不開（右鍵仍可移除）。</span> （Recent 撤銷）</li>
+      <li>掃描中的文字「正在掃描 3 個來源資料夾…」。P15 #5 只規定掃描完的寫法。</li>
+      <li><span style="text-decoration:line-through">右鍵選單文字 <code>Remove from Recent</code> / <code>Clear Recent</code>，以及兩項之間的分隔線。</span> （Recent 撤銷）</li>
+      <li>取消那一列的寫法 <code>— cancelled · 38.1 s</code>（P10 的完成列是 <code>— exit 0 · 1.42 s</code>，取消沒有範例），以及畫面 2 e 的各時間戳。</li>
+      <li><span style="text-decoration:line-through">Recent 第三列：spec 的 RECENTS 是 <code>main · 3 天前</code>，這裡改成路徑不存在的樣子來示意 #4。</span> （Recent 撤銷）</li>
+      <li>Log 字串 <code>Removed &lt;path&gt;</code>、<code>Could not remove &lt;path&gt;: &lt;原因&gt;</code>，以及它們的層級（warning / error）。英文是跟 <code>app_log_events.dart</code> 既有事件一致。</li>
+      <li>低版本說明的文字、23px 縮排（勾選框 15 + 間距 8）、勾選與說明之間 2px。</li>
+      <li>勾選框打勾的白色勾號（8×4、2px 白線、旋轉 -45°）：spec 的 <code>chk-on</code> 只畫 accent 填滿，沒有勾號；照 <code>worktree-dialogs-spec.html</code> 已核定的畫法。實作用 Flutter <code>Checkbox</code> 的勾號，不照這裡的像素。</li>
+      <li>第二段的範例數字（3,912 / 20,477）與兩段的進度條比例：示意用。</li>
+      <li>畫面 2 d 的錯誤訊息內容：示意 URL 遮罩後的樣子（R7：有 <code>:</code> 只遮密碼段）。</li>
+      <li>沒有開 repo 時切換按鈕上的文字「No repository」與它的 textTertiary 顏色：P02 #15 只寫「顯示目前 repo 的按鈕」，沒有「沒有目前 repo」的樣子。git-fork 圖示路徑照 Lucide 手抄（app 已有 asset）。</li>
+      <li>（實作時補，2026-10-20）掃描失敗原本由歡迎畫面的 banner 顯示（<code>discovery.lastError</code> 唯一的 reader）；banner 隨舊外觀拿掉，失敗改寫進視窗的 Log（<code>AppLogEvents.errorOccurred</code>），status bar 紅色摘要照未讀 error 規則亮起。依據 P15 B「只是通知結果的留在 log 抽屜與狀態列」與 R11；只記歡迎畫面開著時發生的新失敗。</li>
+      <li>（實作時補，2026-10-20）三顆按鈕旁的 kbd 沿用 app 既有的 <code>GbmKbdChip</code>（<code>worktree-dialogs-spec.html</code> 已核定的 kbd：左右 8、上下 2、11px、textSecondary），不照這頁 [KIT] <code>.kbd</code> 的 10.5px / 1·5 / textPrimary，避免同一個元件兩種畫法（W-D13 採已核定前例）。顯示的是平台實際的組合鍵（<code>Ctrl+O</code>、<code>⌘O</code>），不是 mock 的 <code>Ctrl/Cmd+O</code>。</li>
+      <li><span style="text-decoration:line-through">folder-open 圖示路徑照 Lucide 公開圖示手抄；實作時從 Lucide 原檔加入 <code>assets/icons/folder-open.svg</code>（目前只有 <code>folder-git-2.svg</code>），不從這頁複製。</span> （Recent 撤銷，不需要這個圖示）</li>
+    </ul>
+  </section>
+
+  <!-- ===================== Audits ===================== -->
+  <section class="screen" id="audits">
+    <div class="screen-head">
+      <div class="eyebrow">稽核</div>
+      <h2>機械稽核的結果</h2>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>稽核</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>沒有出處的值</td><td>specimen CSS 0 筆（第一輪 5 筆：4 筆是多行宣告的續行補上標記，1 筆打勾符號移到推測值）</td></tr>
+        <tr><td>token 覆蓋</td><td>用到的 <code>--gbm-*</code> 在 light、dark（media）、dark（data-theme）三個區塊都有定義；沒有未定義、沒有沒用到的</td></tr>
+        <tr><td>對比（WCAG）</td><td>低於 4.5 的有四組，全部來自 <code>tokens.dart</code>，<strong>沒有在這頁改</strong>：<code>textTertiary</code> 對 panel（light 3.08 / dark 4.12）、對 raised（light 3.08 / dark 3.77）——說明文字、路徑、meta、status bar 字、hint、note 都用它；primary 按鈕白字對 accent 3.75（兩個配色相同）。這些是 spec 自己的 token，要改是另一個決定</td></tr>
+        <tr><td>HTML 結構</td><td><code>html.parser</code>：0 個不成對、0 個未關閉</td></tr>
+        <tr><td>和實作對照</td><td>見各畫面表格的「現在的 app」欄。<code>StatusBar</code> 已照 P10；<code>MenuBarRow</code> 與 sidebar 寬和 P15 mock 不同（W-D8、W-D1）</td></tr>
+        <tr><td>spec-auditor</td><td>100 個值：MATCH 72、MISMATCH 12、UNSOURCED 6、推測值已列 10。這一版已處理：dark 陰影改成 tokens 的 .5、選單陰影改 shadowLg、loader / warn / error 圖示照 spec 上色、拿掉沒出處的 line-height 與按鈕底色、frame 寬度標成頁面排版、取消列改成 P10 的寫法、「淺」照建議畫、hover 推測更正。字級的三方衝突列成 W-D13；說明句段名（W-D10）、phase（W-D7）、status bar（W-D1）、menu bar（W-D8）原本就在待裁定</td></tr>
+        <tr><td>前例頁的錯</td><td><code>worktree-dialogs-spec.html:248</code> 的對話框陰影寫 <code>rgba(0,0,0,.28)</code>，<code>tokens.dart:488-495</code> 的 dark 是 .5。這頁抄了它，已改。<span class="tag rule">裁定</span>「順便更正」→ 前例頁已就地更正（改成每個配色各自的 <code>--gbm-shadow-md</code>，舊值寫在註解裡）</td></tr>
+        <tr><td>元件混淆</td><td>Recent 列是 <code>.gbm-row</code> 加 P15 自己的 38 高，不是 26 的 compact 列；勾選下方的說明用 P17 的 hint，不是 <code>warn</code> 欄位（它不是警告，只說明為什麼預設不勾）；status bar 是 P10 的 <code>StatusBar</code>，P15 的 bar 只畫在 W-D1 比較</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- ===================== Decisions ===================== -->
+  <section class="screen" id="decisions">
+    <div class="screen-head">
+      <div class="eyebrow">待裁定</div>
+      <h2>裁定與待裁定</h2>
+      <p class="lede">2026-10-20 第一輪裁定：W-D1、W-D8「照目前」；W-D2「探索到的 repo 清單放本來 branch 上方那邊，recent 就不用做了」，歡迎畫面三顆按鈕要等寬；前例頁陰影一併更正。W-D3、W-D4、W-D6 隨 Recent 撤銷。新增 W-D2b；W-D14 隨「repo切換就是spec02的15」撤銷。</p>
+    </div>
+    <div class="callout">2026-10-20 使用者「設計ok」：其餘待裁定項（W-D2b、W-D5、W-D7、W-D9、W-D10、W-D11、W-D12、W-D13）與推測值「No repository」都採建議。</div>
+    <div class="stage" style="display:grid;gap:12px">
+      <div class="cap">W-D1 比較：上 = P15 的 status bar（24 高、gap 8、surfacePanelRaised）；下 = 現在的 <code>StatusBar</code>（P10：26 高、gap 9、surfacePanel）</div>
+      <div class="mock frame strip"><div class="status-bar p15"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span></div></div>
+      <div class="mock frame strip"><div class="status-bar"><span>掃描 3 個來源資料夾 · 找到 41 個 repository · 331 ms</span><span class="sp"></span><span class="log"><span class="ic term"><svg width="12" height="12"><use href="#i-terminal"/></svg></span>Log</span></div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>問題</th><th>證據</th><th>建議</th></tr></thead>
+      <tbody>
+        <tr><td>W-D1</td><td>status bar 用 P15 的還是 P10 的</td><td>P15 mock：24 高、gap 8、<code>surface-panel-raised</code>，沒有 Log 入口。P10 mock：26 高、gap 9、<code>surface-panel</code>，有 zone 3。app 的 <code>StatusBar</code> 已照 P10 做（裁定 Q2 / Q7）。歡迎畫面要有 Log（R13），P15 的 bar 沒有放入口的地方</td><td>用現有 <code>StatusBar</code>（P10）。sidebar 寬同理用 250（mock 246）<br><span class="tag rule">裁定</span>「照目前」</td></tr>
+        <tr><td>W-D2</td><td>探索到的 repo 清單放哪</td><td>P15 A 只有 Recent，沒有探索清單；現在的歡迎畫面整塊就是探索清單</td><td><span class="tag rule">裁定</span>「放本來branch上方那邊，recent就不用做了」→ sidebar 頂端放 <code>RepoSwitcherList</code>（畫面 1）</td></tr>
+        <tr><td>W-D2b</td><td><code>Open repository…</code> 開什麼</td><td>workspace 的 Open repository… 目前是文字輸入框（<code>promptOpenRepository</code>，輸入路徑）；spec 沒有 Open repository 的對話框條目</td><td>開系統的資料夾選擇器，選了就開。workspace 的 File → Open repository… 同一個行為<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議</td></tr>
+        <tr><td>W-D14</td><td><span style="text-decoration:line-through">sidebar 清單的 footer（Open / Clone 兩列）要不要留</span></td><td><span style="text-decoration:line-through">現在的 <code>RepoSwitcherList</code> 底部有 <code>Open repository…</code>、<code>Clone repository…</code> 兩列（<code>repo_switcher_popover.dart:764-800</code>），和中央的三顆按鈕重複；清單空的時候提示字寫「use Open repository… below」</span></td><td><span style="text-decoration:line-through">歡迎畫面不顯示 footer（加一個參數關掉；popover 照舊）；空清單提示改成不指「below」：「No repositories yet. Add a base folder in Preferences → Repository sources.」。File → Switch repository…（<code>Ctrl/Cmd+R</code>）在歡迎畫面改成把焦點移到這個搜尋框</span> <span class="tag rule">裁定</span>「repo切換就是spec02的15，不用特別寫」→ 撤銷：用 P02 #15 的按鈕 + 彈窗，footer 照 spec 固定保留</td></tr>
+        <tr><td>W-D3</td><td><span style="text-decoration:line-through">Recent 的 meta「main · 2 小時前」裡的分支從哪來</span></td><td><span style="text-decoration:line-through"><code>RecentRepoEntry</code> 只存 <code>workDir</code> 與 <code>lastOpenedEpochMs</code>，沒有分支</span></td><td><span style="text-decoration:line-through">顯示時讀 <code>&lt;workDir&gt;/.git/HEAD</code>（worktree 時跟著 gitdir 檔），detached 時寫短 hash；讀不到就只寫時間。不改存檔格式</span> （Recent 撤銷）</td></tr>
+        <tr><td>W-D4</td><td><span style="text-decoration:line-through">右鍵選單的文字</span></td><td><span style="text-decoration:line-through">P15 #4 只寫「移除單筆或清空」。DLGS 的選單與按鈕全是英文</span></td><td><span style="text-decoration:line-through"><code>Remove from Recent</code> / <code>Clear Recent</code></span> （Recent 撤銷）</td></tr>
+        <tr><td>W-D5</td><td>ASK-3 (a) 的門檻與說明文字</td><td>CVE-2025-48384 在 2.50.1 修正，另有 backport（2.43.7、2.44.4、2.45.4、2.46.4、2.47.3、2.48.2、2.49.1）。最低支援是 2.30（<code>GitExecutable.h:49</code>）。capi 目前沒有回傳 git 版本的函式（core 有 <code>GitVersion</code>），C3 要加一個</td><td>只比「&lt; 2.50.1」，不認 backport：已打 backport 的使用者只是預設不勾，仍可自己勾，誤判的代價小。文字如畫面 4 b。加 capi 函式算進 C3 的範圍<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議</td></tr>
+        <tr><td>W-D6</td><td><span style="text-decoration:line-through">「找不到路徑」放哪、點了怎樣</span></td><td><span style="text-decoration:line-through">P15 #4 只規定刪除線與字串</span></td><td><span style="text-decoration:line-through">放在 meta 位置、點了不開、右鍵仍可移除</span> （Recent 撤銷）</td></tr>
+        <tr><td>W-D7</td><td>進度標籤要不要寫 phase</td><td>P10 status bar mock 沒有 phase（「Cloning design-tokens — 12,480 / 31,206」）；同頁 Log 列有（「receiving objects 12,480 / 31,206」）；TASKS 要求兩段「各自顯示實際數字」，沒有 phase 字樣就看不出數字換段了</td><td>寫 phase（畫面 2 b / c）：spec 的文字敘述優先於圖（<span class="tag code">[SPEC-mockup-is-not-prose]</span>）。Log 的 running 列也跟著更新成同一段文字（照 P10 Log mock）<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議</td></tr>
+        <tr><td>W-D8</td><td>歡迎畫面的 menu bar</td><td>P15 mock：30 高、gap 14、11.5px、沒有品牌字樣（#3「沒有 logo」）。app 的 <code>MenuBarRow</code>：32 高、textSm、前面有圖示加產品名。macOS 用原生選單，沒有 <code>MenuBarRow</code></td><td>沿用 <code>MenuBarRow</code> 不改（版面不跳）；macOS 掛 <code>PlatformMenuBarHost</code>，disabled 的方式是 handler 給 null。「品牌字樣與 #3 衝突」記成既有的差異，要不要改整個 app 的 menu bar 請你決定<br><span class="tag rule">裁定</span>「照目前」</td></tr>
+        <tr><td>W-D9</td><td>View 選單 disabled 了，Log 怎麼開</td><td>P15 #1 把 View 畫成 disabled，但 View → Log 是 Log 的選單入口；R13 要歡迎畫面有 Log</td><td>View 照 mock 整個 disabled；Log 由 status bar 的 <code>Log</code> 入口開，<code>Ctrl/Cmd+Shift+L</code> 快捷鍵在歡迎畫面照樣有效<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議<br>更正（實作時發現）：<span style="text-decoration:line-through">View 照 mock 整個 disabled，快捷鍵照樣有效</span>——鍵盤和選單讀同一張 handler map（<span class="tag code">[ACT-one-handler-map]</span>），快捷鍵能用，View → Log 這一項就必須是可用的。所以 View 選單只留 Log 可用，其餘 disabled（<code>gbm_no_repo_availability.dart</code>）。Edit 的三個 Find 與 File → Close window 也 disabled：它們作用在 repo 上</td></tr>
+        <tr><td>W-D10</td><td>文字的語言與用字</td><td>P15 的說明與 status bar 字串是中文；說明裡寫「Preferences → Repositories」，app 的段名是「Repository sources」。DLGS 原文用簡體「浅層」</td><td>照 P15 用中文；段名改成 app 實際的「Repository sources」，讓指引找得到；「浅」改「淺」（spec 其餘全是繁體）<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 段名寫「Repository sources」、「淺」，採建議</td></tr>
+        <tr><td>W-D11</td><td>掃描耗時怎麼量</td><td><span style="text-decoration:line-through"><code>DiscoveryState</code> 沒有耗時欄位；掃描在 capi 端</span> 更正（實作時發現）：core 已經在每個 base folder 存了 <code>last_scan_ms</code>（<code>RepoIndexDb.cpp:434</code>，Dart 的 <code>BaseFolderRecord.lastScanMs</code>），重開 app 也還在；Preferences 的摘要就是讀它（<code>preferences_dialog.dart:537</code>）</td><td><span style="text-decoration:line-through">Dart 端用 <code>Stopwatch</code> 包住一次掃描，存進 <code>DiscoveryState</code></span> 改成：把已啟用資料夾的 <code>lastScanMs</code> 加總（scan_all 是逐一掃），不另外量——另量一份會是同一個數字的第二個來源（<span class="tag code">[CULT-single-source-of-truth]</span>）。從沒掃過時不寫耗時（「2 個來源資料夾 · 找到 0 個 repository」）；掃描中「正在掃描 N 個來源資料夾…」；沒有資料夾「還沒有來源資料夾」（後兩句推測）<br><span class="tag rule">裁定</span>「設計ok」→ 採原建議；依上述證據改為讀 core 的值，量的是同一件事</td></tr>
+        <tr><td>W-D12</td><td>取消後刪除的 Log 寫法</td><td>TASKS「在 log 寫明刪了哪個路徑」，沒有字串。C2 的 FINISHED 帶 <code>removedPath</code> 或 <code>removalError</code></td><td><code>Removed &lt;path&gt;</code>（warning）；失敗 <code>Could not remove &lt;path&gt;: &lt;原因&gt;</code>（error）<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議</td></tr>
+        <tr><td>W-D13</td><td>對話框欄位的字級用哪一套</td><td>三邊不同：KIT <code>.gbm-input</code> 30 高 12.5px、<code>.gbm-checkbox</code> 15；P6 mock 輸入框 27 高 11.5px、勾選 13、勾選字 11.5；<code>dlgFields()</code> 輸入 11px、勾選框 12、勾選字 11.5、hint 10（P17）、note 10.5。已核定並實作的 <code>worktree-dialogs-spec.html</code> 用 KIT 這套（label 11、值 12.5、勾選 15、hint 與 note 11），app 的 <code>gbm_dialog_field_kinds.dart</code> 也是 textXs / textSm</td><td>沿用已核定的那套，Clone 對話框和其他對話框長得一樣。若要改成 dlgFields 的值，是所有對話框一起改<br><span class="tag rule">裁定</span>「設計ok」（2026-10-20）→ 採建議</td></tr>
+      </tbody>
+    </table></div>
+    <h3>範圍提醒</h3>
+    <ul class="notes">
+      <li>R17：TASKS 的 Clone 列寫進度顯示在「該 repository 列 + status bar」；R17 裁定這輪只做 status bar 與 Log，不做 repository 列的進度，ledger 記為與 spec 的差異。</li>
+      <li><span style="text-decoration:line-through">W-D2 的建議會讓 File → Switch repository… 在歡迎畫面打開清單（dialog 形式）。</span> 撤銷：Switch repository… 就是 P02 #15 的彈窗，和 workspace 相同。</li>
+      <li>W-D5 的建議需要新 capi 函式（git 版本），屬於 C3。</li>
+    </ul>
+  </section>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll('.theme-toggle button');
+  function current() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function paint() { var c = current(); buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.set === c)); }); }
+  try { var saved = localStorage.getItem('gbm-spec-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      root.setAttribute('data-theme', b.dataset.set);
+      try { localStorage.setItem('gbm-spec-theme', b.dataset.set); } catch (e) {}
+      paint();
+    });
+  });
+  paint();
+})();
+</script>
+</body>
+</html>

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
+import 'features/app_lifecycle/clone_job_listener.dart';
 import 'features/update/auto_update_check.dart';
 import 'features/update/update_leftover_sweep.dart';
 import 'routing/app_router.dart';
@@ -26,16 +28,22 @@ class GbmApp extends ConsumerWidget {
       theme: buildGbmTheme(ref.watch(themeVariantProvider)),
       routerConfig: ref.watch(appRouterProvider),
       // Above the router rather than inside WorkspaceScreen: with no
-      // repository open the app renders WelcomeScreen, which has no menu
-      // bar, and a check hung off the workspace would never run there.
+      // repository open the app renders WelcomeScreen, and a check hung off
+      // the workspace would never run there.
       builder: (BuildContext context, Widget? child) => AutoUpdateCheck(
         // Pushed through the router instance rather than `context.push`:
         // this builder sits above the Navigator the route resolves against,
         // so its context has no GoRouter of its own to reach.
-        onUpdateAvailable: () => pushDialogRouteOn(
-          ref.read(appRouterProvider),
-          RoutePaths.updateDialog,
-        ),
+        // Tagged with the repository it appears over, so Open releases page
+        // is logged there (使用者裁定 2026-10-21 「自動檢查更新也改用目前路由
+        // 所在的 repo」); none over the welcome screen.
+        onUpdateAvailable: () {
+          final GoRouter router = ref.read(appRouterProvider);
+          pushDialogRouteOn(
+            router,
+            RoutePaths.updateDialogPath(originWorkDir: originWorkDirOf(router)),
+          );
+        },
         // Nested rather than a second builder: the sweep is unconditional
         // where the check is not, so they are two jobs, not one.
         // AppExitSessionCleanup is innermost only because nesting order
@@ -43,7 +51,11 @@ class GbmApp extends ConsumerWidget {
         // just both need to sit above the router for the same reason
         // AutoUpdateCheck does (see above).
         child: UpdateLeftoverSweep(
-          child: AppExitSessionCleanup(child: child ?? const SizedBox.shrink()),
+          child: AppExitSessionCleanup(
+            // A clone outlives the window that started it, so its prompt
+            // and its success navigation live up here too.
+            child: CloneJobListener(child: child ?? const SizedBox.shrink()),
+          ),
         ),
       ),
     );

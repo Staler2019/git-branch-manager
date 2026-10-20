@@ -123,6 +123,33 @@ abstract final class AppLogEvents {
     );
   }
 
+  /// A cancelled clone took away the folder it had made (TASKS: 「在 log
+  /// 寫明刪了哪個路徑」; wording W-D12). A warning, as the cancel is.
+  static AppLogEntry cloneDestinationRemoved(
+    String path, {
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.warning,
+      message: 'Removed $path',
+    );
+  }
+
+  /// A cancelled clone's folder could not be taken away, or only in part:
+  /// what is left on disk is the user's to clean up, so it is an error.
+  static AppLogEntry cloneDestinationNotRemoved(
+    String path, {
+    required String reason,
+    required int atEpochMs,
+  }) {
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message: 'Could not remove $path: $reason',
+    );
+  }
+
   /// The commit box's draft could not be written before a commit was sent
   /// (Slice E D2). The commit went out anyway; what is lost is the
   /// pending-commit marker that brings the right text back after a crash.
@@ -150,4 +177,9 @@ abstract final class AppLogEvents {
       message: 'Event $eventType: its data could not be decoded',
     );
   }
+
+  // Failures (and successes) of a user's own click -- open a terminal or an
+  // external app, export a file, save the log, create a repository -- are
+  // app actions now: app_actions.dart's factories own their wording and
+  // AppActionRunner writes the line (ruling R4).
 }

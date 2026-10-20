@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,6 +13,9 @@ import '../../../data/repositories/file_list_view_mode_repository.dart';
 import '../../../data/repositories/history_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
+import '../../../data/models/app_action_outcome.dart';
+import '../../../data/services/app_action_runner.dart';
+import '../../../data/services/app_actions.dart';
 import '../../../data/services/desktop_launcher.dart';
 import '../../../data/services/file_save_picker.dart';
 import '../../../routing/route_paths.dart';
@@ -53,12 +57,6 @@ class ChangedFilesPanel extends ConsumerStatefulWidget {
 }
 
 class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
-  /// Destination path -> why it was exported. Populated *before* the export
-  /// is requested, because a reply can arrive synchronously (it does under
-  /// the test fake) and would otherwise find nothing to match.
-  final Map<String, _ExportPurpose> _pendingExports =
-      <String, _ExportPurpose>{};
-
   /// Repository-relative, forward-slashed path -> a filename carrying the
   /// revision, so two revisions of the same file do not collide in the temp
   /// directory and the user can tell them apart in whatever app opens them.
@@ -72,20 +70,52 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
     return '${base.substring(0, dot)}-$shortOid${base.substring(dot)}';
   }
 
-  void _export(
+  /// Through [AppActionRunner]: success and failure are both one Log line
+  /// (ruling R4), and the sink is taken before the first await so the line
+  /// lands even if this panel is gone by then. What happens to the written
+  /// file next is this panel's own business, done only on success.
+  Future<void> _export(
     String revision,
     String path,
     String destPath,
     _ExportPurpose purpose,
-  ) {
-    _pendingExports[destPath] = purpose;
-    ref
-        .read(repoSessionProvider(widget.identity).notifier)
-        .exportFileAtRevision(
-          revision: revision,
-          path: path,
-          destPath: destPath,
+  ) async {
+    final RepoSessionController session = ref.read(
+      repoSessionProvider(widget.identity).notifier,
+    );
+    final DesktopLauncher launcher = ref.read(desktopLauncherProvider);
+    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
+      context,
+    );
+    final AppActionRunner runner = ref.read(appActionRunnerProvider);
+    final AppActionOutcome<void> outcome = await runner.run(
+      exportFileAtRevisionAction(
+        path: path,
+        destPath: destPath,
+        export: () async {
+          final FileAtRevisionExport reply = await session
+              .exportFileAtRevisionAwaiting(
+                revision: revision,
+                path: path,
+                destPath: destPath,
+              );
+          if (reply.succeeded) return null;
+          return reply.error?.message ?? 'could not read it at that revision';
+        },
+      ),
+      sink: session.recordAppLog,
+    );
+    if (outcome is! AppActionSucceeded<void>) return;
+    switch (purpose) {
+      case _ExportPurpose.openWithOs:
+        // Ruling R4: the hand-off to the OS is its own Log line.
+        await runner.run(
+          openFileAction(launcher, destPath),
+          sink: session.recordAppLog,
         );
+      case _ExportPurpose.saveAs:
+        messenger?.showSnackBar(SnackBar(content: Text('Saved to $destPath')));
+    }
   }
 
   void _openAtRevision(String path, String oid) {
@@ -98,11 +128,13 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
     final Directory dir = Directory(
       '${Directory.systemTemp.path}${Platform.pathSeparator}gbm-revisions',
     )..createSync(recursive: true);
-    _export(
-      oid,
-      path,
-      '${dir.path}${Platform.pathSeparator}${_revisionFileName(path, oid)}',
-      _ExportPurpose.openWithOs,
+    unawaited(
+      _export(
+        oid,
+        path,
+        '${dir.path}${Platform.pathSeparator}${_revisionFileName(path, oid)}',
+        _ExportPurpose.openWithOs,
+      ),
     );
   }
 
@@ -111,7 +143,7 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
         .read(fileSavePickerProvider)
         .saveFile(suggestedName: _revisionFileName(path, oid));
     if (destPath == null || !mounted) return;
-    _export(oid, path, destPath, _ExportPurpose.saveAs);
+    await _export(oid, path, destPath, _ExportPurpose.saveAs);
   }
 
   Future<void> _exportAsPatch(String oid) async {
@@ -125,39 +157,6 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       <String>[oid],
       dir,
     );
-  }
-
-  /// Acts on a finished export, matched by the destination the capi echoed
-  /// back. A failure is surfaced rather than swallowed -- the user asked for
-  /// a file and there is no file, and spec's own rule for the terminal
-  /// launcher ("找不到指定的終端機時不靜默失敗") is the same idea.
-  void _onExportFinished(FileAtRevisionExport export) {
-    final _ExportPurpose? purpose = _pendingExports.remove(export.destPath);
-    if (purpose == null) return;
-
-    final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
-      context,
-    );
-    if (!export.succeeded) {
-      messenger?.showSnackBar(
-        SnackBar(
-          content: Text(
-            export.error?.message ??
-                'Could not read ${export.path} at that revision.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    switch (purpose) {
-      case _ExportPurpose.openWithOs:
-        ref.read(desktopLauncherProvider).openFile(export.destPath);
-      case _ExportPurpose.saveAs:
-        messenger?.showSnackBar(
-          SnackBar(content: Text('Saved to ${export.destPath}')),
-        );
-    }
   }
 
   /// Opens one of the per-file history panels as a tab about [path].
@@ -186,14 +185,6 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       selectedCommitProvider(identity),
     );
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
-
-    ref.listen<FileAtRevisionExport?>(
-      repoSessionProvider(identity)
-          .select((RepoSessionState s) => s.lastFileAtRevisionExport),
-      (FileAtRevisionExport? previous, FileAtRevisionExport? next) {
-        if (next != null) _onExportFinished(next);
-      },
-    );
 
     return ChangedFilesPanelCore(
       hasSelectedCommit: selectedCommitOid != null,
@@ -258,8 +249,15 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
       // 05-K → "Open terminal here". The repository work dir, matching what
       // 05-A and 05-F already open -- a historical commit's file has no
       // directory of its own to open a terminal in.
-      onOpenTerminal: (String _) =>
-          ref.read(desktopLauncherProvider).openTerminal(identity.workDir),
+      onOpenTerminal: (String _) => ref
+          .read(appActionRunnerProvider)
+          .run(
+            openTerminalAction(
+              ref.read(desktopLauncherProvider),
+              identity.workDir,
+            ),
+            sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+          ),
       // 05-K → More actions → "Restore file to this state" and "Restore and
       // stage". Both need the commit's oid as well as the path, which is why
       // they are bound here rather than inside the presentational half, and

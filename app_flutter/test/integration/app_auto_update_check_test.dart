@@ -13,6 +13,7 @@ import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 import 'package:gbm_flutter/features/app_lifecycle/app_exit_session_cleanup.dart';
+import 'package:gbm_flutter/features/app_lifecycle/clone_job_listener.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/features/update/update_leftover_sweep.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
@@ -97,19 +98,27 @@ UpdateInstaller _installable() {
 /// `WelcomeScreen`, which needs repository discovery and the native
 /// bindings. Neither is what this test is about, and overriding the router
 /// keeps the assertion on the wiring rather than on the welcome screen.
-GoRouter _router() {
+GoRouter _router({String initialLocation = RoutePaths.welcome}) {
   return GoRouter(
-    initialLocation: RoutePaths.welcome,
+    initialLocation: initialLocation,
     routes: <RouteBase>[
       GoRoute(
         path: RoutePaths.welcome,
         builder: (BuildContext c, GoRouterState s) =>
             const Scaffold(body: Text('welcome')),
       ),
+      GoRoute(
+        path: RoutePaths.history,
+        builder: (BuildContext c, GoRouterState s) =>
+            const Scaffold(body: Text('history')),
+      ),
       dialogRoute(
         path: RoutePaths.updateDialog,
-        builder: (BuildContext c, GoRouterState s) =>
-            const Text('update-dialog'),
+        builder: (BuildContext c, GoRouterState s) => Text(
+          s.uri.queryParameters.containsKey('origin')
+              ? 'update-dialog from ${s.uri.queryParameters['origin']}'
+              : 'update-dialog',
+        ),
       ),
     ],
   );
@@ -131,6 +140,7 @@ Future<_StubGateway> _pumpApp(
   String tag = 'v9.9.9',
   Map<String, Object> storedPrefs = const <String, Object>{},
   _MultiplierBindings? bindings,
+  String initialLocation = RoutePaths.welcome,
 }) async {
   SharedPreferences.setMockInitialValues(storedPrefs);
   final SharedPreferences store = await SharedPreferences.getInstance();
@@ -143,7 +153,9 @@ Future<_StubGateway> _pumpApp(
         gbmBindingsProvider.overrideWithValue(
           bindings ?? _MultiplierBindings(),
         ),
-        appRouterProvider.overrideWithValue(_router()),
+        appRouterProvider.overrideWithValue(
+          _router(initialLocation: initialLocation),
+        ),
         githubReleaseGatewayProvider.overrideWithValue(gateway),
         buildVersionProvider.overrideWithValue(const AppVersion(0, 30, 0)),
         updateInstallerProvider.overrideWithValue(_installable()),
@@ -188,6 +200,9 @@ void main() {
       // this line notices if nothing mounts it -- and a quit would then race
       // the open sessions' background work again (the 0.48.1 SIGSEGV).
       expect(find.byType(AppExitSessionCleanup), findsOneWidget);
+      // A clone's credential prompt and its success navigation are app-wide
+      // (P3-J3, R10); nothing else would notice if this were not mounted.
+      expect(find.byType(CloneJobListener), findsOneWidget);
       // Above the router, so it is there on the welcome screen too -- the
       // screen with no menu bar and therefore no manual entry point.
       expect(find.text('welcome'), findsOneWidget);
@@ -201,6 +216,22 @@ void main() {
 
       expect(gateway.calls, 1);
       expect(find.text('update-dialog'), findsOneWidget);
+    });
+
+    // Ruling (2026-10-21) 「自動檢查更新也改用目前路由所在的 repo」: the
+    // dialog it pushes carries the repository it appeared over, so Open
+    // releases page is logged there; over the welcome screen it carries
+    // none (the case above).
+    testWidgets('over a repository, the dialog names it as its origin', (
+      WidgetTester tester,
+    ) async {
+      await _pumpApp(
+        tester,
+        initialLocation: RoutePaths.historyFor(repoIdFor('/src/r')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('update-dialog from /src/r'), findsOneWidget);
     });
 
     // The whole point of the silence rule: an up-to-date app must open

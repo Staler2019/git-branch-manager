@@ -45,7 +45,10 @@ class MenuBarRow extends StatelessWidget {
 
   final String repoId;
   final bool sidebarVisible;
-  final VoidCallback onToggleSidebar;
+
+  /// Null greys View → Toggle sidebar out: a window with no repository open
+  /// has no sidebar toggle to offer (spec page 15 A #1).
+  final VoidCallback? onToggleSidebar;
   final VoidCallback? onFetch;
   final VoidCallback? onPull;
   final VoidCallback? onPush;
@@ -180,10 +183,10 @@ class MenuBarRow extends StatelessWidget {
       case GbmActionId.repositoryPush:
         return onPush != null;
       case GbmActionId.viewToggleSidebar:
-        // No state-dependent gate -- onToggleSidebar is a required
-        // non-null param, so this is always enabled (see
-        // gbm_action_availability.dart).
-        return true;
+        // No state-dependent gate in a workspace (see
+        // gbm_action_availability.dart), which always passes one; only the
+        // no-repository window passes null.
+        return onToggleSidebar != null;
       case GbmActionId.fileExit:
         // Dispatched directly via SystemNavigator.pop in _resolveHandler,
         // not through actionHandlers (whose entry for fileExit is

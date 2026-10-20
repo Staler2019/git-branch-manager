@@ -141,4 +141,16 @@ void main() {
       expect(taskCopy.label, task.label);
     });
   });
+
+  test('copyWith keeps the phase unless given one', () {
+    final BackgroundTask task = BackgroundTask.cloneJob(
+      id: 'c',
+      label: 'l',
+      phase: 'receiving objects',
+      current: 1,
+      total: 2,
+    );
+    expect(task.copyWith(current: 2).phase, 'receiving objects');
+    expect(task.copyWith(phase: 'resolving deltas').phase, 'resolving deltas');
+  });
 }

@@ -30,7 +30,10 @@ import '../../data/models/repo_record.dart';
 import '../../data/repositories/discovery_repository.dart';
 import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
+import '../../data/models/app_action.dart';
+import '../../data/repositories/app_log_sink.dart';
 import '../../data/services/desktop_launcher.dart';
+import '../../data/services/file_save_picker.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -39,6 +42,9 @@ import '../../widgets/gbm_menu.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/prompt_text_dialog.dart';
 import '../../routing/dialog_route.dart';
+import '../../data/models/app_action_outcome.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 
 /// Minimum popover width. The spec has the popover follow the sidebar's
 /// width; below this the repository names stop being readable, so a narrow
@@ -175,30 +181,29 @@ List<RepoSwitcherEntry> filterRepoSwitcherEntries(
       .toList(growable: false);
 }
 
-/// Asks for a working-directory path and switches the window to it, then
-/// dismisses [onDismiss]'s surface (the switcher popover, when called from
-/// its footer).
+/// Asks for a working directory with the system folder picker and switches
+/// the window to it, then dismisses [onDismiss]'s surface (the switcher
+/// popover, when called from its footer).
 ///
-/// Deliberately a path prompt and not a native folder picker: this app has
-/// no file-dialog plugin wired up (the same M1 limitation the base-folder
-/// field in Preferences carries). Prompting *before* dismissing means Esc on
-/// the prompt leaves the switcher exactly as it was, which is what "Esc 關閉
-/// 不切換" asks for.
+/// ~~Deliberately a path prompt and not a native folder picker: this app has
+/// no file-dialog plugin wired up~~ -- `file_selector` is wired up
+/// ([fileSavePickerProvider]), and spec page 01 lists the system file picker
+/// among what the app takes from the OS; W-D2b (welcome-and-clone-spec.html)
+/// ruled the picker. Asking *before* dismissing means cancelling the picker
+/// leaves the switcher exactly as it was, which is what "Esc 關閉不切換" asks
+/// for.
 ///
 /// Backs both the popover footer's `Open repository…` and File → Open
 /// repository… / Add local repository… (see `workspace_screen.dart`); the
 /// opened path lands in the manually-opened list via `RecentsRepository`
 /// when its session opens.
 Future<void> promptOpenRepository(
-  BuildContext context, {
+  BuildContext context,
+  WidgetRef ref, {
   VoidCallback? onDismiss,
 }) async {
   final GoRouter router = GoRouter.of(context);
-  final String? path = await promptText(
-    context,
-    title: 'Open Repository',
-    label: 'Path to the working directory',
-  );
+  final String? path = await ref.read(fileSavePickerProvider).pickDirectory();
   if (path == null) return;
   onDismiss?.call();
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));
@@ -213,9 +218,15 @@ Future<void> promptOpenRepository(
 /// session exists: there is no `RepoSessionController` yet to dispatch
 /// through, so this reaches `gbm_repo_init()` directly via
 /// `gbmBindingsProvider`.
+///
+/// An app action (ruling R4): success and failure are one line each through
+/// [sink] -- File → New repository… passes the session it was started from,
+/// so a failure lights that window's red summary (P10 #3) and is never a
+/// toast. Taken before the prompt opens, so it outlives the menu.
 Future<void> promptNewRepository(
   BuildContext context,
   WidgetRef ref, {
+  required AppLogSink? sink,
   VoidCallback? onDismiss,
 }) async {
   final GoRouter router = GoRouter.of(context);
@@ -227,149 +238,65 @@ Future<void> promptNewRepository(
   if (path == null) return;
 
   final GbmBindings bindings = ref.read(gbmBindingsProvider);
-  final Pointer<Utf8> pathPtr = path.toNativeUtf8();
-  final int result;
-  try {
-    result = bindings.repoInit(pathPtr);
-  } finally {
-    malloc.free(pathPtr);
-  }
-  if (result != 0) {
-    if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
+  final AppActionOutcome<void> outcome = await ref
+      .read(appActionRunnerProvider)
+      .run(
+        initRepositoryAction(
+          path: path,
+          init: () {
+            final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+            try {
+              if (bindings.repoInit(pathPtr) == 0) return null;
+            } finally {
+              malloc.free(pathPtr);
+            }
+            return _decodeInitErrorMessage(bindings);
+          },
+        ),
+        sink: sink,
       );
-    }
-    return;
-  }
+  if (outcome is! AppActionSucceeded<void>) return;
 
   onDismiss?.call();
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));
 }
 
-/// Runs `git clone <url> <destPath>` (via `gbm_repo_clone()`), then opens
-/// the result exactly like [promptOpenRepository] does. Backs both the
-/// switcher popover footer's `Clone repository…` and File → Clone
-/// repository….
-///
-/// Two fields (unlike New/Open's single path) need their own small dialog
-/// rather than [promptText] -- see `_promptClone` below, which follows
-/// `manage_remotes_dialog.dart`'s `_promptAddRemote()` pattern.
-Future<void> promptCloneRepository(
-  BuildContext context,
-  WidgetRef ref, {
-  VoidCallback? onDismiss,
-}) async {
-  final GoRouter router = GoRouter.of(context);
-  final ({String url, String destPath})? input = await _promptClone(context);
-  if (input == null) return;
-
-  final GbmBindings bindings = ref.read(gbmBindingsProvider);
-  final Pointer<Utf8> urlPtr = input.url.toNativeUtf8();
-  final Pointer<Utf8> destPtr = input.destPath.toNativeUtf8();
-  final int result;
-  try {
-    result = bindings.repoClone(urlPtr, destPtr);
-  } finally {
-    malloc.free(urlPtr);
-    malloc.free(destPtr);
-  }
-  if (result != 0) {
-    if (context.mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(_decodeInitCloneErrorMessage(bindings))),
-      );
-    }
-    return;
-  }
-
-  onDismiss?.call();
-  router.go(RoutePaths.workspaceFor(repoIdFor(input.destPath)));
-}
-
-String _decodeInitCloneErrorMessage(GbmBindings bindings) {
+String _decodeInitErrorMessage(GbmBindings bindings) {
   final String json = readLastResultJson(bindings);
   if (json.isEmpty) return 'The operation failed.';
   return GitError.fromJson(jsonDecode(json) as Map<String, dynamic>).message;
 }
 
-Future<({String url, String destPath})?> _promptClone(BuildContext context) {
-  final TextEditingController urlController = TextEditingController();
-  final TextEditingController destController = TextEditingController();
-  return showDialog<({String url, String destPath})>(
-    context: context,
-    builder: (dialogContext) {
-      final GbmColors colors = dialogContext.gbmColors;
-      ({String url, String destPath})? resultFromControllers() {
-        final String url = urlController.text.trim();
-        final String destPath = destController.text.trim();
-        return url.isEmpty || destPath.isEmpty
-            ? null
-            : (url: url, destPath: destPath);
-      }
-
-      // Same "only pop on a valid result" discipline as
-      // manage_remotes_dialog.dart's _promptAddRemote(): a required field
-      // left empty keeps the dialog open with what was already typed,
-      // rather than silently discarding it.
-      void submitIfValid() {
-        final ({String url, String destPath})? result = resultFromControllers();
-        if (result != null) {
-          Navigator.of(dialogContext).pop(result);
-        }
-      }
-
-      return AlertDialog(
-        title: const Text('Clone Repository'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            TextField(
-              controller: urlController,
-              autofocus: true,
-              decoration: const InputDecoration(
-                labelText: 'Repository URL',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: GbmSpacing.space2),
-            TextField(
-              controller: destController,
-              decoration: const InputDecoration(
-                labelText: 'Destination path',
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => submitIfValid(),
-            ),
-          ],
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: colors.textSecondary),
-            ),
-          ),
-          TextButton(onPressed: submitIfValid, child: const Text('Clone')),
-        ],
-      );
-    },
+/// Opens the Clone dialog ([RoutePaths.cloneRepositoryDialog]). Backs the
+/// switcher footer's `Clone repository…`, File → Clone repository… and the
+/// welcome screen's button.
+///
+/// [originWorkDir] is the repository window this came from, whose Log a
+/// refusal or failure goes to; null for the window with none (R13).
+/// [onDismiss] closes the caller's popover first, so the dialog is not
+/// pushed under it.
+void promptCloneRepository(
+  BuildContext context, {
+  String? originWorkDir,
+  VoidCallback? onDismiss,
+}) {
+  final GoRouter router = GoRouter.of(context);
+  onDismiss?.call();
+  pushDialogRouteOn(
+    router,
+    RoutePaths.cloneRepositoryDialogPath(originWorkDir: originWorkDir),
   );
 }
 
 /// The sidebar's top row: which repository this window is showing, and the
 /// way to change it.
 class RepoSwitcherButton extends StatefulWidget {
-  const RepoSwitcherButton({
-    super.key,
-    required this.currentWorkDir,
-    this.controller,
-  });
+  const RepoSwitcherButton({super.key, this.currentWorkDir, this.controller});
 
-  final String currentWorkDir;
+  /// Null in a window with no repository open (spec page 15 A): the button
+  /// then reads 「No repository」 in textTertiary -- P02 #15 draws no empty
+  /// state, so that label is welcome-and-clone-spec.html's inferred one.
+  final String? currentWorkDir;
 
   /// Optional external trigger for Cmd/Ctrl+R -- see [RepoSwitcherController].
   final RepoSwitcherController? controller;
@@ -424,6 +351,46 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String? workDir = widget.currentWorkDir;
+    final Widget button = InkWell(
+      onTap: openPopover,
+      onHover: (bool hovered) => setState(() => _hovered = hovered),
+      hoverColor: Colors.transparent,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+      // P2's mockup, in both drawings of it: `height:26px;padding:0 7px`
+      // inline -- not `.gbm-btn`'s 30, which this element does not use.
+      child: Container(
+        height: 26,
+        padding: const EdgeInsets.symmetric(horizontal: 7),
+        decoration: BoxDecoration(
+          color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
+          border: Border.all(color: colors.borderDefault),
+          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+        ),
+        child: Row(
+          children: <Widget>[
+            LucideIcon('git-fork', size: 14, color: colors.textSecondary),
+            const SizedBox(width: GbmSpacing.space2),
+            Expanded(
+              child: Text(
+                workDir == null ? 'No repository' : repoDisplayName(workDir),
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  fontWeight: GbmTypography.weightSemibold,
+                  color: workDir == null
+                      ? colors.textTertiary
+                      : colors.textPrimary,
+                ),
+              ),
+            ),
+            Icon(Icons.expand_more, size: 16, color: colors.textTertiary),
+          ],
+        ),
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         GbmSpacing.space3,
@@ -431,46 +398,10 @@ class _RepoSwitcherButtonState extends State<RepoSwitcherButton> {
         GbmSpacing.space3,
         0,
       ),
-      child: Tooltip(
-        message: widget.currentWorkDir,
-        child: InkWell(
-          onTap: openPopover,
-          onHover: (bool hovered) => setState(() => _hovered = hovered),
-          hoverColor: Colors.transparent,
-          splashFactory: NoSplash.splashFactory,
-          highlightColor: Colors.transparent,
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-          // P2's mockup, in both drawings of it: `height:26px;padding:0 7px`
-          // inline -- not `.gbm-btn`'s 30, which this element does not use.
-          child: Container(
-            height: 26,
-            padding: const EdgeInsets.symmetric(horizontal: 7),
-            decoration: BoxDecoration(
-              color: _hovered ? colors.surfaceHover : colors.surfacePanelRaised,
-              border: Border.all(color: colors.borderDefault),
-              borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-            ),
-            child: Row(
-              children: <Widget>[
-                LucideIcon('git-fork', size: 14, color: colors.textSecondary),
-                const SizedBox(width: GbmSpacing.space2),
-                Expanded(
-                  child: Text(
-                    repoDisplayName(widget.currentWorkDir),
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: GbmTypography.textSm,
-                      fontWeight: GbmTypography.weightSemibold,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ),
-                Icon(Icons.expand_more, size: 16, color: colors.textTertiary),
-              ],
-            ),
-          ),
-        ),
-      ),
+      // No path to show without a repository.
+      child: workDir == null
+          ? button
+          : Tooltip(message: workDir, child: button),
     );
   }
 }
@@ -596,6 +527,14 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
   /// `showGeneralDialog` is an imperative route on the root navigator, so
   /// `go()` alone would rebuild the page stack underneath and leave the
   /// popover floating on top of the repository it just switched to.
+  /// 05-A's launcher items, as a Log line (ruling R4) in the window this
+  /// list belongs to: the repository's when one is open, otherwise the
+  /// welcome screen's own Log (R13). Taken before the launcher answers, so
+  /// it outlives the popover.
+  Future<void> _launch(AppAction<void> action) => ref
+      .read(appActionRunnerProvider)
+      .run(action, sink: appLogSinkFor(ref, widget.currentWorkDir));
+
   void _switchTo(String workDir) {
     final GoRouter router = GoRouter.of(context);
     widget.onDismiss?.call();
@@ -702,12 +641,18 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
                   entry: entry,
                   isCurrent: entry.workDir == widget.currentWorkDir,
                   onTap: () => _switchTo(entry.workDir),
-                  onOpenInFileManager: () => ref
-                      .read(desktopLauncherProvider)
-                      .openInFileManager(entry.workDir),
-                  onOpenInTerminal: () => ref
-                      .read(desktopLauncherProvider)
-                      .openTerminal(entry.workDir),
+                  onOpenInFileManager: () => _launch(
+                    openInFileManagerAction(
+                      ref.read(desktopLauncherProvider),
+                      entry.workDir,
+                    ),
+                  ),
+                  onOpenInTerminal: () => _launch(
+                    openTerminalAction(
+                      ref.read(desktopLauncherProvider),
+                      entry.workDir,
+                    ),
+                  ),
                   onRemoveFromList: entry.isManual
                       ? () => _removeFromList(entry)
                       : null,
@@ -727,13 +672,16 @@ class _RepoSwitcherListState extends ConsumerState<RepoSwitcherList> {
           label: 'Open repository…',
           shortcut: _shortcutLabel('O'),
           onTap: () =>
-              promptOpenRepository(context, onDismiss: widget.onDismiss),
+              promptOpenRepository(context, ref, onDismiss: widget.onDismiss),
         ),
         _FooterAction(
           label: 'Clone repository…',
           shortcut: _shortcutLabel('Shift+N'),
-          onTap: () =>
-              promptCloneRepository(context, ref, onDismiss: widget.onDismiss),
+          onTap: () => promptCloneRepository(
+            context,
+            originWorkDir: widget.currentWorkDir,
+            onDismiss: widget.onDismiss,
+          ),
         ),
       ],
     );

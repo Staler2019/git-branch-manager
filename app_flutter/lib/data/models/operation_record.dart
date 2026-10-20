@@ -1,3 +1,5 @@
+import 'url_credential_redaction.dart';
+
 /// Which of spec page 10's three `LOGRULES` severity levels an
 /// [OperationRecord] belongs to.
 ///
@@ -62,19 +64,31 @@ class OperationRecord extends GbmLogEntry {
     this.timeoutMs = 0,
     this.idleTimeoutMs = 0,
     this.queuedOperationId = 0,
+    this.progress = '',
   });
 
+  /// Credentials in a URL are masked here, on the way in (ruling R6,
+  /// security review P3-F): argv and stderr through
+  /// [redactUrlCredentials], and the command line rebuilt from the masked
+  /// argv by [joinCommandLine] instead of trusting the wire's
+  /// `commandLine`, which carries the same secret unmasked.
   factory OperationRecord.fromJson(Map<String, dynamic> json) {
+    final List<String> argv = List<String>.unmodifiable(
+      (json['argv'] as List<dynamic>).cast<String>().map(redactUrlCredentials),
+    );
+    // Read but not used: still a strict key, so a payload missing it is the
+    // loud TypeError every other key here gives.
+    json['commandLine'] as String;
     return OperationRecord(
       id: json['id'] as int,
       running: json['running'] as bool,
       whenEpochMs: json['whenEpochMs'] as int,
       repoDir: json['repoDir'] as String,
-      argv: (json['argv'] as List<dynamic>).cast<String>(),
-      commandLine: json['commandLine'] as String,
+      argv: argv,
+      commandLine: joinCommandLine(argv),
       exitCode: json['exitCode'] as int,
       durationMs: json['durationMs'] as int,
-      stderrText: json['stderrText'] as String,
+      stderrText: redactUrlCredentials(json['stderrText'] as String),
       cancelled: json['cancelled'] as bool,
       timedOut: json['timedOut'] as bool,
       benignExit: json['benignExit'] as bool,
@@ -87,6 +101,33 @@ class OperationRecord extends GbmLogEntry {
       queuedOperationId: json['queuedOperationId'] as int? ?? 0,
     );
   }
+
+  /// What a [running] transfer has reached so far -- `receiving objects
+  /// 12,480 / 31,206` -- or empty. Never on the wire: the clone job sends
+  /// progress as its own event and lays it over the running row with
+  /// [withProgress] (W-D7, P10's Log mock).
+  final String progress;
+
+  /// This record with [progress] replaced; every other field, the [id] the
+  /// outcome replaces it by included, is kept.
+  OperationRecord withProgress(String progress) => OperationRecord(
+    whenEpochMs: whenEpochMs,
+    repoDir: repoDir,
+    argv: argv,
+    commandLine: commandLine,
+    exitCode: exitCode,
+    durationMs: durationMs,
+    stderrText: stderrText,
+    cancelled: cancelled,
+    timedOut: timedOut,
+    benignExit: benignExit,
+    id: id,
+    running: running,
+    timeoutMs: timeoutMs,
+    idleTimeoutMs: idleTimeoutMs,
+    queuedOperationId: queuedOperationId,
+    progress: progress,
+  );
 
   /// Names one invocation process-wide: core records it twice, at spawn
   /// ([running]) and at its end, under the same id.
@@ -212,8 +253,12 @@ class OperationRecord extends GbmLogEntry {
           OperationLogLevel.error => timedOut ? 'TIMEOUT' : 'ERROR',
         };
 
+  /// The command line; a running row with [progress] also says how far it
+  /// has got, after a dash (P10: `git clone https://…/design-tokens —
+  /// receiving objects 12,480 / 31,206`).
   @override
-  String get message => commandLine;
+  String get message =>
+      running && progress.isNotEmpty ? '$commandLine — $progress' : commandLine;
 }
 
 /// An app-level event: something the app did that no single `git` invocation
@@ -258,6 +303,28 @@ final class AppLogEntry extends GbmLogEntry {
   };
 }
 
+/// Joins [argv] the way core's `OperationRecord::commandLine()`
+/// (src/core/base/Logging.cpp) does: an argument that is empty or holds any
+/// of space, tab, `"`, `'`, `\`, `$`, `*` or `?` is double-quoted, with `"`
+/// and `\` backslash-escaped inside. A port rather than a call, so
+/// [OperationRecord.fromJson] can rebuild the line from argv it has already
+/// masked.
+String joinCommandLine(List<String> argv) {
+  return argv
+      .map((String arg) {
+        if (arg.isNotEmpty && !_needsQuotes.hasMatch(arg)) return arg;
+        final String escaped = arg.replaceAllMapped(
+          _escapedInQuotes,
+          (Match m) => '\\${m[0]}',
+        );
+        return '"$escaped"';
+      })
+      .join(' ');
+}
+
+final RegExp _needsQuotes = RegExp('[ \t"\'\\\\\$*?]');
+final RegExp _escapedInQuotes = RegExp(r'["\\]');
+
 /// Renders C0 control characters (and DEL) as visible escapes, so a command
 /// line that carries one is legible instead of running together.
 ///
@@ -299,3 +366,42 @@ String escapeControlChars(String text) {
   }
   return out.toString();
 }
+
+/// [log] with [entry] added: a git invocation's outcome replaces its own
+/// running row where it stands (same non-zero [OperationRecord.id]), so a
+/// slow command is one row that changes rather than two; anything else is
+/// appended, then the oldest are evicted once over [maxEntries]. An outcome
+/// whose running row the cap already trimmed is appended, never dropped.
+///
+/// The one append rule for every log in the app -- a repository session's
+/// and the no-repository window's -- so the two cannot drift.
+List<GbmLogEntry> appendLogEntry(
+  List<GbmLogEntry> log,
+  GbmLogEntry entry, {
+  required int maxEntries,
+}) {
+  final int runningAt = entry is OperationRecord && entry.id != 0
+      ? log.indexWhere(
+          (GbmLogEntry e) =>
+              e is OperationRecord && e.running && e.id == entry.id,
+        )
+      : -1;
+  if (runningAt >= 0) {
+    return <GbmLogEntry>[
+      for (int i = 0; i < log.length; i++) i == runningAt ? entry : log[i],
+    ];
+  }
+  final List<GbmLogEntry> updated = <GbmLogEntry>[...log, entry];
+  return updated.length > maxEntries
+      ? updated.sublist(updated.length - maxEntries)
+      : updated;
+}
+
+/// [log] without the git records whose non-zero [OperationRecord.id] is in
+/// [ids]. A successful clone's rows move to the new repository's Log (R12),
+/// and the window that started it takes them back with this.
+List<GbmLogEntry> retractLogEntries(List<GbmLogEntry> log, Set<int> ids) =>
+    <GbmLogEntry>[
+      for (final GbmLogEntry e in log)
+        if (!(e is OperationRecord && e.id != 0 && ids.contains(e.id))) e,
+    ];

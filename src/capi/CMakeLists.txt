@@ -3,6 +3,7 @@
 # library -- see the CI grep check in .github/workflows/ci.yml and
 # docs/ARCHITECTURE.md's core/app split.
 add_library(gbm_capi SHARED
+    AskpassEntry.cpp
     AskpassPoller.cpp
     Bisect.cpp
     Blame.cpp
@@ -10,6 +11,7 @@ add_library(gbm_capi SHARED
     Branches.cpp
     CallbackRegistry.cpp
     CherryPick.cpp
+    CloneJob.cpp
     CommitFiles.cpp
     CommitMetaRequest.cpp
     Compare.cpp

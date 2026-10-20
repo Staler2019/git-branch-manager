@@ -1,7 +1,10 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/external_app_entry.dart';
 import 'detached_process.dart';
 
 /// Starts a detached OS process. Injected rather than calling
@@ -18,6 +21,32 @@ typedef ProcessStarter = Future<bool> Function(
   List<String> arguments, {
   String? workingDirectory,
 });
+
+/// Starts a process in normal mode and hands it back, so
+/// [DesktopLauncher.openExternalApp] can watch its exit code and stderr --
+/// which a detached start ([ProcessStarter]) cannot. Defaults to
+/// [Process.start]; injected so tests drive a fake [Process].
+typedef ProcessSpawner = Future<Process> Function(
+  String executable,
+  List<String> arguments, {
+  String? workingDirectory,
+});
+
+/// What [DesktopLauncher.openExternalApp] decided.
+sealed class ExternalAppLaunchResult {
+  const ExternalAppLaunchResult();
+}
+
+final class ExternalAppStarted extends ExternalAppLaunchResult {
+  const ExternalAppStarted();
+}
+
+final class ExternalAppLaunchFailed extends ExternalAppLaunchResult {
+  const ExternalAppLaunchFailed(this.message);
+
+  /// Shown verbatim after 「無法執行「<label>」：」.
+  final String message;
+}
 
 /// One candidate in a platform's fallback chain: the executable to try and
 /// the arguments to pass it. A candidate may carry no directory flag of its
@@ -47,10 +76,25 @@ class _TerminalCandidate {
 /// -- so a repository path containing spaces, quotes or shell metacharacters
 /// cannot turn into a command injection.
 class DesktopLauncher {
-  const DesktopLauncher({ProcessStarter? start, this.operatingSystem})
-    : _start = start ?? _startDetached;
+  const DesktopLauncher({
+    ProcessStarter? start,
+    ProcessSpawner? spawn,
+    this.operatingSystem,
+    this.environment,
+    this.exitWait = const Duration(seconds: 5),
+  }) : _start = start ?? _startDetached,
+       _spawn = spawn ?? Process.start;
 
   final ProcessStarter _start;
+  final ProcessSpawner _spawn;
+
+  /// Overridden in tests; null means [Platform.environment].
+  final Map<String, String>? environment;
+
+  /// How long [openExternalApp] waits for an exit code (ruling D3).
+  final Duration exitWait;
+
+  Map<String, String> get _env => environment ?? Platform.environment;
 
   /// Overridden in tests; null means [Platform.operatingSystem].
   final String? operatingSystem;
@@ -121,6 +165,125 @@ class DesktopLauncher {
       if (started) return true;
     }
     return false;
+  }
+
+  /// Runs [app]'s command in the worktree at [path] -- the worktree panel's
+  /// ▾ list (open-with-apps-spec.html). Never throws: every way it can go
+  /// wrong is an [ExternalAppLaunchFailed] ~~the caller paints as a
+  /// SnackBar~~ that `openExternalAppAction` turns into an error line in the
+  /// Log through AppActionRunner (ruling R4; no toast, P10 #3).
+  ///
+  /// macOS/Linux, working directory [path]:
+  /// `<shell> -lic '{ <command>\n} </dev/null >/dev/null' gbm <path>`.
+  /// - The shell is `$SHELL` only when it is an absolute path to a POSIX
+  ///   shell; `$1` means something else in fish, pwsh or tcsh (security
+  ///   review F3). `/bin/sh` otherwise.
+  /// - `-lic` (ruling D6): the login profile *and* `.zshrc`, so a PATH set
+  ///   up for nvm or pyenv is there. A `.zshrc` that `exec`s tmux will keep
+  ///   the command from running; that is the ruling's accepted cost.
+  /// - [ExternalAppEntry.pathToken] becomes `"$1"`, and the path travels as
+  ///   argument 1 -- never inside the script, so nothing in it is parsed.
+  /// - stdin is closed at once, so a prompt in `.zshrc` reads EOF instead of
+  ///   waiting; the command's own stdout goes to `/dev/null` in the script.
+  /// - A non-zero exit within [exitWait] is a failure carrying stderr's last
+  ///   line; zero, or still running, is started (ruling D3). After the
+  ///   window stderr keeps being drained until the process ends, so the pipe
+  ///   never fills, holding at most [_StderrTail.limit] characters. A child
+  ///   still alive when this app quits gets SIGPIPE on its next stderr
+  ///   write -- accepted: editor launchers fork and exit within the window.
+  ///
+  /// Windows: `%SystemRoot%\System32\cmd.exe /d /s /v:off /c <command>`
+  /// through the detached relay, working directory [path] (F2). The path
+  /// never enters the command -- [ExternalAppEntry.pathToken] becomes `.` --
+  /// because cmd expands `%…%` *before* it parses quotes, so a directory
+  /// named `x%CMDCMDLINE:~-1%&calc` would close the quotes and run calc. A
+  /// UNC path is refused (cmd cannot use one as its working directory), and
+  /// so is a command with `"`, which the relay refuses to carry
+  /// ([startDetachedProcess]). The relay only waits for `Start-Process`, so
+  /// cmd's own exit code is never seen: D3's failure report is POSIX-only.
+  Future<ExternalAppLaunchResult> openExternalApp(
+    ExternalAppEntry app,
+    String path,
+  ) async {
+    if (_os == 'windows') return _openExternalAppWindows(app, path);
+    if (!path.startsWith('/')) {
+      return ExternalAppLaunchFailed('不是絕對路徑：$path');
+    }
+    final String script =
+        '{ ${app.command.replaceAll(ExternalAppEntry.pathToken, r'"$1"')}\n'
+        '} </dev/null >/dev/null';
+    final Process process;
+    try {
+      process = await _spawn(_posixShell(), <String>[
+        '-lic',
+        script,
+        'gbm',
+        path,
+      ], workingDirectory: path);
+    } on ProcessException catch (e) {
+      return ExternalAppLaunchFailed(e.message);
+    }
+    unawaited(process.stdin.close());
+    unawaited(process.stdout.drain<void>());
+    final _StderrTail tail = _StderrTail();
+    final Completer<void> stderrDone = Completer<void>();
+    process.stderr
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .listen(tail.add, onDone: stderrDone.complete, onError: (_) {});
+    final int? code =
+        await Future.wait<Object?>(<Future<Object?>>[
+              process.exitCode,
+              stderrDone.future,
+            ])
+            .then<int?>((List<Object?> r) => r.first as int?)
+            .timeout(exitWait, onTimeout: () => null);
+    if (code == null || code == 0) return const ExternalAppStarted();
+    final String line = tail.lastLine;
+    return ExternalAppLaunchFailed(line.isEmpty ? '結束碼 $code' : line);
+  }
+
+  static const Set<String> _posixShells = <String>{
+    'sh',
+    'bash',
+    'zsh',
+    'dash',
+    'ksh',
+    'mksh',
+    'yash',
+    'ash',
+  };
+
+  String _posixShell() {
+    final String shell = _env['SHELL'] ?? '';
+    if (!shell.startsWith('/')) return '/bin/sh';
+    return _posixShells.contains(shell.split('/').last) ? shell : '/bin/sh';
+  }
+
+  Future<ExternalAppLaunchResult> _openExternalAppWindows(
+    ExternalAppEntry app,
+    String path,
+  ) async {
+    if (path.startsWith(r'\\')) {
+      return ExternalAppLaunchFailed('不支援網路路徑（UNC）：$path');
+    }
+    if (!RegExp(r'^[A-Za-z]:[\\/]').hasMatch(path)) {
+      return ExternalAppLaunchFailed('不是絕對路徑：$path');
+    }
+    if (app.command.contains('"')) {
+      return const ExternalAppLaunchFailed('Windows 上的指令不能含雙引號');
+    }
+    final String root = _env['SystemRoot'] ?? '';
+    final String cmd = root.isEmpty ? 'cmd.exe' : '$root\\System32\\cmd.exe';
+    final bool started = await _start(cmd, <String>[
+      '/d',
+      '/s',
+      '/v:off',
+      '/c',
+      app.command.replaceAll(ExternalAppEntry.pathToken, '.'),
+    ], workingDirectory: path);
+    return started
+        ? const ExternalAppStarted()
+        : const ExternalAppLaunchFailed('無法啟動 cmd.exe');
   }
 
   /// Reveals [path] in the OS file manager. Backs the "Open in file manager"
@@ -217,4 +380,33 @@ abstract final class GbmUrls {
   /// unsupported CPU, an install directory this process cannot write).
   static const String releasesPage =
       'https://github.com/Staler2019/git-branch-manager/releases/latest';
+}
+
+/// The last line of a stream of stderr text, capped at [limit] characters
+/// from its end, so a child that writes forever costs a bounded amount.
+class _StderrTail {
+  static const int limit = 512;
+
+  String _pending = '';
+  String _lastComplete = '';
+
+  void add(String chunk) {
+    final List<String> parts = (_pending + chunk).split('\n');
+    _pending = _cap(parts.removeLast());
+    for (final String part in parts.reversed) {
+      final String line = part.replaceAll('\r', '').trim();
+      if (line.isNotEmpty) {
+        _lastComplete = _cap(line);
+        break;
+      }
+    }
+  }
+
+  String get lastLine {
+    final String pending = _pending.replaceAll('\r', '').trim();
+    return pending.isNotEmpty ? pending : _lastComplete;
+  }
+
+  static String _cap(String s) =>
+      s.length <= limit ? s : s.substring(s.length - limit);
 }

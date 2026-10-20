@@ -11,7 +11,25 @@ class BackgroundTask {
     this.finishedAt,
     this.waitingOnUser = false,
     this.queuedOperationId = 0,
+    this.phase = '',
   });
+
+  /// A running clone job (`backgroundTasksFromCloneJobs`). Cancel stops git
+  /// and removes the folder the job made (TASKS 「可取消」).
+  factory BackgroundTask.cloneJob({
+    required String id,
+    required String label,
+    required String phase,
+    required int current,
+    required int total,
+  }) => BackgroundTask(
+    id: id,
+    label: label,
+    phase: phase,
+    current: current,
+    total: total,
+    cancellable: true,
+  );
 
   /// A sequencer operation (merge/rebase/cherry-pick/revert) stopped part-way,
   /// waiting for the user to resolve, continue, skip or abort. Nothing is
@@ -56,6 +74,10 @@ class BackgroundTask {
   final int current;
   final int total;
 
+  /// What [current] / [total] count, when the task has more than one phase
+  /// -- `receiving objects`, then `resolving deltas` (W-D7); else empty.
+  final String phase;
+
   /// Whether the status bar offers Cancel. For a git command it is always
   /// true and core decides ([BackgroundTask.gitCommand]); the stopped
   /// sequencer is false because nothing is running to stop.
@@ -88,6 +110,7 @@ class BackgroundTask {
     DateTime? finishedAt,
     bool? waitingOnUser,
     int? queuedOperationId,
+    String? phase,
   }) => BackgroundTask(
     id: id ?? this.id,
     label: label ?? this.label,
@@ -97,5 +120,6 @@ class BackgroundTask {
     finishedAt: finishedAt ?? this.finishedAt,
     waitingOnUser: waitingOnUser ?? this.waitingOnUser,
     queuedOperationId: queuedOperationId ?? this.queuedOperationId,
+    phase: phase ?? this.phase,
   );
 }

@@ -182,4 +182,12 @@ String windowsRelayShell({String? systemRoot}) {
 
 /// PowerShell's single-quoted strings escape a quote by doubling it and
 /// interpolate nothing -- which is also what keeps a literal `$` in a path.
-String psQuote(String value) => "'${value.replaceAll("'", "''")}'";
+///
+/// "A quote" is five characters, not one: the tokenizer reads U+2018/2019/
+/// 201A/201B exactly as it reads `'`, and any two adjacent ones as one
+/// literal. Doubling only the ASCII one let a file named `a’;calc;’.txt`
+/// close the string and run `calc` through Open file.
+String psQuote(String value) =>
+    "'${value.replaceAllMapped(_psSingleQuotes, (Match m) => '${m[0]}${m[0]}')}'";
+
+final RegExp _psSingleQuotes = RegExp('[\'\u2018\u2019\u201A\u201B]');

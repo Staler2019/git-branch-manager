@@ -1224,11 +1224,53 @@ void main() {
     });
 
     testWidgets('the field label is the spec\'s', (tester) async {
-      await _pump(tester, const CredentialDialogContent(identity: _identity));
-      // Not obscured with no prompt, so this is the account field.
+      await _pump(
+        tester,
+        const CredentialDialogContent(identity: _identity),
+        overrideState: _state.copyWith(
+          credentialPrompt: "Username for 'https://example.invalid': ",
+        ),
+      );
+      // A Username prompt is the account field.
       _expectAll(<String>['帳號']);
       expect(find.text('Username'), findsNothing);
     });
+
+    // Masked unless the prompt is git's own Username prompt: an SSH key
+    // passphrase never says "password", and a prompt this dialog cannot
+    // classify is safer hidden than shown (security review P3-K).
+    for (final (String label, String prompt, bool secret)
+        in <(String, String, bool)>[
+          (
+            'a username prompt',
+            "Username for 'https://example.invalid': ",
+            false,
+          ),
+          (
+            'a password prompt',
+            "Password for 'https://alice@example.invalid': ",
+            true,
+          ),
+          (
+            'an SSH key passphrase',
+            "Enter passphrase for key '/home/a/.ssh/id_ed25519': ",
+            true,
+          ),
+          ('no prompt at all', '', true),
+        ]) {
+      testWidgets('$label is ${secret ? 'masked' : 'shown'}', (tester) async {
+        await _pump(
+          tester,
+          const CredentialDialogContent(identity: _identity),
+          overrideState: _state.copyWith(credentialPrompt: prompt),
+        );
+        final TextField field = tester.widget<TextField>(
+          find.byType(TextField),
+        );
+        expect(field.obscureText, secret);
+        expect(find.text(secret ? 'Token / 密碼' : '帳號'), findsOneWidget);
+      });
+    }
 
     testWidgets('the secret field is 30px tall with a r6 border (G4)', (
       tester,

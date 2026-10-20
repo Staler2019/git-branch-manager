@@ -50,6 +50,10 @@ private:
     std::filesystem::path dir_;
     std::function<void(std::string)> onPrompt_;
     bool requestSeen_ = false;
+    // Set once answer() has written a response; cleared when the client
+    // takes it. The client removes its request file before the response, so
+    // a response gone means every request file from here on is a new one.
+    bool answered_ = false;
 
     std::atomic<bool> running_{false};
     std::thread thread_;

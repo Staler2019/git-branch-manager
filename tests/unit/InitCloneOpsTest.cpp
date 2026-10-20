@@ -60,7 +60,8 @@ TEST(RunCloneRepo, RunsGitCloneWithUrlAndDestination) {
     FakeProcessRunner runner;
     FakeProcessRunner::Response response;
     response.exitCode = 0;
-    runner.whenArgsContain({"clone", "--quiet", "/remotes/origin.git", "/repos/cloned"}, response);
+    runner.whenArgsContain({"clone", "--quiet", "--", "/remotes/origin.git", "/repos/cloned"},
+                           response);
 
     CloneRepoRequest request;
     request.url = "/remotes/origin.git";
@@ -70,9 +71,9 @@ TEST(RunCloneRepo, RunsGitCloneWithUrlAndDestination) {
 
     EXPECT_TRUE(result);
     ASSERT_EQ(runner.invocationCount(), 1u);
-    EXPECT_EQ(
-        runner.invokedArgs(0),
-        (std::vector<std::string>{"clone", "--quiet", "/remotes/origin.git", "/repos/cloned"}));
+    EXPECT_EQ(runner.invokedArgs(0),
+              (std::vector<std::string>{
+                  "clone", "--quiet", "--", "/remotes/origin.git", "/repos/cloned"}));
 }
 
 TEST(RunCloneRepo, RejectsEmptyUrlWithoutRunningGit) {
@@ -104,7 +105,8 @@ TEST(RunCloneRepo, ReportsGitErrorOnFailure) {
     FakeProcessRunner::Response failure;
     failure.exitCode = 128;
     failure.err = "fatal: repository '/remotes/missing.git' does not exist\n";
-    runner.whenArgsContain({"clone", "--quiet", "/remotes/missing.git", "/repos/cloned"}, failure);
+    runner.whenArgsContain({"clone", "--quiet", "--", "/remotes/missing.git", "/repos/cloned"},
+                           failure);
 
     CloneRepoRequest request;
     request.url = "/remotes/missing.git";
@@ -114,6 +116,95 @@ TEST(RunCloneRepo, ReportsGitErrorOnFailure) {
 
     ASSERT_FALSE(result);
     EXPECT_FALSE(result.error().message.empty());
+}
+
+TEST(RunCloneRepo, PassesSubmodulesAndDepthAsOptionsBeforeTheSeparator) {
+    FakeProcessRunner runner;
+    runner.whenArgsContain({"clone"}, FakeProcessRunner::Response{});
+
+    CloneRepoRequest request;
+    request.url = "/remotes/origin.git";
+    request.destPath = "/repos/cloned";
+    request.recurseSubmodules = true;
+    request.depth = 1;
+
+    ASSERT_TRUE(runCloneRepo(runner, request, CancellationToken{}));
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0),
+              (std::vector<std::string>{"clone",
+                                        "--quiet",
+                                        "--recurse-submodules",
+                                        "--depth",
+                                        "1",
+                                        "--",
+                                        "/remotes/origin.git",
+                                        "/repos/cloned"}));
+}
+
+TEST(RunCloneRepo, RejectsAUrlThatReadsAsAnOptionWithoutRunningGit) {
+    // `--` already stops git reading it as one; refusing it outright means a
+    // pasted `--upload-pack=...` never reaches git in any position.
+    FakeProcessRunner runner;
+    CloneRepoRequest request;
+    request.url = "--upload-pack=touch /tmp/x";
+    request.destPath = "/repos/cloned";
+
+    GitResult<void> result = runCloneRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(RunCloneRepo, RejectsANegativeDepthWithoutRunningGit) {
+    FakeProcessRunner runner;
+    CloneRepoRequest request;
+    request.url = "/remotes/origin.git";
+    request.destPath = "/repos/cloned";
+    request.depth = -1;
+
+    GitResult<void> result = runCloneRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_EQ(runner.invocationCount(), 0u);
+}
+
+TEST(RunCloneRepo, ReportsTransferProgressParsedFromStderr) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.err =
+        "Cloning into 'cloned'...\n"
+        "Receiving objects: 100% (17333/17333), 9.07 MiB | 56.66 MiB/s, done.\n"
+        "Resolving deltas:  51% (6553/12848)\r";
+    runner.whenArgsContain({"clone"}, response);
+
+    std::vector<TransferProgress> seen;
+    CloneRepoRequest request;
+    request.url = "/remotes/origin.git";
+    request.destPath = "/repos/cloned";
+    request.onProgress = [&seen](const TransferProgress& progress) { seen.push_back(progress); };
+
+    ASSERT_TRUE(runCloneRepo(runner, request, CancellationToken{}));
+    EXPECT_EQ(
+        seen,
+        (std::vector<TransferProgress>{{TransferProgress::Phase::ResolvingDeltas, 6553, 12848}}));
+}
+
+TEST(RunCloneRepo, AChunkWithNoProgressReportsNothing) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.err = "Cloning into 'cloned'...\n";
+    runner.whenArgsContain({"clone"}, response);
+
+    int calls = 0;
+    CloneRepoRequest request;
+    request.url = "/remotes/origin.git";
+    request.destPath = "/repos/cloned";
+    request.onProgress = [&calls](const TransferProgress&) { ++calls; };
+
+    ASSERT_TRUE(runCloneRepo(runner, request, CancellationToken{}));
+    EXPECT_EQ(calls, 0);
 }
 
 }  // namespace

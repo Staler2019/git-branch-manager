@@ -842,7 +842,9 @@ class FakeRepoSessionController extends RepoSessionController {
 
   @override
   void provideCredential(String secret) {
-    commandLog.add(const FakeCommand('provideCredential'));
+    commandLog.add(
+      FakeCommand('provideCredential', <String, Object?>{'secret': secret}),
+    );
   }
 
   @override

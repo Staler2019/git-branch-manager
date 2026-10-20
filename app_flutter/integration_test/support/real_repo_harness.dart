@@ -99,10 +99,12 @@ Future<SharedPreferences> pumpRealAppOn(
 /// decide `appRouterProvider`'s `initialLocation` and open a workspace
 /// instead.
 ///
-/// `WelcomeScreen` renders no menu bar (`MenuBarRow`/`PlatformMenuBarHost`
+/// ~~`WelcomeScreen` renders no menu bar (`MenuBarRow`/`PlatformMenuBarHost`
 /// are built inside `WorkspaceScreen`), so this is the state where the
-/// About dialog's own button is the only route to the update check -- which
-/// is the reason that button exists.
+/// About dialog's own button is the only route to the update check~~ --
+/// `WelcomeScreen` has the menu bar now (spec page 15 A); Help → About and
+/// then the About dialog's own button is still the route to the update
+/// check, which is the reason that button exists.
 Future<SharedPreferences> pumpRealAppWithNoRepo(
   WidgetTester tester, {
   List<Override> extraOverrides = const <Override>[],

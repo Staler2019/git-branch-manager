@@ -424,6 +424,11 @@ abstract final class GbmTypography {
   /// title), so reusing its name here would have silently shrunk both.
   static const double dialogTitleText = 13;
 
+  /// Spec page 10's status bar mock: `font-size:10.5px` on the whole bar,
+  /// taken literally like [dialogTitleText] (rulings Q2/Q7,
+  /// open-with-apps-spec.html screen 3) rather than rounded to [textXs].
+  static const double statusBarText = 10.5;
+
   static const double leadingTight = 1.25;
   static const double leadingNormal = 1.5;
   static const double leadingRelaxed = 1.65;

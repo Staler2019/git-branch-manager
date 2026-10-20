@@ -1,7 +1,12 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../theme/theme_mode_provider.dart';
+import '../models/default_external_apps.dart';
+import '../models/external_app_entry.dart';
 
 /// Application-level settings behind spec page 11's Preferences dialog --
 /// the six sections General / Repository sources / Git / Appearance /
@@ -43,6 +48,7 @@ class AppPreferences {
     this.gitTimeoutMultiplier = 1,
     this.showLogTimeouts = false,
     this.showLogColumnHeaders = false,
+    this.externalApps = const <ExternalAppEntry>[],
   });
 
   /// General. Spec page 11 item 9: "只針對目前開啟的 repository，預設每 10
@@ -186,6 +192,13 @@ class AppPreferences {
   /// its own, by ruling (「顯示欄位名稱應該是另一個開關」).
   final bool showLogColumnHeaders;
 
+  /// External apps. Not from the spec's PREFNAV -- a user-requested section
+  /// (open-with-apps-spec.html), like [showLogTimeouts]'s Developer one.
+  /// The worktree panel's ▾ list, in display order. The `const []` default
+  /// is only what a bare `AppPreferences()` holds; [AppPreferencesRepository]
+  /// fills in the platform defaults (ruling D4) when nothing is stored.
+  final List<ExternalAppEntry> externalApps;
+
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
@@ -209,6 +222,7 @@ class AppPreferences {
     int? gitTimeoutMultiplier,
     bool? showLogTimeouts,
     bool? showLogColumnHeaders,
+    List<ExternalAppEntry>? externalApps,
   }) {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
@@ -239,6 +253,7 @@ class AppPreferences {
       gitTimeoutMultiplier: gitTimeoutMultiplier ?? this.gitTimeoutMultiplier,
       showLogTimeouts: showLogTimeouts ?? this.showLogTimeouts,
       showLogColumnHeaders: showLogColumnHeaders ?? this.showLogColumnHeaders,
+      externalApps: externalApps ?? this.externalApps,
     );
   }
 }
@@ -246,9 +261,35 @@ class AppPreferences {
 const String _kPrefix = 'appPrefs.';
 
 class AppPreferencesRepository {
-  AppPreferencesRepository(this._prefs);
+  AppPreferencesRepository(this._prefs, {String? operatingSystem})
+    : _os = operatingSystem ?? Platform.operatingSystem;
 
   final SharedPreferences _prefs;
+
+  /// Picks [defaultExternalApps]; injected so each platform is testable.
+  final String _os;
+
+  static const String _externalAppsKey = '${_kPrefix}externalApps';
+
+  /// No key: the platform defaults. A value that is not a JSON list: the
+  /// defaults again -- a damaged blob must not leave the user with nothing.
+  /// A list: every entry [ExternalAppEntry.fromJson] accepts, in order; one
+  /// it rejects is dropped on its own, so the rest of the list survives.
+  List<ExternalAppEntry> _readExternalApps() {
+    final String? raw = _prefs.getString(_externalAppsKey);
+    if (raw == null) return defaultExternalApps(_os);
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return defaultExternalApps(_os);
+    }
+    if (decoded is! List<dynamic>) return defaultExternalApps(_os);
+    return List<ExternalAppEntry>.unmodifiable(<ExternalAppEntry>[
+      for (final Object? item in decoded)
+        if (item is Map<String, dynamic>) ?ExternalAppEntry.fromJson(item),
+    ]);
+  }
 
   AppPreferences read() {
     const AppPreferences defaults = AppPreferences();
@@ -317,6 +358,7 @@ class AppPreferencesRepository {
       showLogColumnHeaders:
           _prefs.getBool('${_kPrefix}showLogColumnHeaders') ??
           defaults.showLogColumnHeaders,
+      externalApps: _readExternalApps(),
     );
   }
 
@@ -369,6 +411,12 @@ class AppPreferencesRepository {
     await _prefs.setInt(
       '${_kPrefix}gitTimeoutMultiplier',
       p.gitTimeoutMultiplier,
+    );
+    await _prefs.setString(
+      _externalAppsKey,
+      jsonEncode(<Map<String, dynamic>>[
+        for (final ExternalAppEntry e in p.externalApps) e.toJson(),
+      ]),
     );
   }
 }

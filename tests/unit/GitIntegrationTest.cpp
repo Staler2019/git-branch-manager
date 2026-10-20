@@ -8,6 +8,7 @@
 #include "core/base/CancellationToken.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
+#include "core/git/AskpassHelper.h"
 #include "core/git/BlameStore.h"
 #include "core/git/CatFileBatch.h"
 #include "core/git/CommitMetaStore.h"
@@ -31,10 +32,10 @@
 #include "core/git/ops/LfsOps.h"
 #include "core/git/ops/MergeOps.h"
 #include "core/git/ops/PatchOps.h"
+#include "core/git/ops/PreparedMessageOps.h"
 #include "core/git/ops/RebaseOps.h"
 #include "core/git/ops/RemoteOps.h"
 #include "core/git/ops/ResetOps.h"
-#include "core/git/ops/PreparedMessageOps.h"
 #include "core/git/ops/SquashMessageOps.h"
 #include "core/git/ops/StageOps.h"
 #include "core/git/ops/StashOps.h"
@@ -44,8 +45,6 @@
 #include "core/git/ops/WorktreeOps.h"
 
 #include <algorithm>
-#include <map>
-#include <sstream>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -53,6 +52,8 @@
 #include <fstream>
 #include <gtest/gtest.h>
 #include <iterator>
+#include <map>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -5743,6 +5744,55 @@ TEST(ProcessRunnerTimeout, ASilentChildHitsTheIdleDeadline) {
     EXPECT_FALSE(record->cancelled);
 }
 
+// A credential prompt is a human typing, and git writes nothing while it
+// waits for the answer: a 60 s no-output deadline would kill the clone or
+// fetch under the user's fingers (security review P3-J2). While the askpass
+// request is outstanding the idle deadline does not run; the total one, if
+// any, still does.
+TEST(ProcessRunnerTimeout, APendingCredentialPromptSuspendsTheIdleDeadline) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kRequestFile, "Password: "));
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(2000);
+    command.idleTimeout = std::chrono::milliseconds(300);
+    command.envOverrides.emplace_back("GBM_ASKPASS_DIR", fsutil::utf8FromPath(dir));
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->run(command, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    std::filesystem::remove_all(dir);
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout) << "the total deadline still holds";
+    EXPECT_GE(elapsed, std::chrono::milliseconds(1500))
+        << "the idle deadline fired while a credential prompt was waiting";
+}
+
+TEST(ProcessRunnerTimeout, AnAnsweredPromptNoLongerSuspendsTheIdleDeadline) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kRequestFile, "Password: "));
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "s3cret"));
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+
+    GitCommand command({}, {"--gbm-hang-forever"});
+    command.timeout = std::chrono::milliseconds(2000);
+    command.idleTimeout = std::chrono::milliseconds(300);
+    command.envOverrides.emplace_back("GBM_ASKPASS_DIR", fsutil::utf8FromPath(dir));
+
+    const auto started = std::chrono::steady_clock::now();
+    auto result = runner->run(command, CancellationToken{});
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    std::filesystem::remove_all(dir);
+
+    ASSERT_FALSE(result);
+    EXPECT_LT(elapsed, std::chrono::milliseconds(1500))
+        << "an askpass directory alone must not suspend the idle deadline";
+}
+
 // **The discriminating one.** Everything above is satisfied by implementing the
 // idle deadline as an ordinary total-duration deadline; this is not.
 //
@@ -6171,6 +6221,90 @@ TEST_F(RealRepoTest, SquashPreviewMatchesTheSquashMsgGitWrites) {
     EXPECT_NE(preview->message.find("Merge: "), std::string::npos)
         << "the merge commit in the range is part of the fixture";
 }
+
+// --- Inherited diagnostic environment (security review F10) ---------------
+//
+// A GIT_TRACE*/GIT_CURL_VERBOSE the app inherited from whoever launched it
+// makes git print argv, packet lines and HTTP headers to stderr -- and stderr
+// is what the operation log keeps. So the child never sees them unless the
+// app itself asks through envOverrides.
+
+void setTestEnv(const char* key, const char* value) {
+#ifdef _WIN32
+    _putenv_s(key, value);
+#else
+    setenv(key, value, 1);
+#endif
+}
+
+void unsetTestEnv(const char* key) {
+#ifdef _WIN32
+    _putenv_s(key, "");
+#else
+    unsetenv(key);
+#endif
+}
+
+TEST_F(RealRepoTest, InheritedGitTraceVariablesNeverReachTheChild) {
+    const std::filesystem::path trace2File = repo_.parent_path() / "gbm-trace2-event.json";
+    std::filesystem::remove(trace2File);
+    const std::string trace2Path = fsutil::utf8FromPath(trace2File);
+    setTestEnv("GIT_TRACE", "1");
+    setTestEnv("GIT_TRACE_SETUP", "1");
+    setTestEnv("GIT_CURL_VERBOSE", "1");
+    setTestEnv("GIT_TRACE2_EVENT", trace2Path.c_str());
+
+    auto result = run({"status", "--porcelain"});
+
+    unsetTestEnv("GIT_TRACE");
+    unsetTestEnv("GIT_TRACE_SETUP");
+    unsetTestEnv("GIT_CURL_VERBOSE");
+    unsetTestEnv("GIT_TRACE2_EVENT");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->err.find("trace:"), std::string::npos) << result->err;
+    EXPECT_FALSE(std::filesystem::exists(trace2File)) << "GIT_TRACE2_EVENT reached git";
+    std::filesystem::remove(trace2File);
+}
+
+TEST_F(RealRepoTest, ATraceVariableTheAppAsksForStillReachesTheChild) {
+    GitCommand command(repo_, {"status", "--porcelain"});
+    command.timeout = std::chrono::seconds(120);
+    command.envOverrides.emplace_back("GIT_TRACE", "1");
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_NE(result->err.find("trace:"), std::string::npos)
+        << "envOverrides are applied after the strip: " << result->err;
+}
+
+TEST_F(RealRepoTest, StrippingTraceVariablesLeavesOtherGitVariablesAlone) {
+    // GIT_ALLOW_PROTOCOL is set by SetUp(); a strip that took every GIT_*
+    // would silently break the submodule tests' file:// transport.
+    GitCommand command(repo_, {"var", "GIT_EDITOR"});
+    command.timeout = std::chrono::seconds(120);
+    setTestEnv("GIT_EDITOR", "gbm-test-editor");
+
+    auto result = runner_->run(command, CancellationToken{});
+
+    unsetTestEnv("GIT_EDITOR");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_NE(result->out.find("gbm-test-editor"), std::string::npos) << result->out;
+}
+
+#ifdef _WIN32
+TEST_F(RealRepoTest, ALowerCaseTraceVariableIsStrippedOnWindows) {
+    // Windows environment names are case-insensitive, and git reads them
+    // through getenv, so `git_trace` is GIT_TRACE there.
+    setTestEnv("git_trace", "1");
+
+    auto result = run({"status", "--porcelain"});
+
+    unsetTestEnv("git_trace");
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->err.find("trace:"), std::string::npos) << result->err;
+}
+#endif
 
 }  // namespace
 }  // namespace gbm

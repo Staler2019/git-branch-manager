@@ -7,6 +7,9 @@ import '../../../data/models/update_state.dart';
 import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/open_repo_sessions.dart';
 import '../../../data/repositories/update_repository.dart';
+import '../../../data/repositories/app_log_sink.dart';
+import '../../../data/services/app_action_runner.dart';
+import '../../../data/services/app_actions.dart';
 import '../../../data/services/desktop_launcher.dart';
 import '../../../data/services/update_installer.dart';
 import '../../../theme/gbm_theme.dart';
@@ -27,7 +30,11 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// CLAUDE.md records that trap costing a full device-tier batch. A download
 /// with no known total renders an empty determinate bar instead.
 class UpdateDialogContent extends ConsumerStatefulWidget {
-  const UpdateDialogContent({super.key});
+  const UpdateDialogContent({super.key, this.originWorkDir});
+
+  /// The repository window it was opened over -- Open releases page is
+  /// logged there (rulings R4, R13); null for the window with none.
+  final String? originWorkDir;
 
   @override
   ConsumerState<UpdateDialogContent> createState() =>
@@ -265,9 +272,16 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
             GbmButton(
               label: 'Open releases page',
               kind: GbmButtonKind.primary,
+              // Ruling R4: a Log line, in the window this was opened over.
               onPressed: () => ref
-                  .read(desktopLauncherProvider)
-                  .openUrl(GbmUrls.releasesPage),
+                  .read(appActionRunnerProvider)
+                  .run(
+                    openUrlAction(
+                      ref.read(desktopLauncherProvider),
+                      GbmUrls.releasesPage,
+                    ),
+                    sink: appLogSinkFor(ref, widget.originWorkDir),
+                  ),
             ),
         ];
 

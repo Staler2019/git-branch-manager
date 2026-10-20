@@ -8,6 +8,7 @@ import '../../../actions/gbm_action_id.dart';
 import '../../../actions/gbm_menu_model.dart';
 import '../../../actions/gbm_shortcuts.dart';
 import '../../../data/models/base_folder_record.dart';
+import '../../../data/models/external_app_entry.dart';
 import '../../../data/repositories/app_preferences_repository.dart';
 import '../../../data/repositories/discovery_repository.dart';
 import '../../../data/repositories/recents_repository.dart';
@@ -19,26 +20,13 @@ import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
+import '../../../widgets/lucide_icon.dart';
 import '../../../widgets/gbm_kbd_chip.dart';
 import '../../../widgets/theme_switcher_buttons.dart';
 import '../../update/auto_update_check.dart';
+import 'preferences_section.dart';
 
-/// The six sections of spec page 11's `PREFNAV`, in the spec's own order,
-/// plus a seventh -- [PreferencesSection.developer] is a user-requested
-/// addition (fix/refresh-ui-first-tiering), not a conformance item. Same
-/// category as the soft-wrap toggle (`docs/records/2026-10-04-soft-wrap-off-by-default.md`): `PREFNAV` names
-/// exactly six sections and this is not one of them.
-///
-/// Ruling: `docs/records/2026-10-04-developer-prefs-tab.md`
-enum PreferencesSection {
-  general,
-  repositorySources,
-  git,
-  appearance,
-  shortcuts,
-  advanced,
-  developer,
-}
+export 'preferences_section.dart';
 
 /// File → Preferences… (Ctrl/Cmd+,).
 ///
@@ -52,7 +40,21 @@ enum PreferencesSection {
 /// Git identity and commit-graph) has moved to
 /// `repository_settings_dialog.dart`, which is where the spec puts it.
 class PreferencesDialogContent extends ConsumerStatefulWidget {
-  const PreferencesDialogContent({super.key});
+  const PreferencesDialogContent({
+    super.key,
+    this.initialSection = PreferencesSection.general,
+    this.originWorkDir,
+  });
+
+  /// The repository window it was opened over, passed on to Update (see
+  /// [AboutDialogContent.originWorkDir]).
+  final String? originWorkDir;
+
+  /// Where the dialog opens. `Edit apps…` in the worktree panel's ▾ list
+  /// passes [PreferencesSection.externalApps] (ruling D5) through
+  /// [RoutePaths.preferencesDialogPath]; every other entry point opens on
+  /// General, as it always has.
+  final PreferencesSection initialSection;
 
   @override
   ConsumerState<PreferencesDialogContent> createState() =>
@@ -61,7 +63,7 @@ class PreferencesDialogContent extends ConsumerStatefulWidget {
 
 class _PreferencesDialogContentState
     extends ConsumerState<PreferencesDialogContent> {
-  PreferencesSection _section = PreferencesSection.general;
+  late PreferencesSection _section = widget.initialSection;
 
   // Section names stay English -- `PREFNAV`'s own six names are these exact
   // English words (G1i; spec-auditor confirmed the app already matches).
@@ -70,6 +72,7 @@ class _PreferencesDialogContentState
     PreferencesSection.repositorySources => 'Repository sources',
     PreferencesSection.git => 'Git',
     PreferencesSection.appearance => 'Appearance',
+    PreferencesSection.externalApps => 'External apps',
     PreferencesSection.shortcuts => 'Shortcuts',
     PreferencesSection.advanced => 'Advanced',
     PreferencesSection.developer => 'Developer',
@@ -117,11 +120,15 @@ class _PreferencesDialogContentState
                 padding: const EdgeInsets.only(left: GbmSpacing.space4),
                 child: SingleChildScrollView(
                   child: switch (_section) {
-                    PreferencesSection.general => const _GeneralSection(),
+                    PreferencesSection.general => _GeneralSection(
+                      originWorkDir: widget.originWorkDir,
+                    ),
                     PreferencesSection.repositorySources =>
                       const _RepositorySourcesSection(),
                     PreferencesSection.git => const _GitSection(),
                     PreferencesSection.appearance => const _AppearanceSection(),
+                    PreferencesSection.externalApps =>
+                      const _ExternalAppsSection(),
                     PreferencesSection.shortcuts => const _ShortcutsSection(),
                     PreferencesSection.advanced => const _AdvancedSection(),
                     PreferencesSection.developer => const _DeveloperSection(),
@@ -324,7 +331,10 @@ class _NumberFieldState extends State<_NumberField> {
 }
 
 class _GeneralSection extends ConsumerWidget {
-  const _GeneralSection();
+  const _GeneralSection({this.originWorkDir});
+
+  /// Passed on to Update; see [PreferencesDialogContent.originWorkDir].
+  final String? originWorkDir;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -441,7 +451,9 @@ class _GeneralSection extends ConsumerWidget {
             GbmButton(
               label: 'Check for updates now',
               kind: GbmButtonKind.secondary,
-              onPressed: () => context.pushReplacement(RoutePaths.updateDialog),
+              onPressed: () => context.pushReplacement(
+                RoutePaths.updateDialogPath(originWorkDir: originWorkDir),
+              ),
             ),
           ],
         ),
@@ -1050,6 +1062,299 @@ class _AppearanceSection extends ConsumerWidget {
             (AppPreferences p) => p.copyWith(softWrapEnabled: v),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// External apps -- the worktree panel's ▾ list (open-with-apps-spec.html,
+/// screen 2). Every change is written at once, as the rest of this dialog
+/// is; only [ExternalAppEntry]'s factory decides what may be written. An
+/// edit it rejects -- an emptied field included -- is not written: the row
+/// keeps the stored value and says why, the way [_NumberField] never
+/// persists a half-typed number.
+class _ExternalAppsSection extends ConsumerStatefulWidget {
+  const _ExternalAppsSection();
+
+  @override
+  ConsumerState<_ExternalAppsSection> createState() =>
+      _ExternalAppsSectionState();
+}
+
+class _ExternalAppsSectionState extends ConsumerState<_ExternalAppsSection> {
+  final TextEditingController _newLabel = TextEditingController();
+  final TextEditingController _newCommand = TextEditingController();
+  String? _addRejection;
+
+  @override
+  void dispose() {
+    _newLabel.dispose();
+    _newCommand.dispose();
+    super.dispose();
+  }
+
+  void _store(List<ExternalAppEntry> apps) => ref
+      .read(appPreferencesProvider.notifier)
+      .update((AppPreferences p) => p.copyWith(externalApps: apps));
+
+  void _move(List<ExternalAppEntry> apps, int from, int to) {
+    final List<ExternalAppEntry> next = List<ExternalAppEntry>.of(apps);
+    next.insert(to, next.removeAt(from));
+    _store(next);
+  }
+
+  void _add(List<ExternalAppEntry> apps) {
+    switch (ExternalAppEntry.create(
+      label: _newLabel.text,
+      command: _newCommand.text,
+      newId: () => 'app-${DateTime.now().microsecondsSinceEpoch}',
+    )) {
+      case ExternalAppEntryAccepted(:final ExternalAppEntry entry):
+        _store(<ExternalAppEntry>[...apps, entry]);
+        _newLabel.clear();
+        _newCommand.clear();
+        setState(() => _addRejection = null);
+      case ExternalAppEntryRejected(:final String reason):
+        setState(() => _addRejection = reason);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final List<ExternalAppEntry> apps = ref
+        .watch(appPreferencesProvider)
+        .externalApps;
+    final bool canAdd =
+        _newLabel.text.trim().isNotEmpty && _newCommand.text.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        const _SectionHeading('開啟方式'),
+        for (final (int i, ExternalAppEntry app) in apps.indexed)
+          _ExternalAppRow(
+            key: ValueKey<String>('external-app-row-${app.id}'),
+            app: app,
+            onChanged: (ExternalAppEntry edited) => _store(<ExternalAppEntry>[
+              for (final ExternalAppEntry a in apps)
+                a.id == edited.id ? edited : a,
+            ]),
+            onUp: i == 0 ? null : () => _move(apps, i, i - 1),
+            onDown: i == apps.length - 1 ? null : () => _move(apps, i, i + 1),
+            onRemove: () => _store(<ExternalAppEntry>[
+              for (final ExternalAppEntry a in apps)
+                if (a.id != app.id) a,
+            ]),
+          ),
+        const SizedBox(height: GbmSpacing.space2),
+        Row(
+          children: <Widget>[
+            SizedBox(
+              width: 140,
+              height: GbmSpacing.inputHeight,
+              child: TextField(
+                key: const ValueKey<String>('external-app-new-label'),
+                controller: _newLabel,
+                style: TextStyle(
+                  fontSize: GbmTypography.textSm,
+                  color: colors.textPrimary,
+                ),
+                decoration: gbmInputDecoration(colors: colors, hintText: '名稱'),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            Expanded(
+              child: SizedBox(
+                height: GbmSpacing.inputHeight,
+                child: TextField(
+                  key: const ValueKey<String>('external-app-new-command'),
+                  controller: _newCommand,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    fontFamily: GbmTypography.fontMono,
+                    color: colors.textPrimary,
+                  ),
+                  decoration: gbmInputDecoration(
+                    colors: colors,
+                    hintText: '指令，例如 code .',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                  onSubmitted: (_) => canAdd ? _add(apps) : null,
+                ),
+              ),
+            ),
+            const SizedBox(width: GbmSpacing.space2),
+            GbmButton(
+              label: 'Add',
+              kind: GbmButtonKind.primary,
+              onPressed: canAdd ? () => _add(apps) : null,
+            ),
+          ],
+        ),
+        gbmFieldError(colors: colors, error: _addRejection),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '指令會在 worktree 資料夾裡執行：macOS / Linux 透過你的 login '
+          'shell，PATH 與你的 terminal 相同；Windows 透過 cmd。{path} 會換成 '
+          'worktree 的完整路徑（Windows 換成 .）。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+            height: GbmTypography.leadingNormal,
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '名稱或指令清空時不會存檔，會保留原本的值。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+            height: GbmTypography.leadingNormal,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One stored entry: name and command fields, reorder, remove, and the
+/// reject hint under it while the fields hold something the factory
+/// refused.
+class _ExternalAppRow extends StatefulWidget {
+  const _ExternalAppRow({
+    super.key,
+    required this.app,
+    required this.onChanged,
+    required this.onUp,
+    required this.onDown,
+    required this.onRemove,
+  });
+
+  final ExternalAppEntry app;
+  final ValueChanged<ExternalAppEntry> onChanged;
+  final VoidCallback? onUp;
+  final VoidCallback? onDown;
+  final VoidCallback onRemove;
+
+  @override
+  State<_ExternalAppRow> createState() => _ExternalAppRowState();
+}
+
+class _ExternalAppRowState extends State<_ExternalAppRow> {
+  late final TextEditingController _label = TextEditingController(
+    text: widget.app.label,
+  );
+  late final TextEditingController _command = TextEditingController(
+    text: widget.app.command,
+  );
+  String? _rejection;
+
+  @override
+  void dispose() {
+    _label.dispose();
+    _command.dispose();
+    super.dispose();
+  }
+
+  void _edit() {
+    switch (widget.app.edit(label: _label.text, command: _command.text)) {
+      case ExternalAppEntryAccepted(:final ExternalAppEntry entry):
+        setState(() => _rejection = null);
+        widget.onChanged(entry);
+      case ExternalAppEntryRejected(:final String reason):
+        setState(() => _rejection = reason);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    final String id = widget.app.id;
+    final bool bad = _rejection != null;
+    Widget move(String key, String icon, String tip, VoidCallback? onTap) =>
+        IconButton(
+          key: ValueKey<String>('external-app-$key-$id'),
+          icon: LucideIcon(
+            icon,
+            size: 16,
+            color: onTap == null
+                ? colors.textTertiary.withValues(alpha: 0.45)
+                : colors.textTertiary,
+          ),
+          tooltip: tip,
+          visualDensity: VisualDensity.compact,
+          onPressed: onTap,
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(bottom: GbmSpacing.space1),
+          child: Row(
+            children: <Widget>[
+              SizedBox(
+                width: 140,
+                height: GbmSpacing.inputHeight,
+                child: TextField(
+                  key: ValueKey<String>('external-app-label-$id'),
+                  controller: _label,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textSm,
+                    color: colors.textPrimary,
+                  ),
+                  decoration: gbmInputDecoration(colors: colors),
+                  onChanged: (_) => _edit(),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              Expanded(
+                child: SizedBox(
+                  height: GbmSpacing.inputHeight,
+                  child: TextField(
+                    key: ValueKey<String>('external-app-command-$id'),
+                    controller: _command,
+                    style: TextStyle(
+                      fontSize: GbmTypography.textSm,
+                      fontFamily: GbmTypography.fontMono,
+                      color: colors.textPrimary,
+                    ),
+                    decoration: gbmInputDecoration(
+                      colors: colors,
+                      hasError: bad,
+                    ),
+                    onChanged: (_) => _edit(),
+                  ),
+                ),
+              ),
+              move('up', 'arrow-up', '上移', widget.onUp),
+              move('down', 'arrow-down', '下移', widget.onDown),
+              IconButton(
+                key: ValueKey<String>('external-app-remove-$id'),
+                icon: Icon(
+                  Icons.delete_outline,
+                  size: 18,
+                  color: colors.danger,
+                ),
+                tooltip: '移除',
+                onPressed: widget.onRemove,
+              ),
+            ],
+          ),
+        ),
+        if (_rejection case final String reason)
+          // Under the command field, as the spec's reject hint draws it.
+          Padding(
+            padding: const EdgeInsets.only(
+              left: 140 + GbmSpacing.space2,
+              bottom: GbmSpacing.space1,
+            ),
+            child: gbmFieldError(
+              colors: colors,
+              error: '$reason，這次修改沒有存檔（仍是 ${widget.app.command}）',
+            ),
+          ),
       ],
     );
   }

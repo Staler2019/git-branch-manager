@@ -6,17 +6,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/models/commit_meta.dart';
+import '../../data/models/external_app_entry.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/worktree_info.dart';
+import '../../data/repositories/app_preferences_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/app_router.dart';
 import '../../routing/route_paths.dart';
+import '../dialogs/preferences/preferences_section.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_menu.dart';
+import '../../widgets/gbm_split_button.dart';
 import '../../widgets/lucide_icon.dart';
 import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
@@ -219,6 +226,67 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
     ].join(' · ');
   }
 
+  /// A failure is one error line in the session's log, which lights the
+  /// status bar's red summary -- never a toast (P10 #3 「不使用會自動消失的
+  /// toast」, P19 rule 5) and never a dialog (ruling Q1, open-with-apps-spec
+  /// screen 3). Same line as Repository → Open in terminal. This button used
+  /// to drop the `false` on the floor.
+  ///
+  /// Through [AppActionRunner], so a success is logged too (ruling R4) and
+  /// the sink is taken before the first await: the line is written even if
+  /// this panel is gone by the time the launcher answers (verifier A3).
+  Future<void> _openTerminal(String path) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openTerminalAction(ref.read(desktopLauncherProvider), path),
+        sink: ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .recordAppLog,
+      );
+
+  /// See [_openTerminal].
+  Future<void> _openWith(ExternalAppEntry app, String path) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openExternalAppAction(ref.read(desktopLauncherProvider), app, path),
+        sink: ref
+            .read(repoSessionProvider(widget.identity).notifier)
+            .recordAppLog,
+      );
+
+  /// The ▾ list: names only (ruling D1), then `Edit apps…`, which opens
+  /// Preferences on External apps (D5). An empty list shows a disabled row
+  /// with a tooltip rather than nothing -- 隱藏會讓人以為功能不存在
+  /// ([FLU-menu-enabled-is-visual-only]), so `onTap` is null as well.
+  List<GbmMenuItem> _openWithItems(String path) {
+    final List<ExternalAppEntry> apps = ref
+        .read(appPreferencesProvider)
+        .externalApps;
+    return <GbmMenuItem>[
+      if (apps.isEmpty)
+        const GbmMenuItem(
+          label: '還沒有自訂應用',
+          enabled: false,
+          tooltip: '在 Preferences → External apps 新增',
+          onTap: null,
+        )
+      else
+        for (final ExternalAppEntry app in apps)
+          GbmMenuItem(label: app.label, onTap: () => _openWith(app, path)),
+      const GbmMenuItem.separator(),
+      GbmMenuItem(
+        label: 'Edit apps…',
+        onTap: () => pushDialogRoute(
+          context,
+          RoutePaths.preferencesDialogPath(
+            section: PreferencesSection.externalApps,
+            originWorkDir: widget.identity.workDir,
+          ),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     // Watches a record of exactly the three fields this panel renders, not
@@ -344,17 +412,19 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                 // line with "switch to" button」 and 「can you add a terminal
                 // icon」. Glyph from the spec's `icTerminal`; size and colour
                 // copy action_toolbar.dart's icon buttons.
-                GbmButton(
+                //
+                // open-with-apps-spec.html: the button gained a ▾ that lists
+                // Preferences → External apps; the main segment is unchanged.
+                GbmSplitButton(
                   label: 'Open in terminal',
-                  kind: GbmButtonKind.ghost,
                   icon: LucideIcon(
                     'terminal',
                     size: 12,
                     color: context.gbmColors.textSecondary,
                   ),
-                  onPressed: () => ref
-                      .read(desktopLauncherProvider)
-                      .openTerminal(selected.path),
+                  onPressed: () => _openTerminal(selected.path),
+                  menuTooltip: '其他開啟方式',
+                  menuItems: () => _openWithItems(selected.path),
                 ),
                 // Gated on isPrimary, not isMain -- the same isMain/isPrimary
                 // confusion the Remove button below this one carried (see

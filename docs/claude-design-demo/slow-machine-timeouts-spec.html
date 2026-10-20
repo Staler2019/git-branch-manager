@@ -69,7 +69,7 @@ section.screen { display: grid; gap: 16px; }
 /* ---------- Preferences dialog ---------- */
 .dlg { width: 720px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
 .dlg-title { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; font-weight: 600; }
-.dlg-body { display: flex; height: 420px; padding: 0 16px; margin-block: 16px; }
+.dlg-body { display: flex; height: 420px; padding: 0 16px; } /* gbm_dialog_shell.dart:125 horizontal only — margin-block 16px removed 2026-10-18, the code has none */
 .nav { width: 168px; display: flex; flex-direction: column; }
 .nav div { padding: 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-secondary); }
 .nav div.on { background: var(--surface-selected); color: var(--text-primary); font-weight: 600; }

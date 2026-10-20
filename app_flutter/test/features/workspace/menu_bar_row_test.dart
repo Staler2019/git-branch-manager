@@ -17,7 +17,7 @@ const String _repoId = 'repo1';
 
 Future<GoRouter> _pump(
   WidgetTester tester, {
-  required VoidCallback onToggleSidebar,
+  required VoidCallback? onToggleSidebar,
   required VoidCallback? onFetch,
   required VoidCallback? onPull,
   required VoidCallback? onPush,
@@ -194,6 +194,30 @@ void main() {
     await tester.tap(find.text('Toggle sidebar'));
     await tester.pumpAndSettle();
     expect(toggled, isTrue);
+  });
+
+  // The welcome screen has no sidebar toggle to offer (P15 A #1: View is a
+  // menu that needs a repository), so it passes none -- and the row must
+  // then read disabled, like any other null handler.
+  testWidgets('View > Toggle sidebar is disabled without a callback', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      onToggleSidebar: null,
+      onFetch: null,
+      onPull: null,
+      onPush: null,
+    );
+    await tester.tap(find.text('View'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<Text>(find.text('Toggle sidebar')).style?.color,
+      tokensFor(GbmThemeVariant.darkTechnical).textTertiary,
+    );
+    await tester.tap(find.text('Toggle sidebar'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('Repository menu Fetch/Pull/Push invoke their callbacks', (

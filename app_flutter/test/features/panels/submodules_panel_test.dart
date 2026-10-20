@@ -9,7 +9,10 @@
 // deliberately carries Add…/Deinit beyond the spec'd four because
 // gbm_submodule_add/_deinit have no spec'd entry point anywhere. Both are
 // asserted here so a future "clean-up" reads them as decisions.
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/models/submodule_info.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:flutter/material.dart';
@@ -38,16 +41,30 @@ const SubmoduleInfo _uninitialized = SubmoduleInfo(
   state: SubmoduleState.notInitialized,
 );
 
+class _Launcher extends DesktopLauncher {
+  _Launcher() : super(operatingSystem: 'linux');
+
+  final List<String> opened = <String>[];
+
+  @override
+  Future<bool> openInFileManager(String path) async {
+    opened.add(path);
+    return true;
+  }
+}
+
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<SubmoduleInfo> submodules = const <SubmoduleInfo>[
     _vendored,
     _uninitialized,
   ],
+  List<Override> overrides = const <Override>[],
 }) => pumpPanel(
   tester,
   SubmodulesPanel(identity: panelTestIdentity),
   state: RepoSessionState(isOpen: true, submodules: submodules),
+  overrides: overrides,
 );
 
 Future<void> _select(WidgetTester tester, String path) async {
@@ -220,6 +237,30 @@ void main() {
 
       expect(panelButton(tester, 'Init').onPressed, isNotNull);
       expect(panelButton(tester, 'Open').onPressed, isNull);
+    });
+
+    // Ruling R4 「每個動作都要有log」: Open goes through AppActionRunner, so
+    // it is a Log line, not a silent launcher call.
+    testWidgets('Open shows the submodule and logs it', (tester) async {
+      final _Launcher launcher = _Launcher();
+      final PumpedPanel pumped = await _pump(
+        tester,
+        overrides: <Override>[
+          desktopLauncherProvider.overrideWithValue(launcher),
+        ],
+      );
+      await _select(tester, 'vendor/libgit');
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      final String path = '${panelTestIdentity.workDir}/vendor/libgit';
+      expect(launcher.opened, <String>[path]);
+      expect(
+        pumped.fake.state.operationLog.whereType<AppLogEntry>().map(
+          (AppLogEntry e) => e.message,
+        ),
+        <String>['Showed $path in the file manager'],
+      );
     });
 
     testWidgets('Update dispatches for the selected path with init', (

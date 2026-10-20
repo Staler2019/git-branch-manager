@@ -37,6 +37,17 @@ class GbmSessionEvents {
     _bindings.registerCallback(_session, _callable.nativeFunction, nullptr);
   }
 
+  /// For a caller that hands the callback over itself rather than registering
+  /// it on a session: a clone job passes [nativeFunction] to
+  /// `gbm_clone_start`. Same payload copying, freeing and drained close.
+  GbmSessionEvents.unregistered(this._bindings) : _session = nullptr {
+    _callable = NativeCallable<GbmEventCallbackNative>.listener(_onEvent);
+  }
+
+  /// The native callback to hand to a capi call that takes one.
+  Pointer<NativeFunction<GbmEventCallbackNative>> get nativeFunction =>
+      _callable.nativeFunction;
+
   final GbmBindings _bindings;
   final Pointer<Void> _session;
   late final NativeCallable<GbmEventCallbackNative> _callable;

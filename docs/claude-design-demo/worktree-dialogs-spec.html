@@ -209,6 +209,7 @@ td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg
   --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
   --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
   --gbm-accent:#2f81f7; --gbm-warning:#c97a17;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.12);  /* tokens.dart:488-495 shadowMd: non-dark .12 */
  
 }
 [data-app-theme="dark-technical"] {
@@ -217,6 +218,7 @@ td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg
   --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
   --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
   --gbm-accent:#2f81f7; --gbm-warning:#d29922;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.5);   /* tokens.dart:488-495 shadowMd: darkTechnical .5 */
  
 }
 [data-app-theme="light-ide"] {
@@ -225,6 +227,7 @@ td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg
   --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
   --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
   --gbm-accent:#2f81f7; --gbm-warning:#9a6700;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.12);  /* tokens.dart:488-495 shadowMd: non-dark .12 */
  
 }
 
@@ -245,7 +248,9 @@ td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg
   background: var(--gbm-surface-panel-raised);             /* [P6] .gbm-panel-raised */
   border: 1px solid var(--gbm-border-default);             /* [P6] mock's inline border */
   border-radius: 10px;                                     /* [KIT] --radius-lg */
-  box-shadow: 0 4px 12px rgba(0,0,0,.28);                  /* [KIT] --shadow-md, per .gbm-panel-raised */
+  box-shadow: var(--gbm-shadow-md);                        /* [KIT] --shadow-md, per .gbm-panel-raised.
+     更正 2026-10-20：原寫 `0 4px 12px rgba(0,0,0,.28)`，三個配色共用一個 alpha，
+     tokens.dart:488-495 與 spec 都沒有 .28（light .12、dark .5）。使用者裁定「順便更正」。 */
   font-family: "Inter", sans-serif;
   color: var(--gbm-text-primary);
   overflow: hidden;

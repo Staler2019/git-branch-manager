@@ -106,9 +106,11 @@ jobs:
       # moment someone adds one std::system() call back, and nothing else in CI
       # would notice -- the tests would still pass, just slower and more
       # fragile. Comment lines are allowed so the helper can explain itself.
+      # -w: whole word, so `std::system_category()` (a Win32 error's category,
+      # tests/support/DirLink.cpp) is not mistaken for a shell-out.
       - name: tests must not shell out with std::system
         run: |
-          if grep -rn 'std::system' tests --include='*.cpp' --include='*.h' \
+          if grep -rnw 'std::system' tests --include='*.cpp' --include='*.h' \
               | grep -vE ':[[:space:]]*(//|\*)'; then
             echo "::error::tests must call gbm::testing::GitCli, not std::system - see tests/support/GitCli.h"
             exit 1

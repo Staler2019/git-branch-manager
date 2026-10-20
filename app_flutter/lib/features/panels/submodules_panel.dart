@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/models/submodule_info.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_button.dart';
@@ -175,10 +177,17 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
                 selected == null ||
                     selected.state == SubmoduleState.notInitialized
                 ? null
+                // Ruling R4: through AppActionRunner, so it is a Log line.
                 : () => ref
-                      .read(desktopLauncherProvider)
-                      .openInFileManager(
-                        '${widget.identity.workDir}/${selected.path}',
+                      .read(appActionRunnerProvider)
+                      .run(
+                        openInFileManagerAction(
+                          ref.read(desktopLauncherProvider),
+                          '${widget.identity.workDir}/${selected.path}',
+                        ),
+                        sink: ref
+                            .read(repoSessionProvider(widget.identity).notifier)
+                            .recordAppLog,
                       ),
           ),
         ],

@@ -1,10 +1,15 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../data/models/operation_record.dart';
+import '../../data/models/app_action_outcome.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/lucide_icon.dart';
@@ -16,17 +21,43 @@ enum _LogLevel { all, info, warning, error }
 /// copying all entries, and saving them to a plain-text file.
 ///
 /// Shows time, level icon, command, exit code, and duration. Entries are
-/// displayed newest-first. No external dependencies — takes record list as
-/// constructor param only.
+/// displayed newest-first. No session dependency — takes the records, and
+/// the [LogDrawer.sink] Save as… reports into, as constructor params.
 class LogDrawer extends StatefulWidget {
   const LogDrawer({
     super.key,
     required this.records,
     this.showTimeouts = false,
     this.showColumnHeaders = false,
+    this.focusEntry,
+    this.focusSerial = 0,
+    this.sink,
+    this.actionRunner = const AppActionRunner(),
+    this.documentsDirectory = getApplicationDocumentsDirectory,
   });
 
+  /// Where Save as…'s outcome line goes (ruling R4). The drawer has no
+  /// session of its own; its owner hands in the Log it shows.
+  final AppLogSink? sink;
+
+  final AppActionRunner actionRunner;
+
+  /// Where Save as… writes. A seam for tests: the platform channel behind
+  /// `path_provider` does not exist in a widget test.
+  final Future<Directory> Function() documentsDirectory;
+
   final List<GbmLogEntry> records;
+
+  /// The row the status bar's red summary jumps to (P10 #3 「可點開直接跳到
+  /// 該筆 log」), matched by identity: two lines can read alike. It is
+  /// painted `diffDelBg` -- P10's mock grounds its error row in
+  /// `--diff-del-bg` -- for as long as the caller keeps passing it.
+  final GbmLogEntry? focusEntry;
+
+  /// Bumped by the caller once per jump. The drawer scrolls only when this
+  /// changes, so a rebuild for a newly logged line does not pull the view
+  /// back to a row the user has already scrolled away from.
+  final int focusSerial;
 
   /// Preferences → Developer → LOG, 「在 Log 顯示每個指令的時限」: a column
   /// with the limit each command actually ran under, multiplier applied.
@@ -42,6 +73,117 @@ class LogDrawer extends StatefulWidget {
 
 class _LogDrawerState extends State<LogDrawer> {
   _LogLevel _selectedLevel = _LogLevel.all;
+
+  final ScrollController _scroll = ScrollController();
+  final GlobalKey _focusKey = GlobalKey();
+
+  /// List indices of the rows mounted right now, kept by [_MountedRow]. A
+  /// row the lazy list retains is not rebuilt, so the builder alone cannot
+  /// say what is on screen; the mount registry can.
+  final Set<int> _mounted = <int>{};
+
+  /// The jump's search bracket over scroll offset: at [_below] the focused
+  /// row was still further up (a larger index than anything mounted), at
+  /// [_above] it had been passed. [_reach] doubles while no upper bound is
+  /// known yet.
+  double _below = 0;
+  double? _above;
+  double _reach = 1;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.focusEntry != null) _focus();
+  }
+
+  @override
+  void didUpdateWidget(LogDrawer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.focusSerial != oldWidget.focusSerial &&
+        widget.focusEntry != null) {
+      _focus();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// A level filter that would hide the row goes back to All -- not to
+  /// Error, which would hide the context around it.
+  void _focus() {
+    final GbmLogEntry? entry = widget.focusEntry;
+    if (entry == null) return;
+    final bool hidden = switch (_selectedLevel) {
+      _LogLevel.all => false,
+      _LogLevel.info => entry.level != OperationLogLevel.info,
+      _LogLevel.warning => entry.level != OperationLogLevel.warning,
+      _LogLevel.error => entry.level != OperationLogLevel.error,
+    };
+    if (hidden) _selectedLevel = _LogLevel.all;
+    _below = 0;
+    _above = null;
+    _reach = 1;
+    _scheduleReveal(0);
+  }
+
+  /// A post-frame step, with a frame asked for explicitly
+  /// ([FLU-postframe-no-frame]).
+  void _scheduleReveal(int attempt) {
+    SchedulerBinding.instance.addPostFrameCallback((_) => _reveal(attempt));
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Once the row is mounted, centre it. Until then, search for it: the
+  /// list is lazy, rows vary from one line to a screenful of stderr, and only
+  /// a mounted row has a context. Offset grows with index (`reverse: true`),
+  /// so each probe's mounted range says which side the row is on: the reach
+  /// doubles until the row has been passed, then the bracket is halved. Each probe builds
+  /// the viewport plus 250px of cache either side, so a bracket narrower
+  /// than that cannot hide the row. Fixed one-viewport steps, the first
+  /// version, ran out of attempts on a long or tall log.
+  void _reveal(int attempt) {
+    if (!mounted) return;
+    final BuildContext? row = _focusKey.currentContext;
+    if (row != null) {
+      Scrollable.ensureVisible(row, alignment: 0.5);
+      return;
+    }
+    if (attempt >= 60 || !_scroll.hasClients || _mounted.isEmpty) return;
+    final List<GbmLogEntry> shown = _filteredRecords;
+    final int at = shown.lastIndexWhere(
+      (GbmLogEntry e) => identical(e, widget.focusEntry),
+    );
+    if (at < 0) return;
+    final int index = shown.length - 1 - at;
+    final ScrollPosition position = _scroll.position;
+    final double here = position.pixels;
+    final int lowest = _mounted.reduce(math.min);
+    final int highest = _mounted.reduce(math.max);
+    if (index > highest) {
+      _below = math.max(_below, here);
+    } else if (index < lowest) {
+      _above = math.min(_above ?? double.infinity, here);
+    }
+    final double stride = position.viewportDimension + 250;
+    final double next;
+    if (_above case final double above) {
+      if (above - _below < 1) return;
+      next = (_below + above) / 2;
+    } else {
+      next = _below + stride * _reach;
+      _reach *= 2;
+    }
+    final double clamped = next.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if (clamped == here) return;
+    _scroll.jumpTo(clamped);
+    _scheduleReveal(attempt + 1);
+  }
 
   /// Filters on [OperationRecord.level] rather than re-deriving the
   /// conditions here.
@@ -118,28 +260,24 @@ class _LogDrawerState extends State<LogDrawer> {
   /// path shown afterwards so it can be attached to a bug report, is not a
   /// worse outcome than a save panel, and changing it here was outside that
   /// change's scope.
+  ///
+  /// An app action (ruling R4): success and failure are one line each through
+  /// [LogDrawer.sink]. A failure is never a toast (open-with-apps-spec.html
+  /// screen 3); the success SnackBar stays, because it carries the path to
+  /// attach to a bug report.
   Future<void> _saveAs() async {
     final ScaffoldMessengerState? messenger = ScaffoldMessenger.maybeOf(
       context,
     );
-    try {
-      final Directory dir = await getApplicationDocumentsDirectory();
-      // Colons are illegal in Windows filenames, so the ISO timestamp is
-      // flattened rather than used verbatim.
-      final String stamp = DateTime.now()
-          .toIso8601String()
-          .replaceAll(':', '-')
-          .split('.')
-          .first;
-      final File file = File('${dir.path}/gbm-log-$stamp.txt');
-      await file.writeAsString(_exportText);
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Log saved to ${file.path}')),
-      );
-    } on FileSystemException catch (e) {
-      messenger?.showSnackBar(
-        SnackBar(content: Text('Could not save the log: ${e.message}')),
-      );
+    final AppActionOutcome<String> outcome = await widget.actionRunner.run(
+      saveOperationLogAction(
+        documentsDirectory: widget.documentsDirectory,
+        text: _exportText,
+      ),
+      sink: widget.sink,
+    );
+    if (outcome case AppActionSucceeded<String>(:final String value)) {
+      messenger?.showSnackBar(SnackBar(content: Text('Log saved to $value')));
     }
   }
 
@@ -227,14 +365,25 @@ class _LogDrawerState extends State<LogDrawer> {
                     ),
                   )
                 : ListView.builder(
+                    controller: _scroll,
                     reverse: true,
                     itemCount: _filteredRecords.length,
                     itemBuilder: (context, index) {
                       final record =
                           _filteredRecords[_filteredRecords.length - 1 - index];
-                      return _LogRow(
-                        entry: record,
-                        showLimit: widget.showTimeouts,
+                      final Widget row = _MountedRow(
+                        index: index,
+                        registry: _mounted,
+                        child: _LogRow(
+                          entry: record,
+                          showLimit: widget.showTimeouts,
+                        ),
+                      );
+                      if (!identical(record, widget.focusEntry)) return row;
+                      return ColoredBox(
+                        key: const ValueKey<String>('log-row-focus'),
+                        color: colors.diffDelBg,
+                        child: KeyedSubtree(key: _focusKey, child: row),
                       );
                     },
                   ),
@@ -243,6 +392,49 @@ class _LogDrawerState extends State<LogDrawer> {
       ),
     );
   }
+}
+
+/// Keeps [registry] holding the list index of every mounted row, for
+/// [_LogDrawerState._reveal]'s search. Paints nothing of its own.
+class _MountedRow extends StatefulWidget {
+  const _MountedRow({
+    required this.index,
+    required this.registry,
+    required this.child,
+  });
+
+  final int index;
+  final Set<int> registry;
+  final Widget child;
+
+  @override
+  State<_MountedRow> createState() => _MountedRowState();
+}
+
+class _MountedRowState extends State<_MountedRow> {
+  @override
+  void initState() {
+    super.initState();
+    widget.registry.add(widget.index);
+  }
+
+  @override
+  void didUpdateWidget(_MountedRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.index != widget.index) {
+      oldWidget.registry.remove(oldWidget.index);
+      widget.registry.add(widget.index);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.registry.remove(widget.index);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// HH:mm:ss in local time -- entries within one session span at most a few

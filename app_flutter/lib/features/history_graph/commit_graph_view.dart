@@ -955,7 +955,7 @@ class _ColumnsButtonState extends State<_ColumnsButton> {
 /// this widget, so no explicit focus plumbing is needed.
 ///
 /// [GbmSelectAllIntent] rather than Flutter's `SelectAllTextIntent` for the
-/// same reason `workspace_screen.dart`'s handler offers it first: a list and
+/// same reason `gbm_edit_intents.dart`'s handler offers it first: a list and
 /// an editor need the same key to mean two different things, and focus is
 /// what tells them apart.
 class _SelectionShortcuts extends StatelessWidget {

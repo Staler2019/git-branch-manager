@@ -11,6 +11,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/changed_file.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
@@ -208,6 +209,13 @@ void main() {
           'a historical commit\'s file has no directory of its own, so '
           'this opens the repository work dir like 05-A and 05-F do',
     );
+    // Ruling R4: through AppActionRunner, so it is a Log line.
+    expect(
+      pumped.controller.state.operationLog.whereType<AppLogEntry>().map(
+        (AppLogEntry e) => e.message,
+      ),
+      <String>['Opened a terminal in ${_identity.workDir}'],
+    );
   });
 
   testWidgets(
@@ -253,6 +261,14 @@ void main() {
 
       // The launcher really got the exported file -- macOS `open <path>`.
       expect(starter.attempted, <String>['open']);
+      // Ruling R4: the export and the open are each a Log line.
+      expect(
+        pumped.controller.state.operationLog
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message)
+            .last,
+        'Opened $destPath',
+      );
     },
   );
 
@@ -282,8 +298,15 @@ void main() {
     await tester.tap(find.text('Open file at this revision'));
     await tester.pumpAndSettle();
 
-    // Not silent: the user asked for a file and there is no file.
-    expect(find.byType(SnackBar), findsOneWidget);
+    // Not silent: the user asked for a file and there is no file. One error
+    // line in the log, never a toast (open-with-apps-spec.html screen 3).
+    expect(find.byType(SnackBar), findsNothing);
+    expect(
+      pumped.controller.state.operationLog
+          .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
+          .map((GbmLogEntry e) => e.message),
+      <String>['Could not export lib/main.dart: nope'],
+    );
     expect(
       starter.attempted,
       isEmpty,
@@ -324,6 +347,13 @@ void main() {
       );
       expect(exported.args['destPath'], '/chosen/somewhere/main.dart');
       expect(exported.args['revision'], 'abc123');
+      // Ruling R4: the export is an action, and a success is logged too.
+      expect(
+        pumped.controller.state.operationLog.whereType<AppLogEntry>().map(
+          (GbmLogEntry e) => e.message,
+        ),
+        <String>['Exported lib/main.dart to /chosen/somewhere/main.dart'],
+      );
     },
   );
 

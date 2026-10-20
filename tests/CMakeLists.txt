@@ -1,7 +1,7 @@
 include(GoogleTest)
 
 # Test doubles live here rather than in the shipped library.
-add_library(gbm_test_support STATIC support/FakeProcessRunner.cpp support/GitCli.cpp)
+add_library(gbm_test_support STATIC support/DirLink.cpp support/FakeProcessRunner.cpp support/GitCli.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
@@ -14,6 +14,7 @@ add_executable(gbm_core_tests
     unit/CoreBasicsTest.cpp
     unit/DelayTimerTest.cpp
     unit/DiscoveryTest.cpp
+    unit/DirLinkTest.cpp
     unit/GitCliTest.cpp
     unit/GitExecutableTest.cpp
     unit/GitIntegrationTest.cpp
@@ -41,6 +42,7 @@ add_executable(gbm_core_tests
     unit/WorktreePrimaryTest.cpp
     unit/WorktreeReadFlagsTest.cpp
     unit/TextTraitsTest.cpp
+    unit/TransferProgressTest.cpp
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests
@@ -185,6 +187,7 @@ set_tests_properties(windows_job_object_spawn_cost PROPERTIES
 # Gated on GBM_BUILD_CAPI so it builds under the capi-only preset.
 if(GBM_BUILD_CAPI)
     add_executable(gbm_capi_tests
+        capi/AskpassEntryTest.cpp
         capi/AskpassPollerTest.cpp
         capi/BisectApiTest.cpp
         capi/BlameApiTest.cpp
@@ -192,6 +195,7 @@ if(GBM_BUILD_CAPI)
         capi/CallbackRegistryTest.cpp
         capi/CancelOperationApiTest.cpp
         capi/CherryPickRevertApiTest.cpp
+        capi/CloneJobApiTest.cpp
         capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp
         capi/CompareApiTest.cpp
@@ -226,6 +230,23 @@ if(GBM_BUILD_CAPI)
     )
     target_link_libraries(gbm_capi_tests
         PRIVATE gbm_capi gbm_core gbm_test_support GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
+
+    # --- a stand-in for the desktop runners' askpass interception ----------
+    # Not a test: the subject of AskpassEntryTest. It loads gbm_capi at run
+    # time rather than linking it, as the runners do, and is a GUI-subsystem
+    # program on Windows because that is what the Windows runner is.
+    add_executable(gbm_askpass_launcher fixtures/askpass_launcher.cpp)
+    if(WIN32)
+        set_target_properties(gbm_askpass_launcher PROPERTIES WIN32_EXECUTABLE TRUE)
+    endif()
+    # gbm_sanitizers: the launcher dlopens gbm_capi, and an instrumented
+    # library cannot bring its sanitizer runtime in by dlopen ("ThreadSanitizer
+    # is loaded too late"); the executable has to carry it from the start.
+    target_link_libraries(gbm_askpass_launcher PRIVATE gbm_warnings gbm_sanitizers ${CMAKE_DL_LIBS})
+    target_compile_definitions(gbm_capi_tests PRIVATE
+        GBM_ASKPASS_LAUNCHER_EXE="$<TARGET_FILE:gbm_askpass_launcher>"
+        GBM_CAPI_LIBRARY_FILE="$<TARGET_FILE:gbm_capi>")
+    add_dependencies(gbm_capi_tests gbm_askpass_launcher)
 
     # gbm_capi is SHARED, so on Windows (no RPATH like Linux/macOS) the
     # loader can't find gbm_capi.dll unless it sits next to the .exe --

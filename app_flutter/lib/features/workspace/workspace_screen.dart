@@ -10,13 +10,16 @@ import '../../actions/gbm_action_id.dart';
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../diff/temporary_scope_provider.dart';
+import '../../actions/gbm_edit_intents.dart';
 import '../../actions/gbm_menu_model.dart';
-import '../../actions/gbm_selection_gesture.dart';
 import '../../actions/gbm_sequencer_operation.dart';
+import '../../data/models/clone_job.dart';
+import '../../data/models/operation_record.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/repo_state.dart';
 import '../../data/models/working_copy_status.dart';
 import '../../data/repositories/app_preferences_repository.dart';
+import '../../data/repositories/clone_job_repository.dart';
 import '../../data/repositories/chrome_visibility_repository.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/panel_tabs_repository.dart';
@@ -26,6 +29,8 @@ import '../../data/repositories/panel_layout_repository.dart';
 import '../../data/repositories/deferred_prune_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
+import '../../data/services/app_action_runner.dart';
+import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
@@ -44,6 +49,7 @@ import '../sidebar/branch_tree_builder.dart';
 import '../sidebar/gone_marking.dart';
 import '../sidebar/sidebar_panel.dart';
 import '../status_bar/background_task.dart';
+import '../status_bar/clone_job_tasks.dart';
 import '../status_bar/running_git_tasks.dart';
 import '../status_bar/status_bar.dart';
 import 'widgets/action_toolbar.dart';
@@ -106,8 +112,26 @@ const Duration kFocusRefreshThrottle = Duration(seconds: 2);
 class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   bool _sidebarVisible = true;
 
-  /// [RepoSessionState.operationLogRevision] when the log was last opened.
-  int _lastSeenOperationLogRevision = 0;
+  /// The newest error-level line when the log was last opened, by identity.
+  /// The status bar's red summary shows the newest error only while it is a
+  /// different object: a running row replaced by its outcome is a new
+  /// object, so 執行中 → TIMEOUT lights it, and a newer info line does not
+  /// ([FLU-log-row-is-replaced-by-id]'s case, which a length compare missed).
+  GbmLogEntry? _seenError;
+
+  /// What the drawer is told to jump to, and a counter bumped once per jump
+  /// (see [LogDrawer.focusSerial]). Cleared when the log is closed.
+  GbmLogEntry? _logFocus;
+  int _logFocusSerial = 0;
+
+  static GbmLogEntry? _newestError(RepoSessionState session) {
+    final List<GbmLogEntry> log = session.operationLog;
+    for (int i = log.length - 1; i >= 0; i--) {
+      if (log[i].level == OperationLogLevel.error) return log[i];
+    }
+    return null;
+  }
+
   final GbmSplitPaneController _logDrawerController = GbmSplitPaneController();
   final FocusNode _branchFilterFocusNode = FocusNode();
   final RepoSwitcherController _switcherController = RepoSwitcherController();
@@ -136,6 +160,12 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   @override
   void initState() {
     super.initState();
+    // However the drawer closes -- View → Log, the status bar's Log entry, or
+    // a drag past the bottom -- the jumped-to row loses its ground at that
+    // moment (ruling R3), not on the next open.
+    _logDrawerController.onCollapsed = () {
+      if (mounted) setState(() => _logFocus = null);
+    };
     // branchFilterQueryProvider outlives the session it was typed into (it is
     // not autoDispose), but a freshly opened C++ session is always unfiltered
     // and `ref.listen` never fires for the value already present when it
@@ -525,12 +555,13 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       ),
     );
 
-    // Unread while the log has moved since it was last opened. ~~(newest
-    // entry > lastSeen index)~~ Compared by revision, not length: a running
-    // row replaced by its outcome, or an append at the cap, leaves the
-    // length where it was.
-    final bool hasUnreadLog =
-        session.operationLogRevision > _lastSeenOperationLogRevision;
+    // P10 #3 lights zone 3 only for an unread *error*. ~~Compared by
+    // revision~~ -- a revision moves for every line, info included; see
+    // [_seenError] for why identity is the comparison.
+    final GbmLogEntry? newestError = _newestError(session);
+    final GbmLogEntry? unreadError = identical(newestError, _seenError)
+        ? null
+        : newestError;
 
     // Build the main scaffold content
     final Widget scaffoldContent = Scaffold(
@@ -552,10 +583,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             MenuBarRow(
               repoId: repoId,
               sidebarVisible: _sidebarVisible,
-              // Always non-null: viewToggleSidebar has no state-dependent
-              // gate (see gbm_action_availability.dart), so
-              // _buildActionHandlers always populates it.
-              onToggleSidebar: actionHandlers[GbmActionId.viewToggleSidebar]!,
+              // Always non-null here: viewToggleSidebar has no
+              // state-dependent gate (see gbm_action_availability.dart).
+              onToggleSidebar: actionHandlers[GbmActionId.viewToggleSidebar],
               onFetch: actionHandlers[GbmActionId.repositoryFetch],
               onPull: actionHandlers[GbmActionId.repositoryPull],
               onPush: actionHandlers[GbmActionId.repositoryPush],
@@ -623,6 +653,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
               children: <Widget>[
                 LogDrawer(
                   records: session.operationLog,
+                  sink: ref
+                      .read(repoSessionProvider(identity).notifier)
+                      .recordAppLog,
+                  focusEntry: _logFocus,
+                  focusSerial: _logFocusSerial,
                   showTimeouts: ref.watch(
                     appPreferencesProvider.select(
                       (AppPreferences p) => p.showLogTimeouts,
@@ -698,8 +733,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                 ),
               ),
               refreshTimings: session.refreshTimings,
-              backgroundTasks: _backgroundTasks(session),
-              hasUnreadLog: hasUnreadLog,
+              backgroundTasks: _backgroundTasks(
+                session,
+                ref.watch(cloneJobsProvider),
+              ),
+              unreadError: unreadError,
               repoState: session.repoState,
               workingCopyStatus: session.workingCopyStatus,
               conflictActive: session.conflictActive,
@@ -724,15 +762,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                       allOids: session.graph.oidsHex,
                     )
                   : null,
-              onOpenLog: () {
+              // 「可點開直接跳到該筆 log」. Plain `open()`, not the toggle: the
+              // summary means 「show me this error」, and closing a drawer
+              // someone is reading would be the opposite. Un-collapses a
+              // drawer never dragged open (GbmSplitPaneController's doc).
+              onOpenError: () {
                 setState(() {
-                  _lastSeenOperationLogRevision = session.operationLogRevision;
+                  _seenError = newestError;
+                  _logFocus = unreadError;
+                  _logFocusSerial++;
                 });
-                // Un-collapse the log drawer if the user has never dragged it
-                // open -- otherwise the badge would clear with nothing visibly
-                // having happened. See GbmSplitPaneController's doc comment.
                 _logDrawerController.open();
               },
+              // Ruling Q6: the always-present `Log` entry is View → Log
+              // itself -- the same closure, so the two cannot drift.
+              onToggleLog: () => actionHandlers[GbmActionId.viewLog]?.call(),
               onCancelTask: _cancelTask,
             ),
         ],
@@ -842,17 +886,21 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     return {
       // File
       // Open and Add-local are the same act here -- point the app at an
-      // existing working directory -- and both go through the same path
-      // prompt the switcher popover's footer uses, since this app has no
-      // native folder-picker dependency (see pubspec.yaml). Opening one
+      // existing working directory -- and both go through the same system
+      // folder picker the switcher popover's footer uses (~~since this app
+      // has no native folder-picker dependency~~ -- it has, W-D2b). Opening one
       // records it in the manually-opened list (spec page 11 item 6). New
       // and Clone share the same footer entry points too -- see
       // promptNewRepository()/promptCloneRepository() in
       // repo_switcher_popover.dart.
-      GbmActionId.fileNewRepository: () => promptNewRepository(context, ref),
-      GbmActionId.fileOpenRepository: () => promptOpenRepository(context),
+      GbmActionId.fileNewRepository: () => promptNewRepository(
+        context,
+        ref,
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+      ),
+      GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () =>
-          promptCloneRepository(context, ref),
+          promptCloneRepository(context, originWorkDir: identity.workDir),
       GbmActionId.fileSwitchRepository: () {
         // Same reveal-then-act pattern as editFilterBranches below: the
         // popover anchors to the sidebar's repository button, which is not
@@ -867,35 +915,19 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         }
         _switcherController.open();
       },
-      GbmActionId.fileAddLocalRepository: () => promptOpenRepository(context),
+      GbmActionId.fileAddLocalRepository: () =>
+          promptOpenRepository(context, ref),
       // Closes this workspace back to the welcome screen. Not
       // SystemNavigator.pop -- that is Exit, and the two must stay
       // distinguishable.
       GbmActionId.fileCloseWindow: () => context.go(RoutePaths.welcome),
-      GbmActionId.filePreferences: () =>
-          pushDialogRoute(context, RoutePaths.preferencesDialog),
+      GbmActionId.filePreferences: () => pushDialogRoute(
+        context,
+        RoutePaths.preferencesDialogPath(originWorkDir: identity.workDir),
+      ),
       GbmActionId.fileExit: null, // Handled specially in MenuBarRow
-      // Edit
-      // The five clipboard/history verbs dispatch Flutter's own text-editing
-      // intents, so they act on whichever field has focus (commit message,
-      // filter box, conflict editor) instead of needing a per-field wiring.
-      // Unfocused, `maybeInvoke` finds no action and does nothing, which is
-      // the correct behaviour for "Copy" with no text selected.
-      GbmActionId.editUndo: () => _invokeTextIntent(
-        const UndoTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editRedo: () => _invokeTextIntent(
-        const RedoTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editCut: () => _invokeTextIntent(
-        const CopySelectionTextIntent.cut(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editCopy: () =>
-          _invokeTextIntent(CopySelectionTextIntent.copy),
-      GbmActionId.editPaste: () => _invokeTextIntent(
-        const PasteTextIntent(SelectionChangedCause.keyboard),
-      ),
-      GbmActionId.editSelectAll: _invokeSelectAll,
+      // Edit: shared with the welcome screen (gbm_edit_intents.dart).
+      ...buildEditActionHandlers(),
       // Both searches live on the History view: commit search filters the
       // commit list, and "find in files" is the same field scoped to paths.
       // Navigating there first means the shortcut works from Working Copy
@@ -906,7 +938,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
           _focusHistorySearch(context, ref, identity, repoId),
       GbmActionId.editFilterBranches: () {
         // Reveal the sidebar first if hidden -- there is nothing to focus
-        // otherwise (mirrors onOpenLog's un-collapse-then-reveal pattern
+        // otherwise (mirrors onOpenError's un-collapse-then-reveal pattern
         // above for the log drawer).
         if (!_sidebarVisible) {
           setState(() => _sidebarVisible = true);
@@ -973,18 +1005,16 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // `open()`, which is a no-op once the drawer is already open, so every
       // press after the first did nothing at all.
       //
-      // The status bar's own badge deliberately keeps plain `open()`: it
-      // means 「show me the log」, and closing the drawer someone is reading
-      // would be the opposite of what the badge says. (It is also a
-      // one-shot in practice -- the badge is drawn only while
-      // `hasUnreadLog`, which opening clears.)
+      // The status bar's `Log` entry calls this same closure (ruling Q6);
+      // its red error summary keeps plain `open()` instead -- see
+      // `onOpenError`.
       GbmActionId.viewLog: () {
         // Marked seen only on the opening half: closing reveals nothing, so
-        // it must not clear a badge for records the user never saw.
+        // it must not clear a summary for an error the user never saw.
+        // Closing drops the jumped-to row's ground through the controller's
+        // onCollapsed (initState), the same path a drag-close takes.
         if (!_logDrawerController.isOpen) {
-          setState(() {
-            _lastSeenOperationLogRevision = session.operationLogRevision;
-          });
+          setState(() => _seenError = _newestError(session));
         }
         _logDrawerController.toggle();
       },
@@ -1210,13 +1240,15 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
       // Help
       GbmActionId.helpDocumentation: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.documentation),
+          _openUrl(ref, identity, GbmUrls.documentation),
       GbmActionId.helpKeyboardShortcuts: () =>
           pushDialogRoute(context, RoutePaths.keyboardShortcutsDialog),
       GbmActionId.helpReportAnIssue: () =>
-          ref.read(desktopLauncherProvider).openUrl(GbmUrls.reportAnIssue),
-      GbmActionId.helpAbout: () =>
-          pushDialogRoute(context, RoutePaths.aboutDialog),
+          _openUrl(ref, identity, GbmUrls.reportAnIssue),
+      GbmActionId.helpAbout: () => pushDialogRoute(
+        context,
+        RoutePaths.aboutDialogPath(originWorkDir: identity.workDir),
+      ),
     };
   }
 
@@ -1224,9 +1256,11 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   ///
   /// Derived from session state rather than tracked separately, so a task
   /// cannot linger on screen after the operation that owns it has finished.
-  /// Three sources, in this order: every running git command of this
+  /// Four sources, in this order: every running git command of this
   /// session's queued operations (`backgroundTasksFromOperationLog`, the same
-  /// rows the log drawer shows as RUNNING), the history scan
+  /// rows the log drawer shows as RUNNING), every running clone -- app-wide,
+  /// since a clone outlives the window that started it
+  /// (`backgroundTasksFromCloneJobs`) --, the history scan
   /// (`isRefreshing`), and a sequencer operation stopped on the user, whose
   /// step counts `RepoState` carries.
   ///
@@ -1235,10 +1269,14 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// 2026-10-15, though this comment said so. They are indeterminate now: core
   /// surfaces no object counts, and 使用者裁定 has the spec's
   /// "12,480 / 31,206" 「改spec，沒有計畫」.
-  List<BackgroundTask> _backgroundTasks(RepoSessionState session) {
-    final List<BackgroundTask> tasks = backgroundTasksFromOperationLog(
-      session.operationLog,
-    );
+  List<BackgroundTask> _backgroundTasks(
+    RepoSessionState session,
+    List<CloneJob> cloneJobs,
+  ) {
+    final List<BackgroundTask> tasks = <BackgroundTask>[
+      ...backgroundTasksFromOperationLog(session.operationLog),
+      ...backgroundTasksFromCloneJobs(cloneJobs),
+    ];
 
     if (session.isRefreshing) {
       tasks.add(
@@ -1296,6 +1334,10 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   /// re-requesting the snapshot. The sequencer entry is built with
   /// `cancellable: false`, so this is never called with its id.
   void _cancelTask(String id) {
+    if (cloneJobIdOf(id) case final int job) {
+      ref.read(cloneJobsProvider.notifier).cancel(job);
+      return;
+    }
     final RepoSessionState session = ref.read(
       repoSessionProvider(widget.identity),
     );
@@ -1352,39 +1394,6 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     }
   }
 
-  /// Dispatches a Flutter text-editing intent at the currently focused
-  /// widget, which is how Edit → Undo/Redo/Cut/Copy/Paste reach whichever
-  /// field has focus. Silently does nothing when no editable widget is
-  /// focused -- the correct outcome for "Copy" with nothing selected.
-  /// Ctrl/Cmd+A has to mean two different things depending on what has
-  /// focus: "select every row" over a list (spec page 13's `MULTIKEYS`) and
-  /// "select all text" inside an editor. Focus is the only thing that can
-  /// tell them apart, so this offers the list intent first and falls back
-  /// to the text one when nothing consumed it.
-  ///
-  /// The handler-map entry is deliberately **non-null**. All three dispatch
-  /// paths read this one map (see CLAUDE.md's Intent / Action layer), and a
-  /// null here would grey the macOS menu item out and make the keyboard
-  /// path a no-op while leaving the in-window menu working -- the exact
-  /// split `workspace_intent_dispatch_parity_test.dart` exists to catch.
-  void _invokeSelectAll() {
-    final BuildContext? focused = primaryFocus?.context;
-    if (focused == null) return;
-    if (Actions.maybeInvoke(focused, const GbmSelectAllIntent()) != null) {
-      return;
-    }
-    Actions.maybeInvoke(
-      focused,
-      const SelectAllTextIntent(SelectionChangedCause.keyboard),
-    );
-  }
-
-  void _invokeTextIntent(Intent intent) {
-    final BuildContext? focused = primaryFocus?.context;
-    if (focused == null) return;
-    Actions.maybeInvoke(focused, intent);
-  }
-
   /// Navigates to History (the only view the commit filter exists on) and
   /// puts the caret in its search field.
   void _focusHistorySearch(
@@ -1405,17 +1414,24 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
 
   /// Repository → Open in terminal (Ctrl/Cmd+`). Failure is reported into
   /// the operation log rather than a dialog, per spec page 10's rule that
-  /// only user-initiated failures needing a decision open a window.
-  Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) async {
-    final bool started = await ref
-        .read(desktopLauncherProvider)
-        .openTerminal(identity.workDir);
-    if (!started && mounted) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('No terminal emulator was found.')),
+  /// only user-initiated failures needing a decision open a window -- and
+  /// not a toast either (P10 #3); the status bar's red summary is what the
+  /// user sees. ~~It showed a SnackBar while this comment said the log.~~
+  /// Through [AppActionRunner], so a success is an info line (ruling R4).
+  Future<void> _openInTerminal(WidgetRef ref, RepoIdentity identity) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openTerminalAction(ref.read(desktopLauncherProvider), identity.workDir),
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
       );
-    }
-  }
+
+  /// Help → Documentation / Report an issue, as a Log line (ruling R4).
+  Future<void> _openUrl(WidgetRef ref, RepoIdentity identity, String url) => ref
+      .read(appActionRunnerProvider)
+      .run(
+        openUrlAction(ref.read(desktopLauncherProvider), url),
+        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
+      );
 
   /// Branch → Rename current branch…. Uses the same `promptText` field the
   /// sidebar's own rename uses, so the two entry points behave identically.

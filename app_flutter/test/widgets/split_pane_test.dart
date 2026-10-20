@@ -903,6 +903,43 @@ void main() {
       expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 0);
     });
 
+    // Ruling R3: the owner must hear about a drag-close at the moment it
+    // happens, so it can drop state that only makes sense while open.
+    testWidgets('onCollapsed fires once per close, by drag or by close()', (
+      tester,
+    ) async {
+      int collapsed = 0;
+      final GbmSplitPaneController controller = GbmSplitPaneController()
+        ..onCollapsed = () => collapsed++;
+      await pumpDrawer(
+        tester,
+        spec: GbmLayout.splitterMainLog,
+        storageId: 'test.drag.close.notify',
+        controller: controller,
+        initialPrefs: <String, Object>{
+          'panelLayout.test.drag.close.notify': '[200.0]',
+        },
+      );
+
+      controller.open();
+      await tester.pump();
+      expect(collapsed, 0, reason: 'opening is not a collapse');
+
+      await dragDownInSteps(tester, steps: 12);
+      expect(tester.getSize(find.byKey(const Key('pane-0'))).height, 0);
+      expect(collapsed, 1);
+
+      controller.open();
+      await tester.pump();
+      controller.close();
+      await tester.pump();
+      expect(collapsed, 2);
+
+      controller.close();
+      await tester.pump();
+      expect(collapsed, 2, reason: 'already closed');
+    });
+
     testWidgets('closing by drag keeps a non-zero height to reopen to', (
       tester,
     ) async {

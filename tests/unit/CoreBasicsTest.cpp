@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
@@ -1402,6 +1403,165 @@ TEST(Askpass, ClientPrintsTheAnswerOnceAResponseArrives) {
     // The response file is consumed, matching a real one-shot credential prompt.
     EXPECT_FALSE(std::filesystem::exists(dir / "response"));
 
+    std::filesystem::remove_all(dir);
+}
+
+// --- askpass handshake files are the user's secret (security review P2-B) -
+//
+// The response file holds a password or token. On Linux the request
+// directory lives in the shared /tmp, so both it and the files in it must be
+// unreadable to anyone but the owner, and the directory must be a fresh one
+// no other user could have planted under a predictable name.
+
+#ifndef _WIN32
+TEST(Askpass, TheRequestDirectoryIsFreshAndOwnerOnly) {
+    const auto first = askpass::makeRequestDir();
+    const auto second = askpass::makeRequestDir();
+    ASSERT_FALSE(first.empty());
+    ASSERT_FALSE(second.empty());
+
+    EXPECT_NE(first, second);
+    const auto perms = std::filesystem::status(first).permissions();
+    EXPECT_EQ(perms & std::filesystem::perms::all, std::filesystem::perms::owner_all)
+        << "group/other must have no access to the request directory";
+
+    std::filesystem::remove_all(first);
+    std::filesystem::remove_all(second);
+}
+#endif
+
+TEST(Askpass, AHandshakeFileIsWrittenWholeAndOwnerOnly) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "s3cret"));
+
+    const auto file = dir / std::string(askpass::kResponseFile);
+    EXPECT_EQ(fsutil::readSmallFile(file), std::optional<std::string>("s3cret"));
+#ifndef _WIN32
+    const auto perms = std::filesystem::status(file).permissions();
+    EXPECT_EQ(perms & std::filesystem::perms::all,
+              std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+#endif
+    std::size_t entries = 0;
+    for ([[maybe_unused]] const auto& entry : std::filesystem::directory_iterator(dir)) {
+        ++entries;
+    }
+    EXPECT_EQ(entries, 1u) << "the temporary file is renamed into place, not left behind";
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, AStaleTemporaryFileDoesNotLeakIntoTheAnswer) {
+    // A writer that died between its write and its rename leaves `.tmp`
+    // behind; the next write must not inherit its tail.
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    {
+        std::ofstream stale(dir / (std::string(askpass::kResponseFile) + ".tmp"), std::ios::binary);
+        stale << "a-much-longer-stale-answer";
+    }
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "fresh"));
+
+    EXPECT_EQ(fsutil::readSmallFile(dir / std::string(askpass::kResponseFile)),
+              std::optional<std::string>("fresh"));
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, AHandshakeFileReplacesAnEarlierOne) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+
+    ASSERT_TRUE(
+        askpass::writeHandshakeFile(dir, askpass::kResponseFile, "a-much-longer-first-answer"));
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "second"));
+
+    EXPECT_EQ(fsutil::readSmallFile(dir / std::string(askpass::kResponseFile)),
+              std::optional<std::string>("second"));
+    std::filesystem::remove_all(dir);
+}
+
+// --- an orphaned askpass client must not outlive its request (P3-J1) -------
+//
+// git is killed on cancel, but its askpass child is not git's process: it
+// polls on for kResponseTimeout (10 minutes) unless something tells it to
+// stop. The directory going away is that signal -- AskpassPoller::stop()
+// removes it at the end of every operation.
+
+/// Runs the client on its own thread; if it is still running after `limit`,
+/// unblocks it with a cancel file (recreating the directory if needed) so the
+/// test never waits out kResponseTimeout, and reports that it had to.
+struct BoundedClient {
+    std::filesystem::path dir;
+    std::future<int> result;
+
+    BoundedClient(std::filesystem::path d, std::string prompt) : dir(std::move(d)) {
+        result = std::async(std::launch::async, [dir = dir, prompt = std::move(prompt)] {
+            return askpass::runClientForDir(dir, prompt);
+        });
+    }
+
+    bool finishedWithin(std::chrono::milliseconds limit) {
+        if (result.wait_for(limit) == std::future_status::ready) {
+            return true;
+        }
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream(dir / std::string(askpass::kCancelFile)) << "x";
+        result.wait();
+        return false;
+    }
+};
+
+TEST(Askpass, ClientGivesUpOnceItsRequestDirectoryIsGone) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    BoundedClient client(dir, "Password: ");
+    const auto request = dir / std::string(askpass::kRequestFile);
+    for (int i = 0; i < 100 && !std::filesystem::exists(request); ++i) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    ASSERT_TRUE(std::filesystem::exists(request));
+
+    std::filesystem::remove_all(dir);
+
+    EXPECT_TRUE(client.finishedWithin(std::chrono::seconds(2)))
+        << "the client kept polling a directory that no longer exists";
+    EXPECT_EQ(client.result.get(), 1);
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, ClientRefusesARequestDirectoryThatDoesNotExist) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    std::filesystem::remove_all(dir);
+
+    BoundedClient client(dir, "Password: ");
+
+    EXPECT_TRUE(client.finishedWithin(std::chrono::seconds(2)));
+    EXPECT_EQ(client.result.get(), 1);
+    EXPECT_FALSE(std::filesystem::exists(dir / std::string(askpass::kRequestFile)))
+        << "the client must not recreate a request directory nobody is watching";
+    std::filesystem::remove_all(dir);
+}
+
+TEST(Askpass, APromptIsPendingOnlyUntilItIsAnsweredOrCancelled) {
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "no request yet";
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kRequestFile, "Password: "));
+    EXPECT_TRUE(askpass::isPromptPending(dir));
+
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kResponseFile, "s3cret"));
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "answered";
+
+    std::filesystem::remove(dir / std::string(askpass::kResponseFile));
+    ASSERT_TRUE(askpass::writeHandshakeFile(dir, askpass::kCancelFile, "x"));
+    EXPECT_FALSE(askpass::isPromptPending(dir)) << "cancelled";
+
+    EXPECT_FALSE(askpass::isPromptPending({})) << "no askpass directory at all";
     std::filesystem::remove_all(dir);
 }
 

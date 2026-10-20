@@ -2,16 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
+import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/update_repository.dart';
+import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
 import 'package:gbm_flutter/data/services/desktop_launcher.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
 import 'package:gbm_flutter/features/dialogs/update/update_dialog.dart';
+import 'package:gbm_flutter/routing/app_router.dart';
+import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/theme/gbm_theme.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../support/fake_repo_session.dart';
 import '../../support/pump_app.dart';
 
 const ReleaseAsset _asset = ReleaseAsset(
@@ -105,12 +117,15 @@ Future<_PumpedDialog> _pumpDialog(
   UpdateState state, {
   DesktopLauncher? launcher,
   OpenRepoSessions? sessions,
+  String? originWorkDir,
+  List<Override> extra = const <Override>[],
 }) async {
   final _FakeUpdate fake = _FakeUpdate(state);
   final ProviderContainer container = await pumpGbmWidget(
     tester,
-    child: const UpdateDialogContent(),
+    child: UpdateDialogContent(originWorkDir: originWorkDir),
     overrides: <Override>[
+      ...extra,
       updateProvider.overrideWith((Ref ref) => fake),
       if (launcher != null) desktopLauncherProvider.overrideWithValue(launcher),
       if (sessions != null)
@@ -320,6 +335,108 @@ void main() {
       await tester.pump();
 
       expect(launcher.urls, <String>[GbmUrls.releasesPage]);
+    });
+
+    // Ruling R4 「每個動作都要有log」: through AppActionRunner, into the Log
+    // of the window the dialog was opened over (`?origin=`), or the
+    // no-repository window's own (R13).
+    testWidgets('Open releases page is logged in the window with none', (
+      WidgetTester tester,
+    ) async {
+      final _PumpedDialog pumped = await _pumpDialog(
+        tester,
+        UpdateState.available(release: _release, blockedReason: 'blocked'),
+        launcher: _RecordingLauncher(),
+      );
+      await tester.tap(find.text('Open releases page'));
+      await tester.pump();
+
+      expect(
+        pumped.container
+            .read(windowLogProvider)
+            .entries
+            .whereType<AppLogEntry>()
+            .map((AppLogEntry e) => e.message),
+        <String>['Opened ${GbmUrls.releasesPage}'],
+      );
+    });
+
+    testWidgets('Open releases page is logged in its origin repository', (
+      WidgetTester tester,
+    ) async {
+      final RepoIdentity origin = RepoIdentity.forWorkDir('/src/r');
+      final FakeRepoSessionController session = FakeRepoSessionController(
+        origin,
+        const RepoSessionState(isOpen: true),
+      );
+      final _PumpedDialog pumped = await _pumpDialog(
+        tester,
+        UpdateState.available(release: _release, blockedReason: 'blocked'),
+        launcher: _RecordingLauncher(),
+        originWorkDir: '/src/r',
+        extra: <Override>[
+          repoSessionProvider(origin).overrideWith((ref) => session),
+        ],
+      );
+      await tester.tap(find.text('Open releases page'));
+      await tester.pump();
+
+      expect(
+        session.state.operationLog.whereType<AppLogEntry>().map(
+          (AppLogEntry e) => e.message,
+        ),
+        <String>['Opened ${GbmUrls.releasesPage}'],
+      );
+      expect(pumped.container.read(windowLogProvider).entries, isEmpty);
+    });
+
+    // The real route reads `?origin=` into the dialog.
+    testWidgets('the route hands its ?origin= to the dialog', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final RepoIdentity origin = RepoIdentity.forWorkDir('/src/r');
+      final FakeRepoSessionController session = FakeRepoSessionController(
+        origin,
+        const RepoSessionState(isOpen: true),
+      );
+      final GoRouter router = GoRouter(
+        initialLocation: RoutePaths.updateDialogPath(originWorkDir: '/src/r'),
+        routes: <RouteBase>[updateDialogRoute()],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+            updateProvider.overrideWith(
+              (Ref ref) => _FakeUpdate(
+                UpdateState.available(
+                  release: _release,
+                  blockedReason: 'blocked',
+                ),
+              ),
+            ),
+            desktopLauncherProvider.overrideWithValue(_RecordingLauncher()),
+            repoSessionProvider(origin).overrideWith((ref) => session),
+          ],
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Open releases page'));
+      await tester.pump();
+
+      expect(
+        session.state.operationLog.whereType<AppLogEntry>().map(
+          (AppLogEntry e) => e.message,
+        ),
+        <String>['Opened ${GbmUrls.releasesPage}'],
+      );
     });
 
     testWidgets('cancels a download in progress', (WidgetTester tester) async {

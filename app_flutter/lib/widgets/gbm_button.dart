@@ -48,6 +48,8 @@ class GbmButton extends StatelessWidget {
     this.icon,
     this.lineThrough = false,
     this.borderColor,
+    this.borderRadius,
+    this.alignment,
   });
 
   final String label;
@@ -82,6 +84,16 @@ class GbmButton extends StatelessWidget {
   /// Null means 「whatever [kind] says」, which is what every other call site
   /// wants. Ignored by a kind that draws no ring at all.
   final Color? borderColor;
+
+  /// Overrides the all-round `--radius-md`. `GbmSplitButton` passes a
+  /// left-only radius so its main segment and its ▾ segment read as one
+  /// control (open-with-apps-spec.html). Null is every other call site.
+  final BorderRadius? borderRadius;
+
+  /// Where the label sits when the button is wider than it. Null centres it
+  /// (TextButton's default). The welcome screen's three fixed-width buttons
+  /// pass `centerLeft` for P15 A's `justify-content:flex-start`.
+  final AlignmentGeometry? alignment;
 
   @override
   Widget build(BuildContext context) {
@@ -165,13 +177,15 @@ class GbmButton extends StatelessWidget {
       }),
       shape: WidgetStatePropertyAll<OutlinedBorder>(
         RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
+          borderRadius:
+              borderRadius ?? BorderRadius.circular(GbmSpacing.radiusMd),
         ),
       ),
       padding: WidgetStatePropertyAll<EdgeInsets>(
         EdgeInsets.symmetric(horizontal: horizontalPadding),
       ),
       minimumSize: const WidgetStatePropertyAll<Size>(Size(0, 0)),
+      alignment: alignment,
       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
     );
     final Text labelWidget = Text(

@@ -42,6 +42,7 @@
 
 typedef void* GbmSessionHandle;
 typedef void* GbmDiscoveryHandle;
+typedef void* GbmCloneHandle;
 
 // --- Errors --------------------------------------------------------------
 // Mirrors gbm::GitError::Code (src/core/base/Error.h) 1:1. A scalar call
@@ -258,6 +259,17 @@ enum GbmEventType {
     /// failure (with "error" set); a failure also fires
     /// GBM_EVENT_ERROR_OCCURRED with the same GitError, before this reply.
     GBM_EVENT_PREPARED_MESSAGE_READY = 37,
+    /// A clone job's transfer meter (gbm_clone_start). payload:
+    /// {"phase":"receiving"|"resolving","current":n,"total":m}
+    GBM_EVENT_CLONE_PROGRESS = 38,
+    /// A clone job ended, always exactly once. payload: {"ok":bool,
+    /// "error":GitError|null,"removedPath":string|null,
+    /// "removalError":string|null}. removedPath is set when the job was
+    /// cancelled, the destination was the job's own (absent or empty at
+    /// start) and nothing of the clone is left there now -- whether git's
+    /// own cleanup or the job's removed it. removalError says what could not
+    /// be removed when the job's cleanup stopped short.
+    GBM_EVENT_CLONE_FINISHED = 39,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -1023,6 +1035,20 @@ GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret
 /// cleanly, exactly as if no credential helper were configured at all.
 GBM_API void gbm_cancel_credential(GbmSessionHandle session);
 
+/// The askpass client entry point for the desktop runners. git starts the app
+/// itself as its GIT_ASKPASS / SSH_ASKPASS program (see
+/// core/git/AskpassHelper.h's wire()), so each runner calls this at the very
+/// top of `main` -- before any engine, window or toolkit starts -- through
+/// dlopen/LoadLibrary of this library, and exits with the result when it is
+/// not -1. `argv` is UTF-8; `argv[1]` is git's prompt text.
+///
+/// Returns -1 when the process was not started as askpass (GBM_ASKPASS_MODE
+/// is not "1"): the runner then starts normally. Otherwise blocks until the
+/// running app answers or cancels the prompt, writes the answer to stdout,
+/// and returns 0, or returns 1 (no request directory, cancelled, timed out),
+/// which git reports as a failed credential.
+GBM_API int32_t gbm_askpass_main(int32_t argc, const char* const* argv);
+
 // --- Blame / file history / line history / reflog / undo -----------------
 // Mirrors RepositorySession's blame/file-history/line-history/reflog/undo
 // section -- see src/core/git/{BlameStore,FileHistoryStore,ReflogStore}.h
@@ -1462,20 +1488,54 @@ GBM_API void gbm_write_commit_graph(GbmSessionHandle session);
 // gbm_session_open() -- neither function opens or returns a session itself.
 
 /// Runs `git init <path>` synchronously (blocks the calling thread -- init
-/// is local and fast, so this is safe to call directly, unlike clone below).
+/// is local and fast, so this is safe to call directly; clone is a job,
+/// gbm_clone_start()).
 /// `path` is created if it doesn't already exist. Returns 0 on success, or a
 /// negative GbmErrorCode with the staging buffer populated with a GitError
 /// JSON.
 GBM_API int32_t gbm_repo_init(const char* path);
 
-/// Runs `git clone <url> <destPath>` synchronously (blocks the calling
-/// thread -- callers should run this off the UI isolate, e.g. via Dart's
-/// Isolate.run, the same caveat gbm_discovery_scan_all() carries, now
-/// extended to a network operation with no upper bound on how long it may
-/// run). Per-object transfer progress is not reported -- see
-/// InitCloneOps.h's doc comment. Returns 0 on success, or a negative
-/// GbmErrorCode with the staging buffer populated with a GitError JSON.
-GBM_API int32_t gbm_repo_clone(const char* url, const char* destPath);
+/// Populates the staging buffer with the git every invocation runs, as
+/// `{"major":n,"minor":n,"patch":n}` -- the clone dialog defaults "clone
+/// submodules" off below the release that fixed CVE-2025-48384. Returns 0, or
+/// a negative GbmErrorCode with the staging buffer holding a GitError JSON
+/// when no usable git was found.
+GBM_API int32_t gbm_git_version_json(void);
+
+// --- Clone job ---------------------------------------------------------
+// A clone that needs no open session, run on its own thread. Events arrive
+// through `callback`, whose first argument is the GbmCloneHandle (in the
+// GbmSessionHandle slot), under the same payload ownership contract as a
+// session's: GBM_EVENT_OPERATION_LOG_RECORD for the git invocations it makes,
+// GBM_EVENT_CREDENTIAL_REQUESTED when git asks for a credential (answer with
+// gbm_clone_provide_credential / gbm_clone_cancel_credential),
+// GBM_EVENT_CLONE_PROGRESS, and exactly one GBM_EVENT_CLONE_FINISHED.
+
+/// Starts `git clone [--recurse-submodules] [--depth <depth>] -- <url>
+/// <destPath>`. `destPath` must be absolute, free of `..`, and neither a root
+/// nor the home directory; `url` must not start with '-'; `depth` 0 is the
+/// full history. On cancel the destination is removed -- or, when it was an
+/// existing empty directory, emptied -- only if it was absent or empty at
+/// this call. Returns null and populates the staging buffer with a GitError
+/// JSON when it refuses before git runs.
+GBM_API GbmCloneHandle gbm_clone_start(const char* url,
+                                       const char* destPath,
+                                       int32_t recurseSubmodules,
+                                       int32_t depth,
+                                       GbmEventCallback callback,
+                                       void* userData);
+
+/// Asks the clone to stop. GBM_EVENT_CLONE_FINISHED still fires.
+GBM_API void gbm_clone_cancel(GbmCloneHandle job);
+
+/// Answers / dismisses the clone's outstanding credential prompt, if any.
+GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret);
+GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job);
+
+/// Cancels the clone if still running, waits for its thread, and releases
+/// the job. Nothing is emitted through its callback once this returns, so the
+/// caller may then free the callback. `job` must not be used again.
+GBM_API void gbm_clone_close(GbmCloneHandle job);
 
 // --- Discovery -------------------------------------------------------------
 // A separate handle class from GbmSessionHandle: discovery scans base

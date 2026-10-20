@@ -14,14 +14,18 @@ import '../../../widgets/gbm_dialog_shell.dart';
 /// The Dart analog of `AboutDialog` (src/app/dialogs/AboutDialog.cpp).
 /// Routed as `/dialogs/about` -- see routing/app_router.dart.
 ///
-/// This is also the app's only version readout that is reachable with **no
-/// repository open**: `WelcomeScreen` renders no menu bar at all (both
-/// `MenuBarRow` and `PlatformMenuBarHost` are built inside
-/// `WorkspaceScreen`), so its three AppBar buttons — one of which opens
-/// this dialog — are the whole entry surface in that state. That is also
-/// why the update check hangs off this dialog rather than off Help alone.
+/// This is also the app's only version readout, and its button the only
+/// route to the update check: Help has no Check for updates… item.
+/// ~~`WelcomeScreen` renders no menu bar at all ... so its three AppBar
+/// buttons are the whole entry surface in that state~~ -- since spec page
+/// 15 A `WelcomeScreen` has the menu bar too, and Help → About reaches this
+/// dialog from both windows.
 class AboutDialogContent extends ConsumerWidget {
-  const AboutDialogContent({super.key});
+  const AboutDialogContent({super.key, this.originWorkDir});
+
+  /// The repository window it was opened over, passed on to Update so what
+  /// that logs goes there (rulings R4, R13); null with no repository open.
+  final String? originWorkDir;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -39,7 +43,9 @@ class AboutDialogContent extends ConsumerWidget {
         GbmButton(
           label: 'Check for updates…',
           kind: GbmButtonKind.primary,
-          onPressed: () => context.pushReplacement(RoutePaths.updateDialog),
+          onPressed: () => context.pushReplacement(
+            RoutePaths.updateDialogPath(originWorkDir: originWorkDir),
+          ),
         ),
       ],
       child: Column(

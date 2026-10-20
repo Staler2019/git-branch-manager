@@ -184,7 +184,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(StatusBar),
-            matching: find.text('Cherry-picking'),
+            matching: find.textContaining('Cherry-picking'),
           ),
           findsOneWidget,
         );
@@ -249,7 +249,7 @@ void main() {
         expect(
           find.descendant(
             of: find.byType(StatusBar),
-            matching: find.text('Merging'),
+            matching: find.textContaining('Merging'),
           ),
           findsNothing,
         );
@@ -401,7 +401,7 @@ void main() {
       expect(
         find.descendant(
           of: find.byType(StatusBar),
-          matching: find.text('Cherry-picking'),
+          matching: find.textContaining('Cherry-picking'),
         ),
         findsOneWidget,
       );

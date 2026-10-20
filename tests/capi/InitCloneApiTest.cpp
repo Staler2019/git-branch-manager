@@ -1,15 +1,13 @@
-// Integration tests for the session-less repository-creation slice of the
-// extern "C" surface (gbm_capi.h): gbm_repo_init and gbm_repo_clone. Clone
-// is tested against a local bare repository reached over the plain
-// filesystem transport, which needs no credentials -- git never invokes
-// askpass for it, so this stays fully offline, same as RemoteApiTest.cpp.
+// Integration tests for the session-less slice of the extern "C" surface
+// (gbm_capi.h): gbm_repo_init and gbm_git_version_json. Clone is a job now
+// (gbm_clone_start); CloneJobApiTest.cpp covers it.
 #include "capi/gbm_capi.h"
+#include "core/base/Error.h"
 #include "core/git/GitExecutable.h"
 #include "support/GitCli.h"
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <string>
 
@@ -49,33 +47,6 @@ protected:
         std::filesystem::remove_all(base_, ec);
     }
 
-    /// A bare repo with one commit on main, reachable as a plain filesystem
-    /// path -- git treats that as a transport with no network/credentials
-    /// involved, same fixture style as RemoteApiTest.cpp.
-    std::filesystem::path makeBareOrigin() {
-        const std::filesystem::path origin = base_ / "origin.git";
-        const std::filesystem::path scratch = base_ / "origin-scratch";
-        std::filesystem::create_directories(scratch);
-
-        auto run = [](const std::filesystem::path& dir, std::vector<std::string> args) {
-            ASSERT_EQ(GitCli::run(dir, std::move(args)), 0);
-        };
-        // `git init <dir>` names the directory as an argument rather than
-        // running inside it, so the working directory here is the parent.
-        run(base_, {"init", "--quiet", "--bare", "--initial-branch=main", origin.string()});
-        run(scratch, {"init", "--quiet", "--initial-branch=main"});
-        run(scratch, {"config", "user.email", "test@example.com"});
-        run(scratch, {"config", "user.name", "Test"});
-        {
-            std::ofstream file(scratch / "README.md");
-            file << "hello\n";
-        }
-        run(scratch, {"add", "README.md"});
-        run(scratch, {"commit", "--quiet", "-m", "initial"});
-        run(scratch, {"push", "--quiet", origin.string(), "main"});
-        return origin;
-    }
-
     std::filesystem::path base_;
 };
 
@@ -102,45 +73,23 @@ TEST_F(InitCloneApiTest, InitFailsCleanlyWithAnEmptyPath) {
     EXPECT_NE(lastResultJson().find("InvalidArgument"), std::string::npos);
 }
 
-TEST_F(InitCloneApiTest, CloneCreatesAWorkingCopyWithTheOriginsHistory) {
-    const std::filesystem::path origin = makeBareOrigin();
-    const std::filesystem::path dest = base_ / "cloned";
+// The clone dialog decides whether "clone submodules" starts checked from the
+// detected git's version (welcome-and-clone-spec.html W-D5), so the capi
+// reports exactly what core detected -- the same installation every git
+// invocation runs.
+TEST_F(InitCloneApiTest, GitVersionJsonReportsTheDetectedInstallation) {
+    // The same lookup sharedGitInstallation() makes, GBM_GIT_PATH included.
+    const char* overridePath = std::getenv("GBM_GIT_PATH");
+    const GitResult<GitInstallation> detected = GitExecutable::detect(
+        overridePath != nullptr ? std::filesystem::path(overridePath) : std::filesystem::path{});
+    ASSERT_TRUE(detected);
+    const GitVersion& v = detected.value().version;
 
-    ASSERT_EQ(gbm_repo_clone(origin.string().c_str(), dest.string().c_str()), 0);
+    ASSERT_EQ(gbm_git_version_json(), 0);
 
-    EXPECT_TRUE(std::filesystem::is_directory(dest / ".git"));
-    EXPECT_TRUE(std::filesystem::is_regular_file(dest / "README.md"));
-}
-
-TEST_F(InitCloneApiTest, CloneFailsCleanlyWhenTheSourceDoesNotExist) {
-    const std::filesystem::path missing = base_ / "does-not-exist.git";
-    const std::filesystem::path dest = base_ / "cloned";
-
-    const int32_t result = gbm_repo_clone(missing.string().c_str(), dest.string().c_str());
-
-    EXPECT_LT(result, 0);
-    EXPECT_FALSE(std::filesystem::exists(dest));
-}
-
-TEST_F(InitCloneApiTest, CloneFailsCleanlyWithAnEmptyUrl) {
-    const std::filesystem::path dest = base_ / "cloned";
-
-    const int32_t result = gbm_repo_clone("", dest.string().c_str());
-
-    EXPECT_LT(result, 0);
-    EXPECT_NE(lastResultJson().find("InvalidArgument"), std::string::npos);
-    EXPECT_FALSE(std::filesystem::exists(dest));
-}
-
-TEST_F(InitCloneApiTest, ANewlyClonedRepositoryOpensANormalSession) {
-    const std::filesystem::path origin = makeBareOrigin();
-    const std::filesystem::path dest = base_ / "cloned";
-    ASSERT_EQ(gbm_repo_clone(origin.string().c_str(), dest.string().c_str()), 0);
-
-    GbmSessionHandle session =
-        gbm_session_open(dest.string().c_str(), (dest / ".git").string().c_str(), nullptr);
-    ASSERT_NE(session, nullptr);
-    gbm_session_close(session);
+    EXPECT_EQ(lastResultJson(),
+              "{\"major\":" + std::to_string(v.major) + ",\"minor\":" + std::to_string(v.minor) +
+                  ",\"patch\":" + std::to_string(v.patch) + "}");
 }
 
 }  // namespace

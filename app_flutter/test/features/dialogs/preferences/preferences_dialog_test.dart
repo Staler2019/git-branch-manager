@@ -5,6 +5,7 @@
 // RepoIndexDb::finishScan's new dirsSkipped param); the other three
 // (offline marker, manual-open per-entry delete, gitignore import-source
 // label) are Flutter-only.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -12,12 +13,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:gbm_flutter/data/models/base_folder_record.dart';
+import 'package:gbm_flutter/data/models/external_app_entry.dart';
 import 'package:gbm_flutter/data/models/repo_record.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/features/dialogs/preferences/preferences_dialog.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
+import 'package:gbm_flutter/routing/app_router.dart';
 import 'package:gbm_flutter/routing/dialog_route.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -482,6 +485,45 @@ void main() {
       expect(find.text('update-dialog'), findsOneWidget);
     });
 
+    // See about_dialog_test's 'passes its origin on to the update check'.
+    testWidgets('passes its origin on to the update check', (tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final GoRouter router = GoRouter(
+        initialLocation: RoutePaths.preferencesDialogPath(
+          originWorkDir: '/src/r',
+        ),
+        routes: <RouteBase>[
+          preferencesDialogRoute(),
+          dialogRoute(
+            path: RoutePaths.updateDialog,
+            builder: (BuildContext context, GoRouterState state) =>
+                Text('update from ${state.uri.queryParameters['origin']}'),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[
+            sharedPreferencesProvider.overrideWithValue(prefs),
+          ],
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('General'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Check for updates now'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('update from /src/r'), findsOneWidget);
+    });
+
     // A suppression the user can neither see nor undo is hidden material
     // state -- the same class this app's own UX rubric flags. The row only
     // appears once something is actually being skipped, so it costs nothing
@@ -721,6 +763,223 @@ void main() {
       );
       expect(prefs.overwriteWithPreparedMessage, isFalse);
       expect(prefs.cherryPickAddsSourceLine, isTrue);
+    });
+  });
+
+  // open-with-apps-spec.html, screen 2. Rulings D2 (section name and
+  // place), D5 (Edit apps… lands here).
+  group('PreferencesDialogContent - External apps', () {
+    final String twoApps = jsonEncode(<Map<String, String>>[
+      <String, String>{'id': 'a', 'label': 'Rider', 'command': 'rider .'},
+      <String, String>{'id': 'b', 'label': 'VS Code', 'command': 'code {path}'},
+    ]);
+
+    Future<ProviderContainer> pumpApps(WidgetTester tester) async {
+      final result = await _pump(
+        tester,
+        section: 'External apps',
+        initialPrefs: <String, Object>{'appPrefs.externalApps': twoApps},
+      );
+      return result.container;
+    }
+
+    List<(String, String)> stored(ProviderContainer c) => <(String, String)>[
+      for (final ExternalAppEntry e
+          in c.read(appPreferencesProvider).externalApps)
+        (e.label, e.command),
+    ];
+
+    Finder byKey(String k) => find.byKey(ValueKey<String>(k));
+
+    testWidgets('sits between Appearance and Shortcuts in the nav', (
+      tester,
+    ) async {
+      await pumpApps(tester);
+      final double appearance = tester.getTopLeft(find.text('Appearance')).dy;
+      final double apps = tester.getTopLeft(find.text('External apps')).dy;
+      final double shortcuts = tester.getTopLeft(find.text('Shortcuts')).dy;
+      expect(appearance < apps && apps < shortcuts, isTrue);
+      expect(find.text('開啟方式'), findsOneWidget);
+    });
+
+    testWidgets('shows each stored entry as an editable row', (tester) async {
+      await pumpApps(tester);
+      expect(
+        tester
+            .widget<TextField>(byKey('external-app-label-a'))
+            .controller!
+            .text,
+        'Rider',
+      );
+      expect(
+        tester
+            .widget<TextField>(byKey('external-app-command-b'))
+            .controller!
+            .text,
+        'code {path}',
+      );
+    });
+
+    testWidgets('Add is off until both fields have text, then appends', (
+      tester,
+    ) async {
+      final ProviderContainer c = await pumpApps(tester);
+      TextButton add() => tester.widget<TextButton>(
+        find.ancestor(of: find.text('Add'), matching: find.byType(TextButton)),
+      );
+      expect(add().onPressed, isNull);
+      await tester.enterText(byKey('external-app-new-label'), 'Finder');
+      await tester.pump();
+      expect(add().onPressed, isNull);
+      await tester.enterText(byKey('external-app-new-command'), 'open .');
+      await tester.pump();
+      expect(add().onPressed, isNotNull);
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(stored(c), <(String, String)>[
+        ('Rider', 'rider .'),
+        ('VS Code', 'code {path}'),
+        ('Finder', 'open .'),
+      ]);
+    });
+
+    testWidgets('Add refuses what the factory rejects and says why', (
+      tester,
+    ) async {
+      final ProviderContainer c = await pumpApps(tester);
+      await tester.enterText(byKey('external-app-new-label'), 'X');
+      await tester.enterText(byKey('external-app-new-command'), '-x');
+      await tester.pump();
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(stored(c).length, 2);
+      expect(find.text('指令不能以 - 開頭'), findsOneWidget);
+    });
+
+    testWidgets('removing a row stores the rest', (tester) async {
+      final ProviderContainer c = await pumpApps(tester);
+      await tester.tap(byKey('external-app-remove-a'));
+      await tester.pumpAndSettle();
+      expect(stored(c), <(String, String)>[('VS Code', 'code {path}')]);
+    });
+
+    testWidgets('moving rows stores the new order; the ends are disabled', (
+      tester,
+    ) async {
+      final ProviderContainer c = await pumpApps(tester);
+      expect(
+        tester.widget<IconButton>(byKey('external-app-up-a')).onPressed,
+        isNull,
+      );
+      expect(
+        tester.widget<IconButton>(byKey('external-app-down-b')).onPressed,
+        isNull,
+      );
+      await tester.tap(byKey('external-app-down-a'));
+      await tester.pumpAndSettle();
+      expect(stored(c), <(String, String)>[
+        ('VS Code', 'code {path}'),
+        ('Rider', 'rider .'),
+      ]);
+      await tester.tap(byKey('external-app-up-a'));
+      await tester.pumpAndSettle();
+      expect(stored(c).first, ('Rider', 'rider .'));
+    });
+
+    testWidgets('an edit the factory accepts is stored', (tester) async {
+      final ProviderContainer c = await pumpApps(tester);
+      await tester.enterText(byKey('external-app-command-a'), 'rider {path}');
+      await tester.pump();
+      expect(stored(c).first, ('Rider', 'rider {path}'));
+    });
+
+    // 「清空不存」: a half-typed field must not momentarily persist, and the
+    // row says what is still stored.
+    testWidgets('clearing a field stores nothing and keeps the old value', (
+      tester,
+    ) async {
+      final ProviderContainer c = await pumpApps(tester);
+      await tester.enterText(byKey('external-app-command-a'), '');
+      await tester.pump();
+      expect(stored(c).first, ('Rider', 'rider .'));
+      expect(find.textContaining('指令不能是空的'), findsOneWidget);
+      expect(find.textContaining('rider .'), findsWidgets);
+    });
+
+    testWidgets('an edit the factory rejects is not stored', (tester) async {
+      final ProviderContainer c = await pumpApps(tester);
+      await tester.enterText(byKey('external-app-command-a'), '-a Finder .');
+      await tester.pump();
+      expect(stored(c).first, ('Rider', 'rider .'));
+      expect(find.textContaining('指令不能以 - 開頭'), findsOneWidget);
+    });
+  });
+
+  group('Preferences initial section (D5)', () {
+    Future<void> pumpRouted(WidgetTester tester, String location) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final ProviderContainer container = ProviderContainer(
+        overrides: <Override>[
+          sharedPreferencesProvider.overrideWithValue(prefs),
+          discoveryProvider.overrideWith(
+            (ref) => _RecordingDiscoveryController(const <BaseFolderRecord>[]),
+          ),
+          fileSavePickerProvider.overrideWithValue(_FakePicker()),
+        ],
+      );
+      addTearDown(container.dispose);
+      final GoRouter router = GoRouter(
+        initialLocation: location,
+        routes: <RouteBase>[
+          GoRoute(path: '/', builder: (context, state) => const SizedBox()),
+          preferencesDialogRoute(),
+        ],
+      );
+      addTearDown(router.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: MaterialApp.router(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            routerConfig: router,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    test('the path builder names the section only when asked', () {
+      expect(RoutePaths.preferencesDialogPath(), '/dialogs/preferences');
+      expect(
+        RoutePaths.preferencesDialogPath(
+          section: PreferencesSection.externalApps,
+        ),
+        '/dialogs/preferences?section=externalApps',
+      );
+    });
+
+    testWidgets('a section query opens on that section', (tester) async {
+      await pumpRouted(
+        tester,
+        RoutePaths.preferencesDialogPath(
+          section: PreferencesSection.externalApps,
+        ),
+      );
+      expect(find.text('開啟方式'), findsOneWidget);
+    });
+
+    // The two existing pushes (workspace_screen.dart, welcome_screen.dart)
+    // carry no query and must keep opening on General.
+    testWidgets('no query opens on General', (tester) async {
+      await pumpRouted(tester, RoutePaths.preferencesDialog);
+      expect(find.text('自動 FETCH'), findsOneWidget);
+      expect(find.text('開啟方式'), findsNothing);
+    });
+
+    testWidgets('an unknown section opens on General', (tester) async {
+      await pumpRouted(tester, '/dialogs/preferences?section=bogus');
+      expect(find.text('自動 FETCH'), findsOneWidget);
     });
   });
 }

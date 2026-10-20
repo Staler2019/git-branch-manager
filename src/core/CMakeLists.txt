@@ -33,6 +33,7 @@ add_library(gbm_core STATIC
     git/RepoState.cpp
     git/SideBySideDiff.cpp
     git/TextTraits.cpp
+    git/TransferProgress.cpp
     git/UnifiedDiffParser.cpp
     git/WorkingCopyStatus.cpp
     git/ops/BisectOps.cpp

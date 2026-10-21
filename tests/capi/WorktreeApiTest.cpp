@@ -278,6 +278,27 @@ TEST_F(WorktreeApiTest, ALinkedWorktreeReportsItsCreationTimeAndTheCurrentOneDoe
                               << json;
 }
 
+// The worktree panel and the Add worktree dialog both read the published
+// worktree list, which records each worktree's branch. A checkout changes
+// that branch, so a list left from before it showed the old branch and kept
+// the one just switched away from "already checked out" in the add dialog.
+TEST_F(WorktreeApiTest, ACheckoutRepublishesTheWorktreeListWithTheNewBranch) {
+    ASSERT_EQ(runGit({"branch", "other"}), 0);
+    gbm_worktree_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+    ASSERT_NE(worktreesJson().find("\"branch\":\"main\""), std::string::npos);
+    log_.clear();
+
+    gbm_branch_checkout(session_, "other", /*detach=*/0, /*createBranch=*/0, "", /*force=*/0,
+                        /*stashFirst=*/0, /*recurseSubmodules=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a checkout must republish the worktree list";
+
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"branch\":\"other\""), std::string::npos) << json;
+    EXPECT_EQ(json.find("\"branch\":\"main\""), std::string::npos) << json;
+}
+
 // The Flutter side opens every session as `<workDir>/.git` with no commonDir
 // (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
 // `gitdir:` pointer *file*. Every per-worktree stat RepoState makes

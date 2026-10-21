@@ -548,7 +548,11 @@ void Session::publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generati
 }
 
 void Session::checkout(CheckoutRequest request) {
-    submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    // The worktree list records each worktree's branch; the panel and the
+    // Add worktree dialog's "already checked out" gate both read it.
+    submitOperation(makeCheckoutOperation(std::move(request)),
+                    /*refreshHistoryOnSuccess=*/true,
+                    /*onSuccess=*/[this]() { refreshWorktrees(); });
 }
 
 void Session::createBranch(CreateBranchRequest request) {

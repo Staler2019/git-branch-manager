@@ -47,7 +47,15 @@
   repo_lifecycle、rebase_onto 都綠。**`prepared_message_flow_test` 紅**（+4 -1），本分支兩次都紅在
   「a conflicted merge overwrites the typed text…」：`Merge` 按鈕找不到。在 origin/main `4f428b9c`
   的暫時 worktree 上跑同一個檔**也是紅**，紅在同一條測試，但斷言不同（`Expected: 'my body' / Actual: ''`）。
-  所以這條在本輪之前就已經是紅的，不是本輪造成的；**沒有開 issue**，等使用者決定。
+  ~~所以這條在本輪之前就已經是紅的，不是本輪造成的；**沒有開 issue**，等使用者決定。~~
+  **更正**：這條不是固定紅，是在負載下才會紅。同一個 HEAD 單獨跑這一條 2/2 綠（各 7 秒），
+  整檔再跑一次 5/5 綠（40 秒）。三次紅的整檔都跑了 2–11 分鐘，而且都是緊接在全套 `flutter test`
+  或 baseline 冷建置之後。兩次紅在不同步驟：一次 dialog 還沒開就去點 `Merge`
+  （`_mergeFromRow` 只用固定的 `pumpAndSettle(1s)`），一次 Abort 後描述欄還沒還原。
+  根本原因在測試：`pumpUntil`（`real_repo_harness.dart`）等 60×100ms 之後**不會報錯就直接返回**，
+  所以 app 慢的時候，失敗會出現在後面不相干的斷言上。按鈕存在而且符合 spec
+  （spec DLGS `primary: 'Merge'`；`merge_dialog.dart:240`）。測試期間 `/Applications/gbm_flutter.app`
+  一直開著（[TEST-stale-process-blocks-tier]），是可能的干擾來源。**沒有開 issue。**
 - **實際 app 驗證沒有完成**：debug app 的視窗在另一個 Space，`cliclick` 是用螢幕座標點擊，點不到；
   debug app 又自動開了 device test 留下的暫存 repo，畫面上是「No branches」。只用 `screencapture -l <window id>`
   對該視窗截了一張圖，沒有走完選取與收合的流程。

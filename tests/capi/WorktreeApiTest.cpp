@@ -420,5 +420,114 @@ TEST_F(WorktreeApiTest, ASessionOpenedThroughALinkedWorktreesGitFileSeesItsOwnMe
     EXPECT_NE(json.find("\"isClean\":false"), std::string::npos) << json;
 }
 
+// Every operation that moves HEAD changes the worktree's `headOid`, which
+// the worktree panel draws ("a1b2c3d · subject") and keys its pending-count
+// cache on (`path@headOid`). Republishing only on a branch change left both
+// stale after a commit, reset, undo, pull or merge until the next F5/focus
+// sweep. One test per dispatch path that re-reads refs after an operation.
+class WorktreeHeadRepublishTest : public WorktreeApiTest {
+protected:
+    std::string head() { return GitCli::capture(repo_, {"rev-parse", "HEAD"}).firstLine(); }
+
+    /// A fresh list so the next republish is the operation's, not the open's.
+    void settle() {
+        gbm_worktree_refresh(session_);
+        ASSERT_TRUE(log_.waitFor(
+            [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+        log_.clear();
+    }
+
+    void commitWithGit(const std::string& name) {
+        std::ofstream(repo_ / name) << name << "\n";
+        ASSERT_EQ(runGit({"add", name}), 0);
+        ASSERT_EQ(runGit({"commit", "--quiet", "-m", name}), 0);
+    }
+
+    /// True when a republish arrives, within the usual 10 s, that names [oid]
+    /// as a worktree's head. Republishes that still name another head are
+    /// skipped: settle()'s own refresh can land after it cleared the log.
+    bool republishedWithHead(const std::string& oid) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (!log_.waitFor(
+                    [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); },
+                    left)) {
+                return false;
+            }
+            log_.clear();
+            if (worktreesJson().find("\"headOid\":\"" + oid + "\"") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+TEST_F(WorktreeHeadRepublishTest, ACommitRepublishesTheWorktreeListWithTheNewHead) {
+    std::ofstream(repo_ / "second.txt") << "second\n";
+    ASSERT_EQ(runGit({"add", "second.txt"}), 0);
+    settle();
+
+    gbm_commit_changes(session_, "Second", /*amend=*/0, /*signOff=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    EXPECT_TRUE(republishedWithHead(head())) << worktreesJson();
+}
+
+// Reset goes through submitOperation, the path every merge, cherry-pick,
+// revert, rebase, am and bisect step shares.
+TEST_F(WorktreeHeadRepublishTest, AResetRepublishesTheWorktreeListWithTheNewHead) {
+    const std::string first = head();
+    commitWithGit("second.txt");
+    settle();
+
+    gbm_reset_to(session_, first.c_str(), /*mode=*/0);
+    EXPECT_TRUE(republishedWithHead(first)) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, AnUndoRepublishesTheWorktreeListWithTheNewHead) {
+    const std::string first = head();
+    std::ofstream(repo_ / "second.txt") << "second\n";
+    ASSERT_EQ(runGit({"add", "second.txt"}), 0);
+    gbm_commit_changes(session_, "Second", /*amend=*/0, /*signOff=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    ASSERT_NE(head(), first);
+    settle();
+
+    gbm_undo_last(session_);
+    EXPECT_TRUE(republishedWithHead(first)) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, BranchingFromAStashRepublishesTheWorktreeListWithTheNewBranch) {
+    std::ofstream(repo_ / "file.txt") << "changed\n";
+    ASSERT_EQ(runGit({"stash", "--quiet"}), 0);
+    settle();
+
+    gbm_stash_branch(session_, 0, "from-stash");
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a branch made from a stash is checked out, so the list must be republished";
+    EXPECT_NE(worktreesJson().find("\"branch\":\"from-stash\""), std::string::npos) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, APullRepublishesTheWorktreeListWithTheNewHead) {
+    // The repository is its own remote: `ahead` is one commit past main, and
+    // pulling it into main fast-forwards HEAD.
+    ASSERT_EQ(runGit({"remote", "add", "origin", repo_.string()}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "ahead"}), 0);
+    commitWithGit("second.txt");
+    const std::string ahead = head();
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+    settle();
+
+    gbm_pull(session_, "origin", "ahead", /*rebase=*/0, /*stashFirst=*/0);
+    EXPECT_TRUE(republishedWithHead(ahead)) << worktreesJson();
+}
+
 }  // namespace
 }  // namespace gbm::capi

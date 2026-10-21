@@ -548,22 +548,13 @@ void Session::publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generati
 }
 
 void Session::checkout(CheckoutRequest request) {
-    // The worktree list records each worktree's branch; the panel and the
-    // Add worktree dialog's "already checked out" gate both read it.
-    submitOperation(makeCheckoutOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true,
-                    /*onSuccess=*/[this]() { refreshWorktrees(); });
+    // The worktree list is republished by submitOperation, with the refs.
+    submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::createBranch(CreateBranchRequest request) {
-    // Only a checkout moves this worktree onto another branch; see checkout().
-    std::function<void()> onSuccess;
-    if (request.checkoutAfter) {
-        onSuccess = [this]() { refreshWorktrees(); };
-    }
     submitOperation(makeCreateBranchOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true,
-                    std::move(onSuccess));
+                    /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::renameBranch(RenameBranchRequest request) {
@@ -576,8 +567,7 @@ void Session::renameBranch(RenameBranchRequest request) {
     submitOperation(
         makeRenameBranchOperation(std::move(request)),
         /*refreshHistoryOnSuccess=*/true,
-        // The renamed branch may be checked out in any worktree, not only this one.
-        /*onSuccess=*/[this]() { refreshWorktrees(); },
+        /*onSuccess=*/nullptr,
         /*onAlways=*/needsAskpass ? std::function<void()>([this]() { endAskpass(); }) : nullptr);
 }
 
@@ -720,6 +710,7 @@ void Session::commitChanges(CommitRequest request) {
     submitWorkingCopyOperation(makeCommitOperation(std::move(request)), [this]() {
         refreshWorkingCopy();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 
@@ -818,6 +809,12 @@ void Session::submitOperation(std::unique_ptr<Operation> operation,
                                 }
                                 if (changedRefs && refreshHistoryOnSuccess) {
                                     refreshHistory();
+                                    // Each worktree's branch and headOid are refs too: the
+                                    // worktree panel draws them, keys its pending counts on
+                                    // `path@headOid`, and the Add worktree dialog's "already
+                                    // checked out" gate reads the branch. A checkout, rename,
+                                    // reset, merge or rebase changes them; ~6 ms on vscode.
+                                    refreshWorktrees();
                                 }
                                 if (succeeded && onSuccess) {
                                     onSuccess();
@@ -1047,6 +1044,7 @@ void Session::branchFromStash(StashBranchRequest request) {
         refreshWorkingCopy();
         refreshStashes();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 
@@ -1204,7 +1202,10 @@ void Session::pullChanges(PullRequest request) {
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
         makePullOperation(std::move(request)),
-        [this]() { refreshHistory(); },
+        [this]() {
+            refreshHistory();
+            refreshWorktrees();
+        },
         [this]() {
             endAskpass();
             refreshWorkingCopy();
@@ -1614,6 +1615,7 @@ void Session::undoLastOperation() {
     submitWorkingCopyOperation(makeUndoOperation(std::move(request)), [this]() {
         refreshWorkingCopy();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 

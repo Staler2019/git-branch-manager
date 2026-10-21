@@ -93,6 +93,19 @@ String? _firstPositional(List<String> args) {
     ),
     'stash' => ('Stashing', true),
     'commit' => ('Committing', true),
+    'worktree' when args.length > 1 => _worktreeTaskKind(args[1]),
     _ => null,
   };
 }
+
+/// TASKS has no worktree row. 使用者裁定 2026-10-21: add and remove rewrite
+/// a working tree, so they show like Checkout; prune, lock and unlock fold
+/// like Prune. `list` is a read, not the user's action.
+(String, bool)? _worktreeTaskKind(String subcommand) => switch (subcommand) {
+  'add' => ('Adding worktree', false),
+  'remove' => ('Removing worktree', false),
+  'prune' => ('Pruning worktrees', true),
+  'lock' => ('Locking worktree', true),
+  'unlock' => ('Unlocking worktree', true),
+  _ => null,
+};

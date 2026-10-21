@@ -20,6 +20,7 @@ import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
+import 'package:gbm_flutter/features/sidebar/widgets/sidebar_section_label.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -122,6 +123,56 @@ Future<void> _pump(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Pumps the panel under a switch that can unmount it and mount it again,
+/// the way `WorkspaceScreen` does when the sidebar is hidden.
+Future<Future<void> Function(bool)> _pumpHideable(WidgetTester tester) async {
+  SharedPreferences.setMockInitialValues(<String, Object>{});
+  final SharedPreferences prefs = await SharedPreferences.getInstance();
+  final ProviderContainer container = ProviderContainer(
+    overrides: <Override>[
+      sharedPreferencesProvider.overrideWithValue(prefs),
+      repoRefsProvider(_identity).overrideWithValue(_refs),
+      repoSessionProvider(_identity).overrideWith(
+        (ref) => FakeRepoSessionController(
+          _identity,
+          const RepoSessionState(isOpen: true, stashes: <StashEntry>[_stash]),
+        ),
+      ),
+    ],
+  );
+  addTearDown(container.dispose);
+
+  late StateSetter setState;
+  bool visible = true;
+  await tester.pumpWidget(
+    UncontrolledProviderScope(
+      container: container,
+      child: MaterialApp(
+        theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+        home: Scaffold(
+          body: StatefulBuilder(
+            builder: (context, set) {
+              setState = set;
+              return SizedBox(
+                width: 260,
+                height: 700,
+                child: visible
+                    ? SidebarPanel(identity: _identity, filterFocusNode: null)
+                    : const SizedBox.shrink(),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return (bool value) async {
+    setState(() => visible = value);
+    await tester.pumpAndSettle();
+  };
+}
+
 Finder _filterField() => find.byType(TextField);
 
 Future<void> _type(WidgetTester tester, String query) async {
@@ -145,63 +196,17 @@ void main() {
       // sidebar that can be hidden must not be able to take the *only* copy
       // of the filter with it, leaving the graph narrowed with nothing on
       // screen to say why or to clear it.
-      SharedPreferences.setMockInitialValues(<String, Object>{});
-      final SharedPreferences prefs = await SharedPreferences.getInstance();
-      final ProviderContainer container = ProviderContainer(
-        overrides: <Override>[
-          sharedPreferencesProvider.overrideWithValue(prefs),
-          repoRefsProvider(_identity).overrideWithValue(_refs),
-          repoSessionProvider(_identity).overrideWith(
-            (ref) => FakeRepoSessionController(
-              _identity,
-              const RepoSessionState(
-                isOpen: true,
-                stashes: <StashEntry>[_stash],
-              ),
-            ),
-          ),
-        ],
+      final Future<void> Function(bool) setVisible = await _pumpHideable(
+        tester,
       );
-      addTearDown(container.dispose);
-
-      late StateSetter setVisible;
-      bool visible = true;
-      await tester.pumpWidget(
-        UncontrolledProviderScope(
-          container: container,
-          child: MaterialApp(
-            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
-            home: Scaffold(
-              body: StatefulBuilder(
-                builder: (context, setState) {
-                  setVisible = setState;
-                  return SizedBox(
-                    width: 260,
-                    height: 700,
-                    child: visible
-                        ? SidebarPanel(
-                            identity: _identity,
-                            filterFocusNode: null,
-                          )
-                        : const SizedBox.shrink(),
-                  );
-                },
-              ),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
 
       await _type(tester, 'gl');
       expect(_rows(tester), <String>['feature/graph-lanes']);
 
-      setVisible(() => visible = false);
-      await tester.pumpAndSettle();
+      await setVisible(false);
       expect(find.byType(SidebarPanel), findsNothing);
 
-      setVisible(() => visible = true);
-      await tester.pumpAndSettle();
+      await setVisible(true);
 
       // Both halves: the rows are still narrowed, *and* the box shows the
       // query that narrowed them. A provider that the field did not re-read
@@ -456,6 +461,136 @@ void main() {
       await _pump(tester);
 
       expect(_rows(tester), contains('main'));
+    });
+  });
+
+  group('TAGS / STASH collapse (ruling 2026-10-18)', () {
+    const String stashMessage = 'WIP on main: fix the thing';
+
+    Finder header(String label) => find.ancestor(
+      of: find.text(label),
+      matching: find.byType(SidebarSectionLabel),
+    );
+
+    Future<void> toggle(WidgetTester tester, String label) async {
+      await tester.tap(header(label));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('clicking TAGS hides its rows and keeps the header', (
+      tester,
+    ) async {
+      await _pump(tester);
+      expect(find.text('v1.0.0'), findsOneWidget);
+
+      await toggle(tester, 'TAGS');
+
+      expect(find.text('v1.0.0'), findsNothing);
+      expect(header('TAGS'), findsOneWidget);
+      expect(
+        find.text(stashMessage),
+        findsOneWidget,
+        reason: 'STASH untouched',
+      );
+    });
+
+    testWidgets('clicking TAGS again shows them', (tester) async {
+      await _pump(tester);
+      await toggle(tester, 'TAGS');
+      await toggle(tester, 'TAGS');
+
+      expect(find.text('v1.0.0'), findsOneWidget);
+    });
+
+    testWidgets('STASH collapses the same way', (tester) async {
+      await _pump(tester);
+
+      await toggle(tester, 'STASH');
+      expect(find.text(stashMessage), findsNothing);
+      expect(header('STASH'), findsOneWidget);
+      expect(find.text('v1.0.0'), findsOneWidget, reason: 'TAGS untouched');
+
+      await toggle(tester, 'STASH');
+      expect(find.text(stashMessage), findsOneWidget);
+    });
+
+    testWidgets('each header shows its section count', (tester) async {
+      await _pump(tester);
+      await toggle(tester, 'TAGS');
+
+      for (final String label in <String>['TAGS', 'STASH']) {
+        expect(
+          find.descendant(of: header(label), matching: find.text('1')),
+          findsOneWidget,
+          reason: '$label, collapsed or not',
+        );
+      }
+    });
+
+    testWidgets('the chevron says which way the section is drawn', (
+      tester,
+    ) async {
+      await _pump(tester);
+      Finder chevron(IconData icon) =>
+          find.descendant(of: header('TAGS'), matching: find.byIcon(icon));
+      expect(chevron(Icons.expand_more), findsOneWidget);
+
+      await toggle(tester, 'TAGS');
+      expect(chevron(Icons.chevron_right), findsOneWidget);
+
+      await _type(tester, 'v1');
+      expect(
+        chevron(Icons.expand_more),
+        findsOneWidget,
+        reason: 'forced open by the query, so drawn open',
+      );
+    });
+
+    testWidgets('a query forces a collapsed section open', (tester) async {
+      await _pump(tester);
+      await toggle(tester, 'TAGS');
+
+      await _type(tester, 'v1');
+
+      expect(find.text('v1.0.0'), findsOneWidget);
+    });
+
+    testWidgets('clearing the query brings the collapsed state back', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await toggle(tester, 'TAGS');
+      await _type(tester, 'v1');
+
+      await _type(tester, '');
+
+      expect(find.text('v1.0.0'), findsNothing);
+      expect(header('TAGS'), findsOneWidget);
+    });
+
+    testWidgets('CONTROL: zero hits still hides the whole section', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await toggle(tester, 'STASH');
+
+      await _type(tester, 'v1');
+
+      expect(find.text('STASH'), findsNothing);
+    });
+
+    testWidgets('a collapsed section stays collapsed across hiding the '
+        'sidebar', (tester) async {
+      final Future<void> Function(bool) setVisible = await _pumpHideable(
+        tester,
+      );
+      await toggle(tester, 'TAGS');
+
+      await setVisible(false);
+      await setVisible(true);
+
+      expect(find.text('v1.0.0'), findsNothing);
+      expect(header('TAGS'), findsOneWidget);
     });
   });
 }

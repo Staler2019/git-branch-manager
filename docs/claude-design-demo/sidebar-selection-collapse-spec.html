@@ -1,0 +1,558 @@
+<title>Sidebar Selection Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Deliberately namespaced away from the mockup tokens (--gbm-*)
+   so the document's cascade can never bleed into the specimens.
+   Light is the bare :root; dark is redefined in two guarded
+   places so the un-stamped "system" state resolves too.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+td.was { font-family: "JetBrains Mono", "PingFang TC", ui-monospace, monospace; color: var(--pg-ink-2); }
+td.now { font-family: "JetBrains Mono", ui-monospace, monospace; color: var(--pg-ink); }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.no  { color: var(--pg-good); }
+.verdict.yes { color: var(--pg-bad); }
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1060px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.75rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   docs/design/tokens-reference.md (lines 18-42). Three themes.
+   ============================================================ */
+.stage {   /* tokens live ONLY here */
+  --gbm-surface-app:#f7f8f9; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#eaf1fe; --gbm-surface-hover:#eef0f2;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684;
+  --gbm-danger:#d33d3d;
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-selected:#0d2a4d; --gbm-surface-hover:#161b22;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681;
+  --gbm-danger:#f85149;
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-selected:#e4edfd; --gbm-surface-hover:#f0f2f5;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e;
+  --gbm-danger:#cf222e;
+}
+
+/* ============================================================
+   THE SPECIMEN.  Sources, named beside each declaration:
+     [KIT]  .gbm-* component CSS in the spec bundle
+     [P02]  spec page 02 (sidebar items 4 and 14)
+     [P09]  spec page 09 SPLITTERS
+     [P13]  spec page 13 B 多選 mockup, callout 6
+     [APP]  the shipped Flutter widget (file:line in section 05)
+     [裁定] user ruling 2026-10-18
+   Anything else is listed in section 04 as inferred.
+   ============================================================ */
+.sb {
+  width: 250px; flex: 0 0 auto;                                 /* [P09] main.sidebar def 250px */
+  background: var(--gbm-surface-panel);                         /* [APP] colors.surfacePanel */
+  border-right: 1px solid var(--gbm-border-subtle);             /* [APP] borderSubtle */
+  font-family: "Inter", sans-serif; color: var(--gbm-text-primary);
+  display: flex; flex-direction: column;
+  padding-bottom: 8px;                                          /* page chrome: specimen breathing room only */
+}
+.sb-hdr {                                                       /* BranchesSectionHeader [APP] */
+  padding: 12px 4px 4px 12px;                                   /* [APP] LTRB space3,space3,space1,space1 */
+  font-size: 11px; font-weight: 600; letter-spacing: .5px;      /* [APP] textXs, semibold, 0.5 */
+  color: var(--gbm-text-tertiary);
+}
+.sb-filter { padding: 0 12px 8px 12px; }                        /* [APP] LTRB space3,0,space3,space2 */
+.sb-filter .box {
+  height: 28px; border: 1px solid var(--gbm-border-default);    /* [APP] SizedBox(height: 28) */
+  border-radius: 6px;                                           /* [KIT] --radius-md */
+  display: flex; align-items: center; padding: 0 8px;           /* [APP] contentPadding space2 */
+  font-size: 12.5px; color: var(--gbm-text-tertiary);           /* [APP] textSm hint */
+}
+.sb-filter .box.has-q { color: var(--gbm-text-primary); }
+
+/* --- the reserved slot: [P13] height:24px + [裁定] always there --- */
+.gbm-selection-slot { height: 24px; flex: 0 0 auto; position: relative; }   /* [P13] callout 6 height:24px */
+.gbm-selection-bar {
+  height: 100%; display: flex; align-items: center;
+  padding: 0 12px;                                              /* [APP] horizontal space3 (vertical space1 dropped) */
+}
+.gbm-selection-bar.p13 {                                       /* D1 = B [裁定 2026-10-18] */
+  background: var(--gbm-surface-panel-raised);                  /* [P13] callout 6 background */
+  border-top: 1px solid var(--gbm-border-subtle);               /* [P13] callout 6 border-top */
+}
+.d1 { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); margin: 1rem 0; }
+.gbm-selection-bar .count { flex: 1; font-size: 11px; color: var(--gbm-text-secondary); }  /* [APP] textXs, textSecondary */
+.gbm-selection-bar button {
+  font: inherit; font-size: 11px; background: transparent; border: 0;      /* [APP] textXs */
+  padding: 0 8px; height: 100%; cursor: pointer;                            /* [APP] _compactActionStyle space2 */
+  color: var(--gbm-text-secondary);
+}
+.gbm-selection-bar button.danger { color: var(--gbm-danger); }             /* [APP] colors.danger */
+
+.gbm-row {                                                      /* BranchTreeItem / BranchFolderRow */
+  height: 26px;                                                 /* [KIT] --row-h-compact; [APP] rowHeightCompact */
+  display: flex; align-items: center; gap: 8px;                 /* [KIT] .gbm-row gap --space-2 */
+  padding: 0 8px;                                               /* [APP] horizontal space2 */
+  border-radius: 4px;                                           /* [KIT] --radius-sm */
+  font-size: 12.5px; cursor: pointer; user-select: none;        /* [APP] textSm */
+}
+.gbm-row:hover { background: var(--gbm-surface-hover); }        /* [KIT] .gbm-row:hover */
+.gbm-row.selected { background: var(--gbm-surface-selected); }  /* [KIT] .gbm-row.selected */
+.gbm-row .ic { color: var(--gbm-text-tertiary); font-size: 13px; width: 13px; text-align: center; }  /* [APP] icon 13 */
+.gbm-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gbm-row.folder { color: var(--gbm-text-secondary); }          /* [APP] folder textSecondary */
+.gbm-row .chev { width: 18px; color: var(--gbm-text-secondary); text-align: center; }  /* [APP] chevron 18 */
+.indent { padding-left: 4px; padding-right: 4px; }              /* [APP] tag rows: horizontal space1 */
+
+/* --- section label (TAGS / STASH) with the new toggle --- */
+.gbm-section-label {
+  display: flex; align-items: center;
+  padding: 8px 4px 4px 8px;                                     /* top/bottom/right [APP] space2/space1/space1; left: INFERRED I1 */
+  font-size: 11px; font-weight: 600; letter-spacing: .5px;      /* [APP] SidebarSectionLabel */
+  color: var(--gbm-text-tertiary);
+  cursor: pointer; user-select: none;
+}
+.gbm-section-label .chev {
+  width: 18px; font-size: 13px; color: var(--gbm-text-secondary);          /* [APP] BranchFolderRow chevron 18, textSecondary */
+  margin-right: 4px;                                            /* INFERRED I2 */
+  text-align: center;
+}
+.gbm-section-label .n { margin-left: 4px; font-weight: 400; }   /* [裁定] count; style INFERRED I3 */
+
+.stash-row { height: 46px; display: flex; flex-direction: column; justify-content: center;   /* [APP] comfortable 34 + space3 */
+  padding: 0 8px; border-radius: 4px; cursor: pointer; }        /* [APP] horizontal space2 */
+.stash-row:hover { background: var(--gbm-surface-hover); }
+.stash-row .msg { font-size: 12.5px; }                          /* [APP] textSm */
+.stash-row .meta { font-size: 11px; color: var(--gbm-text-tertiary); }  /* [APP] textXs */
+
+/* --- page-chrome annotations (not part of the mock) --- */
+.anno { outline: 1px dashed var(--pg-accent); outline-offset: -1px; }
+.anno-tag { position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  font: 500 10px/1 "JetBrains Mono", monospace; color: var(--pg-accent); }
+.trio { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); }
+.ruler { font: 500 .75rem "JetBrains Mono", monospace; color: var(--pg-ink-3); }
+.modebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+ul.tight { margin: 0 0 1rem; padding-left: 1.25rem; max-width: var(--measure); }
+ul.tight li { margin-bottom: .35rem; }
+@media (max-width: 600px) { .sb { width: 100%; max-width: 250px; } }
+</style>
+<div class="wrap zh">
+  <header class="masthead">
+    <div class="eyebrow"><span>git-branch-manager · design spec</span><span>branch feature/make-select-branch-space-no-hiding</span><span>2026-10-18</span></div>
+    <h1>Sidebar：選取列保留空間，TAGS / STASH 可收合</h1>
+    <p class="standfirst">多選 branch 時選取列不再把 tree 往下推；TAGS 與 STASH 兩段可以收合，規則照資料夾。</p>
+    <div class="status-row">
+      <span class="pill is-ratified">裁定 (a) 選取列：上方、固定高度</span>
+      <span class="pill is-ratified">裁定 (b) 收合：比照資料夾</span>
+      <span class="pill is-ratified">I1–I3 照用（裁定 2026-10-18）</span>
+      <span class="pill is-ratified">D1 = B：加 P13 底色＋上框線</span>
+    </div>
+  </header>
+
+  <section id="problem">
+    <div class="sec-head"><span class="sec-num">01</span><h2>選取列：現在 vs 新設計</h2></div>
+    <p class="lede">點下方 sidebar 的 branch 列（Ctrl/Cmd-click 或直接點都會加入選取）。切換「現在 / 新設計」看 <code>main</code> 那一列的 y 座標有沒有改變。</p>
+
+    <div class="stage-controls">
+      <span class="label">App theme</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+      <span class="label">Behaviour</span>
+      <div class="themebtns" role="group" aria-label="Behaviour">
+        <button class="themebtn modebtn" type="button" data-mode-btn="now" aria-pressed="false">現在</button>
+        <button class="themebtn modebtn" type="button" data-mode-btn="new" aria-pressed="true">新設計</button>
+      </div>
+      <span class="ruler" id="ruler">main.y = —</span>
+    </div>
+
+    <div class="stage" data-stage data-app-theme="dark-technical">
+      <div class="sb" id="live">
+        <div class="sb-hdr">BRANCHES</div>
+        <div class="sb-filter"><div class="box" id="live-filter">Filter branches</div></div>
+        <div class="gbm-selection-slot" id="live-slot"></div>
+        <div id="live-tree"></div>
+      </div>
+    </div>
+    <p class="specimen-note" style="margin-top:.75rem">虛線框與「24px」只是標注，不是 UI 的一部分。這份互動樣本也可以點 TAGS / STASH 標題收合。</p>
+  </section>
+
+  <section id="collapse">
+    <div class="sec-head"><span class="sec-num">02</span><h2>TAGS / STASH 的四種狀態</h2></div>
+    <p class="lede">收合是 per-repo 的 session 狀態。filter 有輸入時強制展開，但不會改寫記住的狀態，所以清空後會回到收合。</p>
+    <div class="trio">
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">A</span><span class="specimen-note">預設：全部展開</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb" data-static="expanded"></div></div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">B</span><span class="specimen-note">TAGS 收合：標題和數量都留著</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb" data-static="collapsed"></div></div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">C</span><span class="specimen-note">TAGS 收合中輸入 filter「v0.5」：強制展開；STASH 0 命中 → 整段隱藏</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb" data-static="filtering"></div></div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">D</span><span class="specimen-note">清空 filter：回到 B</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb" data-static="collapsed"></div></div></div>
+    </div>
+  </section>
+
+  <section id="rules">
+    <div class="sec-head"><span class="sec-num">03</span><h2>行為規則與出處</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>規則</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td class="num">R1</td><td>選取列的 slot 永遠存在，高 24px；沒有選取時是空白，不畫文字、不能點。</td><td>[P13] callout 6 <code>height:24px</code>；[裁定 a]</td></tr>
+        <tr><td class="num">R2</td><td>slot 位置維持在 filter 與 tree 之間（上方）。</td><td>[裁定 a]。P13 mockup 畫在清單底部，但沒有 prose 規定位置 → 見 D1</td></tr>
+        <tr><td class="num">R3</td><td>選取列內容沿用現有樣式（N selected · Clear · Delete），把垂直 padding 拿掉以放進 24px；有選取時加 <code>surfacePanelRaised</code> 底色和 1px <code>borderSubtle</code> 上框線。沒有選取時 slot 是空的，不畫底色也不畫框線。</td><td>[APP] <code>branch_selection_action_bar.dart</code>；底色與框線 [P13] callout 6 + [裁定 D1=B]</td></tr>
+        <tr><td class="num">R4</td><td>TAGS / STASH 標題前有 chevron（▾ 展開 / ▸ 收合），整列標題可點擊切換。</td><td>[裁定 b]；chevron 圖示與顏色 [APP] <code>BranchFolderRow</code></td></tr>
+        <tr><td class="num">R5</td><td>標題後顯示該段數量；filter 中顯示命中數。</td><td>[裁定 b]「▾ TAGS 2」</td></tr>
+        <tr><td class="num">R6</td><td>收合狀態記在該 repo，sidebar 隱藏再顯示後仍保留；app 重啟後回到預設（展開）。</td><td>[P02] 資料夾「收合狀態記憶在該 repo」；[裁定 b] session 內</td></tr>
+        <tr><td class="num">R7</td><td>filter 有輸入時兩段強制展開，記住的狀態不變；清空後回到原狀態。</td><td>[P02-14]「有輸入時資料夾全展開，清空後回到原本收合狀態」；[裁定 b]</td></tr>
+        <tr><td class="num">R8</td><td>0 命中的段落仍整段隱藏（含標題）；收合不等於 0 命中，收合時標題保留。</td><td>[P02-14]「沒有命中的段落整段隱藏，不留空標題」</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="inferred">
+    <div class="sec-head"><span class="sec-num">04</span><h2>Inferred：沒有出處、由我選的值（已裁定照用）</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>值</th><th>為什麼這樣選</th></tr></thead>
+      <tbody>
+        <tr><td class="num">I1</td><td>標題左內距 12 → 8px（<code>space2</code>）</td><td>chevron 加在文字左邊；改成和資料夾列相同的 <code>space2</code> 水平內距，避免文字右移太多。</td></tr>
+        <tr><td class="num">I2</td><td>chevron 與文字間距 4px（<code>space1</code>）</td><td>用現有 token 中最小的間距。</td></tr>
+        <tr><td class="num">I3</td><td>數量樣式：與 label 同樣 11px / textTertiary，字重 regular，左距 4px</td><td>沿用同一列 label 的字級與顏色；改成 regular 是為了和 label 區分。</td></tr>
+      </tbody>
+    </table></div>
+    <h3>D1：「N selected」那一條的外觀 — 已裁定 B</h3>
+    <p><strong>D1 只和選取列有關，和 TAGS / STASH 標題無關。</strong>P13 的多選 mockup 只畫了 branch 清單，清單下方有一條「3 branches selected」（callout 6），沒有 TAGS / STASH。那一條的樣式是 <code>height:24px</code>（本設計已採用），另外還有 <code>background:var(--surface-panel-raised)</code> 和 <code>border-top</code>，這兩項現在的 app 都沒有。問題只有這個：選取列要不要加上底色和上框線？</p>
+    <div class="d1">
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag before">A</span><span class="specimen-note">維持現行外觀（未採用）</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb">
+          <div class="gbm-selection-slot"><div class="gbm-selection-bar"><span class="count">3 selected</span><button type="button">Clear</button><button type="button" class="danger">Delete</button></div></div>
+          <div class="gbm-row selected"><span class="ic">⑂</span><span class="nm">graph-cache</span></div>
+          <div class="gbm-row"><span class="ic">⑂</span><span class="nm">main</span></div>
+        </div></div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">B</span><span class="specimen-note">加 P13 的底色＋上框線（採用）</span></div>
+        <div class="stage" data-stage data-app-theme="dark-technical"><div class="sb">
+          <div class="gbm-selection-slot"><div class="gbm-selection-bar p13"><span class="count">3 selected</span><button type="button">Clear</button><button type="button" class="danger">Delete</button></div></div>
+          <div class="gbm-row selected"><span class="ic">⑂</span><span class="nm">graph-cache</span></div>
+          <div class="gbm-row"><span class="ic">⑂</span><span class="nm">main</span></div>
+        </div></div></div>
+    </div>
+    <p class="specimen-note">在 neutral 與 light-ide 中 surface-panel-raised 和 panel 都是 #ffffff，所以 B 只多一條上框線；只有在 dark-technical 中才看得出底色。</p>
+  </section>
+
+  <section id="xcheck">
+    <div class="sec-head"><span class="sec-num">05</span><h2>實作對照</h2></div>
+    <div class="tablewrap"><table>
+      <thead><tr><th>元素</th><th>現行 app</th><th>本設計</th></tr></thead>
+      <tbody>
+        <tr><td>選取列位置</td><td class="was"><code>sidebar_panel.dart:512</code> <code>if (selection.isNotEmpty)</code> 才插入</td><td class="now">固定 <code>SizedBox(height: space6)</code>，內容依選取切換</td></tr>
+        <tr><td>選取列底色 / 框線</td><td class="was">無</td><td class="now">有選取時：<code>surfacePanelRaised</code>＋top 1px <code>borderSubtle</code>（D1=B）</td></tr>
+        <tr><td>選取列內距</td><td class="was">h <code>space3</code>，v <code>space1</code></td><td class="now">h <code>space3</code>，v 0</td></tr>
+        <tr><td>選取列按鈕</td><td class="was"><code>_compactActionStyle</code> h <code>space2</code>，textXs；Delete <code>danger</code></td><td class="now">不變</td></tr>
+        <tr><td>Section label</td><td class="was"><code>sidebar_section_label.dart:29-38</code> LTRB 12/8/4/4，textXs semibold tertiary ls 0.5</td><td class="now">加 chevron＋數量；左內距 8（I1）</td></tr>
+        <tr><td>Chevron</td><td class="was"><code>branch_folder_row.dart:47-50</code> expand_more / chevron_right，18，textSecondary</td><td class="now">同一組</td></tr>
+        <tr><td>Branch / tag 列</td><td class="was"><code>branch_tree_item.dart:399-400</code> rowHeightCompact 26，h <code>space2</code></td><td class="now">不變</td></tr>
+        <tr><td>Stash 列</td><td class="was"><code>sidebar_stash_section.dart:211-212</code> 34+12，h <code>space2</code></td><td class="now">不變</td></tr>
+        <tr><td>Filter field</td><td class="was"><code>sidebar_filter_field.dart:72-82</code> LTRB 12/0/12/8，h 28</td><td class="now">不變</td></tr>
+      </tbody>
+    </table></div>
+    <h3>稽核結果（ui-spec-design 的六項）</h3>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>稽核</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td class="num">1</td><td>無出處的值</td><td>每個值都在 CSS 旁標了 [KIT]/[P09]/[P13]/[APP]/[裁定]；沒有出處的 3 個值列在 I1–I3</td></tr>
+        <tr><td class="num">2</td><td>Token 覆蓋</td><td>三套 palette 中 used-but-undefined 0、dead 0</td></tr>
+        <tr><td class="num">3</td><td>對比（WCAG）</td><td>label/數量（textTertiary on panel）：neutral 4.62 · dark 4.12 · light-ide <strong>3.08</strong>；dark 與 light-ide 低於 4.5。這是現有 token 的問題（現行 TAGS/STASH/BRANCHES label 已經是這個顏色），只回報、不在這裡修。textSecondary 6.39–7.11、Delete 4.66–5.65、選取列文字 12.21–15.26</td></tr>
+        <tr><td class="num">4</td><td>標籤配對</td><td>html.parser：mismatched 0、unclosed 0</td></tr>
+        <tr><td class="num">5</td><td>實作對照</td><td>如上表：9 列中 6 列不變，3 列改（slot 位置、底色/框線、section label）；內距那列只拿掉垂直 padding</td></tr>
+        <tr><td class="num">6</td><td>元件混淆</td><td>section label 是 sidebar 內的段落標題（<code>SidebarSectionLabel</code>），不是 <code>.mklbl</code> pane header（後者有 border-bottom 和 uppercase 10px）；選取列不是 <code>.gbm-banner</code></td></tr>
+      </tbody>
+    </table></div>
+    <p style="margin-top:1rem">註：P02 sidebar mockup（180px 寬、23px 列、10px 字）是縮小示意圖，所以尺寸以 app 實際值和 KIT 為準，不從那張圖量。</p>
+  </section>
+</div>
+
+<script>
+(function () {
+  var BR = [
+    {k:'f', n:'feature', d:0},
+    {k:'b', n:'graph-cache', d:1}, {k:'b', n:'lane-allocator', d:1},
+    {k:'b', n:'main', d:0}, {k:'b', n:'release/0.5', d:0}, {k:'b', n:'wip/askpass', d:0}
+  ];
+  var TAGS = ['v0.5.0', 'v0.4.2'];
+  var STASH = [{m:'WIP on graph-lanes', t:'stash@{0} · 2 days ago'}];
+
+  function esc(s){ return s.replace(/[&<>"]/g, function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function label(name, n, open, key){
+    return '<div class="gbm-section-label" data-toggle="'+key+'"><span class="chev">'+(open?'▾':'▸')+'</span>'+name+'<span class="n">'+n+'</span></div>';
+  }
+  function sections(st){
+    var q = st.q || '', h = '';
+    var tags = TAGS.filter(function(t){return t.indexOf(q) >= 0;});
+    var stash = STASH.filter(function(s){return s.m.indexOf(q) >= 0;});
+    var tagsOpen = q ? true : !st.tagsCollapsed;
+    var stashOpen = q ? true : !st.stashCollapsed;
+    if (tags.length) {
+      h += label('TAGS', tags.length, tagsOpen, 'tags');
+      if (tagsOpen) tags.forEach(function(t){ h += '<div class="indent"><div class="gbm-row"><span class="ic">⌂</span><span class="nm">'+esc(t)+'</span></div></div>'; });
+    }
+    if (stash.length) {
+      h += label('STASH', stash.length, stashOpen, 'stash');
+      if (stashOpen) stash.forEach(function(s){ h += '<div class="stash-row"><span class="msg">'+esc(s.m)+'</span><span class="meta">'+esc(s.t)+'</span></div>'; });
+    }
+    return h;
+  }
+  function tree(st){
+    var h = '';
+    BR.forEach(function(b){
+      if (st.q && b.k === 'b' && b.n.indexOf(st.q) < 0) return;
+      if (st.q && b.k === 'f') return;
+      var pad = 'style="padding-left:'+(8 + b.d*16)+'px"';
+      if (b.k === 'f') h += '<div class="gbm-row folder" '+pad+'><span class="chev">▾</span><span class="nm">'+b.n+'</span></div>';
+      else h += '<div class="gbm-row'+(st.sel && st.sel[b.n] ? ' selected' : '')+'" data-br="'+b.n+'" '+pad+'><span class="ic">⑂</span><span class="nm">'+b.n+'</span></div>';
+    });
+    return h + sections(st);
+  }
+
+  // static specimens
+  var STATES = {
+    expanded: {}, collapsed: {tagsCollapsed:true}, filtering: {tagsCollapsed:true, q:'v0.5'}
+  };
+  document.querySelectorAll('[data-static]').forEach(function(sb){
+    var st = STATES[sb.getAttribute('data-static')];
+    sb.innerHTML = '<div class="sb-hdr">BRANCHES</div><div class="sb-filter"><div class="box'+(st.q?' has-q':'')+'">'+(st.q||'Filter branches')+'</div></div><div class="gbm-selection-slot"></div>' + tree(st);
+  });
+
+  // live specimen
+  var live = {sel:{}, mode:'new', tagsCollapsed:false, stashCollapsed:false};
+  var slot = document.getElementById('live-slot');
+  var liveTree = document.getElementById('live-tree');
+  var ruler = document.getElementById('ruler');
+  function count(){ return Object.keys(live.sel).filter(function(k){return live.sel[k];}).length; }
+  function render(){
+    var n = count();
+    var bar = '<div class="gbm-selection-bar p13"><span class="count">'+n+' selected</span><button type="button" data-clear>Clear</button><button type="button" class="danger">Delete</button></div>';
+    if (live.mode === 'new') {
+      slot.style.display = '';
+      slot.className = 'gbm-selection-slot' + (n ? '' : ' anno');
+      slot.innerHTML = n ? bar : '<span class="anno-tag">24px 保留</span>';
+    } else {
+      slot.className = 'gbm-selection-slot';
+      slot.style.display = n ? '' : 'none';
+      slot.innerHTML = n ? bar : '';
+    }
+    liveTree.innerHTML = tree(live);
+    var main = liveTree.querySelector('[data-br="main"]');
+    if (main) ruler.textContent = 'main.y = ' + Math.round(main.getBoundingClientRect().top - document.getElementById('live').getBoundingClientRect().top) + 'px';
+  }
+  document.getElementById('live').addEventListener('click', function(e){
+    var r = e.target.closest('[data-br]');
+    if (r) { var k = r.getAttribute('data-br'); live.sel[k] = !live.sel[k]; render(); return; }
+    var t = e.target.closest('[data-toggle]');
+    if (t) { var key = t.getAttribute('data-toggle'); if (key === 'tags') live.tagsCollapsed = !live.tagsCollapsed; else live.stashCollapsed = !live.stashCollapsed; render(); return; }
+    if (e.target.closest('[data-clear]')) { live.sel = {}; render(); }
+  });
+  document.querySelectorAll('[data-mode-btn]').forEach(function(b){
+    b.addEventListener('click', function(){
+      live.mode = b.getAttribute('data-mode-btn');
+      document.querySelectorAll('[data-mode-btn]').forEach(function(o){ o.setAttribute('aria-pressed', String(o === b)); });
+      render();
+    });
+  });
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+  render();
+})();
+</script>

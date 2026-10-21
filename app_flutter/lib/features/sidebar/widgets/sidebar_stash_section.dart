@@ -9,6 +9,7 @@ import '../../../data/repositories/compare_tabs_repository.dart';
 import '../../../data/repositories/panel_tabs_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
+import '../../../data/repositories/sidebar_collapsed_sections_repository.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
@@ -38,6 +39,7 @@ class SidebarStashSection extends ConsumerStatefulWidget {
     super.key,
     required this.identity,
     required this.stashes,
+    this.forceExpanded = false,
   });
 
   final RepoIdentity identity;
@@ -45,6 +47,10 @@ class SidebarStashSection extends ConsumerStatefulWidget {
   /// Already filtered by the caller -- P02-14's one box covers all three
   /// sections, and the 命中/總數 count is computed from the same list.
   final List<StashEntry> stashes;
+
+  /// Same rule as `SidebarTagSection.forceExpanded`: a query draws the
+  /// section open without touching the remembered choice.
+  final bool forceExpanded;
 
   @override
   ConsumerState<SidebarStashSection> createState() =>
@@ -75,20 +81,42 @@ class _SidebarStashSectionState extends ConsumerState<SidebarStashSection> {
       session,
     );
 
+    // Watched unconditionally: short-circuiting it behind [forceExpanded]
+    // would drop the subscription for as long as a query is in force.
+    final bool collapsed = ref
+        .watch(sidebarCollapsedSectionsProvider(widget.identity))
+        .contains(SidebarSection.stash);
+    final bool expanded = widget.forceExpanded || !collapsed;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SidebarSectionLabel('STASH'),
-        for (final StashEntry stash in widget.stashes)
-          _StashRow(
-            stash: stash,
-            selected: stash.index == _selectedIndex,
-            onTap: () => setState(() => _selectedIndex = stash.index),
-            onSecondaryTapDown: (TapDownDetails details) =>
-                _openContextMenu(details.globalPosition, stash, conflictActive),
-            onOpenMenu: (Offset position) =>
-                _openContextMenu(position, stash, conflictActive),
-          ),
+        SidebarSectionLabel(
+          'STASH',
+          count: widget.stashes.length,
+          isExpanded: expanded,
+          onToggle: () => ref
+              .read(sidebarCollapsedSectionsProvider(widget.identity).notifier)
+              .update(
+                (Set<SidebarSection> s) => s.contains(SidebarSection.stash)
+                    ? (<SidebarSection>{...s}..remove(SidebarSection.stash))
+                    : <SidebarSection>{...s, SidebarSection.stash},
+              ),
+        ),
+        if (expanded)
+          for (final StashEntry stash in widget.stashes)
+            _StashRow(
+              stash: stash,
+              selected: stash.index == _selectedIndex,
+              onTap: () => setState(() => _selectedIndex = stash.index),
+              onSecondaryTapDown: (TapDownDetails details) => _openContextMenu(
+                details.globalPosition,
+                stash,
+                conflictActive,
+              ),
+              onOpenMenu: (Offset position) =>
+                  _openContextMenu(position, stash, conflictActive),
+            ),
       ],
     );
   }

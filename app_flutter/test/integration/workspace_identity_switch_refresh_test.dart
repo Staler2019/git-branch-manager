@@ -6,9 +6,12 @@
 // "switch worktree, the working copy not refresh".
 //
 // Counted, not `any` (CLAUDE.md's count-don't-any): one switch is one sweep.
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:go_router/go_router.dart';
 
 import '../support/fake_repo_session.dart';
 import '../support/pump_workspace.dart';
@@ -67,6 +70,65 @@ void main() {
       reason: 'the worktree being left is not the one on screen',
     );
     // Drains the tier-2 fallback armed by refreshRepoStatus().
+    await tester.pump(const Duration(seconds: 3));
+  });
+
+  // go_router keys a page by its route, not its parameters, so Working Copy
+  // in worktree A and Working Copy in worktree B are the same element. Its
+  // commit box was seeded from A's draft in initState and never again --
+  // the message typed for A sat in B's box, and the first keystroke there
+  // wrote it into B's draft.
+  testWidgets("switching worktree does not carry one repository's commit "
+      'message into the other', (WidgetTester tester) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: main,
+      otherIdentities: const <RepoIdentity>[linked],
+      workingCopyBuilder: (BuildContext context, GoRouterState state) =>
+          WorkingCopyView(
+            identity: state.pathParameters['repoId'] == linked.workDir
+                ? linked
+                : main,
+          ),
+    );
+    String summaryText() => tester
+        .widget<TextField>(
+          find
+              .descendant(
+                of: find.byType(WorkingCopyView),
+                matching: find.byType(TextField),
+              )
+              .first,
+        )
+        .controller!
+        .text;
+
+    pumped.router.go(
+      RoutePaths.workingCopyFor(Uri.encodeComponent(main.workDir)),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find
+          .descendant(
+            of: find.byType(WorkingCopyView),
+            matching: find.byType(TextField),
+          )
+          .first,
+      'fix: only for the main worktree',
+    );
+    await tester.pumpAndSettle();
+
+    pumped.router.go(
+      RoutePaths.workingCopyFor(Uri.encodeComponent(linked.workDir)),
+    );
+    await tester.pumpAndSettle();
+    expect(summaryText(), '', reason: "the linked worktree's draft is empty");
+
+    pumped.router.go(
+      RoutePaths.workingCopyFor(Uri.encodeComponent(main.workDir)),
+    );
+    await tester.pumpAndSettle();
+    expect(summaryText(), 'fix: only for the main worktree');
     await tester.pump(const Duration(seconds: 3));
   });
 }

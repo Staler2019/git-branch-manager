@@ -639,10 +639,13 @@ class FakeRepoSessionController extends RepoSessionController {
     required List<DeleteBranchEntry> entries,
     bool isRemote = false,
     String remoteName = '',
+    List<RemoteBranchDeletion> thenDeleteRemote =
+        const <RemoteBranchDeletion>[],
   }) {
     commandLog.add(
       FakeCommand('deleteBranch', <String, Object?>{
         'entries': entries,
+        'thenDeleteRemote': thenDeleteRemote,
         'names': <String>[for (final DeleteBranchEntry e in entries) e.name],
         'isRemote': isRemote,
         'remoteName': remoteName,

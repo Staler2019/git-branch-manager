@@ -219,6 +219,16 @@ class _DeleteBranchesDialogContentState
     // one operation, not N" (gbm_capi.h). N calls would also emit N
     // OPERATION_FINISHED events against spec page 10's one-background-task
     // rule.
+    // Grouped by remote: the remote form runs `git push <remoteName>
+    // --delete <names...>`, so a selection spanning two remotes needs one
+    // push each. Sent by the controller only once the local delete
+    // succeeds, never alongside it.
+    final Map<String, List<String>> byRemote = <String, List<String>>{};
+    if (_alsoDeleteRemote) {
+      for (final DeleteBranchLine line in tracked) {
+        byRemote.putIfAbsent(line.remote, () => <String>[]).add(line.name);
+      }
+    }
     notifier.deleteBranch(
       entries: _force
           ? _forcedEntries(lines)
@@ -226,26 +236,11 @@ class _DeleteBranchesDialogContentState
               for (final DeleteBranchLine l in lines)
                 DeleteBranchEntry.plain(l.name),
             ],
+      thenDeleteRemote: <RemoteBranchDeletion>[
+        for (final MapEntry<String, List<String>> e in byRemote.entries)
+          RemoteBranchDeletion(remoteName: e.key, names: e.value),
+      ],
     );
-    if (_alsoDeleteRemote) {
-      // Grouped by remote: gbm_branch_delete's remote form runs
-      // `git push <remoteName> --delete <names...>`, so a selection spanning
-      // two remotes needs one call each rather than one call with a remote
-      // name that is only right for some of them.
-      final Map<String, List<String>> byRemote = <String, List<String>>{};
-      for (final DeleteBranchLine line in tracked) {
-        byRemote.putIfAbsent(line.remote, () => <String>[]).add(line.name);
-      }
-      byRemote.forEach((String remote, List<String> names) {
-        notifier.deleteBranch(
-          entries: <DeleteBranchEntry>[
-            for (final String name in names) DeleteBranchEntry.plain(name),
-          ],
-          isRemote: true,
-          remoteName: remote,
-        );
-      });
-    }
     context.pop();
   }
 

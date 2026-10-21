@@ -28,6 +28,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -232,12 +233,19 @@ void main() {
       await tester.pumpAndSettle();
 
       // Counted, not `any`: a double dispatch would push twice.
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['remoteName'], 'origin');
-      expect(remote.single.args['names'], <String>['feature/x']);
+      // One request: the remote half rides on it and is sent by the
+      // controller only after the local delete succeeds.
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['feature/x'],
+          ),
+        ],
+      );
     });
 
     testWidgets('is offered for a branch that is exactly in sync', (
@@ -363,12 +371,19 @@ void main() {
       await tester.tap(find.text('Delete branch'));
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['remoteName'], 'origin');
-      expect(remote.single.args['names'], <String>['feature/x']);
+      // One request: the remote half rides on it and is sent by the
+      // controller only after the local delete succeeds.
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['feature/x'],
+          ),
+        ],
+      );
     });
 
     testWidgets('deletes the branch it names, not the local one', (
@@ -395,19 +410,21 @@ void main() {
       await tester.tap(find.text('Delete branch'));
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['names'], <String>['renamed-x']);
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['renamed-x'],
+          ),
+        ],
+      );
 
       // The local side keeps the local name -- the two are not interchangeable
       // in either direction.
-      final List<FakeCommand> local = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] != true)
-          .toList();
-      expect(local.length, 1);
-      expect(local.single.args['names'], <String>['feature/x']);
+      expect(deletes.single.args['names'], <String>['feature/x']);
     });
 
     testWidgets('is disabled when the upstream is gone only in the preview', (

@@ -63,11 +63,15 @@ class PendingDeleteBranchRequest {
     required this.entries,
     required this.isRemote,
     required this.remoteName,
+    this.thenDeleteRemote = const <RemoteBranchDeletion>[],
   });
 
   final List<DeleteBranchEntry> entries;
   final bool isRemote;
   final String remoteName;
+
+  /// Sent once this (local) delete succeeds, including after a retry.
+  final List<RemoteBranchDeletion> thenDeleteRemote;
 
   List<String> get names => <String>[
     for (final DeleteBranchEntry entry in entries) entry.name,

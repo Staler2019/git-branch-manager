@@ -219,16 +219,16 @@ void main() {
       final List<FakeCommand> deletes = fake.commandLog
           .where((FakeCommand c) => c.name == 'deleteBranch')
           .toList();
-      expect(deletes, hasLength(3));
-      expect(deletes[0].args['names'], <String>['a', 'b', 'c']);
+      expect(deletes, hasLength(1));
+      expect(deletes.single.args['names'], <String>['a', 'b', 'c']);
       expect(
-        deletes.skip(1).map((FakeCommand c) => c.args['remoteName']).toSet(),
-        <String>{'origin', 'fork'},
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(remoteName: 'origin', names: <String>['a']),
+          RemoteBranchDeletion(remoteName: 'fork', names: <String>['b']),
+        ],
         reason: 'grouped by remote; the untracked branch c is not in either',
       );
-      for (final FakeCommand remote in deletes.skip(1)) {
-        expect(remote.args['isRemote'], isTrue);
-      }
     });
 
     // A6 C3: a forced delete sends the tip the probe read, never the refs

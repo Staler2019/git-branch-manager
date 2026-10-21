@@ -109,3 +109,35 @@ class DeleteBranchEntry {
       ? 'DeleteBranchEntry.forced($name, $expectedTipOid)'
       : 'DeleteBranchEntry.plain($name)';
 }
+
+/// The remote half of a local delete, as one
+/// `git push <remoteName> --delete <names...>`, sent by the controller only
+/// once the local delete it belongs to has succeeded. Sent alongside, a refused local delete would
+/// still lose the remote branch, and its outcome would replace the local
+/// one's recovery request.
+class RemoteBranchDeletion {
+  const RemoteBranchDeletion({required this.remoteName, required this.names});
+
+  final String remoteName;
+  final List<String> names;
+
+  @override
+  bool operator ==(Object other) =>
+      other is RemoteBranchDeletion &&
+      other.remoteName == remoteName &&
+      _sameNames(other.names, names);
+
+  @override
+  int get hashCode => Object.hash(remoteName, Object.hashAll(names));
+
+  @override
+  String toString() => 'RemoteBranchDeletion($remoteName, $names)';
+}
+
+bool _sameNames(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (int i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}

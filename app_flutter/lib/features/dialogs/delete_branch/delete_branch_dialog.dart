@@ -171,20 +171,20 @@ class _DeleteBranchDialogContentState
                   final RepoSessionController notifier = ref.read(
                     repoSessionProvider(widget.identity).notifier,
                   );
+                  // The remote half rides on the local request and is sent
+                  // only once the local delete succeeds.
                   notifier.deleteBranch(
                     entries: <DeleteBranchEntry>[
                       DeleteBranchEntry.plain(target!.shortName),
                     ],
+                    thenDeleteRemote: <RemoteBranchDeletion>[
+                      if (willDeleteRemote)
+                        RemoteBranchDeletion(
+                          remoteName: remote,
+                          names: <String>[remoteBranch],
+                        ),
+                    ],
                   );
-                  if (willDeleteRemote) {
-                    notifier.deleteBranch(
-                      entries: <DeleteBranchEntry>[
-                        DeleteBranchEntry.plain(remoteBranch),
-                      ],
-                      isRemote: true,
-                      remoteName: remote,
-                    );
-                  }
                   context.pop();
                 }
               : null,

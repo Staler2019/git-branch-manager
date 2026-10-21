@@ -3128,6 +3128,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
                 ProbeCounted(:final String tipOid))
           DeleteBranchEntry.forced(probe.name, expectedTipOid: tipOid),
     ];
+    // Every name already gone: the local side is done, so the remote half
+    // the user confirmed goes out now, as it would after a local success.
+    if (entries.isEmpty) {
+      for (final RemoteBranchDeletion remote in request.thenDeleteRemote) {
+        deleteBranch(
+          entries: <DeleteBranchEntry>[
+            for (final String name in remote.names)
+              DeleteBranchEntry.plain(name),
+          ],
+          isRemote: true,
+          remoteName: remote.remoteName,
+        );
+      }
+      return;
+    }
     deleteBranch(
       entries: entries,
       isRemote: request.isRemote,

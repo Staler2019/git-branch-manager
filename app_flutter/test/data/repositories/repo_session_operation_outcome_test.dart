@@ -599,6 +599,45 @@ void main() {
       },
     );
 
+    // The local side is done when every name is already gone -- a first pass
+    // that deleted some and was refused on the rest, then the rest removed
+    // elsewhere. What the user confirmed for the remote still goes out.
+    test(
+      '"Delete anyway" with every branch already gone still sends the remote',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[ProbeNotFound('x')],
+            );
+        const List<RemoteBranchDeletion> remote = <RemoteBranchDeletion>[
+          RemoteBranchDeletion(remoteName: 'origin', names: <String>['x']),
+        ];
+        controller.debugRecordDeleteBranch(
+          names: const <String>['x'],
+          thenDeleteRemote: remote,
+        );
+        controller.debugHandleOperationOutcome(_forceableRefusal());
+        await pumpEventQueue();
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['isRemote'], isTrue);
+        expect(deletes.single.args['remoteName'], 'origin');
+        expect(deletes.single.args['names'], <String>['x']);
+      },
+    );
+
     test('a StaleBranchTip refusal opens the choices and deletes nothing', () {
       final controller = _RecordingRepoSessionController(
         _identity,

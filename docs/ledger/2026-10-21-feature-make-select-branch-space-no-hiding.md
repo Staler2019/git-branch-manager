@@ -61,3 +61,20 @@
   對該視窗截了一張圖，沒有走完選取與收合的流程。
 - **沒有新增 pin**：「會出現/消失的列要保留 slot」已經由 C1 的測試（tree 的 rect 前後相等）強制，
   依 CLAUDE.md「能用測試強制的陷阱就寫在測試裡」，所以不寫成規則。
+
+### 追加：prepared_message_flow_test 的時序問題（使用者要求調查）
+
+- **結論**：按鈕存在，也符合 spec。merge dialog 的 `Merge` 和 spec DLGS 的 `primary: 'Merge'` 一致。要修的是測試。
+- **控制組**：
+  - 使用者關掉 `/Applications/gbm_flutter.app` 之後，在 14 個 `yes` 佔滿 10 核的情況下跑整個檔：5/5 綠（1:45，平常是 40 秒）。
+  - 光是 CPU 負載重現不了紅，所以無法刻意製造時序紅。
+- **`8cd7b83c`**：`_mergeFromRow` 改成等 dialog 裡的 `Merge` 出現才點。
+  - mutation 拿掉等待：重現原本的 `could not find`，而且每個用到 `_mergeFromRow` 的測試都紅。
+  - 修正後整檔 5/5 綠。
+- **`fb7dd3ca`**：`pumpUntil` 逾時改為 `fail`，原本是安靜返回。
+  - 原本的註解宣稱「呼叫端的下一個斷言會說出是什麼沒發生」，實際上下一個斷言常常不相干，這個說法被推翻（[CULT-scrutinise-the-comment]）。
+  - 新增 host 測試 `test/integration_support/pump_until_test.dart`：先紅 1 條；mutation 改回安靜返回，紅 1 條。
+  - 用到 `pumpUntil` 的 7 個 device 檔逐一重跑：context_menu_flows 5/5、merge_current 1/1、merge_squash 2/2、prepared_message 5/5、rebase_onto 1/1、revert_commit 1/1、status_bar_cancel 1/1。
+- **還沒有解釋的部分**：baseline 那次是「Abort 後描述空了，摘要卻是 `mine`」。
+  - 這個組合不是單純等不夠久就能解釋的，因為 `restoreAndEnd` 會同時還原兩欄。
+  - 以後如果再出現，`pumpUntil` 會在真正逾時的那一步失敗，到時候才知道是等待不夠，還是 app 的還原真的有問題。

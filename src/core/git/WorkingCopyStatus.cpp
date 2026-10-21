@@ -487,14 +487,68 @@ std::vector<WorkingCopyEntry> parsePorcelainV2Records(const std::vector<std::str
     return entries;
 }
 
+namespace {
+
+/// Replaces every `? dir/` record of a `--untracked-files=normal` status with
+/// one `? <file>` record per untracked file under it, so the list matches what
+/// `=all` prints (`RealRepoTest.WorkingCopyUntrackedListMatchesUntrackedFilesAll`
+/// holds the two equal, nested repositories and ignored files included).
+///
+/// One `ls-files --others` over exactly those directories, and none at all when
+/// there are none -- the common case, which is the whole saving. Pathspecs are
+/// `:(literal)` because a directory may be named like a glob (`g[1]/`). No
+/// worktreeReadFlags(), matching `status` ([GIT-worktree-reads-need-fsmonitor-off]).
+GitResult<void> expandUntrackedDirectories(IProcessRunner& runner,
+                                           const RepoPaths& paths,
+                                           std::vector<std::string>& records,
+                                           CancellationToken token) {
+    std::vector<std::string> args{"ls-files", "--others", "--exclude-standard", "-z", "--"};
+    const std::size_t pathspecStart = args.size();
+    std::vector<std::string> kept;
+    kept.reserve(records.size());
+    for (std::string& record : records) {
+        if (record.size() > 2 && record.compare(0, 2, "? ") == 0 && record.back() == '/') {
+            args.push_back(":(literal)" + record.substr(2));
+        } else {
+            kept.push_back(std::move(record));
+        }
+    }
+    if (args.size() == pathspecStart) {
+        records = std::move(kept);
+        return {};
+    }
+
+    GitCommand command(paths.commandDir(), std::move(args));
+    command.timeout = std::chrono::seconds(120);
+    const LineSink sink = [&kept](std::string_view path) {
+        kept.push_back("? " + std::string(path));
+        return true;
+    };
+    auto result =
+        runner.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
+    if (!result) {
+        return fail(std::move(result).error());
+    }
+    records = std::move(kept);
+    return {};
+}
+
+}  // namespace
+
 GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken token) {
     GBM_ASSERT_NOT_UI_THREAD();
 
     // No --branch: ahead/behind and the current branch name are RefStore's job
     // already, via %(upstream:track) in a single for-each-ref call. Asking for
     // both here would mean two sources of truth for the same numbers.
+    //
+    // `=normal`, not `=all`: `=all` walks every directory of the work tree even
+    // when nothing is untracked -- 450-710 ms on microsoft/vscode against 30 ms
+    // (使用者裁定 2026-10-21: 「先 normal，有目錄才展開」). `=normal` collapses an
+    // untracked directory to one `dir/` record; expandUntrackedDirectories()
+    // turns those back into the per-file records `=all` would have printed.
     std::vector<std::string> args{
-        "status", "--porcelain=v2", "-z", "--untracked-files=all", "--ignore-submodules=none"};
+        "status", "--porcelain=v2", "-z", "--untracked-files=normal", "--ignore-submodules=none"};
     GitCommand command(paths_.commandDir(), std::move(args));
     command.timeout = std::chrono::seconds(120);
 
@@ -509,6 +563,11 @@ GitResult<WorkingCopyStatusPtr> WorkingCopyStatusReader::read(CancellationToken 
         runner_.streamSeparated(command, IProcessRunner::Separator::Nul, sink, nullptr, token);
     if (!result) {
         return fail(std::move(result).error());
+    }
+
+    auto expanded = expandUntrackedDirectories(runner_, paths_, records, token);
+    if (!expanded) {
+        return fail(std::move(expanded).error());
     }
 
     auto status = std::make_shared<WorkingCopyStatus>();

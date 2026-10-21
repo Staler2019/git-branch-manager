@@ -1680,6 +1680,57 @@ TEST_F(RealRepoTest, ReadsUnicodeAndSpacedPathsCorrectly) {
 
 // --- M1: working-copy status, staging and commit ---------------------------
 
+// The untracked list must be exactly what `--untracked-files=all` reports,
+// whatever way the reader gets there: every file inside an untracked
+// directory at any depth, nothing .gitignore'd, a directory holding only
+// ignored files absent, an embedded repository as one `dir/` entry, and
+// paths with spaces and non-ASCII intact. Measured on microsoft/vscode
+// (20,951 files, none untracked): `=all` 450-710 ms, `=normal` 30 ms.
+TEST_F(RealRepoTest, WorkingCopyUntrackedListMatchesUntrackedFilesAll) {
+    commitFile(".gitignore", "*.log\n", "ignore");
+    const auto write = [this](const std::filesystem::path& rel) {
+        std::filesystem::create_directories((repo_ / rel).parent_path());
+        std::ofstream(repo_ / rel) << "x\n";
+    };
+    write("top.txt");
+    write("u/x");
+    write("u/v/w/y");
+    write("u/z.log");
+    write(std::filesystem::path(u8"u2 空白/檔 案.txt"));
+    write("onlyignored/a.log");
+    write("g[1]/f");
+    write("g1/decoy");
+    std::filesystem::create_directories(repo_ / "u" / "nested");
+    ASSERT_TRUE(run({"init", "--quiet", (repo_ / "u" / "nested").string()}));
+
+    auto all = run({"status", "--porcelain=v2", "-z", "--untracked-files=all"});
+    ASSERT_TRUE(all && all->succeeded());
+    std::vector<std::string> expected;
+    std::size_t start = 0;
+    const std::string& out = all->out;
+    while (start < out.size()) {
+        const std::size_t end = std::min(out.find('\0', start), out.size());
+        const std::string record = out.substr(start, end - start);
+        if (record.rfind("? ", 0) == 0) {
+            expected.push_back(record.substr(2));
+        }
+        start = end + 1;
+    }
+    ASSERT_EQ(expected.size(), 7u) << "fixture: top.txt, u/x, u/v/w/y, u/nested/, u2 空白/檔 案.txt, "
+                                      "g[1]/f, g1/decoy";
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    std::vector<std::string> actual;
+    for (const WorkingCopyEntry* entry : (*status)->untracked()) {
+        actual.push_back(entry->path);
+    }
+    std::sort(expected.begin(), expected.end());
+    std::sort(actual.begin(), actual.end());
+    EXPECT_EQ(actual, expected);
+}
+
 TEST_F(RealRepoTest, WorkingCopyStatusReportsStagedUnstagedAndUntracked) {
     commitFile("a.txt", "one\n", "c1");
 

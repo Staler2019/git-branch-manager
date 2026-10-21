@@ -6,8 +6,10 @@
 #include "core/git/ops/BranchOps.h"
 #include "support/FakeProcessRunner.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 namespace gbm {
 namespace {
@@ -337,6 +339,75 @@ TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
     EXPECT_EQ(outcome.summary.find("Deleted"), std::string::npos);
     // Still the message the failure path already produced, untouched.
     EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
+}
+
+// The count is taken against the tip the probe resolved, never the moving
+// `refs/heads/<b>`: the dialog sends that tip back with the `-D`, and core
+// refuses when the branch has moved since. Counting the ref would let the
+// number and the tip describe two different states.
+TEST(BranchDeletionProbe, CountsAgainstTheResolvedTipNotTheRef) {
+    FakeProcessRunner runner;
+    const std::string tip(40, 'a');
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/feature\t" + tip + "\trefs/remotes/origin/feature\t[ahead 3]\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+    FakeProcessRunner::Response count;
+    count.out = "3\n";
+    runner.whenArgsContain({"rev-list", "--count"}, count);
+
+    BranchStore store(runner, testPaths());
+    auto result = store.probeDeletion({"feature"}, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    ASSERT_EQ(result->size(), 1u);
+    EXPECT_EQ(result->front().unsyncedCount, 3);
+    EXPECT_EQ(result->front().tipOid, tip);
+
+    bool sawCount = false;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (std::find(args.begin(), args.end(), "rev-list") == args.end()) {
+            continue;
+        }
+        sawCount = true;
+        EXPECT_EQ(args, (std::vector<std::string>{"rev-list", "--count", tip,
+                                                  "^refs/remotes/origin/feature", "--"}));
+    }
+    EXPECT_TRUE(sawCount);
+}
+
+// A gone upstream is never counted: `rev-list ^<missing ref>` would fail the
+// whole probe, and git's own `-d` falls back to HEAD there -- neither is the
+// base the user ruled for.
+TEST(BranchDeletionProbe, AGoneUpstreamRunsNoCount) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/stale\t" + std::string(40, 'b') + "\trefs/remotes/origin/stale\t[gone]\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+
+    BranchStore store(runner, testPaths());
+    auto result = store.probeDeletion({"stale"}, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->front().state, BranchDeletionProbe::State::NoReference);
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        EXPECT_EQ(std::find(args.begin(), args.end(), "rev-list"), args.end());
+    }
+}
+
+// A failed read is neither "nothing to warn about" nor "no upstream": the
+// dialog must disable its button, never fall back to `-D`.
+TEST(BranchDeletionProbe, AFailedCountFailsTheProbe) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/feature\t" + std::string(40, 'c') + "\trefs/remotes/origin/feature\t\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+    FakeProcessRunner::Response broken;
+    broken.exitCode = 128;
+    broken.err = "fatal: bad revision\n";
+    runner.whenArgsContain({"rev-list", "--count"}, broken);
+
+    BranchStore store(runner, testPaths());
+    EXPECT_FALSE(store.probeDeletion({"feature"}, CancellationToken{}));
 }
 
 TEST(CreateBranchOperation, LeavesHeadAloneWhenCheckoutAfterIsFalse) {

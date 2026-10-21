@@ -5,7 +5,9 @@
 #include "core/git/RefStore.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -541,6 +543,115 @@ private:
 };
 
 }  // namespace
+
+BranchDeletionProbe BranchDeletionProbe::notFound(std::string name) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::NotFound;
+    return probe;
+}
+
+BranchDeletionProbe BranchDeletionProbe::noReference(std::string name, std::string tipOid) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::NoReference;
+    probe.tipOid = std::move(tipOid);
+    return probe;
+}
+
+BranchDeletionProbe BranchDeletionProbe::counted(std::string name,
+                                                 std::string tipOid,
+                                                 std::string upstream,
+                                                 int unsyncedCount) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::Counted;
+    probe.tipOid = std::move(tipOid);
+    probe.upstream = std::move(upstream);
+    probe.unsyncedCount = unsyncedCount;
+    return probe;
+}
+
+BranchStore::BranchStore(IProcessRunner& runner, RepoPaths paths)
+    : runner_(runner), paths_(std::move(paths)) {}
+
+GitResult<std::vector<BranchDeletionProbe>> BranchStore::probeDeletion(
+    std::vector<std::string> names, CancellationToken token) {
+    // Every local branch in one for-each-ref, matched to the request by exact
+    // name: a `refs/heads/feat` pattern would also list `refs/heads/feat/x`.
+    // Tab-separated because a refname cannot contain a control character.
+    GitCommand list(paths_.commandDir(),
+                    {"for-each-ref",
+                     "--format=%(refname)%09%(objectname)%09%(upstream)%09%(upstream:track)",
+                     "refs/heads/"});
+    list.timeout = std::chrono::seconds(30);
+    auto listed = runner_.run(list, token);
+    if (!listed) {
+        return fail(std::move(listed).error());
+    }
+
+    struct Head {
+        std::string tip;
+        std::string upstream;
+        bool gone = false;
+    };
+
+    std::map<std::string, Head> heads;
+    std::istringstream lines(listed->out);
+    std::string line;
+    constexpr std::string_view kHeads = "refs/heads/";
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        std::vector<std::string> fields;
+        std::size_t start = 0;
+        for (std::size_t tab = line.find('\t'); tab != std::string::npos;
+             tab = line.find('\t', start)) {
+            fields.push_back(line.substr(start, tab - start));
+            start = tab + 1;
+        }
+        fields.push_back(line.substr(start));
+        if (fields.size() < 4 || fields[0].compare(0, kHeads.size(), kHeads) != 0) {
+            continue;
+        }
+        heads[fields[0].substr(kHeads.size())] =
+            Head{fields[1], fields[2], fields[3].find("[gone]") != std::string::npos};
+    }
+
+    std::vector<BranchDeletionProbe> probes;
+    probes.reserve(names.size());
+    for (std::string& name : names) {
+        const auto found = heads.find(name);
+        if (found == heads.end()) {
+            probes.push_back(BranchDeletionProbe::notFound(std::move(name)));
+            continue;
+        }
+        const Head& head = found->second;
+        if (head.upstream.empty() || head.gone) {
+            probes.push_back(BranchDeletionProbe::noReference(std::move(name), head.tip));
+            continue;
+        }
+        // Against the tip read above, not `refs/heads/<name>`: the ref may move
+        // between the two commands, and the count must describe `tip`.
+        GitCommand count(paths_.commandDir(),
+                         {"rev-list", "--count", head.tip, "^" + head.upstream, "--"});
+        count.timeout = std::chrono::seconds(30);
+        auto counted = runner_.run(count, token);
+        if (!counted) {
+            return fail(std::move(counted).error());
+        }
+        int unsynced = 0;
+        const std::string& out = counted->out;
+        const auto parsed = std::from_chars(out.data(), out.data() + out.size(), unsynced);
+        if (parsed.ec != std::errc()) {
+            return fail(GitError::Code::ParseError, "Unexpected rev-list --count output: " + out);
+        }
+        probes.push_back(
+            BranchDeletionProbe::counted(std::move(name), head.tip, head.upstream, unsynced));
+    }
+    return probes;
+}
 
 std::unique_ptr<Operation> makeCreateBranchOperation(CreateBranchRequest request) {
     return std::make_unique<CreateBranchOperation>(std::move(request));

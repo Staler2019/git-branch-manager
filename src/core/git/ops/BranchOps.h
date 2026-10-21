@@ -54,6 +54,52 @@ struct DeleteBranchRequest {
     std::string remoteName;
 };
 
+/// What deleting one local branch would lose, read *before* the user confirms
+/// (spec page 06: 「複述分支名與未合併的 commit 數」).
+///
+/// The base is the branch's own upstream and nothing else (使用者裁示
+/// 2026-10-21): with one set, `rev-list --count <tip> ^<upstream>`, which is
+/// also the base `git branch -d` uses -- so a zero count is safe to send as
+/// `-d`. With none, or a gone one, there is no count at all (`NoReference`);
+/// git's `-d` would fall back to HEAD there, so the dialog sends `-D` after a
+/// notice instead.
+///
+/// `tipOid` is the commit the count was taken against. The dialog sends it
+/// back with a `-D`, and the delete refuses if the branch has moved since, so
+/// the number the user read and the commits removed are the same set.
+struct BranchDeletionProbe {
+    enum class State { NotFound, NoReference, Counted };
+
+    std::string name;
+    State state = State::NotFound;
+    std::string tipOid;    ///< Empty only for NotFound.
+    std::string upstream;  ///< Full ref; set for Counted only.
+    int unsyncedCount = 0;
+
+    static BranchDeletionProbe notFound(std::string name);
+    static BranchDeletionProbe noReference(std::string name, std::string tipOid);
+    static BranchDeletionProbe counted(std::string name,
+                                       std::string tipOid,
+                                       std::string upstream,
+                                       int unsyncedCount);
+};
+
+/// Read-only branch queries, like RemoteStore.
+class BranchStore {
+public:
+    BranchStore(IProcessRunner& runner, RepoPaths paths);
+
+    /// One answer per requested name, in request order. A failed read fails
+    /// the whole probe: it is neither "nothing to warn about" nor "no
+    /// upstream", and the dialog must not guess between them.
+    GitResult<std::vector<BranchDeletionProbe>> probeDeletion(std::vector<std::string> names,
+                                                              CancellationToken token);
+
+private:
+    IProcessRunner& runner_;
+    RepoPaths paths_;
+};
+
 std::unique_ptr<Operation> makeCreateBranchOperation(CreateBranchRequest request);
 std::unique_ptr<Operation> makeRenameBranchOperation(RenameBranchRequest request);
 std::unique_ptr<Operation> makeDeleteBranchOperation(DeleteBranchRequest request);

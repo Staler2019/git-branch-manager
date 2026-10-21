@@ -1575,6 +1575,176 @@ TEST_F(RealRepoTest, ReportsSafeToDeleteWhenAnotherClonePushedTheMergeAndPrunedT
     EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
 }
 
+// A6 (使用者裁示 2026-10-21): the delete dialogs warn *before* confirming,
+// measured against the branch's own upstream -- the same base `git branch -d`
+// uses when one is set (branch_merged()). No upstream, or a gone one, is
+// `noReference`: no count, and the dialog goes straight to `-D` after a notice.
+class BranchDeletionProbeTest : public RealRepoTest {
+protected:
+    void SetUp() override {
+        RealRepoTest::SetUp();
+        if (IsSkipped()) {
+            return;
+        }
+        remote_ = repo_.string() + "-probe-remote";
+        std::filesystem::remove_all(remote_);
+        std::filesystem::create_directories(remote_);
+        GitCommand initBare(remote_, {"init", "--quiet", "--bare", "--initial-branch=main"});
+        initBare.timeout = std::chrono::seconds(30);
+        ASSERT_TRUE(runner_->run(initBare, CancellationToken{}));
+        extraDirs_.push_back(remote_);
+        commitFile("a.txt", "1\n", "c1");
+        ASSERT_TRUE(run({"remote", "add", "origin", remote_.string()}));
+        ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "main"}));
+    }
+
+    std::string tipOf(const std::string& branch) {
+        auto out = run({"rev-parse", "refs/heads/" + branch});
+        EXPECT_TRUE(out);
+        std::string oid = out ? out->out : std::string();
+        while (!oid.empty() && (oid.back() == '\n' || oid.back() == '\r')) {
+            oid.pop_back();
+        }
+        return oid;
+    }
+
+    BranchDeletionProbe probeOne(const RepoPaths& paths, const std::string& name) {
+        BranchStore store(*runner_, paths);
+        auto result = store.probeDeletion({name}, CancellationToken{});
+        EXPECT_TRUE(result) << (result ? "" : result.error().message);
+        if (!result || result->size() != 1) {
+            ADD_FAILURE() << "expected exactly one probe";
+            return BranchDeletionProbe::notFound(name);
+        }
+        return result->front();
+    }
+
+    bool deleteWithoutForce(const RepoPaths& paths, const std::string& name) {
+        OperationRunner operations(*runner_, paths);
+        DeleteBranchRequest remove;
+        remove.names = {name};
+        return submitAndWait(operations, makeDeleteBranchOperation(remove)).succeeded;
+    }
+
+    std::filesystem::path remote_;
+};
+
+TEST_F(BranchDeletionProbeTest, CountsCommitsNotOnTheUpstreamAgainstTheResolvedTip) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "ahead"}));
+    commitFile("b.txt", "pushed\n", "pushed");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "ahead"}));
+    commitFile("c.txt", "local 1\n", "local 1");
+    commitFile("d.txt", "local 2\n", "local 2");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "ahead");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::Counted);
+    EXPECT_EQ(probe.unsyncedCount, 2);
+    EXPECT_EQ(probe.tipOid, tipOf("ahead"));
+    EXPECT_EQ(probe.upstream, "refs/remotes/origin/ahead");
+}
+
+TEST_F(BranchDeletionProbeTest, ASyncedBranchMergedIntoHeadCountsZeroAndDeletesWithoutForce) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "merged"}));
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "merged"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "merged");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::Counted);
+    EXPECT_EQ(probe.unsyncedCount, 0);
+    EXPECT_TRUE(deleteWithoutForce(paths_, "merged"));
+}
+
+// git's branch_merged() compares against the upstream when one is set, not
+// HEAD: a branch HEAD never merged still deletes with `-d` once its upstream
+// holds every commit. That is why a zero count may be sent as `-d`.
+TEST_F(BranchDeletionProbeTest, ASyncedBranchHeadNeverMergedCountsZeroAndDeletesWithoutForce) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "synced"}));
+    commitFile("b.txt", "only on synced\n", "only on synced");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "synced"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "synced");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::Counted);
+    EXPECT_EQ(probe.unsyncedCount, 0);
+    EXPECT_TRUE(deleteWithoutForce(paths_, "synced"));
+}
+
+TEST_F(BranchDeletionProbeTest, AGoneUpstreamIsNoReference) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "stale"}));
+    commitFile("b.txt", "only on stale\n", "only on stale");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "stale"}));
+    ASSERT_TRUE(run({"push", "--quiet", "origin", "--delete", "stale"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    ASSERT_TRUE(run({"fetch", "--quiet", "--prune"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "stale");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::NoReference);
+    EXPECT_EQ(probe.tipOid, tipOf("stale")) << "the -D that follows still needs a tip to check";
+}
+
+TEST_F(BranchDeletionProbeTest, NoUpstreamIsNoReference) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "local-only"}));
+    commitFile("b.txt", "local\n", "local");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "local-only");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::NoReference);
+    EXPECT_EQ(probe.tipOid, tipOf("local-only"));
+}
+
+TEST_F(BranchDeletionProbeTest, ABranchThatNoLongerExistsIsNotFound) {
+    ASSERT_TRUE(run({"branch", "doomed"}));
+    ASSERT_TRUE(run({"branch", "-D", "doomed"}));
+
+    const BranchDeletionProbe probe = probeOne(paths_, "doomed");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::NotFound);
+    EXPECT_TRUE(probe.tipOid.empty());
+}
+
+// The probe matches names exactly: `refs/heads/feat` must not also answer for
+// `refs/heads/feat/x`, which for-each-ref's prefix matching would list.
+TEST_F(BranchDeletionProbeTest, AnswersEachRequestedNameOnceAndInOrder) {
+    ASSERT_TRUE(run({"branch", "feat/x"}));
+    ASSERT_TRUE(run({"branch", "zeta"}));
+
+    BranchStore store(*runner_, paths_);
+    auto result = store.probeDeletion({"zeta", "feat", "feat/x"}, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    ASSERT_EQ(result->size(), 3u);
+    EXPECT_EQ((*result)[0].name, "zeta");
+    EXPECT_EQ((*result)[0].state, BranchDeletionProbe::State::NoReference);
+    EXPECT_EQ((*result)[1].name, "feat");
+    EXPECT_EQ((*result)[1].state, BranchDeletionProbe::State::NotFound);
+    EXPECT_EQ((*result)[2].name, "feat/x");
+    EXPECT_EQ((*result)[2].state, BranchDeletionProbe::State::NoReference);
+}
+
+TEST_F(BranchDeletionProbeTest, ALinkedWorktreeProbesAndDeletesTheSameWay) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "synced"}));
+    commitFile("b.txt", "only on synced\n", "only on synced");
+    ASSERT_TRUE(run({"push", "--quiet", "-u", "origin", "synced"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    const std::filesystem::path linked = repo_.string() + "-probe-linked";
+    std::filesystem::remove_all(linked);
+    extraDirs_.push_back(linked);
+    ASSERT_TRUE(run({"worktree", "add", "--quiet", "--detach", linked.string()}));
+    const RepoPaths linkedPaths(linked, repo_ / ".git" / "worktrees" / linked.filename(),
+                                repo_ / ".git");
+
+    const BranchDeletionProbe probe = probeOne(linkedPaths, "synced");
+
+    EXPECT_EQ(probe.state, BranchDeletionProbe::State::Counted);
+    EXPECT_EQ(probe.unsyncedCount, 0);
+    EXPECT_TRUE(deleteWithoutForce(linkedPaths, "synced"));
+}
+
 TEST_F(RealRepoTest, CancelsAReadOnlyWalkPromptly) {
     for (int i = 0; i < 40; ++i) {
         commitFile("a.txt", std::to_string(i) + "\n", "c" + std::to_string(i));

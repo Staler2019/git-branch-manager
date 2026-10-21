@@ -1,6 +1,6 @@
 import '../../data/models/branch_deletion_probe.dart';
 import '../../data/models/git_error.dart';
-import '../../data/models/remote_prune_preview_entry.dart';
+import '../../data/models/ref_snapshot.dart';
 
 /// The per-branch line the delete dialogs draw from one
 /// [BranchDeletionProbe] -- the batch rows and the Delete Blocked list read
@@ -12,7 +12,7 @@ import '../../data/models/remote_prune_preview_entry.dart';
 String branchDeletionProbeText(BranchDeletionProbe probe) => switch (probe) {
   ProbeCounted(unsyncedCount: 0) => '已完整同步',
   ProbeCounted(:final int unsyncedCount, :final String upstream) =>
-    '$unsyncedCount 個 commit 尚未同步到 ${shortRemoteRefName(upstream)}',
+    '$unsyncedCount 個 commit 尚未同步到 ${shortUpstreamName(upstream)}',
   ProbeNoReference() => '沒有 upstream（或已 gone），無法確認是否已同步',
   ProbeNotFound() => '已經不存在',
 };

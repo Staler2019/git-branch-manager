@@ -563,6 +563,55 @@ void main() {
       },
     );
 
+    testWidgets('a local-branch upstream is named by its short name', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  const BranchDeletionProbeReply(
+                    probes: <BranchDeletionProbe>[
+                      ProbeCounted(
+                        'feature/x',
+                        tipOid: 't',
+                        upstream: 'refs/heads/main',
+                        unsyncedCount: 0,
+                      ),
+                    ],
+                  ),
+      );
+      expect(find.text('已完整同步到 main。'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a local-branch upstream is named by its short name in the warning too',
+      (WidgetTester tester) async {
+        await _pump(
+          tester,
+          'feature/x',
+          refs,
+          controller: (RepoSessionState s) =>
+              FakeRepoSessionController(_identity, s)
+                ..branchDeletionProbe = (List<String> names) =>
+                    const BranchDeletionProbeReply(
+                      probes: <BranchDeletionProbe>[
+                        ProbeCounted(
+                          'feature/x',
+                          tipOid: 't',
+                          upstream: 'refs/heads/main',
+                          unsyncedCount: 2,
+                        ),
+                      ],
+                    ),
+        );
+        expect(find.text('這個分支有 2 個 commit 尚未同步到 main。'), findsOneWidget);
+      },
+    );
+
     testWidgets('a fully synced branch is deleted with a plain -d', (
       WidgetTester tester,
     ) async {

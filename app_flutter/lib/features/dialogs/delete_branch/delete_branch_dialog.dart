@@ -300,7 +300,7 @@ class _DeleteBranchDialogContentState
             // informational and stays plain text.
             switch (probe) {
               ProbeCounted(unsyncedCount: 0, :final String upstream) => Text(
-                '已完整同步到 ${shortRemoteRefName(upstream)}。',
+                '已完整同步到 ${shortUpstreamName(upstream)}。',
                 style: TextStyle(
                   fontSize: GbmTypography.textXs,
                   color: colors.textSecondary,
@@ -310,7 +310,7 @@ class _DeleteBranchDialogContentState
                 GbmDialogWarnField(
                   message:
                       '這個分支有 $unsyncedCount 個 commit 尚未同步到 '
-                      '${shortRemoteRefName(upstream)}。',
+                      '${shortUpstreamName(upstream)}。',
                 ),
               ProbeNoReference() => const GbmDialogWarnField(
                 message: '沒有 upstream（或已 gone），無法確認是否已同步。',

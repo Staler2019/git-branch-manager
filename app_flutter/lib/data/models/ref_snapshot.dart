@@ -1,3 +1,5 @@
+import 'remote_prune_preview_entry.dart';
+
 /// Mirrors `gbm::RefKind` (src/core/git/RefStore.h).
 enum RefKind {
   localBranch(0),
@@ -194,4 +196,15 @@ class RefSnapshot {
   final int slash = rest.indexOf('/');
   if (slash < 0) return (rest, '');
   return (rest.substring(0, slash), rest.substring(slash + 1));
+}
+
+/// An upstream as the user recognises it: `%(upstream)` is a full ref, and
+/// it may name a local branch (`git branch -u main`) as well as a
+/// remote-tracking one. For display only. [shortRemoteRefName] stays
+/// remote-only because `pruneRefArguments` puts its output on the git wire.
+String shortUpstreamName(String upstream) {
+  const String localPrefix = 'refs/heads/';
+  return upstream.startsWith(localPrefix)
+      ? upstream.substring(localPrefix.length)
+      : shortRemoteRefName(upstream);
 }

@@ -198,4 +198,24 @@ void main() {
       });
     });
   });
+
+  // `%(upstream)` is the full ref, and an upstream may be a local branch
+  // (`git branch -u main`), not only a remote-tracking one.
+  group('shortUpstreamName', () {
+    test('drops refs/remotes/ from a remote-tracking upstream', () {
+      expect(
+        shortUpstreamName('refs/remotes/origin/feature/x'),
+        'origin/feature/x',
+      );
+    });
+
+    test('drops refs/heads/ from a local-branch upstream', () {
+      expect(shortUpstreamName('refs/heads/main'), 'main');
+    });
+
+    test('leaves anything else as it is', () {
+      expect(shortUpstreamName('main'), 'main');
+      expect(shortUpstreamName(''), '');
+    });
+  });
 }

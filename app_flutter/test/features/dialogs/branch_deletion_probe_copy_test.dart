@@ -20,6 +20,20 @@ void main() {
     );
   });
 
+  test('a local-branch upstream is named by its short name too', () {
+    expect(
+      branchDeletionProbeText(
+        const ProbeCounted(
+          'x',
+          tipOid: 't',
+          upstream: 'refs/heads/main',
+          unsyncedCount: 2,
+        ),
+      ),
+      '2 個 commit 尚未同步到 main',
+    );
+  });
+
   test('a counted branch with nothing unsynced says so', () {
     expect(
       branchDeletionProbeText(

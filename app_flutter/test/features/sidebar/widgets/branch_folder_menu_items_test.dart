@@ -22,7 +22,6 @@ void main() {
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: () {},
       );
       final List<String> actualLabels = items
@@ -40,7 +39,6 @@ void main() {
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: () {},
       );
       expect(items.first.label, 'Expand all');
@@ -51,28 +49,23 @@ void main() {
         isExpanded: true,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: () {},
       );
       expect(items.first.label, 'Collapse all');
     });
 
-    test(
-      'Delete merged branches… is last, is danger, preceded by a separator',
-      () {
-        final List<GbmMenuItem> items = branchFolderMenuItems(
-          isExpanded: false,
-          onToggleExpand: () {},
-          onCopyPrefix: () {},
-          onDeleteMerged: () {},
-          onFetchFolder: () {},
-        );
+    test('nothing in the folder menu deletes, and no separator is left '
+        'dangling (Delete merged branches… removed, 使用者裁定 2026-10-21)', () {
+      final List<GbmMenuItem> items = branchFolderMenuItems(
+        isExpanded: false,
+        onToggleExpand: () {},
+        onCopyPrefix: () {},
+        onFetchFolder: () {},
+      );
 
-        expect(items.last.label, 'Delete merged branches…');
-        expect(items.last.danger, isTrue);
-        expect(items[items.length - 2].separator, isTrue);
-      },
-    );
+      expect(items.where((GbmMenuItem i) => i.danger), isEmpty);
+      expect(items.where((GbmMenuItem i) => i.separator), isEmpty);
+    });
 
     test('onFetchFolder: null renders Fetch branches in folder disabled, '
         'matching the "no single unambiguous remote" case', () {
@@ -80,7 +73,6 @@ void main() {
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: null,
       );
       final GbmMenuItem fetchItem = items.firstWhere(
@@ -96,7 +88,6 @@ void main() {
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: () => fetched = true,
       );
       final GbmMenuItem fetchItem = items.firstWhere(
@@ -110,30 +101,22 @@ void main() {
     test('each callback reaches its matching item, not a neighbor', () {
       bool toggled = false;
       bool copied = false;
-      bool deleted = false;
 
       final List<GbmMenuItem> items = branchFolderMenuItems(
         isExpanded: false,
         onToggleExpand: () => toggled = true,
         onCopyPrefix: () => copied = true,
-        onDeleteMerged: () => deleted = true,
         onFetchFolder: () {},
       );
 
       items.firstWhere((GbmMenuItem i) => i.label == 'Expand all').onTap!();
       expect(toggled, isTrue);
       expect(copied, isFalse);
-      expect(deleted, isFalse);
 
       items
           .firstWhere((GbmMenuItem i) => i.label == 'Copy folder prefix')
           .onTap!();
       expect(copied, isTrue);
-
-      items
-          .firstWhere((GbmMenuItem i) => i.label == 'Delete merged branches…')
-          .onTap!();
-      expect(deleted, isTrue);
     });
   });
 }

@@ -190,7 +190,9 @@ const GbmContextMenuGroupSpec _remoteOnlyBranch = GbmContextMenuGroupSpec(
 );
 
 /// 05-J: Branch folder (right-click folder row like feature/ -- not yet wired)
-/// 4 top-level items.
+/// ~~4~~ 3 top-level items. `Delete merged branches…` was removed from spec
+/// and code (P16 REVISIONS, 使用者裁定 2026-10-21): its ellipsis promised a
+/// dialog that never existed, and it sent `git branch -d` for the folder.
 const GbmContextMenuGroupSpec _branchFolder = GbmContextMenuGroupSpec(
   id: '05-J',
   target: GbmContextMenuTarget.branchFolder,
@@ -199,7 +201,6 @@ const GbmContextMenuGroupSpec _branchFolder = GbmContextMenuGroupSpec(
     GbmContextMenuItemSpec(label: 'Expand all / Collapse all'),
     GbmContextMenuItemSpec(label: 'Fetch branches in folder'),
     GbmContextMenuItemSpec(label: 'Copy folder prefix'),
-    GbmContextMenuItemSpec(label: 'Delete merged branches…', isDanger: true),
   ],
 );
 

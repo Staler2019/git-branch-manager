@@ -173,29 +173,6 @@ class BranchRowActions {
     );
   }
 
-  // Reuses deleteBranch's existing safe-delete default (force: false,
-  // i.e. plain `git branch -d`) rather than a new "is this merged" capi
-  // capability: git itself refuses any branch here that isn't merged, and
-  // that refusal already surfaces through the existing delete-branch-
-  // recovery flow (checkoutChoices/deleteBranchChoices), the same path a
-  // single unmerged branch delete goes through today. Excludes HEAD and
-  // any branch checked out in a linked worktree, matching
-  // _isGoneAndBulkSelectable's exclusions for the same reason -- deleting
-  // either would fail loudly or move the current session's HEAD.
-  void deleteMergedInFolder(BranchTreeFolder folder) {
-    final List<String> names = collectFolderLeafRefs(folder.children)
-        .where(
-          (RefInfo r) =>
-              r.kind == RefKind.localBranch &&
-              !r.isHead &&
-              r.worktreePath.isEmpty,
-        )
-        .map((RefInfo r) => r.shortName)
-        .toList(growable: false);
-    if (names.isEmpty) return;
-    _session.deleteBranch(names: names);
-  }
-
   // Only offered when every leaf ref in the folder resolves to the same
   // remote (see fetchableRefsInFolder's doc comment) -- there's no "default
   // remote" to fall back to for a folder mixing refs from more than one,

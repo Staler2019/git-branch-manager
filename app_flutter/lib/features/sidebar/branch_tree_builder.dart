@@ -377,9 +377,8 @@ List<String> selectableLeafNames(List<BranchTreeNode> nodes) {
 
 /// Every leaf ref under [nodes], at any depth.
 ///
-/// Used by the folder-scoped actions (05-J's "Delete merged in folder" and
-/// "Fetch branches in folder"), which act on a whole subtree rather than on
-/// one row.
+/// Used by 05-J's "Fetch branches in folder", which acts on a whole subtree
+/// rather than on one row.
 List<RefInfo> collectFolderLeafRefs(List<BranchTreeNode> nodes) {
   final List<RefInfo> refs = <RefInfo>[];
   for (final BranchTreeNode node in nodes) {

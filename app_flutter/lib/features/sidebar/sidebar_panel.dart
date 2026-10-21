@@ -71,6 +71,12 @@ class SidebarPanel extends ConsumerStatefulWidget {
   /// its own beyond what `Focus`/`TextField` already track.
   final FocusNode? filterFocusNode;
 
+  /// The slot the selection bar is drawn in. Always laid out, selection or
+  /// not, so a first click never pushes the tree down under the pointer.
+  static const Key selectionSlotKey = ValueKey<String>(
+    'sidebar-selection-slot',
+  );
+
   @override
   ConsumerState<SidebarPanel> createState() => _SidebarPanelState();
 }
@@ -508,15 +514,23 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
             onClear: _clearFilter,
             onEnterFirstResult: _enterFirstResult,
           ),
-          // Selection action bar
-          if (selection.isNotEmpty)
-            BranchSelectionActionBar(
-              count: selection.length,
-              onClear: () =>
-                  _selectionController.state = const ListSelection<String>(),
-              onDelete: () =>
-                  _rowActions.deleteSelected(context, selection.items),
-            ),
+          // The selection bar's slot is laid out whether or not anything is
+          // selected: inserting it on the first click pushed the whole tree
+          // down one row under the pointer (ruling 2026-10-18). Height is
+          // spec P13 callout 6's `height:24px`.
+          SizedBox(
+            key: SidebarPanel.selectionSlotKey,
+            height: GbmSpacing.space6,
+            child: selection.isEmpty
+                ? null
+                : BranchSelectionActionBar(
+                    count: selection.length,
+                    onClear: () => _selectionController.state =
+                        const ListSelection<String>(),
+                    onDelete: () =>
+                        _rowActions.deleteSelected(context, selection.items),
+                  ),
+          ),
           // Branch tree list
           Expanded(
             child: branches.isEmpty

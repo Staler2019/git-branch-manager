@@ -580,4 +580,90 @@ void main() {
       reason: 'the row is disabled, so its onTap is null (not merely grey)',
     );
   });
+
+  group('the selection bar keeps its slot (spec P13 callout 6, ruling '
+      '2026-10-18)', () {
+    testWidgets('selecting a branch does not move the tree', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester);
+      final Rect before = tester.getRect(_row('main'));
+
+      await tester.tap(_row('alpha'));
+      await tester.pump(kDoubleTapTimeout);
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(tester.getRect(_row('main')), before);
+    });
+
+    testWidgets('with no selection the slot is reserved and empty', (
+      WidgetTester tester,
+    ) async {
+      await _pump(tester);
+      final Finder slot = find.byKey(SidebarPanel.selectionSlotKey);
+
+      expect(tester.getSize(slot).height, GbmSpacing.space6);
+      expect(
+        find.descendant(of: slot, matching: find.byType(Text)),
+        findsNothing,
+      );
+      expect(find.text('Clear'), findsNothing);
+    });
+
+    testWidgets('the bar fits its slot at the sidebar minimum width', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize = const Size(GbmLayout.sidebarMinWidth, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _Harness h = await _pump(tester);
+      h.selection = const ListSelection<String>(
+        items: <String>['alpha', 'beta'],
+        anchor: 'beta',
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final Rect slot = tester.getRect(
+        find.byKey(SidebarPanel.selectionSlotKey),
+      );
+      final Rect delete = tester.getRect(find.text('Delete'));
+      expect(slot.contains(delete.topLeft), isTrue);
+      expect(slot.contains(delete.bottomRight - const Offset(1, 1)), isTrue);
+    });
+
+    testWidgets("the bar paints P13's raised ground and top rule", (
+      WidgetTester tester,
+    ) async {
+      final _Harness h = await _pump(tester);
+      h.selection = const ListSelection<String>(
+        items: <String>['alpha'],
+        anchor: 'alpha',
+      );
+      await tester.pumpAndSettle();
+
+      final GbmColors colors = tester
+          .element(find.byKey(SidebarPanel.selectionSlotKey))
+          .gbmColors;
+      final Iterable<BoxDecoration> grounds = tester
+          .widgetList<DecoratedBox>(
+            find.descendant(
+              of: find.byKey(SidebarPanel.selectionSlotKey),
+              matching: find.byType(DecoratedBox),
+            ),
+          )
+          .map((DecoratedBox d) => d.decoration)
+          .whereType<BoxDecoration>()
+          .where(
+            (BoxDecoration d) =>
+                d.color?.toARGB32() == colors.surfacePanelRaised.toARGB32(),
+          );
+      expect(grounds, hasLength(1));
+      final Border border = grounds.single.border! as Border;
+      expect(border.top.color.toARGB32(), colors.borderSubtle.toARGB32());
+      expect(border.top.width, 1);
+      expect(border.bottom, BorderSide.none);
+    });
+  });
 }

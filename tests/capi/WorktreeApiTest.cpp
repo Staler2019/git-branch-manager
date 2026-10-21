@@ -299,6 +299,26 @@ TEST_F(WorktreeApiTest, ACheckoutRepublishesTheWorktreeListWithTheNewBranch) {
     EXPECT_EQ(json.find("\"branch\":\"main\""), std::string::npos) << json;
 }
 
+// The other two ways a worktree's branch changes under it: a new branch
+// checked out on creation, and a rename -- including a rename of the branch
+// *another* worktree has checked out, which `git branch -m` allows.
+TEST_F(WorktreeApiTest, CreatingAndCheckingOutABranchRepublishesTheWorktreeList) {
+    gbm_branch_create(session_, "fresh", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a branch created and checked out must republish the worktree list";
+    EXPECT_NE(worktreesJson().find("\"branch\":\"fresh\""), std::string::npos) << worktreesJson();
+}
+
+TEST_F(WorktreeApiTest, RenamingABranchAnotherWorktreeHasCheckedOutRepublishesTheWorktreeList) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+
+    gbm_branch_rename(session_, "feature", "feature-renamed", /*force=*/0, /*renameRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a rename must republish the worktree list";
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"branch\":\"feature-renamed\""), std::string::npos) << json;
+}
+
 // The Flutter side opens every session as `<workDir>/.git` with no commonDir
 // (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
 // `gitdir:` pointer *file*. Every per-worktree stat RepoState makes

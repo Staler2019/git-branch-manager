@@ -556,8 +556,13 @@ void Session::checkout(CheckoutRequest request) {
 }
 
 void Session::createBranch(CreateBranchRequest request) {
+    // Only a checkout moves this worktree onto another branch; see checkout().
+    const bool movesHead = request.checkoutAfter;
     submitOperation(makeCreateBranchOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true);
+                    /*refreshHistoryOnSuccess=*/true,
+                    /*onSuccess=*/
+                        movesHead ? std::function<void()>([this]() { refreshWorktrees(); })
+                                  : nullptr);
 }
 
 void Session::renameBranch(RenameBranchRequest request) {
@@ -570,7 +575,8 @@ void Session::renameBranch(RenameBranchRequest request) {
     submitOperation(
         makeRenameBranchOperation(std::move(request)),
         /*refreshHistoryOnSuccess=*/true,
-        /*onSuccess=*/nullptr,
+        // The renamed branch may be checked out in any worktree, not only this one.
+        /*onSuccess=*/[this]() { refreshWorktrees(); },
         /*onAlways=*/needsAskpass ? std::function<void()>([this]() { endAskpass(); }) : nullptr);
 }
 

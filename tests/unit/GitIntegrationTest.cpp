@@ -1389,7 +1389,7 @@ TEST_F(RealRepoTest, CreatesRenamesAndDeletesBranches) {
     ASSERT_TRUE(renamed.succeeded) << (renamed.error ? renamed.error->detail : "");
 
     DeleteBranchRequest remove;
-    remove.names = {"feature/renamed"};
+    remove.entries = {DeleteBranchEntry::plain("feature/renamed")};
     auto deleted = submitAndWait(makeDeleteBranchOperation(remove));
     ASSERT_TRUE(deleted.succeeded) << (deleted.error ? deleted.error->detail : "");
 
@@ -1425,7 +1425,7 @@ TEST_F(RealRepoTest, DeletesMultipleBranchesInOneRequest) {
     }
 
     DeleteBranchRequest remove;
-    remove.names = {"multi-a", "multi-b", "multi-c"};
+    remove.entries = {DeleteBranchEntry::plain("multi-a"), DeleteBranchEntry::plain("multi-b"), DeleteBranchEntry::plain("multi-c")};
     auto deleted = submitAndWait(makeDeleteBranchOperation(remove));
     ASSERT_TRUE(deleted.succeeded) << (deleted.error ? deleted.error->detail : "");
 
@@ -1464,7 +1464,7 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
 
     OperationRunner operations(*runner_, paths_);
     DeleteBranchRequest remove;
-    remove.names = {"unmerged"};
+    remove.entries = {DeleteBranchEntry::plain("unmerged")};
 
     OperationOutcome outcome;
     operations.submit(makeDeleteBranchOperation(remove),
@@ -1563,7 +1563,7 @@ TEST_F(RealRepoTest, ReportsSafeToDeleteWhenAnotherClonePushedTheMergeAndPrunedT
 
     OperationRunner operations(*runner_, paths_);
     DeleteBranchRequest remove;
-    remove.names = {"feature"};
+    remove.entries = {DeleteBranchEntry::plain("feature")};
 
     OperationOutcome outcome;
     operations.submit(makeDeleteBranchOperation(remove),
@@ -1622,7 +1622,7 @@ protected:
     bool deleteWithoutForce(const RepoPaths& paths, const std::string& name) {
         OperationRunner operations(*runner_, paths);
         DeleteBranchRequest remove;
-        remove.names = {name};
+        remove.entries = {DeleteBranchEntry::plain(name)};
         return submitAndWait(operations, makeDeleteBranchOperation(remove)).succeeded;
     }
 
@@ -1743,6 +1743,46 @@ TEST_F(BranchDeletionProbeTest, ALinkedWorktreeProbesAndDeletesTheSameWay) {
     EXPECT_EQ(probe.state, BranchDeletionProbe::State::Counted);
     EXPECT_EQ(probe.unsyncedCount, 0);
     EXPECT_TRUE(deleteWithoutForce(linkedPaths, "synced"));
+}
+
+TEST_F(BranchDeletionProbeTest, AForcedDeleteWithTheProbedTipDeletesAlongsideAPlainOne) {
+    ASSERT_TRUE(run({"branch", "merged"}));
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "unsynced"}));
+    commitFile("b.txt", "local\n", "local");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    const BranchDeletionProbe probe = probeOne(paths_, "unsynced");
+    ASSERT_EQ(probe.state, BranchDeletionProbe::State::NoReference);
+
+    OperationRunner operations(*runner_, paths_);
+    DeleteBranchRequest remove;
+    remove.entries = {DeleteBranchEntry::plain("merged"), DeleteBranchEntry::forced("unsynced", probe.tipOid)};
+    const OperationOutcome outcome = submitAndWait(operations, makeDeleteBranchOperation(remove));
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    EXPECT_FALSE(run({"rev-parse", "--verify", "--quiet", "refs/heads/merged"}));
+    EXPECT_FALSE(run({"rev-parse", "--verify", "--quiet", "refs/heads/unsynced"}));
+}
+
+TEST_F(BranchDeletionProbeTest, AForcedDeleteRefusesABranchThatMovedAfterTheProbe) {
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "unsynced"}));
+    commitFile("b.txt", "local\n", "local");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    const BranchDeletionProbe probe = probeOne(paths_, "unsynced");
+
+    // Someone commits to the branch after the user read the count.
+    ASSERT_TRUE(run({"switch", "--quiet", "unsynced"}));
+    commitFile("c.txt", "never counted\n", "never counted");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    DeleteBranchRequest remove;
+    remove.entries = {DeleteBranchEntry::forced("unsynced", probe.tipOid)};
+    const OperationOutcome outcome = submitAndWait(operations, makeDeleteBranchOperation(remove));
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::StaleBranchTip);
+    EXPECT_TRUE(run({"rev-parse", "--verify", "--quiet", "refs/heads/unsynced"}));
 }
 
 TEST_F(RealRepoTest, CancelsAReadOnlyWalkPromptly) {

@@ -45,7 +45,7 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -89,7 +89,7 @@ TEST(DeleteBranchOperation, SkipsOriginHeadAsTheReportedRemote) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -112,7 +112,7 @@ TEST(DeleteBranchOperation, SuggestsFetchingWhenNoRemoteRefContainsIt) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -139,7 +139,7 @@ TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) 
     runner.whenArgsContain({"branch", "-d", "multi-a", "multi-b"}, failure);
 
     DeleteBranchRequest request;
-    request.names = {"multi-a", "multi-b"};
+    request.entries = {DeleteBranchEntry::plain("multi-a"), DeleteBranchEntry::plain("multi-b")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -165,7 +165,7 @@ TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {
                            probeFailure);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -201,16 +201,28 @@ void scriptExistingBranches(FakeProcessRunner& runner, const std::string& refnam
     runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, existing);
 }
 
+/// The tip a forced entry in these tests was "warned about".
+const std::string kTip(40, 'f');
+
+/// Answers the tip check a forced delete runs before `-D`.
+void scriptTips(FakeProcessRunner& runner, const std::string& lines) {
+    FakeProcessRunner::Response tips;
+    tips.out = lines;
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"},
+                           tips);
+}
+
 TEST(DeleteBranchOperation, SkipsNamesThatNoLongerExistBeforeRunning) {
     // The retry after "Delete anyway": the first `-d` already deleted three
     // of the four, so resending all four makes git print "not found" three
     // times and exit 1 even though `-D` did exactly what was asked.
     FakeProcessRunner runner;
     scriptExistingBranches(runner, "main\nstill-here\n");
+    scriptTips(runner, "refs/heads/main\t" + std::string(40, '0') + "\nrefs/heads/still-here\t" +
+                           kTip + "\n");
 
     DeleteBranchRequest request;
-    request.names = {"gone-a", "still-here", "gone-b"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("gone-a", kTip), DeleteBranchEntry::forced("still-here", kTip), DeleteBranchEntry::forced("gone-b", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -238,8 +250,7 @@ TEST(DeleteBranchOperation, SucceedsWithoutRunningGitWhenEveryNameIsAlreadyGone)
     scriptExistingBranches(runner, "main\n");
 
     DeleteBranchRequest request;
-    request.names = {"gone-a", "gone-b"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("gone-a", kTip), DeleteBranchEntry::forced("gone-b", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -261,10 +272,10 @@ TEST(DeleteBranchOperation, AnEmptyBranchListIsUnknownRatherThanAllDeleted) {
     empty.exitCode = 0;
     empty.out = "";
     runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, empty);
+    scriptTips(runner, "refs/heads/feature\t" + kTip + "\n");
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("feature", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -304,7 +315,7 @@ TEST(DeleteBranchOperation, ReportsWhichBranchesWereDeletedWhenOnlySomeFailed) {
     runner.whenArgsContain({"branch", "-d", "a"}, failure);
 
     DeleteBranchRequest request;
-    request.names = {"a", "locked", "b"};
+    request.entries = {DeleteBranchEntry::plain("a"), DeleteBranchEntry::plain("locked"), DeleteBranchEntry::plain("b")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -330,7 +341,7 @@ TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
     scriptFailedDelete(runner);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -408,6 +419,114 @@ TEST(BranchDeletionProbe, AFailedCountFailsTheProbe) {
 
     BranchStore store(runner, testPaths());
     EXPECT_FALSE(store.probeDeletion({"feature"}, CancellationToken{}));
+}
+
+bool ranBranchCommand(const FakeProcessRunner& runner) {
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args[0] == "branch") {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A `-D` is never sent unchecked: an empty tip is a caller that skipped the
+// probe, and guessing "the current tip" would delete commits nobody counted.
+TEST(DeleteBranchOperation, AForcedEntryWithoutATipIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\n");
+    scriptTips(runner, "refs/heads/feature\t" + kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("feature", "")};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::MissingBranchTip);
+    EXPECT_FALSE(ranBranchCommand(runner));
+}
+
+// The branch moved after the user read its count: the commits they would lose
+// are not the ones they were told about. Nothing is deleted, and the outcome
+// carries a ForceDiscard choice so the recovery dialog opens to re-ask.
+TEST(DeleteBranchOperation, AForcedEntryWhoseBranchMovedIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\nother\n");
+    scriptTips(runner, "refs/heads/feature\t" + std::string(40, 'e') + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::plain("other"), DeleteBranchEntry::forced("feature", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::StaleBranchTip);
+    EXPECT_FALSE(ranBranchCommand(runner)) << "the whole request is refused, not only the moved name";
+    ASSERT_EQ(outcome.choices.size(), 1u);
+    EXPECT_EQ(outcome.choices.front().kind, OperationChoice::Kind::ForceDiscard);
+}
+
+TEST(DeleteBranchOperation, ATipCheckThatCannotReadIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\n");
+    FakeProcessRunner::Response broken;
+    broken.exitCode = 128;
+    broken.err = "fatal: broken\n";
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"},
+                           broken);
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("feature", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_FALSE(ranBranchCommand(runner));
+}
+
+TEST(DeleteBranchOperation, AMixedRequestSendsForcedNamesToDashDAndTheRestToDashd) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nmerged\nunsynced\n");
+    scriptTips(runner, "refs/heads/merged\t" + std::string(40, '1') + "\nrefs/heads/unsynced\t" +
+                           kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::plain("merged"), DeleteBranchEntry::forced("unsynced", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    std::vector<std::vector<std::string>> deletes;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args[0] == "branch") {
+            deletes.push_back(args);
+        }
+    }
+    EXPECT_EQ(deletes, (std::vector<std::vector<std::string>>{{"branch", "-D", "unsynced"},
+                                                              {"branch", "-d", "merged"}}));
+}
+
+// The live filter runs before the tip check: a forced name the first pass
+// already deleted is done, not a caller that forgot its tip.
+TEST(DeleteBranchOperation, AnAlreadyDeletedForcedNameNeedsNoTip) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nunsynced\n");
+    scriptTips(runner, "refs/heads/unsynced\t" + kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("merged", ""), DeleteBranchEntry::forced("unsynced", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    if (outcome.error) {
+        EXPECT_NE(outcome.error->code, GitError::Code::MissingBranchTip);
+    }
 }
 
 TEST(CreateBranchOperation, LeavesHeadAloneWhenCheckoutAfterIsFalse) {

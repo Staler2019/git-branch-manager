@@ -38,6 +38,11 @@ struct GitError {
         /// stopped part-way (Operation::killableMidFlight()); it was left to
         /// finish. Appended last: the integer crosses the capi.
         NotCancellable,
+        /// A forced branch delete found the branch no longer at the tip the
+        /// user was warned about (DeleteBranchEntry::expectedTipOid).
+        StaleBranchTip,
+        /// A forced branch delete arrived without a tip to check.
+        MissingBranchTip,
     };
 
     Code code = Code::Unknown;

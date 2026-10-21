@@ -70,8 +70,12 @@ GBM_API void gbm_branch_delete(GbmSessionHandle session,
                                int32_t isRemote,
                                const char* remoteName) {
     DeleteBranchRequest request;
-    request.names = toStringVector(names, nameCount);
-    request.force = force != 0;
+    for (std::string& name : toStringVector(names, nameCount)) {
+        // No tip crosses this signature yet, so a forced entry is refused with
+        // MissingBranchTip until the caller sends one.
+        request.entries.push_back(force != 0 ? DeleteBranchEntry::forced(std::move(name), {})
+                                             : DeleteBranchEntry::plain(std::move(name)));
+    }
     request.isRemote = isRemote != 0;
     request.remoteName = remoteName != nullptr ? remoteName : "";
 

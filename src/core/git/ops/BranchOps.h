@@ -42,14 +42,31 @@ struct RenameBranchRequest {
     std::filesystem::path askpassDir;
 };
 
-struct DeleteBranchRequest {
-    /// One or more branch names to delete in a single `git branch`/`git push
-    /// --delete` invocation -- git accepts multiple names to either command,
-    /// so a multi-select delete is one operation, not N.
-    std::vector<std::string> names;
-    /// Deletes even when the branch is not merged. Requires an explicit user
-    /// decision, because the commits become reachable only through the reflog.
+/// One branch of a DeleteBranchRequest.
+struct DeleteBranchEntry {
+    std::string name;
+    /// `-D`: deletes even when the branch is not merged. Requires an explicit
+    /// user decision, because `-D` also drops the branch's own reflog.
     bool force = false;
+    /// For `force` only: the tip the user was warned about
+    /// (BranchDeletionProbe::tipOid). The delete refuses when the branch no
+    /// longer points there (StaleBranchTip), or when this is empty
+    /// (MissingBranchTip) -- a `-D` is never sent unchecked.
+    std::string expectedTipOid;
+
+    static DeleteBranchEntry plain(std::string name) { return {std::move(name), false, {}}; }
+
+    static DeleteBranchEntry forced(std::string name, std::string expectedTipOid) {
+        return {std::move(name), true, std::move(expectedTipOid)};
+    }
+};
+
+struct DeleteBranchRequest {
+    /// Still one operation however many entries (gbm_capi.h's one-operation
+    /// rule): the unforced ones go to git in one `branch -d`, the forced ones
+    /// in one `branch -D`, or all of them in one `push --delete` when
+    /// `isRemote`, where `force` and the tip mean nothing.
+    std::vector<DeleteBranchEntry> entries;
     bool isRemote = false;
     std::string remoteName;
 };

@@ -1134,19 +1134,30 @@ WorktreeListPtr Session::currentWorktrees() const {
     return worktrees_;
 }
 
+// Add, remove and prune change which worktree each branch is checked out
+// in, and RefInfo.worktreePath (`%(worktreepath)`) carries that per ref: the
+// sidebar's bulk "gone" selection excludes any branch whose worktreePath is
+// set. refreshHistory() is the refs read every other ref-changing operation
+// uses; without it a removed worktree's branch stayed unselectable.
 void Session::addWorktree(AddWorktreeRequest request) {
-    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::removeWorktree(RemoveWorktreeRequest request) {
-    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::pruneWorktrees() {
-    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::lockWorktree(LockWorktreeRequest request) {

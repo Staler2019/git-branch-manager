@@ -319,6 +319,63 @@ TEST_F(WorktreeApiTest, RenamingABranchAnotherWorktreeHasCheckedOutRepublishesTh
     EXPECT_NE(json.find("\"branch\":\"feature-renamed\""), std::string::npos) << json;
 }
 
+// The user's report: "delete a worktree, the branch it used to be still
+// cannot be deleted". Two shapes of "removed": through gbm, and a directory
+// already gone from disk (deleted in Finder) that is then removed through gbm.
+TEST_F(WorktreeApiTest, AfterRemovingAWorktreeItsBranchCanBeDeleted) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+    log_.clear();
+
+    const char* names[] = {"feature"};
+    gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
+    EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
+        << "the branch must be gone";
+}
+
+TEST_F(WorktreeApiTest, RemovingAWorktreeWhoseDirectoryIsAlreadyGoneFreesItsBranch) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    std::filesystem::remove_all(extra_);
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "remove must leave the list republished without the entry";
+    EXPECT_EQ(worktreesJson().find("feature"), std::string::npos) << worktreesJson();
+    log_.clear();
+
+    const char* names[] = {"feature"};
+    gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
+    EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
+        << "a worktree registration left behind keeps git refusing the delete";
+}
+
+// git frees the branch (the two tests above), but the sidebar's bulk "gone"
+// selection excludes any branch whose RefInfo.worktreePath is non-empty, and
+// refs were read only by checkout-shaped operations -- never by a worktree
+// add/remove/prune. The removed worktree's branch stayed unselectable.
+TEST_F(WorktreeApiTest, RemovingAWorktreeRereadsRefsSoItsBranchHasNoWorktreePath) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    gbm_history_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }));
+    log_.clear();
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }))
+        << "a worktree removal must re-read refs";
+
+    ASSERT_EQ(gbm_refs_json(session_), 0);
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    EXPECT_EQ(json.find(extra_.filename().string()), std::string::npos)
+        << "no ref may still name the removed worktree: " << json;
+}
+
 // The Flutter side opens every session as `<workDir>/.git` with no commonDir
 // (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
 // `gitdir:` pointer *file*. Every per-worktree stat RepoState makes

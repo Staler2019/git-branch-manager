@@ -559,6 +559,7 @@ class RepoSessionState {
     this.lastCommitGraphWriteSucceeded,
     this.checkoutChoices = const <OperationChoice>[],
     this.deleteBranchChoices = const <OperationChoice>[],
+    this.deleteBranchRecoveryProbe,
     this.compareResults = const <String, CompareResult>{},
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
@@ -713,6 +714,12 @@ class RepoSessionState {
   /// RepoSessionController.deleteBranch()'s doc comment for how these map
   /// back to a retried delete.
   final List<OperationChoice> deleteBranchChoices;
+
+  /// The read taken when the delete behind [deleteBranchChoices] was
+  /// refused: the counts the recovery dialog draws, and the tips "Delete
+  /// anyway" sends. Null while that read is in flight and whenever no
+  /// refusal is on record.
+  final BranchDeletionProbeReply? deleteBranchRecoveryProbe;
 
   /// Every GBM_EVENT_COMPARE_READY reply received this session, keyed by
   /// [CompareResult.key] and accumulated across replies (like
@@ -872,6 +879,8 @@ class RepoSessionState {
     bool? lastCommitGraphWriteSucceeded,
     List<OperationChoice>? checkoutChoices,
     List<OperationChoice>? deleteBranchChoices,
+    BranchDeletionProbeReply? deleteBranchRecoveryProbe,
+    bool clearDeleteBranchRecoveryProbe = false,
     Map<String, CompareResult>? compareResults,
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
@@ -937,6 +946,9 @@ class RepoSessionState {
           lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
       checkoutChoices: checkoutChoices ?? this.checkoutChoices,
       deleteBranchChoices: deleteBranchChoices ?? this.deleteBranchChoices,
+      deleteBranchRecoveryProbe: clearDeleteBranchRecoveryProbe
+          ? null
+          : (deleteBranchRecoveryProbe ?? this.deleteBranchRecoveryProbe),
       compareResults: compareResults ?? this.compareResults,
       compareFileDiffResults:
           compareFileDiffResults ?? this.compareFileDiffResults,
@@ -2145,13 +2157,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         // pressed: the count it shows and the tip "Delete anyway" sends must
         // come from the same read, or a branch moved in between is deleted
         // past a number that no longer describes it.
-        _lastFailedDeleteBranchProbe =
+        final Future<BranchDeletionProbeReply>? read =
             !succeeded && choices.isNotEmpty && !request.isRemote
             ? probeBranchDeletion(request.names)
             : null;
+        _lastFailedDeleteBranchProbe = read;
         state = state.copyWith(
           deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices,
+          clearDeleteBranchRecoveryProbe: true,
         );
+        if (read != null) unawaited(_publishRecoveryProbe(read));
         if (succeeded) {
           for (final RemoteBranchDeletion remote in request.thenDeleteRemote) {
             deleteBranch(
@@ -3056,7 +3071,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         _lastFailedDeleteBranchProbe;
     _lastFailedDeleteBranchRequest = null;
     _lastFailedDeleteBranchProbe = null;
-    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
+    state = state.copyWith(
+      deleteBranchChoices: const <OperationChoice>[],
+      clearDeleteBranchRecoveryProbe: true,
+    );
     if (request == null) return;
     switch (kind) {
       case OperationChoiceKind.forceDiscard:
@@ -3123,7 +3141,20 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void dismissDeleteBranchChoices() {
     _lastFailedDeleteBranchRequest = null;
     _lastFailedDeleteBranchProbe = null;
-    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
+    state = state.copyWith(
+      deleteBranchChoices: const <OperationChoice>[],
+      clearDeleteBranchRecoveryProbe: true,
+    );
+  }
+
+  /// Publishes [read] for the recovery dialog -- unless a retry, a Cancel or
+  /// a newer refusal has replaced it by the time it lands.
+  Future<void> _publishRecoveryProbe(
+    Future<BranchDeletionProbeReply> read,
+  ) async {
+    final BranchDeletionProbeReply reply = await read;
+    if (!mounted || !identical(_lastFailedDeleteBranchProbe, read)) return;
+    state = state.copyWith(deleteBranchRecoveryProbe: reply);
   }
 
   /// `git reset --soft|--mixed|--hard <target>`. `target` empty means HEAD.

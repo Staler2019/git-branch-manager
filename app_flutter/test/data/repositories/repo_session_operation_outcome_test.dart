@@ -674,6 +674,63 @@ void main() {
       },
     );
 
+    // The recovery dialog draws the count of the same read "Delete anyway"
+    // sends; until it lands there is nothing to draw and nothing to send.
+    test('the read taken on a refusal is published once it lands', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      const BranchDeletionProbeReply reply = BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[
+          ProbeCounted(
+            'x',
+            tipOid: 'tip-A',
+            upstream: 'refs/remotes/origin/x',
+            unsyncedCount: 1,
+          ),
+        ],
+      );
+      controller.probe = (List<String> names) => reply;
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
+      await pumpEventQueue();
+      expect(controller.state.deleteBranchRecoveryProbe, same(reply));
+    });
+
+    test('a read that lands after Cancel is not published', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) =>
+          const BranchDeletionProbeReply(probes: <BranchDeletionProbe>[]);
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+      controller.dismissDeleteBranchChoices();
+      await pumpEventQueue();
+
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
+    });
+
+    test('"Delete anyway" clears the published read', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) =>
+          const BranchDeletionProbeReply(probes: <BranchDeletionProbe>[]);
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+      await pumpEventQueue();
+      expect(controller.state.deleteBranchRecoveryProbe, isNotNull);
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.forceDiscard);
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
+    });
+
     test('a successful outcome clears the retained failed request', () {
       final controller = _RecordingRepoSessionController(
         _identity,

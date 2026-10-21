@@ -20,6 +20,7 @@ import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
@@ -53,6 +54,7 @@ import 'package:gbm_flutter/features/dialogs/repository_settings/repository_sett
 import 'package:gbm_flutter/features/dialogs/reset_branch/reset_branch_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/restore_file/restore_file_dialog.dart';
 import 'package:gbm_flutter/features/dialogs/stash_changes/stash_changes_dialog.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
 import 'package:gbm_flutter/features/dialogs/undo_last/undo_last_dialog.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
@@ -330,6 +332,7 @@ Future<void> _pump(
   String branchName = 'main',
   List<OperationChoice> checkoutChoices = const <OperationChoice>[],
   List<OperationChoice> deleteBranchChoices = const <OperationChoice>[],
+  BranchDeletionProbeReply? deleteBranchRecoveryProbe,
   GitError? lastError,
   RepoSessionState? overrideState,
   List<WorkingCopyEntry> workingCopyEntries = const <WorkingCopyEntry>[],
@@ -349,6 +352,11 @@ Future<void> _pump(
   }
   if (deleteBranchChoices.isNotEmpty) {
     seeded = seeded.copyWith(deleteBranchChoices: deleteBranchChoices);
+  }
+  if (deleteBranchRecoveryProbe != null) {
+    seeded = seeded.copyWith(
+      deleteBranchRecoveryProbe: deleteBranchRecoveryProbe,
+    );
   }
   if (lastError != null) {
     seeded = seeded.copyWith(lastError: lastError);
@@ -1375,40 +1383,102 @@ void main() {
   });
 
   group('Delete Blocked', () {
-    testWidgets(
-      'the forDeleteBranch explanation is drawn, and it differs from the '
-      "checkout side's",
-      (tester) async {
-        // Same composed-not-wire shape as Checkout Blocked above, but this
-        // is the one place `recoveryChoiceExplanation(forDeleteBranch:
-        // true)`'s `forceDiscard` arm ("強制刪除；之後只能透過 reflog…") was
-        // ever asserted -- without this group a mutation of that arm alone
-        // (leaving the `forDeleteBranch: false` arm untouched) stayed fully
-        // green, because `dialog_copy_test.dart`'s only prior coverage of
-        // `recovery_choice_copy.dart` was the checkout side.
-        await _pump(
-          tester,
-          const DeleteBranchRecoveryDialogContent(identity: _identity),
-          deleteBranchChoices: const <OperationChoice>[
-            OperationChoice(
-              kind: OperationChoiceKind.forceDiscard,
-              destructive: true,
-            ),
-          ],
-        );
+    const List<OperationChoice> forceable = <OperationChoice>[
+      OperationChoice(
+        kind: OperationChoiceKind.forceDiscard,
+        destructive: true,
+      ),
+    ];
 
-        _expectAll(<String>['Delete Blocked']);
-        expect(find.text('Delete anyway'), findsWidgets);
-        expect(
-          find.text('強制刪除；之後只能透過 reflog 找回這個分支上的 commit。'),
-          findsOneWidget,
-        );
-        // Not the checkout side's forceDiscard wording -- confirms the two
-        // `forDeleteBranch` arms are genuinely distinct, not one string
-        // reused for both.
-        expect(find.text('未提交的變更會被永久丟棄，無法復原。'), findsNothing);
-      },
+    GbmButton deleteAnyway(WidgetTester tester) => tester.widget<GbmButton>(
+      find.widgetWithText(GbmButton, 'Delete anyway'),
     );
+
+    // Ruled 2026-10-21 (G1 ②): `-D` drops the branch's own reflog, so the
+    // old 「之後只能透過 reflog 找回」 was false, and nothing replaces it.
+    testWidgets('"Delete anyway" carries no reflog promise', (tester) async {
+      await _pump(
+        tester,
+        const DeleteBranchRecoveryDialogContent(identity: _identity),
+        deleteBranchChoices: forceable,
+        deleteBranchRecoveryProbe: const BranchDeletionProbeReply(
+          probes: <BranchDeletionProbe>[],
+        ),
+      );
+
+      _expectAll(<String>['Delete Blocked']);
+      expect(find.text('Delete anyway'), findsWidgets);
+      expect(find.textContaining('reflog'), findsNothing);
+      // Not the checkout side's forceDiscard wording either.
+      expect(find.text('未提交的變更會被永久丟棄，無法復原。'), findsNothing);
+    });
+
+    testWidgets('while the read is in flight "Delete anyway" is disabled', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchRecoveryDialogContent(identity: _identity),
+        deleteBranchChoices: forceable,
+      );
+
+      expect(find.text('正在重新計算…'), findsOneWidget);
+      expect(deleteAnyway(tester).onPressed, isNull);
+    });
+
+    testWidgets('the read draws one line per branch and enables the button', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchRecoveryDialogContent(identity: _identity),
+        deleteBranchChoices: forceable,
+        deleteBranchRecoveryProbe: const BranchDeletionProbeReply(
+          probes: <BranchDeletionProbe>[
+            ProbeCounted(
+              'feature/a',
+              tipOid: 'a',
+              upstream: 'refs/remotes/origin/feature/a',
+              unsyncedCount: 2,
+            ),
+            ProbeNoReference('wip', tipOid: 'w'),
+          ],
+        ),
+      );
+
+      _expectAll(<String>[
+        'feature/a',
+        '2 個 commit 尚未同步到 origin/feature/a',
+        'wip',
+        '沒有 upstream（或已 gone），無法確認是否已同步',
+      ]);
+      expect(find.text('正在重新計算…'), findsNothing);
+      expect(deleteAnyway(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a failed read is shown and "Delete anyway" stays disabled', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        const DeleteBranchRecoveryDialogContent(identity: _identity),
+        deleteBranchChoices: forceable,
+        deleteBranchRecoveryProbe: const BranchDeletionProbeReply(
+          probes: <BranchDeletionProbe>[],
+          error: GitError(
+            code: 1,
+            codeName: 'Unknown',
+            message: 'boom',
+            detail: '',
+            argv: <String>[],
+            exitCode: 1,
+          ),
+        ),
+      );
+
+      expect(find.text('無法確認尚未同步的 commit：boom'), findsOneWidget);
+      expect(deleteAnyway(tester).onPressed, isNull);
+    });
   });
 
   // The reducer-level test pinning that a preflight-shaped outcome publishes

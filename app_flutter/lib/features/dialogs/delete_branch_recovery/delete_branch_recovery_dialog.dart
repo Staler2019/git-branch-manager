@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../data/models/branch_deletion_probe.dart';
+import '../../../data/models/git_error.dart';
 import '../../../data/models/operation_choice.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -9,6 +11,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
+import '../branch_deletion_probe_copy.dart';
 import '../recovery_choice_copy.dart';
 
 /// The Dart analog of the "not fully merged" recovery prompt
@@ -70,6 +73,17 @@ class _DeleteBranchRecoveryDialogContentState
       repoSessionProvider(widget.identity)
           .select((state) => state.lastError?.message),
     );
+    final BranchDeletionProbeReply? probe = ref.watch(
+      repoSessionProvider(widget.identity)
+          .select((state) => state.deleteBranchRecoveryProbe),
+    );
+    final GitError? probeError = probe?.error;
+    // "Delete anyway" sends the tips of this read, so it waits for one that
+    // succeeded; the other choices resubmit the request as it was.
+    final bool forceReady = probe != null && probeError == null;
+    final bool forceable = choices.any(
+      (OperationChoice c) => c.kind == OperationChoiceKind.forceDiscard,
+    );
 
     return GbmDialogShell(
       title: 'Delete Blocked',
@@ -92,13 +106,16 @@ class _DeleteBranchRecoveryDialogContentState
             kind: choice.destructive
                 ? GbmButtonKind.secondary
                 : GbmButtonKind.primary,
-            onPressed: () {
-              _resolved = true;
-              ref
-                  .read(repoSessionProvider(widget.identity).notifier)
-                  .retryDeleteBranchWithChoice(choice.kind);
-              context.pop();
-            },
+            onPressed:
+                choice.kind == OperationChoiceKind.forceDiscard && !forceReady
+                ? null
+                : () {
+                    _resolved = true;
+                    ref
+                        .read(repoSessionProvider(widget.identity).notifier)
+                        .retryDeleteBranchWithChoice(choice.kind);
+                    context.pop();
+                  },
           ),
         ],
       ],
@@ -114,6 +131,16 @@ class _DeleteBranchRecoveryDialogContentState
                 color: colors.textSecondary,
               ),
             ),
+            const SizedBox(height: GbmSpacing.space3),
+          ],
+          if (forceable) ...<Widget>[
+            if (probe == null)
+              _note(context, '正在重新計算…')
+            else if (probeError != null)
+              _note(context, branchDeletionProbeFailedText(probeError))
+            else
+              for (final BranchDeletionProbe p in probe.probes)
+                _ProbeLine(probe: p),
             const SizedBox(height: GbmSpacing.space3),
           ],
           // Filtered the same way the button row above is -- `abort` has no
@@ -137,19 +164,66 @@ class _DeleteBranchRecoveryDialogContentState
                           : colors.textPrimary,
                     ),
                   ),
-                  Text(
-                    recoveryChoiceExplanation(
-                      choice.kind,
-                      forDeleteBranch: true,
+                  if (recoveryChoiceExplanation(
+                        choice.kind,
+                        forDeleteBranch: true,
+                      )
+                      case final String explanation)
+                    Text(
+                      explanation,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
+                      ),
                     ),
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
-                  ),
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _note(BuildContext context, String text) => Text(
+    text,
+    style: TextStyle(
+      fontSize: GbmTypography.textXs,
+      color: context.gbmColors.textSecondary,
+    ),
+  );
+}
+
+/// One branch of the refused request and what deleting it would lose, from
+/// the read "Delete anyway" sends.
+class _ProbeLine extends StatelessWidget {
+  const _ProbeLine({required this.probe});
+
+  final BranchDeletionProbe probe;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 1),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              probe.name,
+              style: TextStyle(
+                fontFamily: GbmTypography.fontMono,
+                fontSize: GbmTypography.textXs,
+                color: colors.textPrimary,
+              ),
+            ),
+          ),
+          Text(
+            branchDeletionProbeText(probe),
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textSecondary,
+            ),
+          ),
         ],
       ),
     );

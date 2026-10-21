@@ -376,6 +376,24 @@ TEST_F(WorktreeApiTest, RemovingAWorktreeRereadsRefsSoItsBranchHasNoWorktreePath
         << "no ref may still name the removed worktree: " << json;
 }
 
+// 使用者裁定 2026-10-21: 「worktree delete 應該自己預設 prune 掉」. A remove
+// runs `git worktree prune` after it, so registrations whose directory is
+// already gone (deleted outside gbm) go with it instead of lingering as
+// prunable entries that still hold their branch.
+TEST_F(WorktreeApiTest, RemovingAWorktreeAlsoPrunesRegistrationsWhoseDirectoryIsGone) {
+    const std::filesystem::path stale = extra_.string() + "-stale";
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "orphaned", stale.string()}), 0);
+    std::filesystem::remove_all(stale);
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+
+    const std::string json = worktreesJson();
+    EXPECT_EQ(json.find("orphaned"), std::string::npos) << json;
+    EXPECT_FALSE(std::filesystem::exists(repo_ / ".git" / "worktrees" / stale.filename()));
+}
+
 // The Flutter side opens every session as `<workDir>/.git` with no commonDir
 // (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
 // `gitdir:` pointer *file*. Every per-worktree stat RepoState makes

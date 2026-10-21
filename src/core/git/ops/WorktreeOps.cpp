@@ -215,6 +215,12 @@ public:
         command.timeout = std::chrono::seconds(120);
         auto result = runner.run(command, token);
         if (result) {
+            // 使用者裁定 2026-10-21: a remove also prunes, so a registration
+            // whose directory was deleted outside gbm does not linger holding
+            // its branch. Best effort: the remove itself has already
+            // succeeded, and a failed prune is in the operation log.
+            GitCommand prune(paths.commandDir(), {"worktree", "prune"});
+            (void)runner.run(prune, token);
             outcome.succeeded = true;
             outcome.summary = "Removed worktree " + fsutil::utf8FromPath(request_.path);
             return outcome;

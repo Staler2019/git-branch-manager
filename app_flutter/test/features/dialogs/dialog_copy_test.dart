@@ -937,10 +937,11 @@ void main() {
       );
       expect(find.text('本地分支'), findsOneWidget);
       expect(find.text('遠端分支'), findsOneWidget);
-      expect(find.text('沒有 upstream，尚未推送過'), findsOneWidget);
-      expect(find.text('2 個未推送的 commit'), findsOneWidget);
+      // The fake reads both as having no upstream to compare against.
+      expect(find.text('沒有 upstream（或已 gone），無法確認是否已同步'), findsNWidgets(2));
+      expect(find.text('其中 2 個分支會直接刪除，不再檢查是否已合併。'), findsOneWidget);
       expect(find.text('同時刪除遠端分支'), findsOneWidget);
-      expect(find.text('即使尚未完全合併也刪除'), findsOneWidget);
+      expect(find.text('即使尚未完全合併也刪除'), findsNothing);
       expect(find.text('Local branches'), findsNothing);
       expect(find.text('Also delete on the remote'), findsNothing);
     });

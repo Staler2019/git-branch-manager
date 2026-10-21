@@ -42,7 +42,11 @@ gitDir 指向指標檔仍是真缺陷：linked worktree 內 `RepoState` 查不�
 
 ### 問題 1a / 1b：checkout 之後沒有重發 worktree 清單
 
-`Session::checkout` 成功路徑沒有 `onSuccess`。補上 `refreshWorktrees()`（0cbd70ca）。Add worktree dialog 的「已在 <dir>」判斷讀同一份清單，所以 1b 一起好了。同形狀的漏洞還有 `createBranch(checkoutAfter)` 與 `renameBranch`（b6c26bf7）。
+`Session::checkout` 成功路徑沒有 `onSuccess`。補上 `refreshWorktrees()`（0cbd70ca）。Add worktree dialog 的「已在 <dir>」判斷讀同一份清單，所以 1b 一起好了。同形狀的漏洞還有 `createBranch(checkoutAfter)` 與 `renameBranch`（b6c26bf7）。~~逐一在呼叫點補 `onSuccess`~~ 這三處後來收進 `Session::submitOperation`（bc755cdc，見下節）。
+
+### `WorktreeInfo.headOid` 會過期（memory-steward 指出，使用者裁示修）
+
+逐點補漏只修到「分支名」：commit、reset、undo、從 stash 開分支、pull 都會移動 HEAD，卻不重發 worktree 清單，panel 以 `path@headOid` 為鍵的計數快取因此讀到舊 HEAD。改為 `submitOperation` 在成功且重讀 refs 時一律 `refreshWorktrees()`，不走 `submitOperation` 的 `commitChanges`、`branchFromStash`、`pullChanges`、`undoLastOperation` 各自補上（bc755cdc）。成本先量：vscode clone 上 `git worktree list --porcelain` 中位數 6.1 ms（最小 5.7、最大 9.7）。`WorktreeHeadRepublishTest` 五個測試修正前全紅；五個逐點 mutation 各只轉紅自己的測試，拿掉 `submitOperation` 那一處轉紅 4 個（checkout、create、rename、reset）。undo 測試第一版會撈到 commit 自己的重發而偶發誤判，改為循環等待帶目標 OID 的那一次。
 
 ### 問題 4：git 本來就放行，擋住的是 Dart
 
@@ -112,8 +116,13 @@ spec 的「Deleted branch recovery」（刪除後 30 秒內從 status bar 以 Re
 - Flutter 全套 3947 passed、8 skipped（C6 時）；analyzer 0。C++ core / capi 於 C2 時 664 / 237 全綠。
 - 問題 1a、1b、2、3、4、5 都已修，加上兩項追加需求。
 - post-implementation verifier（A6）：**CONFIRMED**。core 664/664、capi 240/240、Flutter 3947 passed；另在暫存 repo 以 git 2.55 實測「已在 upstream、未併入 HEAD 的分支 `-d` 成功；ahead 的分支 `-d` 被拒」，count 0 送 `-d` 的前提成立。三個非阻擋 advisory，皆非本回合引入，等使用者裁示：
-  - P3：core 的 `-d` 拒絕 summary（`BranchOps.cpp`）仍寫 "reachable only through the reflog"，只會在「count 0 送 `-d` 期間分支被移動」的 fallback 出現在 Delete Blocked，與 G1 ② 相抵。
-  - P3：upstream 是本地分支（`refs/heads/main`）時，`shortRemoteRefName` 不剝前綴，顯示全名。
-  - P4：Delete anyway 重查後全部是 notFound 時 entries 為空，保留的遠端刪除被靜默丟掉（程式推論，未重現）。
-- G3 待做：device-tier 測試（使用者已同意執行）、orphan grep、push 與開 PR 前先問使用者。
+  - P3：core 的 `-d` 拒絕 summary（`BranchOps.cpp`）仍寫 "reachable only through the reflog"，只會在「count 0 送 `-d` 期間分支被移動」的 fallback 出現在 Delete Blocked，與 G1 ② 相抵。→ 使用者裁示「三個都在本輪修」。**FIX** b766a2a6：改寫成「最後一次 fetch 的 remote-tracking ref 都找不到這些 commit；若剛在遠端合併，先 fetch 再試」。`GitIntegrationTest.RefusesToDeleteAnUnmergedBranchWithoutConsent` 與 `BranchOpsTest` 兩處原本釘住 reflog 措辭，其理由（「告訴使用者可從 reflog 找回」）被 G1 ② 推翻，改為斷言不含 reflog；mutation 轉紅 2。
+  - P3：upstream 是本地分支（`refs/heads/main`）時，`shortRemoteRefName` 不剝前綴，顯示全名。→ **FIX** 19be7c1b：新增 `shortUpstreamName`（`ref_snapshot.dart`，arch-suggester 定位），`shortRemoteRefName` 不動，因為 `pruneRefArguments` 把它送上 git 指令。mutation 6 個，1 個（呼叫點換回舊函式）因檔案已不 import 舊函式而編譯失敗、作廢，補 import 重跑；有效的各轉紅 3/4/1/1/1。dialog 警告列的本地 upstream 測試是 mutation 存活前就發現沒測而補寫，寫成時已是綠的，它的紅只來自 mutation。
+  - P4：Delete anyway 重查後全部是 notFound 時 entries 為空，保留的遠端刪除被靜默丟掉（程式推論，未重現）。→ **FIX** d6ec083c：entries 為空時逐一送出 `thenDeleteRemote`。新測試修正前為紅，mutation 轉紅 1。
+- ~~G3 待做：device-tier 測試（使用者已同意執行）、orphan grep、push 與開 PR 前先問使用者。~~ G3 完成：device-tier 20/20 檔綠（`update_check_flow_test` 需網路，略過），且在 headOid 修正後全部重跑一次仍 20/20；orphan grep 兩向無新孤兒（`StaleBranchTip` / `MissingBranchTip` 經 choices 與 `lastError` 讀，不以碼名讀）；hover 掃描無新增 `InkWell` / `GestureDetector`。使用者同意 push 並開 PR。
+- 收尾全套：core 664、capi 245、Flutter 3954 passed、8 skipped；analyzer 0。
+- post-implementation verifier（第二次，涵蓋 b766a2a6、bc755cdc、d6ec083c、19be7c1b）：四項皆 **CONFIRMED**。以 bc755cdc 之前的 `Session.cpp` 重建時五個 `WorktreeHeadRepublishTest` 全紅；`--gtest_repeat` 共 105 次全綠；逐一檢查 `submitWorkingCopyOperation` 的呼叫點，沒有漏掉移動 HEAD 的路徑。兩個 P4 advisory **DEFER**：
+  - `BranchingFromAStash…` 收到第一個 `WORKTREES_UPDATED` 就斷言，沒有跳過 `settle()` 晚到的那次重發，理論上可能 flake（80/80 綠）；CI 出現 flake 才處理。
+  - pruneRemote、addRemote、removeRemote 與部分成功的 deleteBranch 也會多讀一次 worktree 清單（約 6 ms），無害。
+- memory-steward 審兩條候選規則（worktree 變動須刷新 refs；HEAD 移動須重發 worktree 清單），皆判 **ENCODE**：已由 capi 測試釘住，不新增 pin。
 - 未決：spec「Deleted branch recovery」未實作（見上）。

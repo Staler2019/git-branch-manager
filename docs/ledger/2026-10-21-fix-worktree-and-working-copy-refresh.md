@@ -126,3 +126,12 @@ spec 的「Deleted branch recovery」（刪除後 30 秒內從 status bar 以 Re
   - pruneRemote、addRemote、removeRemote 與部分成功的 deleteBranch 也會多讀一次 worktree 清單（約 6 ms），無害。
 - memory-steward 審兩條候選規則（worktree 變動須刷新 refs；HEAD 移動須重發 worktree 清單），皆判 **ENCODE**：已由 capi 測試釘住，不新增 pin。
 - 未決：spec「Deleted branch recovery」未實作（見上）。
+
+## 追加：PR #193 的 CI（2026-10-21～22）
+
+- PR 開出後 CI 沒有啟動：GitHub 判定與 main（#192 已合入）衝突。衝突只在 `docs/ledger/INDEX.md`，本機靠 `.gitattributes` 的 `merge=union` 自動合併，但 GitHub 的可合併判定不套用這個設定。以 merge commit 9085d950 併入 main（沒有 force push）。合併後 analyzer 0、Flutter 3971 passed、device `prepared_message_flow`／`context_menu_flows`／`rename_branch_flow` 綠，再 push。
+- 第一次 CI 13 項中 12 項綠。紅的是 capi (FFI) - macOS (arm64) 的 `WorkingCopyApiTest.UnstageHunkReversesAFullyStagedSingleHunkFile`：`unstage_hunk` 在 preflight 看到 `.git/index.lock`，回報 `LockHeld`（run 39635907534）。
+  - 本分支在 `Session.cpp` 的改動都不在 stage/unstage hunk 路徑上；status 改 `=normal` 只在有未追蹤目錄時多跑 `ls-files`，這個測試沒有未追蹤目錄。
+  - 本機在 HEAD 上 `--gtest_repeat=60`：0 次失敗；清空全域 git config 再 60 次，同樣 0 次。另外試過 8 個 process 並行跑同一個 fixture，但它們共用同一個暫存目錄（`gbm-capi-wc-<TestName>`）而互相干擾，結果作廢。
+  - 與 [ledger: PR #185 的 CI](2026-10-11-fix-path-relative-and-worktree-flake.md) 同形，這是第二次在沒有 fsmonitor 的 CI 機器上發生。經使用者同意開 **#194** 追蹤。
+  - `gh run rerun --failed` 重跑後 13/13 綠。

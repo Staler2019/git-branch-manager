@@ -820,7 +820,10 @@ void main() {
           branchName: 'feature/lane-allocator',
         ),
       );
-      _expectAll(<String>['Delete Branch', 'Delete branch', 'Cancel']);
+      // The mock's header and primary both read `Delete branch`.
+      expect(find.text('Delete branch'), findsNWidgets(2));
+      expect(find.text('Delete Branch'), findsNothing);
+      _expectAll(<String>['Cancel']);
     });
 
     testWidgets('the confirmation and no-upstream note are Chinese', (
@@ -833,9 +836,11 @@ void main() {
           branchName: 'feature/lane-allocator',
         ),
       );
-      expect(find.textContaining('刪除本地分支'), findsOneWidget);
-      expect(find.text('這個分支沒有 upstream，只存在於這台機器上。'), findsOneWidget);
-      expect(find.text('如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。'), findsOneWidget);
+      // The mock: 「刪除本機分支 feature/graph-lanes。」 The refusal promise
+      // is gone because a confirmation no longer meets one.
+      expect(find.text('刪除本機分支 feature/lane-allocator。'), findsOneWidget);
+      expect(find.text('沒有 upstream（或已 gone），無法確認是否已同步。'), findsOneWidget);
+      expect(find.textContaining('git 會拒絕'), findsNothing);
       expect(find.textContaining('Delete the local branch'), findsNothing);
     });
 
@@ -866,7 +871,7 @@ void main() {
         ),
         overrideState: _deleteBranchStateWithRemote,
       );
-      expect(find.text('同時刪除 origin 上的 wip/askpass'), findsOneWidget);
+      expect(find.text('同時刪除遠端 origin/wip/askpass'), findsOneWidget);
       expect(find.text('其他人要等到下次 fetch 才會看不到這個分支。'), findsOneWidget);
     });
 

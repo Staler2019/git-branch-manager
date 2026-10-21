@@ -278,5 +278,31 @@ TEST_F(WorktreeApiTest, ALinkedWorktreeReportsItsCreationTimeAndTheCurrentOneDoe
                               << json;
 }
 
+// The Flutter side opens every session as `<workDir>/.git` with no commonDir
+// (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
+// `gitdir:` pointer *file*. Every per-worktree stat RepoState makes
+// (MERGE_HEAD, rebase-merge/, index.lock) then looks under a file and finds
+// nothing, so a merge in progress there is reported as a clean tree.
+TEST_F(WorktreeApiTest, ASessionOpenedThroughALinkedWorktreesGitFileSeesItsOwnMergeState) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    ASSERT_TRUE(std::filesystem::is_regular_file(extra_ / ".git"));
+
+    const std::filesystem::path adminDir = repo_ / ".git" / "worktrees" / extra_.filename();
+    ASSERT_TRUE(std::filesystem::is_directory(adminDir));
+    std::string head;
+    std::ifstream(repo_ / ".git" / "refs" / "heads" / "main") >> head;
+    std::ofstream(adminDir / "MERGE_HEAD") << head << "\n";
+
+    GbmSessionHandle linked =
+        gbm_session_open(extra_.string().c_str(), (extra_ / ".git").string().c_str(), "");
+    ASSERT_NE(linked, nullptr);
+    ASSERT_EQ(gbm_repo_state_json(linked), 0);
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    gbm_session_close(linked);
+
+    EXPECT_NE(json.find("\"isClean\":false"), std::string::npos) << json;
+}
+
 }  // namespace
 }  // namespace gbm::capi

@@ -4,6 +4,7 @@
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
+#include "core/discovery/RepoClassifier.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/OperationLogScope.h"
 #include "core/git/OriginalOperationMessage.h"
@@ -139,9 +140,23 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         return nullptr;
     }
 
-    RepoPaths paths(fsutil::pathFromUtf8(workDir),
-                    fsutil::pathFromUtf8(gitDir),
-                    fsutil::pathFromUtf8(commonDir));
+    // A linked worktree's `<workDir>/.git` is a `gitdir:` pointer file, and the
+    // Flutter side opens every repository as exactly that path with no
+    // commonDir (`RepoIdentity.forWorkDir`). Left unresolved, every
+    // per-worktree stat (MERGE_HEAD, rebase-merge/, index.lock) would look
+    // under a file and report a clean tree mid-merge.
+    std::filesystem::path gitDirPath = fsutil::pathFromUtf8(gitDir);
+    std::filesystem::path commonDirPath = fsutil::pathFromUtf8(commonDir);
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(gitDirPath, ec)) {
+        if (auto target = RepoClassifier::resolveGitDirFile(gitDirPath, gitDirPath.parent_path())) {
+            gitDirPath = std::move(*target);
+            if (commonDirPath.empty()) {
+                commonDirPath = RepoClassifier::resolveCommonDir(gitDirPath);
+            }
+        }
+    }
+    RepoPaths paths(fsutil::pathFromUtf8(workDir), std::move(gitDirPath), std::move(commonDirPath));
     if (!paths.isValid()) {
         if (outError != nullptr) {
             *outError = GitError(GitError::Code::InvalidArgument, "gitDir must not be empty");

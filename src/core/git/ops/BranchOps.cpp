@@ -24,7 +24,8 @@ namespace {
 /// this, a FoundElsewhere summary ("...will not lose anything") sat next to
 /// an explanation that still claimed "only reachable through the reflog",
 /// two directly contradictory claims in the one dialog the whole probe exists
-/// to make trustworthy.
+/// to make trustworthy. Neither summary mentions the reflog any more: `-D`
+/// drops the branch's own reflog, so that promise was false either way.
 enum class RemoteRefProbeOutcome {
     ProbeFailed,
     NotFoundElsewhere,
@@ -95,8 +96,7 @@ RemoteRefProbeOutcome refineSummaryFromRemoteRefs(IProcessRunner& runner,
     if (elsewhere.empty()) {
         outcome.summary =
             "This branch's commits were not found on any remote-tracking ref from your last "
-            "fetch. If it was just merged on the remote, fetch and try again -- otherwise "
-            "deleting it makes them reachable only through the reflog";
+            "fetch. If it was just merged on the remote, fetch and try again";
         return RemoteRefProbeOutcome::NotFoundElsewhere;
     }
 

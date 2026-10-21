@@ -1484,10 +1484,11 @@ TEST_F(RealRepoTest, RefusesToDeleteAnUnmergedBranchWithoutConsent) {
     // anywhere, which is not something a local-only check can know.
     EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
     // The summary (drawn above the choice list in
-    // DeleteBranchRecoveryDialogContent, via lastError.message -- the choice
-    // itself carries no text of its own anymore) has to say where the
-    // commits go, or "Delete anyway" is not an informed choice.
-    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
+    // DeleteBranchRecoveryDialogContent, via lastError.message) used to
+    // promise the commits stay reachable through the reflog. `-D` drops the
+    // branch's own reflog, so that was false; ruled 2026-10-21 (G1) to say
+    // nothing about a way back rather than promise one.
+    EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
     bool offersForce = false;
     for (const OperationChoice& choice : outcome.choices) {
         if (choice.kind == OperationChoice::Kind::ForceDiscard) {

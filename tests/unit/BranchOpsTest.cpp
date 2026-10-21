@@ -57,9 +57,9 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
     // Never claims certainty it does not have.
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
-    // Must not still warn that deleting makes them "only reachable through
-    // the reflog", which directly contradicts "will not lose anything" --
-    // that wording belongs to the sibling NotFoundElsewhere case only.
+    // Must not warn that deleting makes them "only reachable through the
+    // reflog": that contradicts "will not lose anything", and is false for
+    // `-D` anyway (it drops the branch's own reflog).
     EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
 
     // The "Delete anyway" choice itself carries no text of its own anymore
@@ -122,6 +122,9 @@ TEST(DeleteBranchOperation, SuggestsFetchingWhenNoRemoteRefContainsIt) {
     // Must not overclaim: this is "not found in the last-fetched view", not a
     // confirmed "this really was never merged anywhere".
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
+    // Nor promise a way back: `-D` drops the branch's own reflog, so "only
+    // reachable through the reflog" was false (G1 ruling 2026-10-21).
+    EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
 }
 
 TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) {
@@ -349,7 +352,7 @@ TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
     EXPECT_FALSE(outcome.succeeded);
     EXPECT_EQ(outcome.summary.find("Deleted"), std::string::npos);
     // Still the message the failure path already produced, untouched.
-    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
+    EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
 }
 
 // The count is taken against the tip the probe resolved, never the moving

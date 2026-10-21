@@ -86,7 +86,10 @@ Future<void> _mergeFromRow(WidgetTester tester, {bool squash = false}) async {
   );
   await tester.pumpAndSettle();
   await tester.tap(find.text('Merge into current'));
-  await tester.pumpAndSettle(const Duration(seconds: 1));
+  // Wait for the dialog itself, not a fixed second: on a loaded machine the
+  // route had not been pushed yet, and the tap below found no `Merge`.
+  await pumpUntil(tester, () => _dialogMerge.evaluate().isNotEmpty);
+  await tester.pumpAndSettle();
   if (squash) {
     await tester.tap(find.text('Squash 成一筆'));
     await tester.pump();
@@ -105,13 +108,13 @@ Future<void> _mergeFromRow(WidgetTester tester, {bool squash = false}) async {
           .isNotEmpty,
     );
   }
-  await tester.tap(
-    find.descendant(
-      of: find.byType(GbmDialogShell),
-      matching: find.text('Merge'),
-    ),
-  );
+  await tester.tap(_dialogMerge);
 }
+
+final Finder _dialogMerge = find.descendant(
+  of: find.byType(GbmDialogShell),
+  matching: find.text('Merge'),
+);
 
 /// Merges [_source] with a conflict, resolves README.md in the resolve
 /// window and comes back to the Working Copy.

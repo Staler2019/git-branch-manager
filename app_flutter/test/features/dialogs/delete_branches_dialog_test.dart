@@ -12,6 +12,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -63,12 +65,14 @@ RefSnapshot _snapshot(List<RefInfo> refs) => RefSnapshot(
 Future<FakeRepoSessionController> _pump(
   WidgetTester tester,
   List<String> names,
-  List<RefInfo> refs,
-) async {
+  List<RefInfo> refs, {
+  BranchDeletionProbeReply Function(List<String> names)? probe,
+}) async {
   final FakeRepoSessionController fake = FakeRepoSessionController(
     _identity,
     RepoSessionState(refs: _snapshot(refs)),
   );
+  if (probe != null) fake.branchDeletionProbe = probe;
   // The dialog calls context.pop() after dispatching, so it has to sit on
   // top of something -- a single-route router throws "nothing to pop" and
   // the delete assertions never run.
@@ -227,13 +231,53 @@ void main() {
       }
     });
 
-    testWidgets('the force checkbox reaches every call', (
+    // A6 C3: a forced delete sends the tip the probe read, never the refs
+    // snapshot's `target` -- a refresh can move that after the read without
+    // the user having seen the commits it adds.
+    testWidgets('the force checkbox sends each branch at its probed tip', (
+      WidgetTester tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        <String>['a', 'b'],
+        <RefInfo>[
+          _branch('a', upstream: 'refs/remotes/origin/a'),
+          _branch('b'),
+        ],
+      );
+      await tester.tap(find.text('即使尚未完全合併也刪除'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete 2 branches').last);
+      await tester.pumpAndSettle();
+
+      final List<FakeCommand> deletes = fake.commandLog
+          .where((FakeCommand c) => c.name == 'deleteBranch')
+          .toList();
+      expect(deletes, hasLength(1));
+      expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+        DeleteBranchEntry.forced('a', expectedTipOid: 'probe-tip-a'),
+        DeleteBranchEntry.forced('b', expectedTipOid: 'probe-tip-b'),
+      ]);
+    });
+
+    testWidgets('a forced delete is not offered while the probe has failed', (
       WidgetTester tester,
     ) async {
       final FakeRepoSessionController fake = await _pump(
         tester,
         <String>['a'],
-        <RefInfo>[_branch('a', upstream: 'refs/remotes/origin/a')],
+        <RefInfo>[_branch('a')],
+        probe: (List<String> names) => const BranchDeletionProbeReply(
+          probes: <BranchDeletionProbe>[],
+          error: GitError(
+            code: 13,
+            codeName: 'ProcessFailed',
+            message: 'broken',
+            detail: '',
+            argv: <String>[],
+            exitCode: 128,
+          ),
+        ),
       );
       await tester.tap(find.text('即使尚未完全合併也刪除'));
       await tester.pumpAndSettle();
@@ -241,10 +285,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        fake.commandLog
-            .where((FakeCommand c) => c.name == 'deleteBranch')
-            .every((FakeCommand c) => c.args['force'] == true),
-        isTrue,
+        fake.commandLog.where((FakeCommand c) => c.name == 'deleteBranch'),
+        isEmpty,
       );
     });
   });

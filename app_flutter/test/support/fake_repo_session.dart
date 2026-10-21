@@ -15,6 +15,7 @@
 import 'dart:ffi';
 
 import 'package:ffi/ffi.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
@@ -635,19 +636,37 @@ class FakeRepoSessionController extends RepoSessionController {
 
   @override
   void deleteBranch({
-    required List<String> names,
-    bool force = false,
+    required List<DeleteBranchEntry> entries,
     bool isRemote = false,
     String remoteName = '',
   }) {
     commandLog.add(
       FakeCommand('deleteBranch', <String, Object?>{
-        'names': names,
-        'force': force,
+        'entries': entries,
+        'names': <String>[for (final DeleteBranchEntry e in entries) e.name],
         'isRemote': isRemote,
         'remoteName': remoteName,
       }),
     );
+  }
+
+  /// What [probeBranchDeletion] answers. Defaults to every name
+  /// [ProbeNoReference] at `probe-tip-<name>`, a tip no refs fixture uses,
+  /// so a test can tell a probed tip from a snapshot's `target`.
+  BranchDeletionProbeReply Function(List<String> names) branchDeletionProbe =
+      (List<String> names) => BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[
+          for (final String name in names)
+            ProbeNoReference(name, tipOid: 'probe-tip-$name'),
+        ],
+      );
+
+  @override
+  Future<BranchDeletionProbeReply> probeBranchDeletion(List<String> names) {
+    commandLog.add(
+      FakeCommand('probeBranchDeletion', <String, Object?>{'names': names}),
+    );
+    return Future<BranchDeletionProbeReply>.value(branchDeletionProbe(names));
   }
 
   @override

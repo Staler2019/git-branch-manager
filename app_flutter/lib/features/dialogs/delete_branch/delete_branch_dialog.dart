@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../actions/gbm_action_id.dart';
+import '../../../data/models/branch_deletion_probe.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/remote_counterpart.dart';
 import '../../../data/models/remote_prune_preview_entry.dart';
@@ -170,10 +171,16 @@ class _DeleteBranchDialogContentState
                   final RepoSessionController notifier = ref.read(
                     repoSessionProvider(widget.identity).notifier,
                   );
-                  notifier.deleteBranch(names: <String>[target!.shortName]);
+                  notifier.deleteBranch(
+                    entries: <DeleteBranchEntry>[
+                      DeleteBranchEntry.plain(target!.shortName),
+                    ],
+                  );
                   if (willDeleteRemote) {
                     notifier.deleteBranch(
-                      names: <String>[remoteBranch],
+                      entries: <DeleteBranchEntry>[
+                        DeleteBranchEntry.plain(remoteBranch),
+                      ],
                       isRemote: true,
                       remoteName: remote,
                     );

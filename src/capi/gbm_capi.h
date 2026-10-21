@@ -270,6 +270,14 @@ enum GbmEventType {
     /// own cleanup or the job's removed it. removalError says what could not
     /// be removed when the job's cleanup stopped short.
     GBM_EVENT_CLONE_FINISHED = 39,
+    /// payload: {"requestId": uint64, "error": GitError|null, "probes":
+    /// [{"name": string, "state": "notFound"|"noReference"|"counted",
+    /// "tipOid": string, "upstream": string, "unsyncedCount": int}]}. Reply to
+    /// gbm_request_branch_deletion_probe(), one probe per requested name in
+    /// request order; "probes" is empty when "error" is set. The failure
+    /// travels in-band rather than as GBM_EVENT_ERROR_OCCURRED so the caller
+    /// can tell *which* request failed and keep its delete button disabled.
+    GBM_EVENT_BRANCH_DELETION_PROBE_READY = 40,
 };
 
 typedef void (*GbmEventCallback)(GbmSessionHandle session,
@@ -558,14 +566,29 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
 /// `git branch -d/-D <names...>` (multiple names in one call, matching
 /// `git branch`'s own multi-name support -- a multi-select delete is one
 /// operation, not N), or `git push <remoteName> --delete <names...>` when
-/// `isRemote`. `force` deletes even when not fully merged. Async: fires
+/// `isRemote`. `forces` and `expectedTips` are parallel to `names` and may
+/// each be null (no name forced). A forced name (`forces[i] != 0`) deletes
+/// even when not fully merged, and only while the branch still points at
+/// `expectedTips[i]` -- the tipOid of a gbm_request_branch_deletion_probe()
+/// reply. A forced name with no tip fails with MissingBranchTip, a moved one
+/// with StaleBranchTip, and in both cases nothing is deleted. Async: fires
 /// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
 GBM_API void gbm_branch_delete(GbmSessionHandle session,
                                const char* const* names,
                                int32_t nameCount,
-                               int32_t force,
+                               const int32_t* forces,
+                               const char* const* expectedTips,
                                int32_t isRemote,
                                const char* remoteName);
+
+/// Reads, for each local branch in `names`, what deleting it would lose
+/// against its own upstream (BranchStore::probeDeletion) -- read before the
+/// user confirms. Async: fires GBM_EVENT_BRANCH_DELETION_PROBE_READY with
+/// `requestId` echoed back.
+GBM_API void gbm_request_branch_deletion_probe(GbmSessionHandle session,
+                                               uint64_t requestId,
+                                               const char* const* names,
+                                               int32_t nameCount);
 
 // --- Reset -----------------------------------------------------------------
 // Mirrors RepositorySession::resetTo -- see src/core/git/ops/ResetOps.h.

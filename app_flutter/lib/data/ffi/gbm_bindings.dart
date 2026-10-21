@@ -58,6 +58,7 @@ abstract final class GbmEventType {
   static const int preparedMessageReady = 37;
   static const int cloneProgress = 38;
   static const int cloneFinished = 39;
+  static const int branchDeletionProbeReady = 40;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -248,7 +249,8 @@ typedef _BranchDeleteNative = Void Function(
   Pointer<Void> session,
   Pointer<Pointer<Utf8>> names,
   Int32 nameCount,
-  Int32 force,
+  Pointer<Int32> forces,
+  Pointer<Pointer<Utf8>> expectedTips,
   Int32 isRemote,
   Pointer<Utf8> remoteName,
 );
@@ -256,9 +258,23 @@ typedef BranchDeleteDart = void Function(
   Pointer<Void> session,
   Pointer<Pointer<Utf8>> names,
   int nameCount,
-  int force,
+  Pointer<Int32> forces,
+  Pointer<Pointer<Utf8>> expectedTips,
   int isRemote,
   Pointer<Utf8> remoteName,
+);
+
+typedef _RequestBranchDeletionProbeNative = Void Function(
+  Pointer<Void> session,
+  Uint64 requestId,
+  Pointer<Pointer<Utf8>> names,
+  Int32 nameCount,
+);
+typedef RequestBranchDeletionProbeDart = void Function(
+  Pointer<Void> session,
+  int requestId,
+  Pointer<Pointer<Utf8>> names,
+  int nameCount,
 );
 
 typedef _ResetToNative = Void Function(
@@ -1461,6 +1477,11 @@ class GbmBindings {
           .lookupFunction<_BranchDeleteNative, BranchDeleteDart>(
             'gbm_branch_delete',
           ),
+      requestBranchDeletionProbe = library
+          .lookupFunction<
+            _RequestBranchDeletionProbeNative,
+            RequestBranchDeletionProbeDart
+          >('gbm_request_branch_deletion_probe'),
       resetTo = library.lookupFunction<_ResetToNative, ResetToDart>(
         'gbm_reset_to',
       ),
@@ -1992,6 +2013,7 @@ class GbmBindings {
   final BranchCreateDart branchCreate;
   final BranchRenameDart branchRename;
   final BranchDeleteDart branchDelete;
+  final RequestBranchDeletionProbeDart requestBranchDeletionProbe;
   final ResetToDart resetTo;
   final MergeBranchDart mergeBranch;
   final MergeAbortDart mergeAbort;

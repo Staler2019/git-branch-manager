@@ -24,6 +24,8 @@
 // checkout()/deleteBranch() (to avoid a real FFI call), leaving
 // retryCheckoutWithChoice and friends as the genuine implementation.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -90,17 +92,40 @@ class _RecordingRepoSessionController extends RepoSessionController {
 
   @override
   void deleteBranch({
-    required List<String> names,
-    bool force = false,
+    required List<DeleteBranchEntry> entries,
     bool isRemote = false,
     String remoteName = '',
   }) {
     calls.add(
       _RecordedCall('deleteBranch', <String, Object?>{
-        'names': names,
-        'force': force,
+        'entries': entries,
+        'names': <String>[for (final DeleteBranchEntry e in entries) e.name],
+        'force': entries.any((DeleteBranchEntry e) => e.force),
       }),
     );
+  }
+
+  /// The probe "Delete anyway" reads tips from. Recorded in [calls] too, so
+  /// a test can count how many reads a retry made.
+  BranchDeletionProbeReply Function(List<String> names) probe =
+      (List<String> names) => BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[
+          for (final String name in names)
+            ProbeCounted(
+              name,
+              tipOid: 'probed-$name',
+              upstream: 'refs/remotes/origin/$name',
+              unsyncedCount: 2,
+            ),
+        ],
+      );
+
+  @override
+  Future<BranchDeletionProbeReply> probeBranchDeletion(List<String> names) {
+    calls.add(
+      _RecordedCall('probeBranchDeletion', <String, Object?>{'names': names}),
+    );
+    return Future<BranchDeletionProbeReply>.value(probe(names));
   }
 }
 
@@ -268,9 +293,11 @@ void main() {
       },
     );
 
+    // A6 C3: "Delete anyway" sends `-D`, and a `-D` needs the tip the
+    // user's commits were counted at -- the refused `-d` never carried one.
     test(
-      'retryDeleteBranchWithChoice resubmits the request that actually failed',
-      () {
+      'retryDeleteBranchWithChoice forces the failed request at probed tips',
+      () async {
         final controller = _RecordingRepoSessionController(
           _identity,
           const RepoSessionState(),
@@ -284,14 +311,91 @@ void main() {
         controller.retryDeleteBranchWithChoice(
           OperationChoiceKind.forceDiscard,
         );
+        await pumpEventQueue();
 
         expect(controller.state.deleteBranchChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'deleteBranch');
-        expect(controller.calls.single.args['names'], <String>['gone']);
-        expect(controller.calls.single.args['force'], true);
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced('gone', expectedTipOid: 'probed-gone'),
+        ]);
       },
     );
+
+    // The partial-delete case: `-d merged unmerged` removed `merged` and
+    // refused `unmerged`. The retry must not ask core to force a branch that
+    // no longer exists, nor send it without a tip.
+    test(
+      'a forced retry drops the names the first pass already deleted',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[
+                ProbeNotFound('merged'),
+                ProbeNoReference('unmerged', tipOid: 'tip-of-unmerged'),
+              ],
+            );
+        controller.debugRecordDeleteBranch(
+          names: const <String>['merged', 'unmerged'],
+        );
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced(
+            'unmerged',
+            expectedTipOid: 'tip-of-unmerged',
+          ),
+        ]);
+      },
+    );
+
+    test('a forced retry whose probe failed deletes nothing', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) => const BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[],
+        error: GitError(
+          code: 13,
+          codeName: 'ProcessFailed',
+          message: 'could not read refs',
+          detail: '',
+          argv: <String>[],
+          exitCode: 128,
+        ),
+      );
+      controller.debugRecordDeleteBranch(names: const <String>['gone']);
+      controller.debugHandleOperationOutcome(
+        _failedOutcome(kind: 'delete-branch'),
+      );
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.forceDiscard);
+      await pumpEventQueue();
+
+      expect(
+        controller.calls.where((_RecordedCall c) => c.name == 'deleteBranch'),
+        isEmpty,
+      );
+      expect(controller.state.lastError?.message, 'could not read refs');
+    });
 
     test(
       'dismissCheckoutChoices drops the retained request without resubmitting',

@@ -306,7 +306,7 @@ TEST_F(BranchApiTest, DeleteBranchRemovesASingleLocalBranch) {
     ASSERT_EQ(runGit({"branch", "to-delete"}), 0);
 
     const char* names[] = {"to-delete"};
-    gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
+    gbm_branch_delete(session_, names, 1, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
 
     // DeleteBranchOperation::kind() lets Dart's PendingOperationTracker
@@ -324,7 +324,7 @@ TEST_F(BranchApiTest, DeleteBranchAcceptsMultipleNamesInOneCall) {
     ASSERT_EQ(runGit({"branch", "multi-2"}), 0);
 
     const char* names[] = {"multi-1", "multi-2"};
-    gbm_branch_delete(session_, names, 2, /*force=*/0, /*isRemote=*/0, "");
+    gbm_branch_delete(session_, names, 2, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
 
     const auto branches = localBranches();
@@ -358,7 +358,7 @@ TEST_F(BranchApiTest, APartiallySuccessfulDeleteStillRefreshesRefs) {
     ASSERT_TRUE(waitForInitialRefsUpdated());
 
     const char* names[] = {"merged-branch", "unmerged-branch"};
-    gbm_branch_delete(session_, names, 2, /*force=*/0, /*isRemote=*/0, "");
+    gbm_branch_delete(session_, names, 2, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
     ASSERT_TRUE(waitForOperationFinished());
 
     // The premise: half of it went, and the outcome still reports failure.
@@ -370,6 +370,79 @@ TEST_F(BranchApiTest, APartiallySuccessfulDeleteStillRefreshesRefs) {
     EXPECT_NE(std::find(branches.begin(), branches.end(), "unmerged-branch"), branches.end());
 
     EXPECT_TRUE(waitForRefsUpdatedAfterOperationFinished());
+}
+
+// A6: the probe is how a delete dialog learns, before the user confirms, how
+// many commits a branch holds that its upstream does not -- and the tip that
+// count describes, which the `-D` must send back.
+TEST_F(BranchApiTest, ADeletionProbeEchoesItsRequestIdAndTheTipItCounted) {
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "local-only"}), 0);
+    std::ofstream(repo_ / "local.txt") << "v1\n";
+    ASSERT_EQ(runGit({"add", "local.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "local"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+    const std::string tip =
+        GitCli::capture(repo_, {"rev-parse", "refs/heads/local-only"}).firstLine();
+
+    const char* names[] = {"local-only", "missing"};
+    gbm_request_branch_deletion_probe(session_, 42, names, 2);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_BRANCH_DELETION_PROBE_READY) return true;
+        }
+        return false;
+    }));
+
+    std::string payload;
+    {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        for (const auto& [type, body] : log_.events) {
+            if (type == GBM_EVENT_BRANCH_DELETION_PROBE_READY) payload = body;
+        }
+    }
+    EXPECT_NE(payload.find("\"requestId\":42"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":null"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("{\"name\":\"local-only\",\"state\":\"noReference\",\"tipOid\":\"" + tip +
+                           "\""),
+              std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("{\"name\":\"missing\",\"state\":\"notFound\""), std::string::npos)
+        << payload;
+}
+
+TEST_F(BranchApiTest, AForcedDeleteCarriesItsTipAcrossTheBoundary) {
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "unsynced"}), 0);
+    std::ofstream(repo_ / "unsynced.txt") << "v1\n";
+    ASSERT_EQ(runGit({"add", "unsynced.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "unsynced"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+    const std::string tip = GitCli::capture(repo_, {"rev-parse", "refs/heads/unsynced"}).firstLine();
+
+    const char* names[] = {"unsynced"};
+    const int32_t forces[] = {1};
+    const char* tips[] = {tip.c_str()};
+    gbm_branch_delete(session_, names, 1, forces, tips, /*isRemote=*/0, "");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    EXPECT_NE(lastOperationFinishedPayload().find("\"succeeded\":true"), std::string::npos)
+        << lastOperationFinishedPayload();
+    const auto branches = localBranches();
+    EXPECT_EQ(std::find(branches.begin(), branches.end(), "unsynced"), branches.end());
+}
+
+TEST_F(BranchApiTest, AForcedDeleteWithoutATipIsRefused) {
+    ASSERT_EQ(runGit({"branch", "keep-me"}), 0);
+
+    const char* names[] = {"keep-me"};
+    const int32_t forces[] = {1};
+    gbm_branch_delete(session_, names, 1, forces, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
+    ASSERT_TRUE(waitForOperationFinished());
+
+    EXPECT_NE(lastOperationFinishedPayload().find("\"codeName\":\"MissingBranchTip\""),
+              std::string::npos)
+        << lastOperationFinishedPayload();
+    const auto branches = localBranches();
+    EXPECT_NE(std::find(branches.begin(), branches.end(), "keep-me"), branches.end());
 }
 
 }  // namespace

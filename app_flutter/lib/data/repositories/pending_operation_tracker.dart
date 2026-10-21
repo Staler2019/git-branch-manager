@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import '../models/branch_deletion_probe.dart';
+
 /// A stable, machine-readable slug identifying which controller method
 /// produced an operation-completion outcome -- mirrors the `kind` field
 /// `OperationRunner::workerLoop()` stamps on `OperationOutcome`
@@ -58,14 +60,18 @@ class PendingCheckoutRequest {
 /// the same reason as [PendingCheckoutRequest].
 class PendingDeleteBranchRequest {
   const PendingDeleteBranchRequest({
-    required this.names,
+    required this.entries,
     required this.isRemote,
     required this.remoteName,
   });
 
-  final List<String> names;
+  final List<DeleteBranchEntry> entries;
   final bool isRemote;
   final String remoteName;
+
+  List<String> get names => <String>[
+    for (final DeleteBranchEntry entry in entries) entry.name,
+  ];
 }
 
 /// The fields of a [RepoSessionController.fetchRemote] call that the

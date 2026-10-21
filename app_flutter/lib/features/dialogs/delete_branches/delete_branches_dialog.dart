@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../data/models/branch_deletion_probe.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
@@ -97,6 +98,24 @@ class _DeleteBranchesDialogContentState
   bool _alsoDeleteRemote = false;
   bool _force = false;
 
+  /// The tips a forced delete sends back, read once when the dialog opens.
+  /// Null while the read is in flight; a forced delete waits for it and is
+  /// never sent on a failed one.
+  BranchDeletionProbeReply? _probe;
+
+  @override
+  void initState() {
+    super.initState();
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .probeBranchDeletion(widget.names)
+        .then((BranchDeletionProbeReply reply) {
+          if (mounted) setState(() => _probe = reply);
+        });
+  }
+
+  bool get _forceReady => _probe != null && _probe?.error == null;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
@@ -118,7 +137,9 @@ class _DeleteBranchesDialogContentState
         GbmButton(
           label: 'Delete ${lines.length} branches',
           kind: GbmButtonKind.danger,
-          onPressed: lines.isEmpty ? null : () => _delete(lines, tracked),
+          onPressed: lines.isEmpty || (_force && !_forceReady)
+              ? null
+              : () => _delete(lines, tracked),
         ),
       ],
       child: Column(
@@ -199,8 +220,12 @@ class _DeleteBranchesDialogContentState
     // OPERATION_FINISHED events against spec page 10's one-background-task
     // rule.
     notifier.deleteBranch(
-      names: <String>[for (final DeleteBranchLine l in lines) l.name],
-      force: _force,
+      entries: _force
+          ? _forcedEntries(lines)
+          : <DeleteBranchEntry>[
+              for (final DeleteBranchLine l in lines)
+                DeleteBranchEntry.plain(l.name),
+            ],
     );
     if (_alsoDeleteRemote) {
       // Grouped by remote: gbm_branch_delete's remote form runs
@@ -213,14 +238,34 @@ class _DeleteBranchesDialogContentState
       }
       byRemote.forEach((String remote, List<String> names) {
         notifier.deleteBranch(
-          names: names,
+          entries: <DeleteBranchEntry>[
+            for (final String name in names) DeleteBranchEntry.plain(name),
+          ],
           isRemote: true,
           remoteName: remote,
-          force: _force,
         );
       });
     }
     context.pop();
+  }
+
+  /// Each line forced at the tip the probe read -- never the refs snapshot's
+  /// `target`, which a refresh can move after the read without the user
+  /// having seen it. A line the probe found already gone is skipped.
+  List<DeleteBranchEntry> _forcedEntries(List<DeleteBranchLine> lines) {
+    final Map<String, BranchDeletionProbe> byName =
+        <String, BranchDeletionProbe>{
+          for (final BranchDeletionProbe p
+              in _probe?.probes ?? const <BranchDeletionProbe>[])
+            p.name: p,
+        };
+    return <DeleteBranchEntry>[
+      for (final DeleteBranchLine line in lines)
+        if (byName[line.name]
+            case ProbeNoReference(:final String tipOid) ||
+                ProbeCounted(:final String tipOid))
+          DeleteBranchEntry.forced(line.name, expectedTipOid: tipOid),
+    ];
   }
 }
 

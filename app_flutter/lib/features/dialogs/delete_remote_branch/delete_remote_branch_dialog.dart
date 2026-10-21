@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../data/models/branch_deletion_probe.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../theme/gbm_theme.dart';
@@ -57,7 +58,9 @@ class DeleteRemoteBranchDialogContent extends ConsumerWidget {
                   ref
                       .read(repoSessionProvider(identity).notifier)
                       .deleteBranch(
-                        names: <String>[branch],
+                        entries: <DeleteBranchEntry>[
+                          DeleteBranchEntry.plain(branch),
+                        ],
                         isRemote: true,
                         remoteName: remote,
                       );

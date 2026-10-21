@@ -620,6 +620,41 @@ std::string toJson(const std::vector<RemoteInfo>& remotes) {
     return out;
 }
 
+std::string toJson(const BranchDeletionProbe& probe) {
+    std::string out = "{\"name\":";
+    jsonAppendEscaped(out, probe.name);
+    out += ",\"state\":";
+    switch (probe.state) {
+        case BranchDeletionProbe::State::NotFound:
+            out += "\"notFound\"";
+            break;
+        case BranchDeletionProbe::State::NoReference:
+            out += "\"noReference\"";
+            break;
+        case BranchDeletionProbe::State::Counted:
+            out += "\"counted\"";
+            break;
+    }
+    out += ",\"tipOid\":";
+    jsonAppendEscaped(out, probe.tipOid);
+    out += ",\"upstream\":";
+    jsonAppendEscaped(out, probe.upstream);
+    out += ",\"unsyncedCount\":";
+    jsonAppendInt(out, probe.unsyncedCount);
+    out += '}';
+    return out;
+}
+
+std::string toJson(const std::vector<BranchDeletionProbe>& probes) {
+    std::string out = "[";
+    for (std::size_t i = 0; i < probes.size(); ++i) {
+        if (i != 0) out += ',';
+        out += toJson(probes[i]);
+    }
+    out += ']';
+    return out;
+}
+
 std::string toJson(const RemotePrunePreviewEntry& entry) {
     std::string out = "{\"ref\":";
     jsonAppendEscaped(out, entry.ref);

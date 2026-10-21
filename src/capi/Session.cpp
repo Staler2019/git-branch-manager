@@ -1236,6 +1236,24 @@ void Session::requestRemotePrunePreview(std::string remoteName) {
     });
 }
 
+void Session::requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names) {
+    // postFront: a delete dialog's button waits on this reply
+    // ([CPP-interactive-reads-go-to-the-front]).
+    sharedReadPool().postFront([this, requestId, names = std::move(names)]() mutable {
+        BranchStore store(*runner_, paths_);
+        const GitResult<std::vector<BranchDeletionProbe>> result =
+            store.probeDeletion(std::move(names), readCancel_.token());
+        std::string payload = "{\"requestId\":";
+        jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
+        payload += ",\"error\":";
+        payload += result ? std::string("null") : toJson(result.error());
+        payload += ",\"probes\":";
+        payload += result ? toJson(result.value()) : std::string("[]");
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY, payload);
+    });
+}
+
 void Session::pruneRemote(PruneRemoteRequest request) {
     // Not submitWorkingCopyOperation: pruning remote-tracking refs never
     // touches the working tree or index, only refs -- same shape as

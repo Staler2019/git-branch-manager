@@ -329,7 +329,7 @@ TEST_F(WorktreeApiTest, AfterRemovingAWorktreeItsBranchCanBeDeleted) {
     log_.clear();
 
     const char* names[] = {"feature"};
-    gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
+    gbm_branch_delete(session_, names, 1, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
     ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
     EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
         << "the branch must be gone";
@@ -349,7 +349,7 @@ TEST_F(WorktreeApiTest, RemovingAWorktreeWhoseDirectoryIsAlreadyGoneFreesItsBran
     log_.clear();
 
     const char* names[] = {"feature"};
-    gbm_branch_delete(session_, names, 1, /*force=*/0, /*isRemote=*/0, "");
+    gbm_branch_delete(session_, names, 1, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
     ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
     EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
         << "a worktree registration left behind keeps git refusing the delete";

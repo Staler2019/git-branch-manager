@@ -214,9 +214,17 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
   void didUpdateWidget(WorkspaceScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.identity != widget.identity) {
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _settleOutstandingCommit(widget.identity),
-      );
+      // Switching worktree routes this same element to another repository,
+      // and repoSessionProvider is not autoDispose: a worktree visited
+      // earlier comes back with the session -- and working copy -- it last
+      // read. Same sweep as a focus regain, unthrottled: a switch is one
+      // deliberate act, not an alt-tab bounce.
+      final RepoIdentity identity = widget.identity;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        refreshRepoStatus(ref, identity);
+        _settleOutstandingCommit(identity);
+      });
     }
   }
 

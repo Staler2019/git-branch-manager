@@ -584,10 +584,12 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
                           SidebarTagSection(
                             identity: widget.identity,
                             tags: filteredTags,
+                            forceExpanded: isFiltering,
                           ),
                           SidebarStashSection(
                             identity: widget.identity,
                             stashes: filteredStashes,
+                            forceExpanded: isFiltering,
                           ),
                         ],
                       ),

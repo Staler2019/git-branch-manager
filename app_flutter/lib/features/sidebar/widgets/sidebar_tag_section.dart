@@ -9,6 +9,7 @@ import '../../../data/repositories/branch_repository.dart';
 import '../../../data/repositories/compare_tabs_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
+import '../../../data/repositories/sidebar_collapsed_sections_repository.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/tokens.dart';
 import 'branch_tree_item.dart';
@@ -28,6 +29,7 @@ class SidebarTagSection extends ConsumerWidget {
     super.key,
     required this.identity,
     required this.tags,
+    this.forceExpanded = false,
   });
 
   final RepoIdentity identity;
@@ -35,6 +37,11 @@ class SidebarTagSection extends ConsumerWidget {
   /// Already filtered by the caller -- P02-14's one box covers all three
   /// sections, and the 命中/總數 count is computed from the same list.
   final List<RefInfo> tags;
+
+  /// True while the filter has a query: P02-14 opens every folder then, and
+  /// ruling 2026-10-18 holds these sections to the same rule. The remembered
+  /// choice in [sidebarCollapsedSectionsProvider] is left alone.
+  final bool forceExpanded;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -48,34 +55,55 @@ class SidebarTagSection extends ConsumerWidget {
       session,
     );
 
+    // Watched unconditionally: short-circuiting it behind [forceExpanded]
+    // would drop the subscription for as long as a query is in force.
+    final bool collapsed = ref
+        .watch(sidebarCollapsedSectionsProvider(identity))
+        .contains(SidebarSection.tags);
+    final bool expanded = forceExpanded || !collapsed;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
-        const SidebarSectionLabel('TAGS'),
-        for (final RefInfo tag in tags)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space1),
-            child: BranchTreeItem(
-              ref: tag,
-              onCheckout: () =>
-                  checkoutBranch(ref, identity, tag.shortName, detach: true),
-              // Only offered when the choice is unambiguous: `gbm_push_tag`
-              // targets exactly one remote per call.
-              onPushTag: session.remotes.length == 1
-                  ? () => ref
-                        .read(repoSessionProvider(identity).notifier)
-                        .pushTag(
-                          session.remotes.single.name,
-                          name: tag.shortName,
-                        )
-                  : null,
-              onCompareRef: () => _compare(context, ref, tag),
-              onDeleteTag: () => ref
-                  .read(repoSessionProvider(identity).notifier)
-                  .deleteTag(tag.shortName),
-              conflictActive: conflictActive,
+        SidebarSectionLabel(
+          'TAGS',
+          count: tags.length,
+          isExpanded: expanded,
+          onToggle: () => ref
+              .read(sidebarCollapsedSectionsProvider(identity).notifier)
+              .update(
+                (Set<SidebarSection> s) => s.contains(SidebarSection.tags)
+                    ? (<SidebarSection>{...s}..remove(SidebarSection.tags))
+                    : <SidebarSection>{...s, SidebarSection.tags},
+              ),
+        ),
+        if (expanded)
+          for (final RefInfo tag in tags)
+            Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: GbmSpacing.space1,
+              ),
+              child: BranchTreeItem(
+                ref: tag,
+                onCheckout: () =>
+                    checkoutBranch(ref, identity, tag.shortName, detach: true),
+                // Only offered when the choice is unambiguous: `gbm_push_tag`
+                // targets exactly one remote per call.
+                onPushTag: session.remotes.length == 1
+                    ? () => ref
+                          .read(repoSessionProvider(identity).notifier)
+                          .pushTag(
+                            session.remotes.single.name,
+                            name: tag.shortName,
+                          )
+                    : null,
+                onCompareRef: () => _compare(context, ref, tag),
+                onDeleteTag: () => ref
+                    .read(repoSessionProvider(identity).notifier)
+                    .deleteTag(tag.shortName),
+                conflictActive: conflictActive,
+              ),
             ),
-          ),
       ],
     );
   }

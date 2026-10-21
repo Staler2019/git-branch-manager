@@ -3,8 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 
-/// The bar that appears above the branch tree once a multi-selection exists:
-/// 「N selected」 plus Clear and Delete.
+/// The bar drawn in the slot above the branch tree once a selection exists:
+/// 「N selected」 plus Clear and Delete. The slot itself is `SidebarPanel`'s
+/// and is always laid out, so this appearing never moves the tree.
 ///
 /// Presentational, in the same sense as `features/workspace/widgets/` -- it
 /// takes a count and two callbacks and holds no Riverpod dependency, so the
@@ -40,47 +41,52 @@ class BranchSelectionActionBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: GbmSpacing.space3,
-        vertical: GbmSpacing.space1,
+    // Spec P13 callout 6: a raised ground and a top rule. No vertical
+    // padding -- the caller's slot is a fixed 24px and the buttons fill it.
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surfacePanelRaised,
+        border: Border(top: BorderSide(color: colors.borderSubtle)),
       ),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Text(
-              '$count selected',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textSecondary,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
-          TextButton(
-            style: _compactActionStyle,
-            onPressed: onClear,
-            child: Text(
-              'Clear',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textSecondary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                '$count selected',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
-          ),
-          TextButton(
-            style: _compactActionStyle,
-            onPressed: onDelete,
-            child: Text(
-              'Delete',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.danger,
+            TextButton(
+              style: _compactActionStyle,
+              onPressed: onClear,
+              child: Text(
+                'Clear',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
               ),
             ),
-          ),
-        ],
+            TextButton(
+              style: _compactActionStyle,
+              onPressed: onDelete,
+              child: Text(
+                'Delete',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.danger,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

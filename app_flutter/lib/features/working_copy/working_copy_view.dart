@@ -106,6 +106,34 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     )..addListener(_onDiffScroll);
   }
 
+  /// Switching worktree keeps this State: go_router keys the page by route,
+  /// not by `repoId`. Everything [initState] seeded from the old identity's
+  /// draft is re-seeded from the new one's, or one repository's commit
+  /// message sits in -- and is then saved into -- the other's box.
+  ///
+  /// The controllers are re-seeded after this frame, not here:
+  /// [CommitMessageBox] writes every controller change into the draft
+  /// provider, and a provider write during build throws.
+  @override
+  void didUpdateWidget(WorkingCopyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.identity == widget.identity) return;
+    _selectedPath = null;
+    _amendPrefilledFor = null;
+    _firstPreparedPass = true;
+    final RepoIdentity identity = widget.identity;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || widget.identity != identity) return;
+      final draft = ref.read(workingCopyDraftProvider(identity));
+      _summaryController.text = draft.summary;
+      _descriptionController.text = draft.description;
+      if (_diffScrollController.hasClients) {
+        _diffScrollController.jumpTo(draft.diffScrollOffset);
+      }
+    });
+    _schedulePreparedPass();
+  }
+
   @override
   void dispose() {
     _summaryController.dispose();

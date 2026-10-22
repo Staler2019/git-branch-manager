@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../actions/gbm_action_id.dart';
+import '../../../data/models/branch_deletion_probe.dart';
+import '../../../data/models/git_error.dart';
 import '../../../data/models/ref_snapshot.dart';
 import '../../../data/models/remote_counterpart.dart';
 import '../../../data/models/remote_prune_preview_entry.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../sidebar/gone_marking.dart';
+import '../branch_deletion_probe_copy.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
@@ -61,11 +64,13 @@ import '../../../widgets/gbm_input_decoration.dart';
 /// because this dialog can be reached from the menu bar where the "current"
 /// branch is not visible next to the confirmation.
 ///
-/// A delete git refuses because the branch is not fully merged comes back
-/// through `deleteBranchChoices` and the delete-branch-recovery dialog,
-/// which is where force-delete lives -- this dialog deliberately offers no
-/// force checkbox of its own, so "delete" never silently means "force
-/// delete".
+/// The warning comes before the confirmation, and the confirmation is final
+/// (issue 5, ruled 2026-10-21): the dialog reads what deleting would lose
+/// before enabling its button, and a branch with commits its upstream lacks,
+/// or with no upstream to compare against, is sent as `-D` at the tip that
+/// read counted -- after the warning, never silently. A branch fully in its
+/// upstream goes as plain `-d`. The recovery dialog remains the fallback
+/// when core and the read disagree (the branch moved: `StaleBranchTip`).
 ///
 /// Routed as `/repo/:repoId/dialogs/delete-branch`.
 class DeleteBranchDialogContent extends ConsumerStatefulWidget {
@@ -90,6 +95,33 @@ class _DeleteBranchDialogContentState
     extends ConsumerState<DeleteBranchDialogContent> {
   String? _selected;
   bool _alsoDeleteRemote = false;
+
+  /// The read for [_readFor] at snapshot tip [_readAtTarget]; null while it
+  /// is in flight. A newer read supersedes an older one by [_readSeq].
+  BranchDeletionProbeReply? _read;
+  String? _readFor;
+  String? _readAtTarget;
+  int _readSeq = 0;
+
+  /// Reads [branch] again whenever the snapshot shows a different branch or a
+  /// different tip from the one the current read was taken at: the count
+  /// describes that tip, and a refresh that moved it makes the count stale.
+  /// Called from build; it changes no provider state and the read's reply
+  /// arrives through `setState` later.
+  void _readIfStale(RefInfo branch) {
+    if (branch.shortName == _readFor && branch.target == _readAtTarget) return;
+    final int seq = ++_readSeq;
+    _read = null;
+    _readFor = branch.shortName;
+    _readAtTarget = branch.target;
+    ref
+        .read(repoSessionProvider(widget.identity).notifier)
+        .probeBranchDeletion(<String>[branch.shortName])
+        .then((BranchDeletionProbeReply reply) {
+          if (!mounted || seq != _readSeq) return;
+          setState(() => _read = reply);
+        });
+  }
 
   @override
   void initState() {
@@ -126,7 +158,30 @@ class _DeleteBranchDialogContentState
       ),
       null => ('', ''),
     };
-    final bool canDelete = target != null;
+    if (target != null) _readIfStale(target);
+    final BranchDeletionProbeReply? read = _read;
+    final GitError? readError = read?.error;
+    final BranchDeletionProbe? probe = switch (target) {
+      final RefInfo branch when read != null && readError == null =>
+        read.probes
+            .where((BranchDeletionProbe p) => p.name == branch.shortName)
+            .firstOrNull,
+      _ => null,
+    };
+    // Plain `-d` only where the read found nothing its upstream lacks (git
+    // compares against that same upstream, so it cannot refuse); everything
+    // else was warned about above and goes as `-D` at the counted tip.
+    final DeleteBranchEntry? entry = switch (probe) {
+      ProbeCounted(:final String name, unsyncedCount: 0) =>
+        DeleteBranchEntry.plain(name),
+      ProbeCounted(:final String name, :final String tipOid) ||
+      ProbeNoReference(
+        :final String name,
+        :final String tipOid,
+      ) => DeleteBranchEntry.forced(name, expectedTipOid: tipOid),
+      ProbeNotFound() || null => null,
+    };
+    final bool canDelete = target != null && entry != null;
 
     // `isGone` is only ever true *after* a prune; between the fetch that
     // discovers a deleted branch and the prune that records it, gone-ness
@@ -158,7 +213,8 @@ class _DeleteBranchDialogContentState
         _alsoDeleteRemote && remote.isNotEmpty && !remoteAlreadyGone;
 
     return GbmDialogShell(
-      title: 'Delete Branch',
+      // The mock's header: `Delete branch`, as the primary button reads.
+      title: 'Delete branch',
       actionId: GbmActionId.branchDeleteBranch,
       actions: <Widget>[
         GbmButton(label: 'Cancel', onPressed: () => context.pop()),
@@ -170,14 +226,18 @@ class _DeleteBranchDialogContentState
                   final RepoSessionController notifier = ref.read(
                     repoSessionProvider(widget.identity).notifier,
                   );
-                  notifier.deleteBranch(names: <String>[target!.shortName]);
-                  if (willDeleteRemote) {
-                    notifier.deleteBranch(
-                      names: <String>[remoteBranch],
-                      isRemote: true,
-                      remoteName: remote,
-                    );
-                  }
+                  // The remote half rides on the local request and is sent
+                  // only once the local delete succeeds.
+                  notifier.deleteBranch(
+                    entries: <DeleteBranchEntry>[entry],
+                    thenDeleteRemote: <RemoteBranchDeletion>[
+                      if (willDeleteRemote)
+                        RemoteBranchDeletion(
+                          remoteName: remote,
+                          names: <String>[remoteBranch],
+                        ),
+                    ],
+                  );
                   context.pop();
                 }
               : null,
@@ -220,7 +280,8 @@ class _DeleteBranchDialogContentState
                   color: colors.textPrimary,
                 ),
                 children: <InlineSpan>[
-                  const TextSpan(text: '刪除本地分支 '),
+                  // The mock: 「刪除本機分支 feature/graph-lanes。」
+                  const TextSpan(text: '刪除本機分支 '),
                   TextSpan(
                     text: branch.shortName,
                     style: const TextStyle(
@@ -228,44 +289,40 @@ class _DeleteBranchDialogContentState
                       fontWeight: GbmTypography.weightSemibold,
                     ),
                   ),
-                  const TextSpan(text: '？'),
+                  const TextSpan(text: '。'),
                 ],
               ),
             ),
             const SizedBox(height: GbmSpacing.space2),
-            // Ahead/behind is what the refs snapshot actually carries, so it
-            // is reported as exactly that rather than dressed up as a
-            // merge-base count this layer has not computed. Spec page 02
-            // item 11's "永遠顯示實際數字" applies here too.
-            // G8b: the two genuinely-warning branches (unpushed commits,
-            // no upstream at all) use GbmDialogWarnField rather than bare
-            // colors.warning-styled text. The "fully pushed" branch is
-            // deliberately left as plain textSecondary Text -- it is
-            // informational, not a warning, and wrapping it in the same
-            // warn box would misrepresent it as one.
-            if (branch.hasTrackingInfo)
-              branch.ahead > 0
-                  ? GbmDialogWarnField(
-                      message:
-                          '這個分支有 ${branch.ahead} 個 commit 還沒推到 ${branch.upstream}。',
-                    )
-                  : Text(
-                      '已完整推到 ${branch.upstream}。',
-                      style: TextStyle(
-                        fontSize: GbmTypography.textXs,
-                        color: colors.textSecondary,
-                      ),
-                    )
-            else
-              const GbmDialogWarnField(message: '這個分支沒有 upstream，只存在於這台機器上。'),
-            const SizedBox(height: GbmSpacing.space1),
-            Text(
-              '如果分支還沒完全合併，git 會拒絕，並提供強制刪除的選項。',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
+            // Spec 06: 「複述分支名與未合併的 commit 數」, counted against the
+            // upstream per the 2026-10-21 ruling. The two cases that lead to
+            // `-D` draw inside GbmDialogWarnField (G8b); "fully synced" is
+            // informational and stays plain text.
+            switch (probe) {
+              ProbeCounted(unsyncedCount: 0, :final String upstream) => Text(
+                '已完整同步到 ${shortUpstreamName(upstream)}。',
+                style: TextStyle(
+                  fontSize: GbmTypography.textXs,
+                  color: colors.textSecondary,
+                ),
               ),
-            ),
+              ProbeCounted(:final int unsyncedCount, :final String upstream) =>
+                GbmDialogWarnField(
+                  message:
+                      '這個分支有 $unsyncedCount 個 commit 尚未同步到 '
+                      '${shortUpstreamName(upstream)}。',
+                ),
+              ProbeNoReference() => const GbmDialogWarnField(
+                message: '沒有 upstream（或已 gone），無法確認是否已同步。',
+              ),
+              ProbeNotFound() => _note(colors, '這個分支已經不存在。'),
+              null => _note(
+                colors,
+                readError != null
+                    ? branchDeletionProbeFailedText(readError)
+                    : '正在計算尚未同步的 commit…',
+              ),
+            },
             if (remote.isNotEmpty) ...<Widget>[
               const SizedBox(height: GbmSpacing.space2),
               CheckboxListTile(
@@ -280,7 +337,8 @@ class _DeleteBranchDialogContentState
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
                 title: Text(
-                  '同時刪除 $remote 上的 $remoteBranch',
+                  // The mock: 「同時刪除遠端 origin/feature/graph-lanes」.
+                  '同時刪除遠端 $remote/$remoteBranch',
                   style: TextStyle(
                     fontSize: GbmTypography.textSm,
                     color: colors.textPrimary,
@@ -313,4 +371,12 @@ class _DeleteBranchDialogContentState
       ),
     );
   }
+
+  Widget _note(GbmColors colors, String text) => Text(
+    text,
+    style: TextStyle(
+      fontSize: GbmTypography.textXs,
+      color: colors.textSecondary,
+    ),
+  );
 }

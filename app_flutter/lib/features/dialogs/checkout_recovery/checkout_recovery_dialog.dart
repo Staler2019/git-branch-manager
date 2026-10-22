@@ -170,16 +170,18 @@ class _CheckoutRecoveryDialogContentState
                           : colors.textPrimary,
                     ),
                   ),
-                  Text(
-                    recoveryChoiceExplanation(
-                      choice.kind,
-                      forDeleteBranch: false,
+                  if (recoveryChoiceExplanation(
+                        choice.kind,
+                        forDeleteBranch: false,
+                      )
+                      case final String explanation)
+                    Text(
+                      explanation,
+                      style: TextStyle(
+                        fontSize: GbmTypography.textXs,
+                        color: colors.textTertiary,
+                      ),
                     ),
-                    style: TextStyle(
-                      fontSize: GbmTypography.textXs,
-                      color: colors.textTertiary,
-                    ),
-                  ),
                 ],
               ),
             ),

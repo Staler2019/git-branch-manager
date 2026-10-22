@@ -25,13 +25,19 @@
 //    the *local* one. For `feature/x` tracking `origin/renamed-x` the dialog
 //    said "Also delete renamed-x" and then deleted `feature/x` on origin --
 //    a second source of truth for one fact, shipped.
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/models/ref_snapshot.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/features/dialogs/delete_branch/delete_branch_dialog.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:go_router/go_router.dart';
@@ -45,11 +51,12 @@ RefInfo _branch(
   String upstream = '',
   bool isGone = false,
   bool isHead = false,
+  String target = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
 }) => RefInfo(
   fullName: 'refs/heads/$name',
   shortName: name,
   kind: RefKind.localBranch,
-  target: 'a' * 40,
+  target: target,
   upstream: upstream,
   ahead: 0,
   behind: 0,
@@ -97,14 +104,15 @@ Future<FakeRepoSessionController> _pump(
   List<RefInfo> refs, {
   Map<String, List<String>> gonePendingByRemote =
       const <String, List<String>>{},
+  FakeRepoSessionController Function(RepoSessionState)? controller,
 }) async {
-  final FakeRepoSessionController fake = FakeRepoSessionController(
-    _identity,
-    RepoSessionState(
-      refs: _snapshot(refs),
-      gonePendingByRemote: gonePendingByRemote,
-    ),
+  final RepoSessionState initial = RepoSessionState(
+    refs: _snapshot(refs),
+    gonePendingByRemote: gonePendingByRemote,
   );
+  final FakeRepoSessionController fake =
+      controller?.call(initial) ??
+      FakeRepoSessionController(_identity, initial);
   // The dialog pops after dispatching, so it needs something underneath it.
   final GoRouter router = GoRouter(
     initialLocation: '/',
@@ -145,6 +153,46 @@ Future<FakeRepoSessionController> _pump(
   await tester.pumpAndSettle();
   return fake;
 }
+
+/// The primary button: the title reads `Delete branch` too, per the mock.
+final Finder _deleteButton = find.widgetWithText(GbmButton, 'Delete branch');
+
+GbmButton _button(WidgetTester tester) =>
+    tester.widget<GbmButton>(_deleteButton);
+
+/// Answers each [probeBranchDeletion] only when the test completes it: the
+/// first read is [pending], every read in order is in [reads].
+class _HeldProbeController extends FakeRepoSessionController {
+  _HeldProbeController(RepoSessionState state) : super(_identity, state);
+
+  final List<Completer<BranchDeletionProbeReply>> reads =
+      <Completer<BranchDeletionProbeReply>>[];
+
+  Completer<BranchDeletionProbeReply> get pending => reads.first;
+
+  @override
+  Future<BranchDeletionProbeReply> probeBranchDeletion(List<String> names) {
+    commandLog.add(
+      FakeCommand('probeBranchDeletion', <String, Object?>{'names': names}),
+    );
+    final Completer<BranchDeletionProbeReply> read =
+        Completer<BranchDeletionProbeReply>();
+    reads.add(read);
+    return read.future;
+  }
+}
+
+BranchDeletionProbeReply _counted(String name, int n, {String tip = 'tip-1'}) =>
+    BranchDeletionProbeReply(
+      probes: <BranchDeletionProbe>[
+        ProbeCounted(
+          name,
+          tipOid: tip,
+          upstream: 'refs/remotes/origin/$name',
+          unsyncedCount: n,
+        ),
+      ],
+    );
 
 List<FakeCommand> _deletes(FakeRepoSessionController fake) =>
     fake.commandLog.where((FakeCommand c) => c.name == 'deleteBranch').toList();
@@ -228,16 +276,23 @@ void main() {
 
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete branch'));
+      await tester.tap(_deleteButton);
       await tester.pumpAndSettle();
 
       // Counted, not `any`: a double dispatch would push twice.
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['remoteName'], 'origin');
-      expect(remote.single.args['names'], <String>['feature/x']);
+      // One request: the remote half rides on it and is sent by the
+      // controller only after the local delete succeeds.
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['feature/x'],
+          ),
+        ],
+      );
     });
 
     testWidgets('is offered for a branch that is exactly in sync', (
@@ -314,7 +369,7 @@ void main() {
         isFalse,
       );
 
-      await tester.tap(find.text('Delete branch'));
+      await tester.tap(_deleteButton);
       await tester.pumpAndSettle();
 
       // Counted, not `any`: the local delete is expected, the remote one
@@ -360,15 +415,22 @@ void main() {
 
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete branch'));
+      await tester.tap(_deleteButton);
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['remoteName'], 'origin');
-      expect(remote.single.args['names'], <String>['feature/x']);
+      // One request: the remote half rides on it and is sent by the
+      // controller only after the local delete succeeds.
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['feature/x'],
+          ),
+        ],
+      );
     });
 
     testWidgets('deletes the branch it names, not the local one', (
@@ -388,26 +450,28 @@ void main() {
         ],
       );
 
-      expect(find.text('同時刪除 origin 上的 renamed-x'), findsOneWidget);
+      expect(find.text('同時刪除遠端 origin/renamed-x'), findsOneWidget);
 
       await tester.tap(find.byType(CheckboxListTile));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete branch'));
+      await tester.tap(_deleteButton);
       await tester.pumpAndSettle();
 
-      final List<FakeCommand> remote = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] == true)
-          .toList();
-      expect(remote.length, 1);
-      expect(remote.single.args['names'], <String>['renamed-x']);
+      final List<FakeCommand> deletes = _deletes(fake);
+      expect(deletes.length, 1);
+      expect(
+        deletes.single.args['thenDeleteRemote'],
+        const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(
+            remoteName: 'origin',
+            names: <String>['renamed-x'],
+          ),
+        ],
+      );
 
       // The local side keeps the local name -- the two are not interchangeable
       // in either direction.
-      final List<FakeCommand> local = _deletes(fake)
-          .where((FakeCommand c) => c.args['isRemote'] != true)
-          .toList();
-      expect(local.length, 1);
-      expect(local.single.args['names'], <String>['feature/x']);
+      expect(deletes.single.args['names'], <String>['feature/x']);
     });
 
     testWidgets('is disabled when the upstream is gone only in the preview', (
@@ -437,6 +501,293 @@ void main() {
       );
       expect(tile.onChanged, isNull);
       expect(tile.value, isFalse);
+    });
+  });
+
+  // Issue 5 (A6): the warning comes before the confirmation, and a
+  // confirmation is final -- the dialog sends `-D` itself, at the tip it
+  // counted, instead of letting git refuse afterwards.
+  group('the read before the delete', () {
+    final List<RefInfo> refs = <RefInfo>[
+      _branch('main', upstream: 'refs/remotes/origin/main', isHead: true),
+      _branch('feature/x', upstream: 'refs/remotes/origin/feature/x'),
+    ];
+
+    testWidgets('disables the button until the read lands', (
+      WidgetTester tester,
+    ) async {
+      late _HeldProbeController held;
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) => held = _HeldProbeController(s),
+      );
+
+      expect(find.text('正在計算尚未同步的 commit…'), findsOneWidget);
+      expect(_button(tester).onPressed, isNull);
+
+      held.pending.complete(_counted('feature/x', 0));
+      await tester.pumpAndSettle();
+      expect(find.text('正在計算尚未同步的 commit…'), findsNothing);
+      expect(_button(tester).onPressed, isNotNull);
+    });
+
+    testWidgets(
+      'unsynced commits are warned about and forced at the read tip',
+      (WidgetTester tester) async {
+        final FakeRepoSessionController fake = await _pump(
+          tester,
+          'feature/x',
+          refs,
+          controller: (RepoSessionState s) =>
+              FakeRepoSessionController(_identity, s)
+                ..branchDeletionProbe = (List<String> names) =>
+                    _counted('feature/x', 3),
+        );
+
+        expect(
+          find.descendant(
+            of: find.byType(GbmDialogWarnField),
+            matching: find.text('這個分支有 3 個 commit 尚未同步到 origin/feature/x。'),
+          ),
+          findsOneWidget,
+        );
+        await tester.tap(_deleteButton);
+        await tester.pumpAndSettle();
+
+        expect(_deletes(fake), hasLength(1));
+        expect(_deletes(fake).single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced('feature/x', expectedTipOid: 'tip-1'),
+        ]);
+      },
+    );
+
+    testWidgets('a local-branch upstream is named by its short name', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  const BranchDeletionProbeReply(
+                    probes: <BranchDeletionProbe>[
+                      ProbeCounted(
+                        'feature/x',
+                        tipOid: 't',
+                        upstream: 'refs/heads/main',
+                        unsyncedCount: 0,
+                      ),
+                    ],
+                  ),
+      );
+      expect(find.text('已完整同步到 main。'), findsOneWidget);
+    });
+
+    testWidgets(
+      'a local-branch upstream is named by its short name in the warning too',
+      (WidgetTester tester) async {
+        await _pump(
+          tester,
+          'feature/x',
+          refs,
+          controller: (RepoSessionState s) =>
+              FakeRepoSessionController(_identity, s)
+                ..branchDeletionProbe = (List<String> names) =>
+                    const BranchDeletionProbeReply(
+                      probes: <BranchDeletionProbe>[
+                        ProbeCounted(
+                          'feature/x',
+                          tipOid: 't',
+                          upstream: 'refs/heads/main',
+                          unsyncedCount: 2,
+                        ),
+                      ],
+                    ),
+        );
+        expect(find.text('這個分支有 2 個 commit 尚未同步到 main。'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a fully synced branch is deleted with a plain -d', (
+      WidgetTester tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  _counted('feature/x', 0),
+      );
+
+      expect(find.text('已完整同步到 origin/feature/x。'), findsOneWidget);
+      expect(find.byType(GbmDialogWarnField), findsNothing);
+      await tester.tap(_deleteButton);
+      await tester.pumpAndSettle();
+
+      expect(_deletes(fake).single.args['entries'], const <DeleteBranchEntry>[
+        DeleteBranchEntry.plain('feature/x'),
+      ]);
+    });
+
+    testWidgets('no upstream is warned about and forced at the read tip', (
+      WidgetTester tester,
+    ) async {
+      // The fake's default read: ProbeNoReference at `probe-tip-<name>`,
+      // which no snapshot `target` here uses.
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        refs,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(GbmDialogWarnField),
+          matching: find.text('沒有 upstream（或已 gone），無法確認是否已同步。'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(_deleteButton);
+      await tester.pumpAndSettle();
+
+      expect(_deletes(fake).single.args['entries'], const <DeleteBranchEntry>[
+        DeleteBranchEntry.forced(
+          'feature/x',
+          expectedTipOid: 'probe-tip-feature/x',
+        ),
+      ]);
+    });
+
+    testWidgets('a failed read is shown and deletes nothing', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  const BranchDeletionProbeReply(
+                    probes: <BranchDeletionProbe>[],
+                    error: GitError(
+                      code: 1,
+                      codeName: 'Unknown',
+                      message: 'boom',
+                      detail: '',
+                      argv: <String>[],
+                      exitCode: 1,
+                    ),
+                  ),
+      );
+
+      expect(find.text('無法確認尚未同步的 commit：boom'), findsOneWidget);
+      expect(_button(tester).onPressed, isNull);
+    });
+
+    testWidgets('a branch the read no longer finds cannot be deleted', (
+      WidgetTester tester,
+    ) async {
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  const BranchDeletionProbeReply(
+                    probes: <BranchDeletionProbe>[ProbeNotFound('feature/x')],
+                  ),
+      );
+
+      expect(find.text('這個分支已經不存在。'), findsOneWidget);
+      expect(_button(tester).onPressed, isNull);
+    });
+
+    // The count describes the tip it was read at. A refresh that shows the
+    // branch moved makes it stale, so the dialog reads again rather than
+    // send a tip the user was not shown the count for.
+    testWidgets('a branch the snapshot shows moving is read again', (
+      WidgetTester tester,
+    ) async {
+      int reads = 0;
+      final FakeRepoSessionController fake = await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) =>
+            FakeRepoSessionController(_identity, s)
+              ..branchDeletionProbe = (List<String> names) =>
+                  _counted('feature/x', ++reads, tip: 'tip-$reads'),
+      );
+      expect(find.textContaining('1 個 commit'), findsOneWidget);
+
+      fake.state = fake.state.copyWith(
+        refs: _snapshot(<RefInfo>[
+          refs.first,
+          _branch(
+            'feature/x',
+            upstream: 'refs/remotes/origin/feature/x',
+            target: 'b' * 40,
+          ),
+        ]),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        fake.commandLog.where(
+          (FakeCommand c) => c.name == 'probeBranchDeletion',
+        ),
+        hasLength(2),
+      );
+      expect(find.textContaining('2 個 commit'), findsOneWidget);
+      await tester.tap(_deleteButton);
+      await tester.pumpAndSettle();
+      expect(_deletes(fake).single.args['entries'], const <DeleteBranchEntry>[
+        DeleteBranchEntry.forced('feature/x', expectedTipOid: 'tip-2'),
+      ]);
+    });
+
+    testWidgets('a read overtaken by a newer one is dropped when it lands', (
+      WidgetTester tester,
+    ) async {
+      late _HeldProbeController held;
+      await _pump(
+        tester,
+        'feature/x',
+        refs,
+        controller: (RepoSessionState s) => held = _HeldProbeController(s),
+      );
+      held.state = held.state.copyWith(
+        refs: _snapshot(<RefInfo>[
+          refs.first,
+          _branch(
+            'feature/x',
+            upstream: 'refs/remotes/origin/feature/x',
+            target: 'b' * 40,
+          ),
+        ]),
+      );
+      await tester.pump();
+      expect(held.reads, hasLength(2));
+
+      held.reads[1].complete(_counted('feature/x', 2, tip: 'tip-new'));
+      await tester.pump();
+      held.reads[0].complete(_counted('feature/x', 1, tip: 'tip-old'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('2 個 commit'), findsOneWidget);
+      await tester.tap(_deleteButton);
+      await tester.pumpAndSettle();
+      expect(_deletes(held).single.args['entries'], const <DeleteBranchEntry>[
+        DeleteBranchEntry.forced('feature/x', expectedTipOid: 'tip-new'),
+      ]);
     });
   });
 }

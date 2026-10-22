@@ -46,7 +46,8 @@ String recoveryChoiceLabel(
   }
 }
 
-/// The Chinese sentence drawn under a choice's label in the body list.
+/// The Chinese sentence drawn under a choice's label in the body list, or
+/// null when the label is drawn alone.
 ///
 /// [forDeleteBranch]'s [OperationChoiceKind.forceDiscard] arm is
 /// deliberately generic rather than restating *why* the branch cannot be
@@ -56,8 +57,10 @@ String recoveryChoiceLabel(
 /// `BranchOps.cpp`'s `deleteAnywayExplanation` is exactly the text that
 /// becomes that message (`RepoSessionController._errorFromOutcomePayload`
 /// falls back to `summary` when there is no formal `GitError`), so this
-/// sentence would only repeat it.
-String recoveryChoiceExplanation(
+/// sentence would only repeat it. It used to promise the commits could be
+/// found again through reflog, which `-D` makes false (it drops the
+/// branch's own reflog); ruled 2026-10-21 (G1 ②) to say nothing instead.
+String? recoveryChoiceExplanation(
   OperationChoiceKind kind, {
   required bool forDeleteBranch,
 }) {
@@ -65,9 +68,7 @@ String recoveryChoiceExplanation(
     case OperationChoiceKind.stashAndRetry:
       return '你的變更會先存進 stash，之後可以再取回來。';
     case OperationChoiceKind.forceDiscard:
-      return forDeleteBranch
-          ? '強制刪除；之後只能透過 reflog 找回這個分支上的 commit。'
-          : '未提交的變更會被永久丟棄，無法復原。';
+      return forDeleteBranch ? null : '未提交的變更會被永久丟棄，無法復原。';
     case OperationChoiceKind.abort:
       return forDeleteBranch ? '保留這個分支。' : '留在目前的分支上。';
     case OperationChoiceKind.retry:

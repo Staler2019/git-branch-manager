@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../widgets/gbm_menu.dart';
 
 /// `ctxItemsFor('branchFolder')` from gbm_context_menus.dart's 05-J
-/// (Branch folder) -- 4 top-level items, danger last.
+/// (Branch folder) -- 3 top-level items. `Delete merged branches…` was
+/// removed (使用者裁定 2026-10-21; see gbm_context_menus.dart's 05-J).
 ///
 /// The spec's own item list gives the first item one combined label,
 /// "Expand all / Collapse all" -- a design-doc convention for a toggle
@@ -24,7 +25,6 @@ List<GbmMenuItem> branchFolderMenuItems({
   required bool isExpanded,
   required VoidCallback onToggleExpand,
   required VoidCallback onCopyPrefix,
-  required VoidCallback onDeleteMerged,
   required VoidCallback? onFetchFolder,
 }) {
   return <GbmMenuItem>[
@@ -43,13 +43,6 @@ List<GbmMenuItem> branchFolderMenuItems({
       label: 'Copy folder prefix',
       icon: Icons.copy,
       onTap: onCopyPrefix,
-    ),
-    const GbmMenuItem.separator(),
-    GbmMenuItem(
-      label: 'Delete merged branches…',
-      icon: Icons.delete_outline,
-      danger: true,
-      onTap: onDeleteMerged,
     ),
   ];
 }

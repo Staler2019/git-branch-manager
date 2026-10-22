@@ -5,7 +5,9 @@
 #include "core/git/RefStore.h"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <map>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -22,7 +24,8 @@ namespace {
 /// this, a FoundElsewhere summary ("...will not lose anything") sat next to
 /// an explanation that still claimed "only reachable through the reflog",
 /// two directly contradictory claims in the one dialog the whole probe exists
-/// to make trustworthy.
+/// to make trustworthy. Neither summary mentions the reflog any more: `-D`
+/// drops the branch's own reflog, so that promise was false either way.
 enum class RemoteRefProbeOutcome {
     ProbeFailed,
     NotFoundElsewhere,
@@ -93,8 +96,7 @@ RemoteRefProbeOutcome refineSummaryFromRemoteRefs(IProcessRunner& runner,
     if (elsewhere.empty()) {
         outcome.summary =
             "This branch's commits were not found on any remote-tracking ref from your last "
-            "fetch. If it was just merged on the remote, fetch and try again -- otherwise "
-            "deleting it makes them reachable only through the reflog";
+            "fetch. If it was just merged on the remote, fetch and try again";
         return RemoteRefProbeOutcome::NotFoundElsewhere;
     }
 
@@ -356,7 +358,8 @@ public:
     explicit DeleteBranchOperation(DeleteBranchRequest request) : request_(std::move(request)) {}
 
     std::string describe() const override {
-        return "Delete branch" + std::string(request_.names.size() > 1 ? "es " : " ") + joinNames();
+        return "Delete branch" + std::string(request_.entries.size() > 1 ? "es " : " ") +
+               joinNames();
     }
 
     std::string kind() const override { return "delete-branch"; }
@@ -372,7 +375,10 @@ public:
         // partially succeeds (see readLocalBranchNames), so resending the
         // user's whole selection makes git answer "branch 'x' not found" for
         // the ones it already removed and exit 1 for work that is done.
-        std::vector<std::string> targets = request_.names;
+        std::vector<std::string> targets;
+        for (const DeleteBranchEntry& entry : request_.entries) {
+            targets.push_back(entry.name);
+        }
         std::optional<std::set<std::string>> before;
         // Ruling: the remote half (`git push <remote> --delete a b c`) gets no
         // probe -- it would cost a network round trip.
@@ -407,29 +413,58 @@ public:
             }
         }
 
-        std::vector<std::string> args;
+        // After the live filter on purpose: a forced name the first pass
+        // already deleted is finished work, not a caller that forgot its tip.
+        if (!request_.isRemote) {
+            if (std::optional<OperationOutcome> refused =
+                    checkForcedTips(runner, paths, targets, token)) {
+                return std::move(*refused);
+            }
+        }
+
+        // Local: the forced names in one `-D`, the rest in one `-d`. `-D` goes
+        // first so a `-d` refusal still reads as the last word on the rest.
+        std::vector<std::vector<std::string>> commands;
         if (request_.isRemote) {
             // Deleting a remote branch is a network operation with a very
             // different blast radius from deleting a local ref.
-            args = {"push", request_.remoteName, "--delete"};
+            commands.push_back({"push", request_.remoteName, "--delete"});
+            commands.back().insert(commands.back().end(), targets.begin(), targets.end());
         } else {
-            args = {"branch", request_.force ? "-D" : "-d"};
+            std::vector<std::string> forced{"branch", "-D"};
+            std::vector<std::string> plain{"branch", "-d"};
+            for (const std::string& name : targets) {
+                (isForced(name) ? forced : plain).push_back(name);
+            }
+            for (std::vector<std::string>* args : {&forced, &plain}) {
+                if (args->size() > 2) {
+                    commands.push_back(std::move(*args));
+                }
+            }
         }
-        args.insert(args.end(), targets.begin(), targets.end());
 
-        GitCommand command(paths.commandDir(), std::move(args));
-        // A remote delete is `push --delete`, a network command: its deadline is
-        // the idle limit and this total is ignored (effectiveDeadlines()).
-        command.timeout = std::chrono::milliseconds(60000);
-
-        auto result = runner.run(command, token);
-        if (result) {
+        std::optional<GitError> failure;
+        bool failedForced = false;
+        for (std::vector<std::string>& args : commands) {
+            const bool forcedCommand = !request_.isRemote && args[1] == "-D";
+            GitCommand command(paths.commandDir(), std::move(args));
+            // A remote delete is `push --delete`, a network command: its deadline
+            // is the idle limit and this total is ignored (effectiveDeadlines()).
+            command.timeout = std::chrono::milliseconds(60000);
+            auto result = runner.run(command, token);
+            if (!result) {
+                failure = std::move(result).error();
+                failedForced = forcedCommand;
+                break;
+            }
+        }
+        if (!failure) {
             outcome.succeeded = true;
             outcome.summary = "Deleted " + joinBranchNames(targets);
             return outcome;
         }
 
-        GitError error = std::move(result).error();
+        GitError error = std::move(*failure);
         outcome.summary = error.message;
 
         // Exit 1 does not mean nothing happened. Re-reading the branch list
@@ -465,10 +500,10 @@ public:
         // "not fully merged" phrasing -- see the worktree case below, which
         // already avoids exactly that.
         const bool notMerged = error.detail.find("not fully merged") != std::string::npos;
-        if (notMerged && !request_.force) {
+        if (notMerged && !failedForced) {
             // Matches describe()'s singular/plural split above: a multi-branch
             // delete can legitimately hit this with more than one name in
-            // request_.names, and "This branch" reads wrong when several were
+            // request_.entries, and "This branch" reads wrong when several were
             // selected.
             outcome.summary = targets.size() > 1
                                   ? "These branches have commits that are not merged into any "
@@ -528,19 +563,207 @@ public:
 private:
     std::string joinNames() const {
         std::string joined;
-        for (std::size_t i = 0; i < request_.names.size(); ++i) {
+        for (std::size_t i = 0; i < request_.entries.size(); ++i) {
             if (i > 0) {
                 joined += ", ";
             }
-            joined += request_.names[i];
+            joined += request_.entries[i].name;
         }
         return joined;
+    }
+
+    /// Refuses the whole request -- nothing deleted -- when any forced name
+    /// has no tip, has moved off it, or its tip cannot be read. A `-D` deletes
+    /// whatever the branch holds now; the check is what makes that the set the
+    /// user was warned about. The residual window between this read and the
+    /// `-D` is one process start; `update-ref -d <ref> <old>` would close it
+    /// but skips `branch -D`'s worktree check and config cleanup.
+    std::optional<OperationOutcome> checkForcedTips(IProcessRunner& runner,
+                                                    const RepoPaths& paths,
+                                                    const std::vector<std::string>& targets,
+                                                    CancellationToken token) const {
+        std::vector<const DeleteBranchEntry*> forced;
+        for (const DeleteBranchEntry& entry : request_.entries) {
+            if (entry.force &&
+                std::find(targets.begin(), targets.end(), entry.name) != targets.end()) {
+                forced.push_back(&entry);
+            }
+        }
+        if (forced.empty()) {
+            return std::nullopt;
+        }
+
+        OperationOutcome refused;
+        for (const DeleteBranchEntry* entry : forced) {
+            if (entry->expectedTipOid.empty()) {
+                refused.summary = "Refused to force-delete " + entry->name +
+                                  ": no checked tip was sent with the request";
+                refused.error = GitError(GitError::Code::MissingBranchTip, refused.summary);
+                return refused;
+            }
+        }
+
+        GitCommand read(paths.commandDir(),
+                        {"for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"});
+        read.timeout = std::chrono::seconds(30);
+        auto listed = runner.run(read, token);
+        if (!listed) {
+            GitError error = std::move(listed).error();
+            refused.summary = "Could not confirm the branch tips before deleting: " + error.message;
+            refused.error = std::move(error);
+            return refused;
+        }
+        std::map<std::string, std::string> tips;
+        std::istringstream lines(listed->out);
+        std::string line;
+        constexpr std::string_view kHeads = "refs/heads/";
+        while (std::getline(lines, line)) {
+            const std::size_t tab = line.find('\t');
+            if (tab == std::string::npos || line.compare(0, kHeads.size(), kHeads) != 0) {
+                continue;
+            }
+            std::string oid = line.substr(tab + 1);
+            if (!oid.empty() && oid.back() == '\r') {
+                oid.pop_back();
+            }
+            tips[line.substr(kHeads.size(), tab - kHeads.size())] = std::move(oid);
+        }
+
+        for (const DeleteBranchEntry* entry : forced) {
+            const auto found = tips.find(entry->name);
+            if (found == tips.end() || found->second != entry->expectedTipOid) {
+                refused.summary =
+                    entry->name + " changed after its commits were counted; nothing was deleted";
+                refused.error = GitError(GitError::Code::StaleBranchTip, refused.summary);
+                // What opens the recovery dialog (it reads `choices`), where the
+                // count is read again before the user is asked a second time.
+                refused.choices.push_back({OperationChoice::Kind::ForceDiscard, true});
+                return refused;
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool isForced(const std::string& name) const {
+        return std::any_of(
+            request_.entries.begin(), request_.entries.end(), [&name](const DeleteBranchEntry& e) {
+                return e.force && e.name == name;
+            });
     }
 
     DeleteBranchRequest request_;
 };
 
 }  // namespace
+
+BranchDeletionProbe BranchDeletionProbe::notFound(std::string name) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::NotFound;
+    return probe;
+}
+
+BranchDeletionProbe BranchDeletionProbe::noReference(std::string name, std::string tipOid) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::NoReference;
+    probe.tipOid = std::move(tipOid);
+    return probe;
+}
+
+BranchDeletionProbe BranchDeletionProbe::counted(std::string name,
+                                                 std::string tipOid,
+                                                 std::string upstream,
+                                                 int unsyncedCount) {
+    BranchDeletionProbe probe;
+    probe.name = std::move(name);
+    probe.state = State::Counted;
+    probe.tipOid = std::move(tipOid);
+    probe.upstream = std::move(upstream);
+    probe.unsyncedCount = unsyncedCount;
+    return probe;
+}
+
+BranchStore::BranchStore(IProcessRunner& runner, RepoPaths paths)
+    : runner_(runner), paths_(std::move(paths)) {}
+
+GitResult<std::vector<BranchDeletionProbe>> BranchStore::probeDeletion(
+    std::vector<std::string> names, CancellationToken token) {
+    // Every local branch in one for-each-ref, matched to the request by exact
+    // name: a `refs/heads/feat` pattern would also list `refs/heads/feat/x`.
+    // Tab-separated because a refname cannot contain a control character.
+    GitCommand list(paths_.commandDir(),
+                    {"for-each-ref",
+                     "--format=%(refname)%09%(objectname)%09%(upstream)%09%(upstream:track)",
+                     "refs/heads/"});
+    list.timeout = std::chrono::seconds(30);
+    auto listed = runner_.run(list, token);
+    if (!listed) {
+        return fail(std::move(listed).error());
+    }
+
+    struct Head {
+        std::string tip;
+        std::string upstream;
+        bool gone = false;
+    };
+
+    std::map<std::string, Head> heads;
+    std::istringstream lines(listed->out);
+    std::string line;
+    constexpr std::string_view kHeads = "refs/heads/";
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        std::vector<std::string> fields;
+        std::size_t start = 0;
+        for (std::size_t tab = line.find('\t'); tab != std::string::npos;
+             tab = line.find('\t', start)) {
+            fields.push_back(line.substr(start, tab - start));
+            start = tab + 1;
+        }
+        fields.push_back(line.substr(start));
+        if (fields.size() < 4 || fields[0].compare(0, kHeads.size(), kHeads) != 0) {
+            continue;
+        }
+        heads[fields[0].substr(kHeads.size())] =
+            Head{fields[1], fields[2], fields[3].find("[gone]") != std::string::npos};
+    }
+
+    std::vector<BranchDeletionProbe> probes;
+    probes.reserve(names.size());
+    for (std::string& name : names) {
+        const auto found = heads.find(name);
+        if (found == heads.end()) {
+            probes.push_back(BranchDeletionProbe::notFound(std::move(name)));
+            continue;
+        }
+        const Head& head = found->second;
+        if (head.upstream.empty() || head.gone) {
+            probes.push_back(BranchDeletionProbe::noReference(std::move(name), head.tip));
+            continue;
+        }
+        // Against the tip read above, not `refs/heads/<name>`: the ref may move
+        // between the two commands, and the count must describe `tip`.
+        GitCommand count(paths_.commandDir(),
+                         {"rev-list", "--count", head.tip, "^" + head.upstream, "--"});
+        count.timeout = std::chrono::seconds(30);
+        auto counted = runner_.run(count, token);
+        if (!counted) {
+            return fail(std::move(counted).error());
+        }
+        int unsynced = 0;
+        const std::string& out = counted->out;
+        const auto parsed = std::from_chars(out.data(), out.data() + out.size(), unsynced);
+        if (parsed.ec != std::errc()) {
+            return fail(GitError::Code::ParseError, "Unexpected rev-list --count output: " + out);
+        }
+        probes.push_back(
+            BranchDeletionProbe::counted(std::move(name), head.tip, head.upstream, unsynced));
+    }
+    return probes;
+}
 
 std::unique_ptr<Operation> makeCreateBranchOperation(CreateBranchRequest request) {
     return std::make_unique<CreateBranchOperation>(std::move(request));

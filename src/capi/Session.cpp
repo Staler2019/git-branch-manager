@@ -4,6 +4,7 @@
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
 #include "core/base/FsUtil.h"
+#include "core/discovery/RepoClassifier.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/OperationLogScope.h"
 #include "core/git/OriginalOperationMessage.h"
@@ -139,9 +140,23 @@ std::unique_ptr<Session> Session::open(std::string workDir,
         return nullptr;
     }
 
-    RepoPaths paths(fsutil::pathFromUtf8(workDir),
-                    fsutil::pathFromUtf8(gitDir),
-                    fsutil::pathFromUtf8(commonDir));
+    // A linked worktree's `<workDir>/.git` is a `gitdir:` pointer file, and the
+    // Flutter side opens every repository as exactly that path with no
+    // commonDir (`RepoIdentity.forWorkDir`). Left unresolved, every
+    // per-worktree stat (MERGE_HEAD, rebase-merge/, index.lock) would look
+    // under a file and report a clean tree mid-merge.
+    std::filesystem::path gitDirPath = fsutil::pathFromUtf8(gitDir);
+    std::filesystem::path commonDirPath = fsutil::pathFromUtf8(commonDir);
+    std::error_code ec;
+    if (std::filesystem::is_regular_file(gitDirPath, ec)) {
+        if (auto target = RepoClassifier::resolveGitDirFile(gitDirPath, gitDirPath.parent_path())) {
+            gitDirPath = std::move(*target);
+            if (commonDirPath.empty()) {
+                commonDirPath = RepoClassifier::resolveCommonDir(gitDirPath);
+            }
+        }
+    }
+    RepoPaths paths(fsutil::pathFromUtf8(workDir), std::move(gitDirPath), std::move(commonDirPath));
     if (!paths.isValid()) {
         if (outError != nullptr) {
             *outError = GitError(GitError::Code::InvalidArgument, "gitDir must not be empty");
@@ -533,6 +548,7 @@ void Session::publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generati
 }
 
 void Session::checkout(CheckoutRequest request) {
+    // The worktree list is republished by submitOperation, with the refs.
     submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
@@ -694,6 +710,7 @@ void Session::commitChanges(CommitRequest request) {
     submitWorkingCopyOperation(makeCommitOperation(std::move(request)), [this]() {
         refreshWorkingCopy();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 
@@ -792,6 +809,12 @@ void Session::submitOperation(std::unique_ptr<Operation> operation,
                                 }
                                 if (changedRefs && refreshHistoryOnSuccess) {
                                     refreshHistory();
+                                    // Each worktree's branch and headOid are refs too: the
+                                    // worktree panel draws them, keys its pending counts on
+                                    // `path@headOid`, and the Add worktree dialog's "already
+                                    // checked out" gate reads the branch. A checkout, rename,
+                                    // reset, merge or rebase changes them; ~6 ms on vscode.
+                                    refreshWorktrees();
                                 }
                                 if (succeeded && onSuccess) {
                                     onSuccess();
@@ -1021,6 +1044,7 @@ void Session::branchFromStash(StashBranchRequest request) {
         refreshWorkingCopy();
         refreshStashes();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 
@@ -1108,19 +1132,30 @@ WorktreeListPtr Session::currentWorktrees() const {
     return worktrees_;
 }
 
+// Add, remove and prune change which worktree each branch is checked out
+// in, and RefInfo.worktreePath (`%(worktreepath)`) carries that per ref: the
+// sidebar's bulk "gone" selection excludes any branch whose worktreePath is
+// set. refreshHistory() is the refs read every other ref-changing operation
+// uses; without it a removed worktree's branch stayed unselectable.
 void Session::addWorktree(AddWorktreeRequest request) {
-    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeAddWorktreeOperation(std::move(request)), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::removeWorktree(RemoveWorktreeRequest request) {
-    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makeRemoveWorktreeOperation(std::move(request)), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::pruneWorktrees() {
-    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}),
-                               [this]() { refreshWorktrees(); });
+    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}), [this]() {
+        refreshWorktrees();
+        refreshHistory();
+    });
 }
 
 void Session::lockWorktree(LockWorktreeRequest request) {
@@ -1167,7 +1202,10 @@ void Session::pullChanges(PullRequest request) {
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
         makePullOperation(std::move(request)),
-        [this]() { refreshHistory(); },
+        [this]() {
+            refreshHistory();
+            refreshWorktrees();
+        },
         [this]() {
             endAskpass();
             refreshWorkingCopy();
@@ -1196,6 +1234,24 @@ void Session::requestRemotePrunePreview(std::string remoteName) {
         payload += toJson(result.value());
         payload += '}';
         callbacks_.emit(GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, payload);
+    });
+}
+
+void Session::requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names) {
+    // postFront: a delete dialog's button waits on this reply
+    // ([CPP-interactive-reads-go-to-the-front]).
+    sharedReadPool().postFront([this, requestId, names = std::move(names)]() mutable {
+        BranchStore store(*runner_, paths_);
+        const GitResult<std::vector<BranchDeletionProbe>> result =
+            store.probeDeletion(std::move(names), readCancel_.token());
+        std::string payload = "{\"requestId\":";
+        jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
+        payload += ",\"error\":";
+        payload += result ? std::string("null") : toJson(result.error());
+        payload += ",\"probes\":";
+        payload += result ? toJson(result.value()) : std::string("[]");
+        payload += '}';
+        callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY, payload);
     });
 }
 
@@ -1559,6 +1615,7 @@ void Session::undoLastOperation() {
     submitWorkingCopyOperation(makeUndoOperation(std::move(request)), [this]() {
         refreshWorkingCopy();
         refreshHistory();
+        refreshWorktrees();
     });
 }
 

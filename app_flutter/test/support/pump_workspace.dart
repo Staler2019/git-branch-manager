@@ -32,11 +32,20 @@ import 'fake_repo_session.dart';
 /// or inspect `controller.commandLog` to assert a dispatched action reached
 /// the controller.
 class PumpedWorkspace {
-  const PumpedWorkspace(this.container, this.controller, this.router);
+  const PumpedWorkspace(
+    this.container,
+    this.controller,
+    this.router, [
+    this.otherControllers = const <RepoIdentity, FakeRepoSessionController>{},
+  ]);
 
   final ProviderContainer container;
   final FakeRepoSessionController controller;
   final GoRouter router;
+
+  /// One controller per `otherIdentities` entry, for a test that navigates
+  /// between repositories (switching worktree) and needs each session's log.
+  final Map<RepoIdentity, FakeRepoSessionController> otherControllers;
 }
 
 /// Pumps the real [WorkspaceScreen] for [identity], routed behind a
@@ -100,6 +109,13 @@ Future<PumpedWorkspace> pumpWorkspace(
   /// production read path rather than a stand-in. Empty by default, which
   /// is the virgin-profile state every other test wants.
   Map<String, Object> initialPrefs = const <String, Object>{},
+
+  /// Further repositories the shell can be routed to, the way the worktree
+  /// panel's `Switch to` does (`/repo/:repoId/...` with another path). The
+  /// shell then builds [WorkspaceScreen] for whichever identity the route's
+  /// `repoId` names, as `app_router.dart` does, so one element sees its
+  /// identity change. Each gets its own [FakeRepoSessionController].
+  List<RepoIdentity> otherIdentities = const <RepoIdentity>[],
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
@@ -114,6 +130,22 @@ Future<PumpedWorkspace> pumpWorkspace(
     initialState,
   );
 
+  final Map<RepoIdentity, FakeRepoSessionController> otherControllers =
+      <RepoIdentity, FakeRepoSessionController>{
+        for (final RepoIdentity other in otherIdentities)
+          other: FakeRepoSessionController(other, initialState),
+      };
+  RepoIdentity identityFor(GoRouterState state) {
+    final String? routed = state.pathParameters['repoId'];
+    for (final RepoIdentity other in otherIdentities) {
+      if (routed == other.workDir ||
+          routed == Uri.encodeComponent(other.workDir)) {
+        return other;
+      }
+    }
+    return identity;
+  }
+
   final String repoId = Uri.encodeComponent(identity.workDir);
   final GoRouter router = GoRouter(
     initialLocation: RoutePaths.historyFor(repoId),
@@ -125,7 +157,7 @@ Future<PumpedWorkspace> pumpWorkspace(
       ShellRoute(
         builder: (context, state, child) {
           return WorkspaceScreen(
-            identity: identity,
+            identity: identityFor(state),
             isMacOS: isMacOS,
             child: child,
           );
@@ -155,6 +187,9 @@ Future<PumpedWorkspace> pumpWorkspace(
       sharedPreferencesProvider.overrideWithValue(prefs),
       gbmBindingsProvider.overrideWithValue(FakeGbmBindings()),
       repoSessionProvider(identity).overrideWith((ref) => controller),
+      for (final MapEntry<RepoIdentity, FakeRepoSessionController> entry
+          in otherControllers.entries)
+        repoSessionProvider(entry.key).overrideWith((ref) => entry.value),
       ...overrides,
     ],
   );
@@ -171,5 +206,5 @@ Future<PumpedWorkspace> pumpWorkspace(
   );
   await tester.pumpAndSettle();
 
-  return PumpedWorkspace(container, controller, router);
+  return PumpedWorkspace(container, controller, router, otherControllers);
 }

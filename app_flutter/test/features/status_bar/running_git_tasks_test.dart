@@ -63,6 +63,13 @@ void main() {
       <String>['remote', 'prune', 'origin']: 'Pruning origin',
       <String>['stash', 'push', '-m', 'wip']: 'Stashing',
       <String>['commit', '--file', '-']: 'Committing',
+      // No TASKS row exists for worktrees; 使用者裁定 2026-10-21: add/remove
+      // are foreground like Checkout, prune/lock/unlock fold like Prune.
+      <String>['worktree', 'add', '-b', 'feature', '/wt']: 'Adding worktree',
+      <String>['worktree', 'remove', '/wt']: 'Removing worktree',
+      <String>['worktree', 'prune']: 'Pruning worktrees',
+      <String>['worktree', 'lock', '--reason', 'x', '/wt']: 'Locking worktree',
+      <String>['worktree', 'unlock', '/wt']: 'Unlocking worktree',
     };
     cases.forEach((List<String> args, String label) {
       test('${args.join(' ')} -> $label', () {
@@ -137,6 +144,46 @@ void main() {
         _record(<String>['fetch', 'origin'], id: 2, queuedOperationId: 2),
       ]),
       <String>['Fetching origin', 'Collecting garbage'],
+    );
+  });
+
+  test('worktree add/remove are foreground; prune, lock and unlock fold', () {
+    expect(
+      _labels(<OperationRecord>[
+        _record(<String>['worktree', 'prune'], id: 1, queuedOperationId: 1),
+        _record(
+          <String>['worktree', 'lock', '/a'],
+          id: 2,
+          queuedOperationId: 2,
+        ),
+        _record(
+          <String>['worktree', 'remove', '/b'],
+          id: 3,
+          queuedOperationId: 3,
+        ),
+        _record(
+          <String>['worktree', 'unlock', '/c'],
+          id: 4,
+          queuedOperationId: 4,
+        ),
+        _record(<String>['worktree', 'add', '/d'], id: 5, queuedOperationId: 5),
+      ]),
+      <String>[
+        'Removing worktree',
+        'Adding worktree',
+        'Pruning worktrees',
+        'Locking worktree',
+        'Unlocking worktree',
+      ],
+    );
+  });
+
+  test('a worktree read inside an operation is not a task', () {
+    expect(
+      _labels(<OperationRecord>[
+        _record(<String>['worktree', 'list', '--porcelain']),
+      ]),
+      isEmpty,
     );
   });
 }

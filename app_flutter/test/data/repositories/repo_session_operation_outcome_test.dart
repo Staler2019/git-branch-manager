@@ -24,6 +24,8 @@
 // checkout()/deleteBranch() (to avoid a real FFI call), leaving
 // retryCheckoutWithChoice and friends as the genuine implementation.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
+import 'package:gbm_flutter/data/models/git_error.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -43,6 +45,30 @@ Map<String, dynamic> _failedOutcome({required String kind}) =>
         },
       ],
     };
+
+/// A delete core refused with a "Delete anyway" choice: a `-d` that was
+/// not fully merged, or (with [codeName]) a `-D` whose branch moved.
+Map<String, dynamic> _forceableRefusal({String? codeName}) => <String, dynamic>{
+  'succeeded': false,
+  'kind': 'delete-branch',
+  'summary': 'refused',
+  'error': codeName == null
+      ? null
+      : <String, dynamic>{
+          'code': 21,
+          'codeName': codeName,
+          'message': 'refused',
+          'detail': '',
+          'argv': <String>[],
+          'exitCode': 0,
+        },
+  'choices': <Map<String, dynamic>>[
+    <String, dynamic>{
+      'kind': OperationChoiceKind.forceDiscard.index,
+      'destructive': true,
+    },
+  ],
+};
 
 Map<String, dynamic> _succeededOutcome({required String kind}) =>
     <String, dynamic>{'succeeded': true, 'kind': kind};
@@ -90,17 +116,45 @@ class _RecordingRepoSessionController extends RepoSessionController {
 
   @override
   void deleteBranch({
-    required List<String> names,
-    bool force = false,
+    required List<DeleteBranchEntry> entries,
     bool isRemote = false,
     String remoteName = '',
+    List<RemoteBranchDeletion> thenDeleteRemote =
+        const <RemoteBranchDeletion>[],
   }) {
     calls.add(
       _RecordedCall('deleteBranch', <String, Object?>{
-        'names': names,
-        'force': force,
+        'entries': entries,
+        'isRemote': isRemote,
+        'remoteName': remoteName,
+        'thenDeleteRemote': thenDeleteRemote,
+        'names': <String>[for (final DeleteBranchEntry e in entries) e.name],
+        'force': entries.any((DeleteBranchEntry e) => e.force),
       }),
     );
+  }
+
+  /// The probe "Delete anyway" reads tips from. Recorded in [calls] too, so
+  /// a test can count how many reads a retry made.
+  BranchDeletionProbeReply Function(List<String> names) probe =
+      (List<String> names) => BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[
+          for (final String name in names)
+            ProbeCounted(
+              name,
+              tipOid: 'probed-$name',
+              upstream: 'refs/remotes/origin/$name',
+              unsyncedCount: 2,
+            ),
+        ],
+      );
+
+  @override
+  Future<BranchDeletionProbeReply> probeBranchDeletion(List<String> names) {
+    calls.add(
+      _RecordedCall('probeBranchDeletion', <String, Object?>{'names': names}),
+    );
+    return Future<BranchDeletionProbeReply>.value(probe(names));
   }
 }
 
@@ -268,9 +322,11 @@ void main() {
       },
     );
 
+    // A6 C3: "Delete anyway" sends `-D`, and a `-D` needs the tip the
+    // user's commits were counted at -- the refused `-d` never carried one.
     test(
-      'retryDeleteBranchWithChoice resubmits the request that actually failed',
-      () {
+      'retryDeleteBranchWithChoice forces the failed request at probed tips',
+      () async {
         final controller = _RecordingRepoSessionController(
           _identity,
           const RepoSessionState(),
@@ -284,14 +340,91 @@ void main() {
         controller.retryDeleteBranchWithChoice(
           OperationChoiceKind.forceDiscard,
         );
+        await pumpEventQueue();
 
         expect(controller.state.deleteBranchChoices, isEmpty);
-        expect(controller.calls, hasLength(1));
-        expect(controller.calls.single.name, 'deleteBranch');
-        expect(controller.calls.single.args['names'], <String>['gone']);
-        expect(controller.calls.single.args['force'], true);
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced('gone', expectedTipOid: 'probed-gone'),
+        ]);
       },
     );
+
+    // The partial-delete case: `-d merged unmerged` removed `merged` and
+    // refused `unmerged`. The retry must not ask core to force a branch that
+    // no longer exists, nor send it without a tip.
+    test(
+      'a forced retry drops the names the first pass already deleted',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[
+                ProbeNotFound('merged'),
+                ProbeNoReference('unmerged', tipOid: 'tip-of-unmerged'),
+              ],
+            );
+        controller.debugRecordDeleteBranch(
+          names: const <String>['merged', 'unmerged'],
+        );
+        controller.debugHandleOperationOutcome(
+          _failedOutcome(kind: 'delete-branch'),
+        );
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced(
+            'unmerged',
+            expectedTipOid: 'tip-of-unmerged',
+          ),
+        ]);
+      },
+    );
+
+    test('a forced retry whose probe failed deletes nothing', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) => const BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[],
+        error: GitError(
+          code: 13,
+          codeName: 'ProcessFailed',
+          message: 'could not read refs',
+          detail: '',
+          argv: <String>[],
+          exitCode: 128,
+        ),
+      );
+      controller.debugRecordDeleteBranch(names: const <String>['gone']);
+      controller.debugHandleOperationOutcome(
+        _failedOutcome(kind: 'delete-branch'),
+      );
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.forceDiscard);
+      await pumpEventQueue();
+
+      expect(
+        controller.calls.where((_RecordedCall c) => c.name == 'deleteBranch'),
+        isEmpty,
+      );
+      expect(controller.state.lastError?.message, 'could not read refs');
+    });
 
     test(
       'dismissCheckoutChoices drops the retained request without resubmitting',
@@ -369,10 +502,13 @@ void main() {
       controller.retryDeleteBranchWithChoice(OperationChoiceKind.retry);
 
       expect(controller.state.deleteBranchChoices, isEmpty);
-      expect(controller.calls, hasLength(1));
-      expect(controller.calls.single.name, 'deleteBranch');
-      expect(controller.calls.single.args['names'], <String>['gone']);
-      expect(controller.calls.single.args['force'], false);
+      // The refusal's own tip read is a call too; only deletes count here.
+      final List<_RecordedCall> deletes = controller.calls
+          .where((_RecordedCall c) => c.name == 'deleteBranch')
+          .toList();
+      expect(deletes, hasLength(1));
+      expect(deletes.single.args['names'], <String>['gone']);
+      expect(deletes.single.args['force'], false);
     });
 
     test("retryDeleteBranchWithChoice's removeLock case attempts lock "
@@ -390,10 +526,248 @@ void main() {
       controller.retryDeleteBranchWithChoice(OperationChoiceKind.removeLock);
 
       expect(controller.state.deleteBranchChoices, isEmpty);
-      expect(controller.calls, hasLength(1));
-      expect(controller.calls.single.name, 'deleteBranch');
-      expect(controller.calls.single.args['names'], <String>['gone']);
-      expect(controller.calls.single.args['force'], false);
+      // The refusal's own tip read is a call too; only deletes count here.
+      final List<_RecordedCall> deletes = controller.calls
+          .where((_RecordedCall c) => c.name == 'deleteBranch')
+          .toList();
+      expect(deletes, hasLength(1));
+      expect(deletes.single.args['names'], <String>['gone']);
+      expect(deletes.single.args['force'], false);
+    });
+
+    // A6 C4: the remote half is sent by the controller, after the local
+    // delete succeeds -- never alongside it, where a refused local delete
+    // would still lose the remote branch.
+    test('a local delete that succeeds then sends its remote half', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordDeleteBranch(
+        names: const <String>['x'],
+        thenDeleteRemote: const <RemoteBranchDeletion>[
+          RemoteBranchDeletion(remoteName: 'origin', names: <String>['x']),
+        ],
+      );
+      controller.debugHandleOperationOutcome(
+        _succeededOutcome(kind: 'delete-branch'),
+      );
+
+      final List<_RecordedCall> deletes = controller.calls
+          .where((_RecordedCall c) => c.name == 'deleteBranch')
+          .toList();
+      expect(deletes, hasLength(1));
+      expect(deletes.single.args['isRemote'], isTrue);
+      expect(deletes.single.args['remoteName'], 'origin');
+      expect(deletes.single.args['names'], <String>['x']);
+    });
+
+    test(
+      'a refused local delete holds its remote half until a retry',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        const List<RemoteBranchDeletion> remote = <RemoteBranchDeletion>[
+          RemoteBranchDeletion(remoteName: 'origin', names: <String>['x']),
+        ];
+        controller.debugRecordDeleteBranch(
+          names: const <String>['x'],
+          thenDeleteRemote: remote,
+        );
+        controller.debugHandleOperationOutcome(_forceableRefusal());
+
+        expect(controller.state.deleteBranchChoices, isNotEmpty);
+        expect(
+          controller.calls.where((_RecordedCall c) => c.name == 'deleteBranch'),
+          isEmpty,
+          reason: 'nothing is sent while the local delete is refused',
+        );
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['isRemote'], isFalse);
+        expect(deletes.single.args['thenDeleteRemote'], remote);
+      },
+    );
+
+    // The local side is done when every name is already gone -- a first pass
+    // that deleted some and was refused on the rest, then the rest removed
+    // elsewhere. What the user confirmed for the remote still goes out.
+    test(
+      '"Delete anyway" with every branch already gone still sends the remote',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[ProbeNotFound('x')],
+            );
+        const List<RemoteBranchDeletion> remote = <RemoteBranchDeletion>[
+          RemoteBranchDeletion(remoteName: 'origin', names: <String>['x']),
+        ];
+        controller.debugRecordDeleteBranch(
+          names: const <String>['x'],
+          thenDeleteRemote: remote,
+        );
+        controller.debugHandleOperationOutcome(_forceableRefusal());
+        await pumpEventQueue();
+
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['isRemote'], isTrue);
+        expect(deletes.single.args['remoteName'], 'origin');
+        expect(deletes.single.args['names'], <String>['x']);
+      },
+    );
+
+    test('a StaleBranchTip refusal opens the choices and deletes nothing', () {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(
+        _forceableRefusal(codeName: 'StaleBranchTip'),
+      );
+
+      expect(controller.state.deleteBranchChoices, isNotEmpty);
+      expect(
+        controller.calls.where((_RecordedCall c) => c.name == 'deleteBranch'),
+        isEmpty,
+      );
+    });
+
+    // The count the recovery dialog shows and the tip "Delete anyway" sends
+    // come from one read, taken when the refusal arrived. A branch moved
+    // after it is refused by core, not deleted past a stale number.
+    test(
+      '"Delete anyway" sends the tip read when the refusal arrived',
+      () async {
+        final controller = _RecordingRepoSessionController(
+          _identity,
+          const RepoSessionState(),
+        );
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[
+                ProbeCounted(
+                  'x',
+                  tipOid: 'tip-A',
+                  upstream: 'refs/remotes/origin/x',
+                  unsyncedCount: 1,
+                ),
+              ],
+            );
+        controller.debugRecordDeleteBranch(names: const <String>['x']);
+        controller.debugHandleOperationOutcome(_forceableRefusal());
+        await pumpEventQueue();
+
+        // The branch moves on; a second read would now say tip-B.
+        controller.probe = (List<String> names) =>
+            const BranchDeletionProbeReply(
+              probes: <BranchDeletionProbe>[
+                ProbeCounted(
+                  'x',
+                  tipOid: 'tip-B',
+                  upstream: 'refs/remotes/origin/x',
+                  unsyncedCount: 2,
+                ),
+              ],
+            );
+        controller.retryDeleteBranchWithChoice(
+          OperationChoiceKind.forceDiscard,
+        );
+        await pumpEventQueue();
+
+        final List<_RecordedCall> deletes = controller.calls
+            .where((_RecordedCall c) => c.name == 'deleteBranch')
+            .toList();
+        expect(deletes, hasLength(1));
+        expect(deletes.single.args['entries'], const <DeleteBranchEntry>[
+          DeleteBranchEntry.forced('x', expectedTipOid: 'tip-A'),
+        ]);
+        expect(
+          controller.calls.where(
+            (_RecordedCall c) => c.name == 'probeBranchDeletion',
+          ),
+          hasLength(1),
+        );
+      },
+    );
+
+    // The recovery dialog draws the count of the same read "Delete anyway"
+    // sends; until it lands there is nothing to draw and nothing to send.
+    test('the read taken on a refusal is published once it lands', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      const BranchDeletionProbeReply reply = BranchDeletionProbeReply(
+        probes: <BranchDeletionProbe>[
+          ProbeCounted(
+            'x',
+            tipOid: 'tip-A',
+            upstream: 'refs/remotes/origin/x',
+            unsyncedCount: 1,
+          ),
+        ],
+      );
+      controller.probe = (List<String> names) => reply;
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
+      await pumpEventQueue();
+      expect(controller.state.deleteBranchRecoveryProbe, same(reply));
+    });
+
+    test('a read that lands after Cancel is not published', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) =>
+          const BranchDeletionProbeReply(probes: <BranchDeletionProbe>[]);
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+      controller.dismissDeleteBranchChoices();
+      await pumpEventQueue();
+
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
+    });
+
+    test('"Delete anyway" clears the published read', () async {
+      final controller = _RecordingRepoSessionController(
+        _identity,
+        const RepoSessionState(),
+      );
+      controller.probe = (List<String> names) =>
+          const BranchDeletionProbeReply(probes: <BranchDeletionProbe>[]);
+      controller.debugRecordDeleteBranch(names: const <String>['x']);
+      controller.debugHandleOperationOutcome(_forceableRefusal());
+      await pumpEventQueue();
+      expect(controller.state.deleteBranchRecoveryProbe, isNotNull);
+
+      controller.retryDeleteBranchWithChoice(OperationChoiceKind.forceDiscard);
+      expect(controller.state.deleteBranchRecoveryProbe, isNull);
     });
 
     test('a successful outcome clears the retained failed request', () {

@@ -31,7 +31,8 @@ void main() {
         // user-ratified removal (選單不再出現 prune 這個字), see
         // gbm_context_menus.dart's own doc comment on this group.
         GbmContextMenuTarget.remoteOnlyOrGoneBranch: 4,
-        GbmContextMenuTarget.branchFolder: 4, // 05-J
+        GbmContextMenuTarget.branchFolder:
+            3, // 05-J (Delete merged removed 2026-10-21)
         GbmContextMenuTarget.tag: 5, // 05-D
         GbmContextMenuTarget.commit: 7, // 05-E
         GbmContextMenuTarget.workingCopyFile: 7, // 05-F (6 + History flyout)

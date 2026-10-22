@@ -5,6 +5,7 @@
 // queue can hold more than one operation at a time, and roughly thirty other
 // controller methods share the same event channel.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/repositories/pending_operation_tracker.dart';
 
 const PendingCheckoutRequest _checkoutA = PendingCheckoutRequest(
@@ -22,13 +23,13 @@ const PendingCheckoutRequest _checkoutB = PendingCheckoutRequest(
 );
 
 const PendingDeleteBranchRequest _deleteA = PendingDeleteBranchRequest(
-  names: <String>['gone-a'],
+  entries: <DeleteBranchEntry>[DeleteBranchEntry.plain('gone-a')],
   isRemote: false,
   remoteName: '',
 );
 
 const PendingDeleteBranchRequest _deleteB = PendingDeleteBranchRequest(
-  names: <String>['gone-b'],
+  entries: <DeleteBranchEntry>[DeleteBranchEntry.plain('gone-b')],
   isRemote: false,
   remoteName: '',
 );

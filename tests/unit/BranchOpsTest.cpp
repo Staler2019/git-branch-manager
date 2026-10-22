@@ -6,8 +6,10 @@
 #include "core/git/ops/BranchOps.h"
 #include "support/FakeProcessRunner.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
 
 namespace gbm {
 namespace {
@@ -43,7 +45,7 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -55,9 +57,9 @@ TEST(DeleteBranchOperation, ReportsSafeToDeleteWhenAnotherRemoteRefContainsIt) {
     EXPECT_NE(outcome.summary.find("not lose"), std::string::npos);
     // Never claims certainty it does not have.
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
-    // Must not still warn that deleting makes them "only reachable through
-    // the reflog", which directly contradicts "will not lose anything" --
-    // that wording belongs to the sibling NotFoundElsewhere case only.
+    // Must not warn that deleting makes them "only reachable through the
+    // reflog": that contradicts "will not lose anything", and is false for
+    // `-D` anyway (it drops the branch's own reflog).
     EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
 
     // The "Delete anyway" choice itself carries no text of its own anymore
@@ -87,7 +89,7 @@ TEST(DeleteBranchOperation, SkipsOriginHeadAsTheReportedRemote) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -110,7 +112,7 @@ TEST(DeleteBranchOperation, SuggestsFetchingWhenNoRemoteRefContainsIt) {
     runner.whenArgsContain({"for-each-ref", "--contains", "feature", "refs/remotes/"}, probe);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -120,6 +122,9 @@ TEST(DeleteBranchOperation, SuggestsFetchingWhenNoRemoteRefContainsIt) {
     // Must not overclaim: this is "not found in the last-fetched view", not a
     // confirmed "this really was never merged anywhere".
     EXPECT_EQ(outcome.summary.find("Git reported an error"), std::string::npos);
+    // Nor promise a way back: `-D` drops the branch's own reflog, so "only
+    // reachable through the reflog" was false (G1 ruling 2026-10-21).
+    EXPECT_EQ(outcome.summary.find("reflog"), std::string::npos);
 }
 
 TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) {
@@ -137,7 +142,7 @@ TEST(DeleteBranchOperation, PluralizesTheNotMergedSummaryForAMultiBranchDelete) 
     runner.whenArgsContain({"branch", "-d", "multi-a", "multi-b"}, failure);
 
     DeleteBranchRequest request;
-    request.names = {"multi-a", "multi-b"};
+    request.entries = {DeleteBranchEntry::plain("multi-a"), DeleteBranchEntry::plain("multi-b")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -163,7 +168,7 @@ TEST(DeleteBranchOperation, KeepsExistingSummaryWhenTheProbeItselfFails) {
                            probeFailure);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -199,16 +204,28 @@ void scriptExistingBranches(FakeProcessRunner& runner, const std::string& refnam
     runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, existing);
 }
 
+/// The tip a forced entry in these tests was "warned about".
+const std::string kTip(40, 'f');
+
+/// Answers the tip check a forced delete runs before `-D`.
+void scriptTips(FakeProcessRunner& runner, const std::string& lines) {
+    FakeProcessRunner::Response tips;
+    tips.out = lines;
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"},
+                           tips);
+}
+
 TEST(DeleteBranchOperation, SkipsNamesThatNoLongerExistBeforeRunning) {
     // The retry after "Delete anyway": the first `-d` already deleted three
     // of the four, so resending all four makes git print "not found" three
     // times and exit 1 even though `-D` did exactly what was asked.
     FakeProcessRunner runner;
     scriptExistingBranches(runner, "main\nstill-here\n");
+    scriptTips(runner, "refs/heads/main\t" + std::string(40, '0') + "\nrefs/heads/still-here\t" +
+                           kTip + "\n");
 
     DeleteBranchRequest request;
-    request.names = {"gone-a", "still-here", "gone-b"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("gone-a", kTip), DeleteBranchEntry::forced("still-here", kTip), DeleteBranchEntry::forced("gone-b", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -236,8 +253,7 @@ TEST(DeleteBranchOperation, SucceedsWithoutRunningGitWhenEveryNameIsAlreadyGone)
     scriptExistingBranches(runner, "main\n");
 
     DeleteBranchRequest request;
-    request.names = {"gone-a", "gone-b"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("gone-a", kTip), DeleteBranchEntry::forced("gone-b", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -259,10 +275,10 @@ TEST(DeleteBranchOperation, AnEmptyBranchListIsUnknownRatherThanAllDeleted) {
     empty.exitCode = 0;
     empty.out = "";
     runner.whenArgsContain({"for-each-ref", "--format=%(refname:short)", "refs/heads/"}, empty);
+    scriptTips(runner, "refs/heads/feature\t" + kTip + "\n");
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
-    request.force = true;
+    request.entries = {DeleteBranchEntry::forced("feature", kTip)};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -302,7 +318,7 @@ TEST(DeleteBranchOperation, ReportsWhichBranchesWereDeletedWhenOnlySomeFailed) {
     runner.whenArgsContain({"branch", "-d", "a"}, failure);
 
     DeleteBranchRequest request;
-    request.names = {"a", "locked", "b"};
+    request.entries = {DeleteBranchEntry::plain("a"), DeleteBranchEntry::plain("locked"), DeleteBranchEntry::plain("b")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -328,7 +344,7 @@ TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
     scriptFailedDelete(runner);
 
     DeleteBranchRequest request;
-    request.names = {"feature"};
+    request.entries = {DeleteBranchEntry::plain("feature")};
     auto operation = makeDeleteBranchOperation(request);
 
     OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
@@ -336,7 +352,184 @@ TEST(DeleteBranchOperation, DoesNotClaimDeletionsWhenNothingWasDeleted) {
     EXPECT_FALSE(outcome.succeeded);
     EXPECT_EQ(outcome.summary.find("Deleted"), std::string::npos);
     // Still the message the failure path already produced, untouched.
-    EXPECT_NE(outcome.summary.find("reflog"), std::string::npos);
+    EXPECT_NE(outcome.summary.find("fetch"), std::string::npos);
+}
+
+// The count is taken against the tip the probe resolved, never the moving
+// `refs/heads/<b>`: the dialog sends that tip back with the `-D`, and core
+// refuses when the branch has moved since. Counting the ref would let the
+// number and the tip describe two different states.
+TEST(BranchDeletionProbe, CountsAgainstTheResolvedTipNotTheRef) {
+    FakeProcessRunner runner;
+    const std::string tip(40, 'a');
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/feature\t" + tip + "\trefs/remotes/origin/feature\t[ahead 3]\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+    FakeProcessRunner::Response count;
+    count.out = "3\n";
+    runner.whenArgsContain({"rev-list", "--count"}, count);
+
+    BranchStore store(runner, testPaths());
+    auto result = store.probeDeletion({"feature"}, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    ASSERT_EQ(result->size(), 1u);
+    EXPECT_EQ(result->front().unsyncedCount, 3);
+    EXPECT_EQ(result->front().tipOid, tip);
+
+    bool sawCount = false;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (std::find(args.begin(), args.end(), "rev-list") == args.end()) {
+            continue;
+        }
+        sawCount = true;
+        EXPECT_EQ(args, (std::vector<std::string>{"rev-list", "--count", tip,
+                                                  "^refs/remotes/origin/feature", "--"}));
+    }
+    EXPECT_TRUE(sawCount);
+}
+
+// A gone upstream is never counted: `rev-list ^<missing ref>` would fail the
+// whole probe, and git's own `-d` falls back to HEAD there -- neither is the
+// base the user ruled for.
+TEST(BranchDeletionProbe, AGoneUpstreamRunsNoCount) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/stale\t" + std::string(40, 'b') + "\trefs/remotes/origin/stale\t[gone]\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+
+    BranchStore store(runner, testPaths());
+    auto result = store.probeDeletion({"stale"}, CancellationToken{});
+    ASSERT_TRUE(result) << result.error().message;
+    EXPECT_EQ(result->front().state, BranchDeletionProbe::State::NoReference);
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        EXPECT_EQ(std::find(args.begin(), args.end(), "rev-list"), args.end());
+    }
+}
+
+// A failed read is neither "nothing to warn about" nor "no upstream": the
+// dialog must disable its button, never fall back to `-D`.
+TEST(BranchDeletionProbe, AFailedCountFailsTheProbe) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response refs;
+    refs.out = "refs/heads/feature\t" + std::string(40, 'c') + "\trefs/remotes/origin/feature\t\n";
+    runner.whenArgsContain({"for-each-ref"}, refs);
+    FakeProcessRunner::Response broken;
+    broken.exitCode = 128;
+    broken.err = "fatal: bad revision\n";
+    runner.whenArgsContain({"rev-list", "--count"}, broken);
+
+    BranchStore store(runner, testPaths());
+    EXPECT_FALSE(store.probeDeletion({"feature"}, CancellationToken{}));
+}
+
+bool ranBranchCommand(const FakeProcessRunner& runner) {
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args[0] == "branch") {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A `-D` is never sent unchecked: an empty tip is a caller that skipped the
+// probe, and guessing "the current tip" would delete commits nobody counted.
+TEST(DeleteBranchOperation, AForcedEntryWithoutATipIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\n");
+    scriptTips(runner, "refs/heads/feature\t" + kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("feature", "")};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::MissingBranchTip);
+    EXPECT_FALSE(ranBranchCommand(runner));
+}
+
+// The branch moved after the user read its count: the commits they would lose
+// are not the ones they were told about. Nothing is deleted, and the outcome
+// carries a ForceDiscard choice so the recovery dialog opens to re-ask.
+TEST(DeleteBranchOperation, AForcedEntryWhoseBranchMovedIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\nother\n");
+    scriptTips(runner, "refs/heads/feature\t" + std::string(40, 'e') + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::plain("other"), DeleteBranchEntry::forced("feature", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    ASSERT_TRUE(outcome.error.has_value());
+    EXPECT_EQ(outcome.error->code, GitError::Code::StaleBranchTip);
+    EXPECT_FALSE(ranBranchCommand(runner)) << "the whole request is refused, not only the moved name";
+    ASSERT_EQ(outcome.choices.size(), 1u);
+    EXPECT_EQ(outcome.choices.front().kind, OperationChoice::Kind::ForceDiscard);
+}
+
+TEST(DeleteBranchOperation, ATipCheckThatCannotReadIsRefused) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nfeature\n");
+    FakeProcessRunner::Response broken;
+    broken.exitCode = 128;
+    broken.err = "fatal: broken\n";
+    runner.whenArgsContain({"for-each-ref", "--format=%(refname)%09%(objectname)", "refs/heads/"},
+                           broken);
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("feature", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_FALSE(ranBranchCommand(runner));
+}
+
+TEST(DeleteBranchOperation, AMixedRequestSendsForcedNamesToDashDAndTheRestToDashd) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nmerged\nunsynced\n");
+    scriptTips(runner, "refs/heads/merged\t" + std::string(40, '1') + "\nrefs/heads/unsynced\t" +
+                           kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::plain("merged"), DeleteBranchEntry::forced("unsynced", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    std::vector<std::vector<std::string>> deletes;
+    for (std::size_t i = 0; i < runner.invocationCount(); ++i) {
+        const std::vector<std::string> args = runner.invokedArgs(i);
+        if (!args.empty() && args[0] == "branch") {
+            deletes.push_back(args);
+        }
+    }
+    EXPECT_EQ(deletes, (std::vector<std::vector<std::string>>{{"branch", "-D", "unsynced"},
+                                                              {"branch", "-d", "merged"}}));
+}
+
+// The live filter runs before the tip check: a forced name the first pass
+// already deleted is done, not a caller that forgot its tip.
+TEST(DeleteBranchOperation, AnAlreadyDeletedForcedNameNeedsNoTip) {
+    FakeProcessRunner runner;
+    scriptExistingBranches(runner, "main\nunsynced\n");
+    scriptTips(runner, "refs/heads/unsynced\t" + kTip + "\n");
+
+    DeleteBranchRequest request;
+    request.entries = {DeleteBranchEntry::forced("merged", ""), DeleteBranchEntry::forced("unsynced", kTip)};
+    OperationOutcome outcome =
+        makeDeleteBranchOperation(request)->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded) << outcome.summary;
+    if (outcome.error) {
+        EXPECT_NE(outcome.error->code, GitError::Code::MissingBranchTip);
+    }
 }
 
 TEST(CreateBranchOperation, LeavesHeadAloneWhenCheckoutAfterIsFalse) {

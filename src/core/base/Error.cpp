@@ -144,6 +144,10 @@ std::string_view toString(GitError::Code code) {
             return "Io";
         case GitError::Code::NotCancellable:
             return "NotCancellable";
+        case GitError::Code::StaleBranchTip:
+            return "StaleBranchTip";
+        case GitError::Code::MissingBranchTip:
+            return "MissingBranchTip";
     }
     return "Unknown";
 }

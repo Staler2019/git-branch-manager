@@ -11,6 +11,7 @@ import '../ffi/event_dispatcher.dart';
 import '../ffi/gbm_bindings.dart';
 import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
+import '../models/branch_deletion_probe.dart';
 import '../models/blame_result.dart';
 import '../models/changed_file.dart';
 import '../models/clean_entry.dart';
@@ -558,6 +559,7 @@ class RepoSessionState {
     this.lastCommitGraphWriteSucceeded,
     this.checkoutChoices = const <OperationChoice>[],
     this.deleteBranchChoices = const <OperationChoice>[],
+    this.deleteBranchRecoveryProbe,
     this.compareResults = const <String, CompareResult>{},
     this.compareFileDiffResults = const <String, CompareFileDiffResult>{},
     this.lastRemotePrunePreview,
@@ -712,6 +714,12 @@ class RepoSessionState {
   /// RepoSessionController.deleteBranch()'s doc comment for how these map
   /// back to a retried delete.
   final List<OperationChoice> deleteBranchChoices;
+
+  /// The read taken when the delete behind [deleteBranchChoices] was
+  /// refused: the counts the recovery dialog draws, and the tips "Delete
+  /// anyway" sends. Null while that read is in flight and whenever no
+  /// refusal is on record.
+  final BranchDeletionProbeReply? deleteBranchRecoveryProbe;
 
   /// Every GBM_EVENT_COMPARE_READY reply received this session, keyed by
   /// [CompareResult.key] and accumulated across replies (like
@@ -871,6 +879,8 @@ class RepoSessionState {
     bool? lastCommitGraphWriteSucceeded,
     List<OperationChoice>? checkoutChoices,
     List<OperationChoice>? deleteBranchChoices,
+    BranchDeletionProbeReply? deleteBranchRecoveryProbe,
+    bool clearDeleteBranchRecoveryProbe = false,
     Map<String, CompareResult>? compareResults,
     Map<String, CompareFileDiffResult>? compareFileDiffResults,
     RemotePrunePreview? lastRemotePrunePreview,
@@ -936,6 +946,9 @@ class RepoSessionState {
           lastCommitGraphWriteSucceeded ?? this.lastCommitGraphWriteSucceeded,
       checkoutChoices: checkoutChoices ?? this.checkoutChoices,
       deleteBranchChoices: deleteBranchChoices ?? this.deleteBranchChoices,
+      deleteBranchRecoveryProbe: clearDeleteBranchRecoveryProbe
+          ? null
+          : (deleteBranchRecoveryProbe ?? this.deleteBranchRecoveryProbe),
       compareResults: compareResults ?? this.compareResults,
       compareFileDiffResults:
           compareFileDiffResults ?? this.compareFileDiffResults,
@@ -1243,6 +1256,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// it.
   PendingCheckoutRequest? _lastFailedCheckoutRequest;
   PendingDeleteBranchRequest? _lastFailedDeleteBranchRequest;
+
+  /// The read taken when [_lastFailedDeleteBranchRequest] failed; "Delete
+  /// anyway" sends its tips. Null for a remote delete, which has none.
+  Future<BranchDeletionProbeReply>? _lastFailedDeleteBranchProbe;
 
   void _open() {
     final Pointer<Utf8> workDir = _identity.workDir.toNativeUtf8();
@@ -1561,6 +1578,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
               ): result,
             },
           );
+        }
+      case GbmEventType.branchDeletionProbeReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          _branchDeletionProbes
+              .remove(payload['requestId'] as int)
+              ?.complete(BranchDeletionProbeReply.fromJson(payload));
         }
       case GbmEventType.remotePrunePreviewReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -2129,9 +2153,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         final PendingDeleteBranchRequest? request = _pending.takeDeleteBranch();
         if (request == null) break;
         _lastFailedDeleteBranchRequest = succeeded ? null : request;
+        // Read now, while the recovery dialog opens, not when its button is
+        // pressed: the count it shows and the tip "Delete anyway" sends must
+        // come from the same read, or a branch moved in between is deleted
+        // past a number that no longer describes it.
+        final Future<BranchDeletionProbeReply>? read =
+            !succeeded && choices.isNotEmpty && !request.isRemote
+            ? probeBranchDeletion(request.names)
+            : null;
+        _lastFailedDeleteBranchProbe = read;
         state = state.copyWith(
           deleteBranchChoices: succeeded ? const <OperationChoice>[] : choices,
+          clearDeleteBranchRecoveryProbe: true,
         );
+        if (read != null) unawaited(_publishRecoveryProbe(read));
+        if (succeeded) {
+          for (final RemoteBranchDeletion remote in request.thenDeleteRemote) {
+            deleteBranch(
+              entries: <DeleteBranchEntry>[
+                for (final String name in remote.names)
+                  DeleteBranchEntry.plain(name),
+              ],
+              isRemote: true,
+              remoteName: remote.remoteName,
+            );
+          }
+        }
       case PendingOperationKind.fetch:
         // Unreachable, and the exhaustiveness check is what keeps it that
         // way. Fetch goes through Session::submitWorkingCopyOperation, so
@@ -2471,11 +2518,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     required List<String> names,
     bool isRemote = false,
     String remoteName = '',
+    List<RemoteBranchDeletion> thenDeleteRemote =
+        const <RemoteBranchDeletion>[],
   }) => _pending.recordDeleteBranch(
     PendingDeleteBranchRequest(
-      names: names,
+      entries: <DeleteBranchEntry>[
+        for (final String name in names) DeleteBranchEntry.plain(name),
+      ],
       isRemote: isRemote,
       remoteName: remoteName,
+      thenDeleteRemote: thenDeleteRemote,
     ),
   );
 
@@ -2914,47 +2966,96 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  /// `git branch -d`/`-D` with the given names (multiple names in one call
-  /// -- a multi-select delete is one operation, not N), or `git push
-  /// --delete` against `remoteName` when [isRemote]. [force] deletes even
-  /// when not fully merged. Async, refreshes refs on success; when Git
-  /// refuses because a branch is not fully merged, the friendly summary
-  /// core already computes (see BranchOps.cpp's `refineSummaryFromRemoteRefs`)
-  /// lands in [RepoSessionState.lastError] and a "Force delete" choice
-  /// lands in [RepoSessionState.deleteBranchChoices] -- see
-  /// [retryDeleteBranchWithChoice] for how a chosen one resubmits this same
-  /// call with `force` set.
+  /// `git branch -d`/`-D` over [entries] (one operation however many --
+  /// a multi-select delete is one operation, not N), or `git push --delete`
+  /// against `remoteName` when [isRemote]. A [DeleteBranchEntry.forced]
+  /// entry deletes even when not fully merged, and only while the branch
+  /// still points at its `expectedTipOid` (a [probeBranchDeletion] reply's
+  /// tip); core refuses a moved branch with `StaleBranchTip`. Async,
+  /// refreshes refs on success; when Git refuses because a branch is not
+  /// fully merged, the friendly summary core already computes (see
+  /// BranchOps.cpp's `refineSummaryFromRemoteRefs`) lands in
+  /// [RepoSessionState.lastError] and a "Force delete" choice lands in
+  /// [RepoSessionState.deleteBranchChoices] -- see
+  /// [retryDeleteBranchWithChoice].
+  ///
+  /// [thenDeleteRemote] is sent only after this local delete succeeds --
+  /// immediately, or after a [retryDeleteBranchWithChoice] that does.
   void deleteBranch({
-    required List<String> names,
-    bool force = false,
+    required List<DeleteBranchEntry> entries,
     bool isRemote = false,
     String remoteName = '',
+    List<RemoteBranchDeletion> thenDeleteRemote =
+        const <RemoteBranchDeletion>[],
   }) {
-    if (_session == nullptr || names.isEmpty) return;
+    if (_session == nullptr || entries.isEmpty) return;
     _pending.recordDeleteBranch(
       PendingDeleteBranchRequest(
-        names: names,
+        entries: List<DeleteBranchEntry>.unmodifiable(entries),
         isRemote: isRemote,
         remoteName: remoteName,
+        thenDeleteRemote: List<RemoteBranchDeletion>.unmodifiable(
+          thenDeleteRemote,
+        ),
       ),
     );
     final Pointer<Utf8> remoteNamePtr = remoteName.toNativeUtf8();
+    final Pointer<Int32> forces = malloc<Int32>(entries.length);
     try {
+      for (int i = 0; i < entries.length; i++) {
+        forces[i] = entries[i].force ? 1 : 0;
+      }
       _withNativeStringArray(
-        names,
-        (array, count) => _bindings.branchDelete(
-          _session,
-          array,
-          count,
-          force ? 1 : 0,
-          isRemote ? 1 : 0,
-          remoteNamePtr,
+        <String>[for (final DeleteBranchEntry e in entries) e.name],
+        (names, count) => _withNativeStringArray(
+          <String>[for (final DeleteBranchEntry e in entries) e.expectedTipOid],
+          (tips, _) => _bindings.branchDelete(
+            _session,
+            names,
+            count,
+            forces,
+            tips,
+            isRemote ? 1 : 0,
+            remoteNamePtr,
+          ),
         ),
       );
     } finally {
+      malloc.free(forces);
       malloc.free(remoteNamePtr);
     }
   }
+
+  /// What deleting each local branch in [names] would lose against its own
+  /// upstream, read before the user confirms (`gbm_request_branch_deletion_probe`).
+  /// Completes when the matching `GBM_EVENT_BRANCH_DELETION_PROBE_READY`
+  /// arrives; a failed read completes with [BranchDeletionProbeReply.error]
+  /// set, never by throwing.
+  Future<BranchDeletionProbeReply> probeBranchDeletion(List<String> names) {
+    if (_session == nullptr || names.isEmpty) {
+      return Future<BranchDeletionProbeReply>.value(
+        const BranchDeletionProbeReply(probes: <BranchDeletionProbe>[]),
+      );
+    }
+    final int requestId = ++_lastBranchDeletionProbeId;
+    final Completer<BranchDeletionProbeReply> reply =
+        Completer<BranchDeletionProbeReply>();
+    _branchDeletionProbes[requestId] = reply;
+    _withNativeStringArray(
+      names,
+      (array, count) => _bindings.requestBranchDeletionProbe(
+        _session,
+        requestId,
+        array,
+        count,
+      ),
+    );
+    return reply.future;
+  }
+
+  int _lastBranchDeletionProbeId = 0;
+  final Map<int, Completer<BranchDeletionProbeReply>> _branchDeletionProbes =
+      <int, Completer<BranchDeletionProbeReply>>{};
 
   /// Resubmits the deleteBranch request that produced the current
   /// [RepoSessionState.deleteBranchChoices] with `force` set when [kind] is
@@ -2966,29 +3067,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// on record -- see [_lastFailedDeleteBranchRequest].
   void retryDeleteBranchWithChoice(OperationChoiceKind kind) {
     final PendingDeleteBranchRequest? request = _lastFailedDeleteBranchRequest;
+    final Future<BranchDeletionProbeReply>? probe =
+        _lastFailedDeleteBranchProbe;
     _lastFailedDeleteBranchRequest = null;
-    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
+    _lastFailedDeleteBranchProbe = null;
+    state = state.copyWith(
+      deleteBranchChoices: const <OperationChoice>[],
+      clearDeleteBranchRecoveryProbe: true,
+    );
     if (request == null) return;
     switch (kind) {
       case OperationChoiceKind.forceDiscard:
-        deleteBranch(
-          names: request.names,
-          force: true,
-          isRemote: request.isRemote,
-          remoteName: request.remoteName,
-        );
+        unawaited(_forceDeleteAfterProbe(request, probe));
       case OperationChoiceKind.retry:
         deleteBranch(
-          names: request.names,
+          entries: request.entries,
           isRemote: request.isRemote,
           remoteName: request.remoteName,
+          thenDeleteRemote: request.thenDeleteRemote,
         );
       case OperationChoiceKind.removeLock:
         _removeStaleIndexLock();
         deleteBranch(
-          names: request.names,
+          entries: request.entries,
           isRemote: request.isRemote,
           remoteName: request.remoteName,
+          thenDeleteRemote: request.thenDeleteRemote,
         );
       case OperationChoiceKind.stashAndRetry:
       case OperationChoiceKind.abort:
@@ -2996,11 +3100,76 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
+  /// "Delete anyway": a `-D` needs a tip, and the refused request may not
+  /// carry one (a plain `-d` never does). The tip is [probe], the read taken
+  /// when the refusal arrived -- the one the recovery dialog shows -- so a
+  /// branch moved since is refused by core (`StaleBranchTip`) rather than
+  /// deleted past a stale count. A name the first pass already deleted
+  /// comes back [ProbeNotFound] and is dropped; a failed read deletes
+  /// nothing.
+  Future<void> _forceDeleteAfterProbe(
+    PendingDeleteBranchRequest request,
+    Future<BranchDeletionProbeReply>? probe,
+  ) async {
+    // A remote delete has no local tip to check and no unmerged refusal to
+    // force past; core never offers this choice for one.
+    if (request.isRemote) return;
+    final BranchDeletionProbeReply reply =
+        await (probe ?? probeBranchDeletion(request.names));
+    final GitError? error = reply.error;
+    if (error != null) {
+      state = state.copyWith(lastError: error);
+      return;
+    }
+    final List<DeleteBranchEntry> entries = <DeleteBranchEntry>[
+      for (final BranchDeletionProbe probe in reply.probes)
+        if (probe
+            case ProbeNoReference(:final String tipOid) ||
+                ProbeCounted(:final String tipOid))
+          DeleteBranchEntry.forced(probe.name, expectedTipOid: tipOid),
+    ];
+    // Every name already gone: the local side is done, so the remote half
+    // the user confirmed goes out now, as it would after a local success.
+    if (entries.isEmpty) {
+      for (final RemoteBranchDeletion remote in request.thenDeleteRemote) {
+        deleteBranch(
+          entries: <DeleteBranchEntry>[
+            for (final String name in remote.names)
+              DeleteBranchEntry.plain(name),
+          ],
+          isRemote: true,
+          remoteName: remote.remoteName,
+        );
+      }
+      return;
+    }
+    deleteBranch(
+      entries: entries,
+      isRemote: request.isRemote,
+      remoteName: request.remoteName,
+      thenDeleteRemote: request.thenDeleteRemote,
+    );
+  }
+
   /// Dismisses [RepoSessionState.deleteBranchChoices] without retrying --
   /// the explicit Cancel action.
   void dismissDeleteBranchChoices() {
     _lastFailedDeleteBranchRequest = null;
-    state = state.copyWith(deleteBranchChoices: const <OperationChoice>[]);
+    _lastFailedDeleteBranchProbe = null;
+    state = state.copyWith(
+      deleteBranchChoices: const <OperationChoice>[],
+      clearDeleteBranchRecoveryProbe: true,
+    );
+  }
+
+  /// Publishes [read] for the recovery dialog -- unless a retry, a Cancel or
+  /// a newer refusal has replaced it by the time it lands.
+  Future<void> _publishRecoveryProbe(
+    Future<BranchDeletionProbeReply> read,
+  ) async {
+    final BranchDeletionProbeReply reply = await read;
+    if (!mounted || !identical(_lastFailedDeleteBranchProbe, read)) return;
+    state = state.copyWith(deleteBranchRecoveryProbe: reply);
   }
 
   /// `git reset --soft|--mixed|--hard <target>`. `target` empty means HEAD.

@@ -329,6 +329,9 @@ public:
     /// Async: see gbm_request_remote_prune_preview()'s doc comment.
     void requestRemotePrunePreview(std::string remoteName);
 
+    /// Async: see gbm_request_branch_deletion_probe()'s doc comment.
+    void requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names);
+
     /// Async: see gbm_remote_prune()'s doc comment.
     void pruneRemote(PruneRemoteRequest request);
 

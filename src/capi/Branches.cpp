@@ -66,14 +66,31 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
 GBM_API void gbm_branch_delete(GbmSessionHandle session,
                                const char* const* names,
                                int32_t nameCount,
-                               int32_t force,
+                               const int32_t* forces,
+                               const char* const* expectedTips,
                                int32_t isRemote,
                                const char* remoteName) {
     DeleteBranchRequest request;
-    request.names = toStringVector(names, nameCount);
-    request.force = force != 0;
+    std::vector<std::string> list = toStringVector(names, nameCount);
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        if (forces == nullptr || forces[i] == 0) {
+            request.entries.push_back(DeleteBranchEntry::plain(std::move(list[i])));
+            continue;
+        }
+        // A missing tip stays empty, and core refuses it (MissingBranchTip).
+        const char* tip = expectedTips != nullptr ? expectedTips[i] : nullptr;
+        request.entries.push_back(
+            DeleteBranchEntry::forced(std::move(list[i]), tip != nullptr ? tip : ""));
+    }
     request.isRemote = isRemote != 0;
     request.remoteName = remoteName != nullptr ? remoteName : "";
 
     toSession(session)->deleteBranch(std::move(request));
+}
+
+GBM_API void gbm_request_branch_deletion_probe(GbmSessionHandle session,
+                                               uint64_t requestId,
+                                               const char* const* names,
+                                               int32_t nameCount) {
+    toSession(session)->requestBranchDeletionProbe(requestId, toStringVector(names, nameCount));
 }

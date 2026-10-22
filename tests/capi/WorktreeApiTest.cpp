@@ -278,5 +278,256 @@ TEST_F(WorktreeApiTest, ALinkedWorktreeReportsItsCreationTimeAndTheCurrentOneDoe
                               << json;
 }
 
+// The worktree panel and the Add worktree dialog both read the published
+// worktree list, which records each worktree's branch. A checkout changes
+// that branch, so a list left from before it showed the old branch and kept
+// the one just switched away from "already checked out" in the add dialog.
+TEST_F(WorktreeApiTest, ACheckoutRepublishesTheWorktreeListWithTheNewBranch) {
+    ASSERT_EQ(runGit({"branch", "other"}), 0);
+    gbm_worktree_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+    ASSERT_NE(worktreesJson().find("\"branch\":\"main\""), std::string::npos);
+    log_.clear();
+
+    gbm_branch_checkout(session_, "other", /*detach=*/0, /*createBranch=*/0, "", /*force=*/0,
+                        /*stashFirst=*/0, /*recurseSubmodules=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a checkout must republish the worktree list";
+
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"branch\":\"other\""), std::string::npos) << json;
+    EXPECT_EQ(json.find("\"branch\":\"main\""), std::string::npos) << json;
+}
+
+// The other two ways a worktree's branch changes under it: a new branch
+// checked out on creation, and a rename -- including a rename of the branch
+// *another* worktree has checked out, which `git branch -m` allows.
+TEST_F(WorktreeApiTest, CreatingAndCheckingOutABranchRepublishesTheWorktreeList) {
+    gbm_branch_create(session_, "fresh", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a branch created and checked out must republish the worktree list";
+    EXPECT_NE(worktreesJson().find("\"branch\":\"fresh\""), std::string::npos) << worktreesJson();
+}
+
+TEST_F(WorktreeApiTest, RenamingABranchAnotherWorktreeHasCheckedOutRepublishesTheWorktreeList) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+
+    gbm_branch_rename(session_, "feature", "feature-renamed", /*force=*/0, /*renameRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a rename must republish the worktree list";
+    const std::string json = worktreesJson();
+    EXPECT_NE(json.find("\"branch\":\"feature-renamed\""), std::string::npos) << json;
+}
+
+// The user's report: "delete a worktree, the branch it used to be still
+// cannot be deleted". Two shapes of "removed": through gbm, and a directory
+// already gone from disk (deleted in Finder) that is then removed through gbm.
+TEST_F(WorktreeApiTest, AfterRemovingAWorktreeItsBranchCanBeDeleted) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+    log_.clear();
+
+    const char* names[] = {"feature"};
+    gbm_branch_delete(session_, names, 1, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
+    EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
+        << "the branch must be gone";
+}
+
+TEST_F(WorktreeApiTest, RemovingAWorktreeWhoseDirectoryIsAlreadyGoneFreesItsBranch) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    std::filesystem::remove_all(extra_);
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "remove must leave the list republished without the entry";
+    EXPECT_EQ(worktreesJson().find("feature"), std::string::npos) << worktreesJson();
+    log_.clear();
+
+    const char* names[] = {"feature"};
+    gbm_branch_delete(session_, names, 1, /*forces=*/nullptr, /*expectedTips=*/nullptr, /*isRemote=*/0, "");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_OPERATION_FINISHED); }));
+    EXPECT_NE(runGit({"rev-parse", "--verify", "--quiet", "refs/heads/feature"}), 0)
+        << "a worktree registration left behind keeps git refusing the delete";
+}
+
+// git frees the branch (the two tests above), but the sidebar's bulk "gone"
+// selection excludes any branch whose RefInfo.worktreePath is non-empty, and
+// refs were read only by checkout-shaped operations -- never by a worktree
+// add/remove/prune. The removed worktree's branch stayed unselectable.
+TEST_F(WorktreeApiTest, RemovingAWorktreeRereadsRefsSoItsBranchHasNoWorktreePath) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    gbm_history_refresh(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }));
+    log_.clear();
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }))
+        << "a worktree removal must re-read refs";
+
+    ASSERT_EQ(gbm_refs_json(session_), 0);
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    EXPECT_EQ(json.find(extra_.filename().string()), std::string::npos)
+        << "no ref may still name the removed worktree: " << json;
+}
+
+// 使用者裁定 2026-10-21: 「worktree delete 應該自己預設 prune 掉」. A remove
+// runs `git worktree prune` after it, so registrations whose directory is
+// already gone (deleted outside gbm) go with it instead of lingering as
+// prunable entries that still hold their branch.
+TEST_F(WorktreeApiTest, RemovingAWorktreeAlsoPrunesRegistrationsWhoseDirectoryIsGone) {
+    const std::filesystem::path stale = extra_.string() + "-stale";
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "orphaned", stale.string()}), 0);
+    std::filesystem::remove_all(stale);
+
+    gbm_worktree_remove(session_, extra_.string().c_str(), /*force=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+
+    const std::string json = worktreesJson();
+    EXPECT_EQ(json.find("orphaned"), std::string::npos) << json;
+    EXPECT_FALSE(std::filesystem::exists(repo_ / ".git" / "worktrees" / stale.filename()));
+}
+
+// The Flutter side opens every session as `<workDir>/.git` with no commonDir
+// (`RepoIdentity.forWorkDir`), and in a linked worktree that path is a
+// `gitdir:` pointer *file*. Every per-worktree stat RepoState makes
+// (MERGE_HEAD, rebase-merge/, index.lock) then looks under a file and finds
+// nothing, so a merge in progress there is reported as a clean tree.
+TEST_F(WorktreeApiTest, ASessionOpenedThroughALinkedWorktreesGitFileSeesItsOwnMergeState) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", extra_.string()}), 0);
+    ASSERT_TRUE(std::filesystem::is_regular_file(extra_ / ".git"));
+
+    const std::filesystem::path adminDir = repo_ / ".git" / "worktrees" / extra_.filename();
+    ASSERT_TRUE(std::filesystem::is_directory(adminDir));
+    std::string head;
+    std::ifstream(repo_ / ".git" / "refs" / "heads" / "main") >> head;
+    std::ofstream(adminDir / "MERGE_HEAD") << head << "\n";
+
+    GbmSessionHandle linked =
+        gbm_session_open(extra_.string().c_str(), (extra_ / ".git").string().c_str(), "");
+    ASSERT_NE(linked, nullptr);
+    ASSERT_EQ(gbm_repo_state_json(linked), 0);
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    gbm_session_close(linked);
+
+    EXPECT_NE(json.find("\"isClean\":false"), std::string::npos) << json;
+}
+
+// Every operation that moves HEAD changes the worktree's `headOid`, which
+// the worktree panel draws ("a1b2c3d · subject") and keys its pending-count
+// cache on (`path@headOid`). Republishing only on a branch change left both
+// stale after a commit, reset, undo, pull or merge until the next F5/focus
+// sweep. One test per dispatch path that re-reads refs after an operation.
+class WorktreeHeadRepublishTest : public WorktreeApiTest {
+protected:
+    std::string head() { return GitCli::capture(repo_, {"rev-parse", "HEAD"}).firstLine(); }
+
+    /// A fresh list so the next republish is the operation's, not the open's.
+    void settle() {
+        gbm_worktree_refresh(session_);
+        ASSERT_TRUE(log_.waitFor(
+            [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
+        log_.clear();
+    }
+
+    void commitWithGit(const std::string& name) {
+        std::ofstream(repo_ / name) << name << "\n";
+        ASSERT_EQ(runGit({"add", name}), 0);
+        ASSERT_EQ(runGit({"commit", "--quiet", "-m", name}), 0);
+    }
+
+    /// True when a republish arrives, within the usual 10 s, that names [oid]
+    /// as a worktree's head. Republishes that still name another head are
+    /// skipped: settle()'s own refresh can land after it cleared the log.
+    bool republishedWithHead(const std::string& oid) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now());
+            if (!log_.waitFor(
+                    [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); },
+                    left)) {
+                return false;
+            }
+            log_.clear();
+            if (worktreesJson().find("\"headOid\":\"" + oid + "\"") != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+TEST_F(WorktreeHeadRepublishTest, ACommitRepublishesTheWorktreeListWithTheNewHead) {
+    std::ofstream(repo_ / "second.txt") << "second\n";
+    ASSERT_EQ(runGit({"add", "second.txt"}), 0);
+    settle();
+
+    gbm_commit_changes(session_, "Second", /*amend=*/0, /*signOff=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    EXPECT_TRUE(republishedWithHead(head())) << worktreesJson();
+}
+
+// Reset goes through submitOperation, the path every merge, cherry-pick,
+// revert, rebase, am and bisect step shares.
+TEST_F(WorktreeHeadRepublishTest, AResetRepublishesTheWorktreeListWithTheNewHead) {
+    const std::string first = head();
+    commitWithGit("second.txt");
+    settle();
+
+    gbm_reset_to(session_, first.c_str(), /*mode=*/0);
+    EXPECT_TRUE(republishedWithHead(first)) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, AnUndoRepublishesTheWorktreeListWithTheNewHead) {
+    const std::string first = head();
+    std::ofstream(repo_ / "second.txt") << "second\n";
+    ASSERT_EQ(runGit({"add", "second.txt"}), 0);
+    gbm_commit_changes(session_, "Second", /*amend=*/0, /*signOff=*/0);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    }));
+    ASSERT_NE(head(), first);
+    settle();
+
+    gbm_undo_last(session_);
+    EXPECT_TRUE(republishedWithHead(first)) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, BranchingFromAStashRepublishesTheWorktreeListWithTheNewBranch) {
+    std::ofstream(repo_ / "file.txt") << "changed\n";
+    ASSERT_EQ(runGit({"stash", "--quiet"}), 0);
+    settle();
+
+    gbm_stash_branch(session_, 0, "from-stash");
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
+        << "a branch made from a stash is checked out, so the list must be republished";
+    EXPECT_NE(worktreesJson().find("\"branch\":\"from-stash\""), std::string::npos) << worktreesJson();
+}
+
+TEST_F(WorktreeHeadRepublishTest, APullRepublishesTheWorktreeListWithTheNewHead) {
+    // The repository is its own remote: `ahead` is one commit past main, and
+    // pulling it into main fast-forwards HEAD.
+    ASSERT_EQ(runGit({"remote", "add", "origin", repo_.string()}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "ahead"}), 0);
+    commitWithGit("second.txt");
+    const std::string ahead = head();
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+    settle();
+
+    gbm_pull(session_, "origin", "ahead", /*rebase=*/0, /*stashFirst=*/0);
+    EXPECT_TRUE(republishedWithHead(ahead)) << worktreesJson();
+}
+
 }  // namespace
 }  // namespace gbm::capi

@@ -42,6 +42,7 @@
 // ambiguous.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/branch_deletion_probe.dart';
 import 'package:gbm_flutter/data/models/operation_choice.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/features/dialogs/checkout_recovery/checkout_recovery_dialog.dart';
@@ -88,6 +89,12 @@ const List<OperationChoice> _checkoutChoices = <OperationChoice>[
 const List<OperationChoice> _deleteBranchChoices = <OperationChoice>[
   OperationChoice(kind: OperationChoiceKind.forceDiscard, destructive: true),
 ];
+
+/// What the controller publishes once the read taken on the refusal lands;
+/// "Delete anyway" stays disabled until it has one.
+const BranchDeletionProbeReply _recoveryRead = BranchDeletionProbeReply(
+  probes: <BranchDeletionProbe>[],
+);
 
 /// Closes the topmost dialog the way a user who never touched its buttons
 /// would: a tap on the modal barrier (`dialogRoute`'s
@@ -370,6 +377,7 @@ void main() {
       pumped.controller.emit(
         pumped.controller.state.copyWith(
           deleteBranchChoices: _deleteBranchChoices,
+          deleteBranchRecoveryProbe: _recoveryRead,
         ),
       );
       await tester.pumpAndSettle();
@@ -394,6 +402,7 @@ void main() {
         pumped.controller.emit(
           pumped.controller.state.copyWith(
             deleteBranchChoices: _deleteBranchChoices,
+            deleteBranchRecoveryProbe: _recoveryRead,
           ),
         );
         await tester.pumpAndSettle();
@@ -416,6 +425,7 @@ void main() {
         pumped.controller.emit(
           pumped.controller.state.copyWith(
             deleteBranchChoices: _deleteBranchChoices,
+            deleteBranchRecoveryProbe: _recoveryRead,
           ),
         );
         await tester.pumpAndSettle();
@@ -439,6 +449,7 @@ void main() {
         pumped.controller.emit(
           pumped.controller.state.copyWith(
             deleteBranchChoices: _deleteBranchChoices,
+            deleteBranchRecoveryProbe: _recoveryRead,
           ),
         );
         await tester.pumpAndSettle();
@@ -455,6 +466,7 @@ void main() {
         pumped.controller.emit(
           pumped.controller.state.copyWith(
             deleteBranchChoices: _deleteBranchChoices,
+            deleteBranchRecoveryProbe: _recoveryRead,
           ),
         );
         await tester.pumpAndSettle();

@@ -525,7 +525,6 @@ void main() {
         isExpanded: false,
         onToggleExpand: () {},
         onCopyPrefix: () {},
-        onDeleteMerged: () {},
         onFetchFolder: () {},
       );
       final List<String> actual = items

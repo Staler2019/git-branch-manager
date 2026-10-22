@@ -346,7 +346,6 @@ class _SidebarPanelState extends ConsumerState<SidebarPanel> {
         onToggleExpand: () => _toggleFolderExpand(folder),
         onCopyPrefix: () =>
             Clipboard.setData(ClipboardData(text: '${folder.folderPath}/')),
-        onDeleteMerged: () => actions.deleteMergedInFolder(folder),
         onFetchFolder: fetchable == null
             ? null
             : () => actions.fetchFolder(folder),

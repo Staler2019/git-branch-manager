@@ -414,7 +414,7 @@ void main() {
       expect(find.text('Expand all'), findsOneWidget);
       expect(find.text('Fetch branches in folder'), findsOneWidget);
       expect(find.text('Copy folder prefix'), findsOneWidget);
-      expect(find.text('Delete merged branches…'), findsOneWidget);
+      expect(find.text('Delete merged branches…'), findsNothing);
     });
 
     testWidgets('clicking the folder name toggles it open, revealing its '
@@ -480,23 +480,6 @@ void main() {
       expect(clipboardCalls, hasLength(1));
       expect((clipboardCalls.single as Map)['text'], 'release/');
     });
-
-    testWidgets(
-      'Delete merged branches… reaches deleteBranch with every branch in '
-      'the folder',
-      (tester) async {
-        final _Harness h = await _pump(tester);
-
-        await _rightClick(tester, find.text('release'));
-        await tester.tap(find.text('Delete merged branches…'));
-        await tester.pumpAndSettle();
-
-        final FakeCommand cmd = h.fake.commandLog.singleWhere(
-          (c) => c.name == 'deleteBranch',
-        );
-        expect(cmd.args['names'], <String>['release/v1', 'release/v2']);
-      },
-    );
 
     testWidgets(
       'Fetch branches in folder is disabled when the folder\'s branches '

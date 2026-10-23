@@ -111,14 +111,19 @@ abstract final class AppLogEvents {
   /// Takes the code name and message only, never `GitError.argv`: argv is
   /// where a remote URL, and so a token, would be. The message is git's own
   /// text, which the git row for the same invocation already carries.
+  ///
+  /// [level] is warning only for a refused Cancel of an auto fetch
+  /// (使用者裁定 2026-10-24 「拒絕訊息只進 log」): nothing failed, and an error
+  /// would light the status bar's summary.
   static AppLogEntry errorOccurred({
     required String codeName,
     required String message,
     required int atEpochMs,
+    OperationLogLevel level = OperationLogLevel.error,
   }) {
     return AppLogEntry(
       whenEpochMs: atEpochMs,
-      level: OperationLogLevel.error,
+      level: level,
       message: '$codeName: $message',
     );
   }

@@ -9,6 +9,7 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 
@@ -79,6 +80,13 @@ class _FetchRecordingBindings extends FakeGbmBindings {
   @override
   EffectiveIdentityRefreshDart get effectiveIdentityRefresh =>
       (Pointer<Void> session) {};
+
+  /// What gbm_cancel_operation answers: -1 is core refusing (NotCancellable).
+  int cancelAnswer = 1;
+
+  @override
+  CancelOperationDart get cancelOperation =>
+      (Pointer<Void> session, int id) => cancelAnswer;
 
   @override
   RemoteFetchDart get remoteFetch =>
@@ -196,5 +204,113 @@ void main() {
       (background: true, succeeded: false, errorCodeName: 'HostKey'),
       (background: false, succeeded: true, errorCodeName: null),
     ]);
+  });
+
+  // 使用者裁定 2026-10-24: a refused Cancel of a running auto fetch 「拒絕訊息
+  // 只進 log」 -- 背景作業失敗不彈窗. A manual operation's refusal still
+  // raises the banner: it is how the user hears it kept running.
+  group('a refused Cancel', () {
+    GbmEvent record({required bool auto, required int queuedId}) => GbmEvent(
+      GbmEventType.operationLogRecord,
+      utf8.encode(
+        jsonEncode(<String, dynamic>{
+          'id': queuedId,
+          'running': true,
+          'whenEpochMs': 0,
+          'repoDir': '/test/repo',
+          'argv': <String>[
+            'git',
+            'fetch',
+            if (auto) ...<String>[
+              '--no-auto-maintenance',
+              '--no-write-fetch-head',
+            ],
+            '--all',
+          ],
+          'commandLine': '',
+          'exitCode': 0,
+          'durationMs': 0,
+          'stderrText': '',
+          'cancelled': false,
+          'timedOut': false,
+          'benignExit': false,
+          'timeoutMs': 0,
+          'idleTimeoutMs': 0,
+          'queuedOperationId': queuedId,
+        }),
+      ),
+    );
+    final GbmEvent refused = GbmEvent(
+      GbmEventType.errorOccurred,
+      utf8.encode(
+        jsonEncode(<String, dynamic>{
+          'code': 0,
+          'codeName': 'NotCancellable',
+          'message': '"git fetch" can\'t be cancelled once it has started',
+          'detail': '',
+          'argv': <String>[],
+          'exitCode': 0,
+        }),
+      ),
+    );
+
+    test('an auto fetch refusal is used up: the next manual refusal still '
+        'sets lastError', () {
+      final _FetchRecordingBindings bindings = _FetchRecordingBindings()
+        ..cancelAnswer = -1;
+      final RepoSessionController controller = RepoSessionController(
+        bindings,
+        RepoIdentity.forWorkDir('/test/repo'),
+        _NoopRecents(),
+      );
+      addTearDown(controller.dispose);
+
+      controller.debugHandleEvent(record(auto: true, queuedId: 9));
+      controller.cancelOperation(9);
+      controller.debugHandleEvent(refused);
+      controller.debugHandleEvent(record(auto: false, queuedId: 10));
+      controller.cancelOperation(10);
+      controller.debugHandleEvent(refused);
+
+      expect(controller.state.lastError?.codeName, 'NotCancellable');
+    });
+
+    for (final bool auto in <bool>[true, false]) {
+      test(
+        auto
+            ? 'of an auto fetch goes to the log only'
+            : 'of a manual fetch still sets lastError',
+        () {
+          final _FetchRecordingBindings bindings = _FetchRecordingBindings()
+            ..cancelAnswer = -1;
+          final RepoSessionController controller = RepoSessionController(
+            bindings,
+            RepoIdentity.forWorkDir('/test/repo'),
+            _NoopRecents(),
+          );
+          addTearDown(controller.dispose);
+
+          controller.debugHandleEvent(record(auto: auto, queuedId: 9));
+          expect(controller.cancelOperation(9), -1);
+          controller.debugHandleEvent(refused);
+
+          expect(
+            controller.state.lastError?.codeName,
+            auto ? isNull : 'NotCancellable',
+          );
+          final List<AppLogEntry> lines = controller.state.operationLog
+              .whereType<AppLogEntry>()
+              .where((AppLogEntry e) => e.message.contains('NotCancellable'))
+              .toList();
+          expect(lines.length, 1);
+          // A warning stays out of the status bar's red summary, which
+          // shows only an unread error (P10 item 3).
+          expect(
+            lines.single.level,
+            auto ? OperationLogLevel.warning : OperationLogLevel.error,
+          );
+        },
+      );
+    }
   });
 }

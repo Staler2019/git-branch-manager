@@ -1373,6 +1373,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         // failing behind it.
         if (error != null && _isSuppressedAutoPrunePreviewError(error)) {
           state = state.copyWith(isRefreshing: false);
+        } else if (error != null &&
+            error.codeName == 'NotCancellable' &&
+            _autoFetchCancelRefusals > 0) {
+          _autoFetchCancelRefusals--;
+          state = state
+              .copyWith(isRefreshing: false)
+              .withOperationRecord(
+                AppLogEvents.errorOccurred(
+                  codeName: error.codeName,
+                  message: error.message,
+                  atEpochMs: _nowEpochMs(),
+                  level: OperationLogLevel.warning,
+                ),
+                maxEntries: maxOperationLogEntries,
+              );
         } else {
           state = state.copyWith(isRefreshing: false, lastError: error);
           if (error != null) {
@@ -2881,10 +2896,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   ///
   /// 0 is never sent: to the capi it means "every operation in the session",
   /// the session-close path, and a record with no queued id names nothing.
+  ///
+  /// A refused Cancel of an auto fetch is the exception: 使用者裁定
+  /// 2026-10-24 「拒絕訊息只進 log」, so [_autoFetchCancelRefusals] marks the
+  /// NotCancellable that follows for the log alone. Counted here, where the
+  /// refused unit is known, because the error carries no argv.
   int cancelOperation(int queuedOperationId) {
     if (_session == nullptr || queuedOperationId == 0) return 0;
-    return _bindings.cancelOperation(_session, queuedOperationId);
+    final int answer = _bindings.cancelOperation(_session, queuedOperationId);
+    if (answer == -1 && _isRunningAutoFetch(queuedOperationId)) {
+      _autoFetchCancelRefusals++;
+    }
+    return answer;
   }
+
+  /// Refused Cancels of an auto fetch whose NotCancellable has not arrived
+  /// yet. The event is emitted inside gbm_cancel_operation but delivered
+  /// through the event port, so it always lands after the count goes up.
+  int _autoFetchCancelRefusals = 0;
+
+  bool _isRunningAutoFetch(int queuedOperationId) => state.operationLog.any(
+    (GbmLogEntry e) =>
+        e is OperationRecord &&
+        e.running &&
+        e.queuedOperationId == queuedOperationId &&
+        e.isAutoFetch,
+  );
 
   /// Resubmits the checkout request that produced the current
   /// [RepoSessionState.checkoutChoices] with the flag [kind] implies

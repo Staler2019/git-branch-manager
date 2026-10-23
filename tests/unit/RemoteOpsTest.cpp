@@ -6,6 +6,7 @@
 #include "support/FakeProcessRunner.h"
 
 #include <gtest/gtest.h>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -408,6 +409,45 @@ TEST(FetchOperation, OnlyABackgroundFetchIsABackgroundUnit) {
     background.background = true;
     EXPECT_TRUE(makeFetchOperation(background)->isBackground());
     EXPECT_FALSE(makeFetchOperation(FetchRequest{})->isBackground());
+}
+
+TEST(FetchOperation, ABackgroundFetchWithNoEarlierSnapshotCountsAsMoved) {
+    FakeProcessRunner runner;
+    FetchRequest request;
+    request.background = true;
+
+    OperationOutcome outcome = makeFetchOperation(request)->run(runner, testPaths(), {});
+
+    ASSERT_TRUE(outcome.succeeded);
+    EXPECT_EQ(outcome.refsMoved, std::optional<bool>(true))
+        << "no snapshot to compare against: walk rather than hide a change";
+    EXPECT_EQ(runner.invocationCount(), 1u) << "nothing to compare, so no read either";
+}
+
+TEST(FetchOperation, ABackgroundFetchWhoseRefReadFailsCountsAsMoved) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response failed;
+    failed.exitCode = 128;
+    runner.whenArgsContain({"for-each-ref"}, failed);
+    FetchRequest request;
+    request.background = true;
+    request.refsBefore = std::make_shared<const RefSnapshot>();
+
+    OperationOutcome outcome = makeFetchOperation(request)->run(runner, testPaths(), {});
+
+    ASSERT_TRUE(outcome.succeeded);
+    EXPECT_EQ(outcome.refsMoved, std::optional<bool>(true));
+}
+
+TEST(FetchOperation, AForegroundFetchLeavesRefsMovedUnset) {
+    FakeProcessRunner runner;
+    FetchRequest request;
+    request.refsBefore = std::make_shared<const RefSnapshot>();
+
+    OperationOutcome outcome = makeFetchOperation(request)->run(runner, testPaths(), {});
+
+    EXPECT_FALSE(outcome.refsMoved.has_value());
+    EXPECT_EQ(runner.invocationCount(), 1u);
 }
 
 }  // namespace

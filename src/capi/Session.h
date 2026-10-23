@@ -575,6 +575,12 @@ private:
                                     std::function<void()> onSuccess,
                                     std::function<void()> onAlways = nullptr);
 
+    /// The same, for the one caller whose follow-up depends on what the
+    /// operation reported: the background fetch reads
+    /// OperationOutcome::refsMoved to decide whether to walk history.
+    void submitWorkingCopyOperationReading(std::unique_ptr<Operation> operation,
+                                           std::function<void(const OperationOutcome&)> onSuccess);
+
     /// Creates a fresh askpass request directory and starts polling it,
     /// forwarding each prompt as GBM_EVENT_CREDENTIAL_REQUESTED. Returns the
     /// directory (possibly empty, if it could not be created -- see

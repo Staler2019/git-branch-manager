@@ -624,6 +624,18 @@ void Session::requestWorkingCopyDiff(std::string path, bool staged) {
     });
 }
 
+void Session::submitWorkingCopyOperationReading(
+    std::unique_ptr<Operation> operation, std::function<void(const OperationOutcome&)> onSuccess) {
+    operations_->submit(
+        std::move(operation), [this, onSuccess = std::move(onSuccess)](OperationOutcome outcome) {
+            refreshUndoJournalCache();
+            callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
+            if (outcome.succeeded && onSuccess) {
+                onSuccess(outcome);
+            }
+        });
+}
+
 void Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
                                          std::function<void()> onSuccess,
                                          std::function<void()> onAlways) {
@@ -1197,8 +1209,14 @@ void Session::fetchRemote(FetchRequest request) {
         // would delete the request directory of a push submitted while it
         // ran, and that push's password prompt would never appear.
         // FetchOperation refuses every prompt for a background fetch anyway.
-        submitWorkingCopyOperation(makeFetchOperation(std::move(request)),
-                                   [this]() { refreshHistory(); });
+        request.refsBefore = currentRefs();
+        submitWorkingCopyOperationReading(makeFetchOperation(std::move(request)),
+                                          [this](const OperationOutcome& outcome) {
+                                              // A quiet remote costs no walk.
+                                              if (outcome.refsMoved.value_or(true)) {
+                                                  refreshHistory();
+                                              }
+                                          });
         return;
     }
     request.askpassDir = beginAskpass();

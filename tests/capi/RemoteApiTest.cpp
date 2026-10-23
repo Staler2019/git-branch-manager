@@ -148,6 +148,50 @@ protected:
         return json;
     }
 
+    /// A second clone pushes one commit to `main` that repo_ has not fetched.
+    void pushFromAnotherClone(const std::string& fileName) {
+        const std::filesystem::path other =
+            repo_.parent_path() / (repo_.filename().string() + "-pusher");
+        std::error_code ec;
+        std::filesystem::remove_all(other, ec);
+        ASSERT_EQ(
+            runIn(other.parent_path(), {"clone", "--quiet", remote_.string(), other.string()}), 0);
+        ASSERT_EQ(runIn(other, {"checkout", "--quiet", "main"}), 0);
+        ASSERT_EQ(runIn(other, {"config", "user.email", "test@example.invalid"}), 0);
+        ASSERT_EQ(runIn(other, {"config", "user.name", "Test"}), 0);
+        ASSERT_EQ(runIn(other, {"config", "commit.gpgsign", "false"}), 0);
+        std::ofstream(other / fileName) << "content\n";
+        ASSERT_EQ(runIn(other, {"add", fileName}), 0);
+        ASSERT_EQ(runIn(other, {"commit", "--quiet", "-m", "From another clone"}), 0);
+        ASSERT_EQ(runIn(other, {"push", "--quiet", "origin", "main"}), 0);
+        std::filesystem::remove_all(other, ec);
+    }
+
+    /// Runs one history refresh to completion, so Session holds the ref
+    /// snapshot a background fetch compares against, then forgets every event.
+    ///
+    /// A plain fetch first: since git 2.48 (`remote.<name>.followRemoteHEAD`)
+    /// the first fetch of a remote creates `refs/remotes/origin/HEAD`, which is
+    /// a real new ref -- without this a "quiet" remote is not quiet.
+    void settleInitialRefresh() {
+        ASSERT_EQ(runGit({"fetch", "--quiet", "origin"}), 0);
+        gbm_history_refresh(session_);
+        ASSERT_TRUE(
+            log_.waitFor([](const auto& events) { return completeGraphUpdates(events) > 0; }));
+        log_.clear();
+    }
+
+    static int completeGraphUpdates(const std::vector<std::pair<int32_t, std::string>>& events) {
+        int count = 0;
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_GRAPH_UPDATED &&
+                payload.find("\"complete\":true") != std::string::npos) {
+                ++count;
+            }
+        }
+        return count;
+    }
+
     std::filesystem::path repo_;
     std::filesystem::path remote_;
     GbmSessionHandle session_ = nullptr;
@@ -435,6 +479,46 @@ TEST_F(RemoteApiTest, RemoveRemoteFailsWhenNoSuchRemote) {
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
     EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+}
+
+TEST_F(RemoteApiTest, BackgroundFetchOfAQuietRemoteSkipsTheHistoryWalk) {
+    settleInitialRefresh();
+
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    EXPECT_NE(outcome.find("\"refsMoved\":false"), std::string::npos) << outcome;
+    // Well past RefreshCoalescer's 150 ms window: a walk would have finished.
+    EXPECT_FALSE(log_.waitFor([](const auto& events) { return completeGraphUpdates(events) > 0; },
+                              std::chrono::milliseconds(1500)))
+        << "nothing moved, so no history walk may run";
+}
+
+TEST_F(RemoteApiTest, BackgroundFetchThatMovesARefWalksHistoryOnce) {
+    settleInitialRefresh();
+    pushFromAnotherClone("moved.txt");
+
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"refsMoved\":true"), std::string::npos) << outcome;
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return completeGraphUpdates(events) > 0; }));
+    log_.waitFor([](const auto& events) { return completeGraphUpdates(events) > 1; },
+                 std::chrono::milliseconds(1000));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(completeGraphUpdates(log_.events), 1);
+}
+
+TEST_F(RemoteApiTest, AForegroundFetchOutcomeCarriesNoRefsMovedKey) {
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_EQ(outcome.find("refsMoved"), std::string::npos)
+        << "every other outcome's JSON stays byte-identical: " << outcome;
 }
 
 void setEnv(const char* name, const std::string& value) {

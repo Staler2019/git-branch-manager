@@ -74,10 +74,31 @@ public:
         }
         outcome.succeeded = true;
         outcome.summary = describe();
+        if (request_.background) {
+            outcome.refsMoved = refsMovedSinceLastRefresh(runner, paths, token);
+        }
         return outcome;
     }
 
 private:
+    /// One `for-each-ref` (RefStore::load, the same read a refresh does)
+    /// against the snapshot handed in at submit time. A missing snapshot or a
+    /// failed read answers "moved", which costs a walk rather than hiding a
+    /// change.
+    bool refsMovedSinceLastRefresh(IProcessRunner& runner,
+                                   const RepoPaths& paths,
+                                   CancellationToken token) const {
+        if (!request_.refsBefore) {
+            return true;
+        }
+        RefStore refStore(runner, paths);
+        const auto after = refStore.load(std::move(token));
+        if (!after) {
+            return true;
+        }
+        return !RefStore::sameRefTips(*request_.refsBefore, **after);
+    }
+
     FetchRequest request_;
 };
 

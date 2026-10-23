@@ -64,6 +64,13 @@ struct OperationOutcome {
     /// the FFI boundary with nothing on the far side
     /// (CLAUDE.md's [CULT-orphan-wiring]).
     bool mutatedRefs = false;
+    /// Set only by a background fetch (FetchRequest::background): whether any
+    /// ref tip differs from the snapshot of the session's previous refresh
+    /// (RefStore::sameRefTips). Empty for every other operation, and then
+    /// JsonCodec omits the key, so their payloads stay byte-identical.
+    /// Readers: Session's background-fetch completion (skips the history
+    /// walk when false) and Dart's post-fetch prune preview gating.
+    std::optional<bool> refsMoved;
 };
 
 /// A single mutating git operation.

@@ -24,9 +24,11 @@ Pin prefix `DRIFT-`. Format: [README.md](../../docs/rules/README.md). Open spec 
 - **Rule**: `features/context_menus/gbm_context_menus.dart` declares spec page 05's 11 groups as `context_menu_parity_test.dart`'s baseline; nothing under `lib/` imports it, so each render site hand-writes its list (**#71**).
 - **Do**: keep extracting pure `*_menu_items.dart` functions checked against it; 05-A, 05-C, 05-K keep private builders (reasons in their matrix rows).
 
-## [DRIFT-auto-fetch-unwired] Preferences → General AUTOMATIC FETCH has nothing behind it
+## [DRIFT-auto-fetch-unwired] ~~Preferences → General AUTOMATIC FETCH has nothing behind it~~ Auto fetch has no metered-network pause
 
-- **Rule**: `autoFetchEnabled` / `autoFetchMinutes` are stored and drawn (`_GeneralSection`) and read by no timer, so P11 item 9's 「預設每 10 分鐘一次」 has no implementation (**#102**; `autoFetchPrune` was deleted, see [REF-fetch-auto-prunes]).
+- **Rule**: ~~`autoFetchEnabled` / `autoFetchMinutes` are stored and drawn (`_GeneralSection`) and read by no timer, so P11 item 9's 「預設每 10 分鐘一次」 has no implementation~~ `AutoFetchHost` reads both now (2026-10-24); what stays open is P11 item 9's 「計量網路暫停」, absent rather than faked by user ruling 「這輪不做，記成 drift」 (**#102**; `autoFetchPrune` was deleted, see [REF-fetch-auto-prunes]).
+- **Do**: Preferences copy is phrased to what runs, never to the spec's as-if-working prose: it promises no metered pause.
+- **Evidence**: [ledger: feature/auto-fetch-implementation](../../docs/ledger/2026-10-24-feature-auto-fetch-implementation.md)
 
 ## [DRIFT-no-pull-dialog] No pull dialog route exists
 

@@ -8,7 +8,7 @@ handler map, and one function decides what a state-dependent gate disables.
 ## [ACT-intent-layer] Intent / Action layer
 
 `lib/actions/` holds three pure-data files with no Riverpod/FFI dependency:
-`gbm_action_id.dart` (the `GbmActionId` enum, 65 values), `gbm_menu_model.dart`
+`gbm_action_id.dart` (the `GbmActionId` enum), `gbm_menu_model.dart`
 (the menu-bar/label/shortcut-string model `MenuBarRow` and the keyboard
 shortcuts dialog both read), and `gbm_shortcuts.dart`
 (`GbmActionId -> GbmKeyboardShortcut`, platform-aware Cmd/Ctrl binding).
@@ -21,10 +21,11 @@ all three:
 1. **Keyboard** — `WorkspaceActionShortcuts` (`workspace_action_shortcuts.dart`)
    wraps the shell in `Shortcuts` + `Actions`; a bound key press dispatches a
    `GbmActionIntent(id)`, whose `CallbackAction` calls `handlers[id]?.call()`.
-2. **macOS system menu bar** — `PlatformMenuBarHost` builds a real
-   `PlatformMenuBar` from the same map; `PlatformMenuItem(onSelected:
-   handlers[item.id])` — a `null` value is what makes macOS grey the item
-   out natively.
+2. **macOS system menu bar** — `PlatformMenuBarHost` ~~builds a real
+   `PlatformMenuBar` from the same map~~ sends the same map to
+   `platformMenuDelegate` (two `PlatformMenuBar`s collide on a page swap);
+   `PlatformMenuItem(onSelected: handlers[item.id])` — a `null` value is what
+   makes macOS grey the item out natively.
 3. **In-window menu** — `MenuBarRow` (rendered instead of (2) on non-macOS,
    spec page 01) resolves most ids via `Actions.maybeInvoke(context,
    GbmActionIntent(id))`, which reaches the same `Actions` block as (1). Five
@@ -70,29 +71,11 @@ state-dependent gate disables — every other call site (`workspace_screen.dart`
 their `null`-means-disabled straight out of the handler map) reads through this
 function rather than re-deriving `session.conflictActive` locally.
 
-Twelve ids are gated straight off spec page 07's STATES table — disabled
-whenever `RepoSessionState.conflictActive` is true, because each would move
-HEAD, start a second sequencer operation, or commit while one is already in
-progress: `repositoryFetch`, `repositoryPull`, `repositoryPush`,
-`remoteFetchAllRemotes`, `repositoryCommit`, `repositoryAmendLastCommit`,
-`branchNewBranch`, `branchCheckout`, `branchMergeIntoCurrent`,
-`branchRebaseOnto`, `branchStashChanges`, `branchDeleteBranch`. The banner's
-Abort/Skip/Continue/Resolve… stay the only way forward until then.
-
-Three more gates are **not** from spec page 07; they live here only so every
-state-dependent decision has one home:
-
-- `branchRenameCurrentBranch` — additionally requires
-  `refs.head.branchName.isNotEmpty` (a detached HEAD has no branch to rename).
-- `repositoryAmendLastCommit` — also off while `repoState.isMerging`,
-  resolved or not: git refuses to amend with MERGE_HEAD (ruling ④).
-- `repositoryStageAll` — `workingCopyStatus.unstaged.isNotEmpty` only,
-  independent of `conflictActive` entirely (nothing to stage with an empty
-  unstaged list, regardless of conflict state).
-
-Every id the switch doesn't cover returns `true` — read that as "the state
-machine does not forbid this," not "this is implemented" (see
-`_buildActionHandlers()`'s own null entries for ids with no backing feature).
+Which ids a gate disables, and why (spec page 07's STATES table, ruling ④,
+the rename and stage-all gates), is the switch and doc comment of
+`isActionEnabled`, pinned by `gbm_action_availability_test.dart`. An id the switch
+doesn't cover returns `true`: "the state machine does not forbid this", not
+"this is implemented".
 
 ## [ACT-recovery-choice-wire] `OperationChoice`'s wire carries `kind`+`destructive` only; every string is composed on read
 
@@ -103,13 +86,9 @@ machine does not forbid this," not "this is implemented" (see
   `recoveryChoiceLabel(OperationChoiceKind)` /
   `recoveryChoiceExplanation(OperationChoiceKind, {required forDeleteBranch})`
   compose both, in Dart, from `kind` alone.
-- **Consequence**: a `label`/`explanation` pair used to be composed once in
-  C++ and painted verbatim — which meant core's English (`"Stash changes and
-  switch"`) and the spec's own quoted button text (`DLGS`'s 「Checkout
-  blocked」: `Stash and checkout` / `Discard and checkout` / `Cancel`) had
-  drifted apart, and the explanation was asked to be Chinese regardless of
-  what core could ever send. There was no layer where "paint the wire's own
-  words" was actually true, so the design was retired rather than patched.
+- **Consequence**: composed once in C++ and painted verbatim, the English there
+  drifted from the spec's quoted button text (`DLGS`'s 「Checkout blocked」); the design was
+  retired rather than patched.
 - **Rule**: **a `kind` with no Dart reader gets no `OperationChoice` at all** —
   not a stripped-down one. `_handleOperationOutcome`'s switch
   (`repo_session_repository.dart`) has case arms for
@@ -122,19 +101,10 @@ machine does not forbid this," not "this is implemented" (see
   path, so nothing the user could see is lost. `RemoteOps.cpp`'s deletion
   leaves `DLGS`'s "Pull blocked" entry with no backing dialog at all; see
   [DRIFT-no-pull-dialog] for that gap.
-- **Rule**: `OperationRunner::preflight()`'s sequencer-busy `Abort` choice
-  (`OperationRunner.cpp`) is the one exception kept on a path with no visible
-  button for it — it is the *sole* choice on that refusal, and it is what
-  makes `choices` non-empty at all, which is what `WorkspaceScreen` reads to
-  auto-push the checkout/delete-branch recovery dialog
-  (`workspace_screen.dart`'s auto-push `ref.listen`s). Deleting it would silently stop that dialog
-  from opening for a sequencer-busy refusal. `CheckoutOp.cpp`'s and
-  `BranchOps.cpp`'s own `Abort` entries were deleted instead, because both
-  recovery dialogs already filter `kind != OperationChoiceKind.abort` out of
-  *both* their button row and their body list, and both
-  `retryCheckoutWithChoice`/`retryDeleteBranchWithChoice` dispatch an empty
-  `break` for it — an `Abort` choice on those two paths could never be seen
-  or acted on regardless of what string it carried.
+- **Rule**: `OperationRunner::preflight()`'s sequencer-busy `Abort` choice is the one
+  kept: as the sole choice it makes `choices` non-empty, which `WorkspaceScreen`
+  reads to auto-push the recovery dialog (`OperationRunner.cpp`). `CheckoutOp.cpp`
+  and `BranchOps.cpp` carry no `Abort`: both dialogs filter it out (site comments).
 - **Do**: when adding a new recovery-dialog-visible `OperationChoiceKind`,
   wire it in exactly two places — the C++ side that decides *whether* to
   offer it, and `recovery_choice_copy.dart`'s two functions that decide

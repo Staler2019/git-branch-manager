@@ -163,3 +163,28 @@ c80da91f fix  cloneFolderNameFromUrl 把 < > " | ? * 與控制字元換成 _
   - 本輪的程式碼沒有修改；可能的 harness 對策（例如 `LiveTestWidgetsFlutterBindingFramePolicy.benchmark`）~~未做，留給使用者裁示~~
     使用者裁示「framePolicy benchmark 先不做」。
 
+
+## G4：收尾
+
+PR #197 合併（`f28b2a6a`）。`memory-steward` 分類本輪五個候選：
+
+| # | 候選 | 處置 |
+|---|---|---|
+| C1 | `check-ref-format --branch` 在 repo 內展開 `@{-N}` | ENCODE：`InitCloneOps.cpp` 的註解加上 core 與 capi 測試，不另立 pin |
+| C2 | 只有 exit 128 是 git 的「不合法」，訊號為 128+N | ENCODE：同上，`ABranchCheckKilledBySignalIsNotReportedAsAnInvalidName` |
+| C3 | device 層數分鐘停頓＝engine 不出 frame | L2：只留在本檔「追加二」；原因是推測，而且 `docs/ledger.md` 曾撤回過一個「視窗拿不到前景」的歸因 |
+| C4 | `[TEST-no-pumpandsettle-with-spinner]` 列了 `welcome_screen.dart` | 原處劃線更正：歡迎畫面已經沒有 indicator |
+| C5 | `[ACT-intent-layer]` 第 2 條仍寫「builds a real `PlatformMenuBar`」 | 依使用者裁示「先畫線補說明，等等叫memory agent上來調整」，原處劃線並補一句原因 |
+
+C5 讓 L0 從 28,678 增加到 28,884，超過 ceiling。第二次派 `memory-steward` 找縮減，它提了四級方案。這次只套用最小的一級：
+
+- C5 的說明壓短到一句（-106）。
+- 刪掉 `docs/rules/README.md` 第 3 點「The largest files today」那一段。它列的行數已經過時（`arch-actions.md` 寫 143 行，實際 146 行），原則在同一點的前幾句已經說過。
+
+套用後 L0 為 28,186，ceiling 從 28,678 降到 28,200。其他三級（`CLAUDE.md` 的遷移歷史、`[ACT-availability]` 與程式碼重複的 id 清單等，最多可再省約 4,200）~~沒有套用，留給使用者裁示~~。使用者裁示「照他說的，因為他負責管memory」，於是改套 `memory-steward` 推薦的那一級（只有標為選用的「Three layers」表不套）：
+
+- `CLAUDE.md`：開頭說明、遷移歷史與過時計數（「Roughly 49 comments」實為 42 個檔案中的 52 處）、ledger 段落、176KB／5,900 行的敘述。
+- `docs/rules/README.md`：前綴表中已退役檔案的註記、第 4 點的字數歷史。
+- `docs/rules/arch-actions.md`：「65 values」；`[ACT-availability]` 的 12 個 id 與三個額外 gate，`gbm_action_availability.dart` 的 doc comment 與 `gbm_action_availability_test.dart` 都有；`[ACT-recovery-choice-wire]` 的 Consequence 與 Abort 說明，壓成一句並指向程式碼註解。
+
+L0 為 24,456，ceiling 降到 24,500。

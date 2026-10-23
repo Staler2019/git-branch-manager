@@ -55,8 +55,8 @@ collision, it is agreement.
 
 | Prefix | File | Directory |
 |---|---|---|
-| `STRUCT-` | `history-graph.md` (~~`arch-structure.md`~~, retired 2026-10-04: layering moved into CLAUDE.md, the rest to `docs/records/` or deleted as restating the code) | `.claude/rules/` |
-| `STATE-` | `refresh-gating.md` (~~`arch-state-machine.md`~~, retired 2026-10-04: its tables restated the code and had drifted from it) | `.claude/rules/` |
+| `STRUCT-` | `history-graph.md` | `.claude/rules/` |
+| `STATE-` | `refresh-gating.md` | `.claude/rules/` |
 | `ACT-` | `arch-actions.md` | `docs/rules/` |
 | `TEST-` | `arch-testing.md`, `arch-testing-device.md` | `.claude/rules/` |
 | `REF-` | `fn-refs-branches.md` | `.claude/rules/` |
@@ -101,24 +101,12 @@ evidence is on:
    is two branches editing the same *region*, and a file of independent `##`
    rules merges cleanly however long it is. Add the new file to CLAUDE.md's
    import list, or give it `paths:` under `.claude/rules/`; the prefix may stay the same.
-
-   The largest files today, and why each is one file:
-   ~~`arch-structure.md` (245) and `arch-state-machine.md` (205) are mostly
-   route trees and field tables — reference material, edited a row at a time;~~
-   both retired 2026-10-04. ~~`arch-testing.md` (210, `.claude/rules/`) is dominated by one table with the same property.~~
-   `arch-actions.md` (143) is one design; its rules cite each other.
-   `ops-spec-reading.md` (~~167~~ 62) and `ops-repo-culture.md` (~~153~~ 29) are prose but
-   have no second group to split at. If one of these does grow a second
-   group, split it then.
 4. **Choosing the directory** → `.claude/rules/` when the whole category is
    about one subtree and its `paths:` can be read off the code it governs;
    `docs/rules/` when it is needed before any file is opened (layout, state,
    actions, repo culture). The split exists to cut context cost, measured in
    **characters** because that is what Claude Code's 150k-character startup
-   limit counts — and it counts the user's own `~/.claude` files too (44k at
-   the time). Importing every file was ~316KB; ~~the imported half is now
-   ~125KB~~ ~~the imported half is now ~89k characters, ~133k with `~/.claude`.~~
-   L0 is 28.7k chars, 73k with `~/.claude` (2026-10-05).
+   limit counts — and it counts the user's own `~/.claude` files too.
 5. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.

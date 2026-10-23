@@ -2,6 +2,8 @@
 // URL and destination, the two checkboxes (R18, ASK-3 (a) / W-D5), the
 // note, and Clone closes the dialog and starts a background job (R14: no
 // error under the fields, no reopening).
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -22,6 +24,7 @@ import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../support/fake_repo_session.dart';
@@ -346,6 +349,68 @@ void main() {
       tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
       '/Volumes/work',
     );
+  });
+
+  // git clone refuses a destination that exists and is not empty, so the
+  // dialog says so before Clone instead of after (使用者裁示「兩者都做」).
+  group('an existing destination', () {
+    late Directory base;
+    setUp(() => base = Directory.systemTemp.createTempSync('gbm_clone_'));
+    tearDown(() => base.deleteSync(recursive: true));
+
+    Finder warn(String path) => find.widgetWithText(
+      GbmDialogWarnField,
+      '$path 已存在且不是空的，git clone 會失敗。',
+    );
+
+    testWidgets('that is not empty warns and disables Clone', (tester) async {
+      File('${base.path}/r/a.txt').createSync(recursive: true);
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(warn('${base.path}/r'), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('that is a repository warns and disables Clone', (
+      tester,
+    ) async {
+      Directory('${base.path}/r/.git').createSync(recursive: true);
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(warn('${base.path}/r'), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('that is empty is fine', (tester) async {
+      Directory('${base.path}/r').createSync();
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(find.byType(GbmDialogWarnField), findsNothing);
+      expect(_cloneButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a URL naming no folder leaves the parent, which is refused', (
+      tester,
+    ) async {
+      File('${base.path}/other.txt').createSync();
+      await _pump(tester, picked: base.path);
+      await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_field('clone-url-field'), 'git@h:');
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+        base.path,
+      );
+      expect(warn(base.path), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
   });
 
   testWidgets('a cancelled 瀏覽… leaves the destination alone', (tester) async {

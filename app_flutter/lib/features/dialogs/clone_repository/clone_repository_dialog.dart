@@ -12,9 +12,11 @@ import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../data/repositories/window_log_repository.dart';
 import '../../../data/services/file_save_picker.dart';
+import '../../../data/services/target_directory_probe.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 
@@ -124,8 +126,16 @@ class _CloneRepositoryDialogContentState
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String dest = _dest.text.trim();
+    // git clone refuses a destination that exists and is not empty, so say
+    // so here instead of in the Log afterwards; a repository is not empty.
+    final bool destTaken = switch (probeTargetDirectory(dest)) {
+      TargetDirectoryState.nonEmpty ||
+      TargetDirectoryState.gitRepository => true,
+      TargetDirectoryState.missing || TargetDirectoryState.empty => false,
+    };
     final bool canClone =
-        _url.text.trim().isNotEmpty && _dest.text.trim().isNotEmpty;
+        _url.text.trim().isNotEmpty && dest.isNotEmpty && !destTaken;
     final GitVersion? git = _git;
     TextStyle label() =>
         TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary);
@@ -213,6 +223,10 @@ class _CloneRepositoryDialogContentState
             ),
             const SizedBox(height: GbmSpacing.space1),
             Text('URL 貼上後自動帶出資料夾名，可手改', style: hint()),
+            if (destTaken) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              GbmDialogWarnField(message: '$dest 已存在且不是空的，git clone 會失敗。'),
+            ],
             const SizedBox(height: GbmSpacing.space2),
             check(
               '一併 clone submodule',

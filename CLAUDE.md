@@ -2,17 +2,15 @@
 
 Root-level guide for Claude Code (and other AI assistants) working in this
 repo. Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
-[docs/FEATURES.md](docs/FEATURES.md) first — this file adds the Flutter UI's
-structure, its session state machine, the UX acceptance bar `app_flutter/`
-changes are held to, and the invariants and traps that keep being rediscovered.
+[docs/FEATURES.md](docs/FEATURES.md) first — this file holds the layering, the filing scheme and the imports.
 
 **This file is an umbrella.** The rules themselves live in one file per
 category, in one of two places: [docs/rules/](docs/rules/) for rules every
 session needs, pulled in by the `@` imports below, and
 [.claude/rules/](.claude/rules/) for rules that matter only to part of the
 tree, which Claude Code loads by their `paths:` frontmatter when a matching
-file is read or edited. Two parallel branches still edit two different files
-instead of two regions of one 1,742-line one.
+file is read or edited. Two parallel branches edit two different files
+instead of two regions of one.
 
 ## Layering
 
@@ -32,7 +30,7 @@ Routes are `app_flutter/lib/routing/route_paths.dart`; the feature directories a
 Startup-loaded text is capped by Claude Code at 150k characters, `~/.claude` included, so
 this repo gets a share of it and `scripts/check-instruction-budget.py` holds it there in CI.
 
-- **L0 ceiling**: 28,200 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
+- **L0 ceiling**: 24,500 characters — ratchet; lower it whenever L0 shrinks. Target 30,000.
 - **L0** (loaded at start): project settings that change only when the architecture does.
 - **L1** (`.claude/rules/`, `paths:`): a subtree's current constraints the code cannot show.
 - **L2** (never loaded, searched on demand): rulings and bugs in [docs/records/](docs/records/),
@@ -79,9 +77,8 @@ When you finish a round of work:
    happened in round N", it is ledger material.
 
 **Do not put rule text back into this file, and do not append a round-shaped
-section anywhere.** Both are what broke the previous two schemes: this file
-reached ~176KB before the ledger was split out of it, and the ledger then
-reached 5,900 lines with every round appending to the same end-of-file.
+section anywhere.** Both broke earlier schemes: this file reached ~176KB, the
+ledger 5,900 lines on one shared end-of-file.
 
 ## Rules
 
@@ -95,33 +92,18 @@ touched, the rest are imported here.
 @docs/rules/ops-ux-rubric.md
 @docs/rules/ops-repo-culture.md
 
-## Where the rules went, and why a source comment still says "CLAUDE.md"
+## Why a source comment still says "CLAUDE.md"
 
-The `## Invariants and traps` section that used to fill most of this file is
-gone as a *section*; every entry in it is now a pinned rule under
-[docs/rules/](docs/rules/) or [.claude/rules/](.claude/rules/). **Nothing was dropped** — each
-category's move was checked by re-finding every concrete fact (code span,
-filename, version, issue number, measured figure) from the old text in either
-the new rules file or the ledger.
-
-**A source comment that cites "CLAUDE.md" is still correct.** Roughly 49
-comments across `app_flutter/` and `src/` say things like "CLAUDE.md records
-X" or "CLAUDE.md's rule for a new state-dependent gate"; none cites a line
-number, and CLAUDE.md remains the auto-loaded rule set — the text simply
-arrives through `@import` or a path-scoped rule now. The comments were left
-alone rather than rewritten across ~30 files; this paragraph is the redirect.
-Grep `docs/rules/` and `.claude/rules/` for the rule, or search its pin.
+A source comment citing "CLAUDE.md" is still correct: the text now arrives through
+`@import` or a path-scoped rule. Grep `docs/rules/` and `.claude/rules/` for the
+rule, or search its pin.
 
 ## Engineering ledger
 
-[docs/ledger.md](docs/ledger.md) holds the first 101 rounds' narratives, moved
-there verbatim (the moved block is byte-identical; nothing was reworded,
-dropped, or summarised away). **It is closed to new rounds** — one round is one
-file under [docs/ledger/](docs/ledger/) now, indexed by
-[docs/ledger/INDEX.md](docs/ledger/INDEX.md), because a single shared
-end-of-file was a guaranteed conflict for any two parallel branches. Filing
-rule: see "Where a round's write-up goes" above and
-[docs/ledger/README.md](docs/ledger/README.md).
+[docs/ledger.md](docs/ledger.md) holds the first 101 rounds' narratives and is
+**closed to new rounds**: one round is one file under [docs/ledger/](docs/ledger/),
+indexed by [docs/ledger/INDEX.md](docs/ledger/INDEX.md); the filing rule is
+"Where a round's write-up goes" above.
 
 **Everything a source comment cites as "CLAUDE.md's Tier 0c note",
 "Known gaps", "Tier 6c", "Spec conformance audit" or any other `Tier N` /

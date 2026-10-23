@@ -55,8 +55,8 @@ collision, it is agreement.
 
 | Prefix | File | Directory |
 |---|---|---|
-| `STRUCT-` | `history-graph.md` (~~`arch-structure.md`~~, retired 2026-10-04: layering moved into CLAUDE.md, the rest to `docs/records/` or deleted as restating the code) | `.claude/rules/` |
-| `STATE-` | `refresh-gating.md` (~~`arch-state-machine.md`~~, retired 2026-10-04: its tables restated the code and had drifted from it) | `.claude/rules/` |
+| `STRUCT-` | `history-graph.md` | `.claude/rules/` |
+| `STATE-` | `refresh-gating.md` | `.claude/rules/` |
 | `ACT-` | `arch-actions.md` | `docs/rules/` |
 | `TEST-` | `arch-testing.md`, `arch-testing-device.md` | `.claude/rules/` |
 | `REF-` | `fn-refs-branches.md` | `.claude/rules/` |
@@ -106,10 +106,7 @@ evidence is on:
    `docs/rules/` when it is needed before any file is opened (layout, state,
    actions, repo culture). The split exists to cut context cost, measured in
    **characters** because that is what Claude Code's 150k-character startup
-   limit counts — and it counts the user's own `~/.claude` files too (44k at
-   the time). Importing every file was ~316KB; ~~the imported half is now
-   ~125KB~~ ~~the imported half is now ~89k characters, ~133k with `~/.claude`.~~
-   L0 is 28.7k chars, 73k with `~/.claude` (2026-10-05).
+   limit counts — and it counts the user's own `~/.claude` files too.
 5. **Superseded rule** → rewrite it in place and say what was overruled, per
    CLAUDE.md's standing rule about correcting the record. Do not delete a pin
    and mint a new one; something cites it.

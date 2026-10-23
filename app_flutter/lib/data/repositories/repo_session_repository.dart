@@ -1160,6 +1160,14 @@ class RefreshFlags {
 /// constraint.
 const Duration kDeferredRefreshFallback = Duration(seconds: 3);
 
+/// One fetch of this session finishing, as [RepoSessionController.fetchFinished]
+/// reports it. [errorCodeName] is `GitError.codeName`, null on success.
+typedef FetchFinished = ({
+  bool background,
+  bool succeeded,
+  String? errorCodeName,
+});
+
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
@@ -1245,6 +1253,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// resetTo, cherryPick*, *Rebase, pruneRemote, *Bisect, *Import, ...) is
   /// submitted in between. See [PendingOperationTracker]'s doc comment.
   final PendingOperationTracker _pending = PendingOperationTracker();
+
+  /// Synchronous, so a listener sees the outcome in the same event turn as
+  /// the state it changed.
+  final StreamController<FetchFinished> _fetchFinished =
+      StreamController<FetchFinished>.broadcast(sync: true);
+
+  /// Every fetch of this session as it finishes, attributed to its own
+  /// request -- the auto fetch scheduler's in-flight flag and Auth/HostKey
+  /// pause (`AutoFetchScheduler.onFetchFinished`) read it.
+  Stream<FetchFinished> get fetchFinished => _fetchFinished.stream;
 
   /// The most recent *failed* checkout/deleteBranch request, kept around so
   /// a recovery choice picked from [RepoSessionState.checkoutChoices] /
@@ -2438,6 +2456,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // outcome to the next fetch.
     final PendingFetchRequest? request = _pending.takeFetch();
     if (request == null) return;
+    final Object? error = payload['error'];
+    _fetchFinished.add((
+      background: request.background,
+      succeeded: payload['succeeded'] == true,
+      errorCodeName: error is Map<String, dynamic>
+          ? error['codeName'] as String?
+          : null,
+    ));
     if (payload['succeeded'] != true) return;
     // A background fetch that moved nothing cannot have made a ref gone, and
     // each preview below is a network round trip per remote, every interval.
@@ -4886,6 +4912,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // whatever is still pending.
     _pending.clear();
     _autoPrunePreviewsInFlight.clear();
+    unawaited(_fetchFinished.close());
     super.dispose();
   }
 }

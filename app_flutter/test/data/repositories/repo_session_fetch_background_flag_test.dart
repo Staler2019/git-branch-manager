@@ -152,4 +152,49 @@ void main() {
     controller.debugHandleEvent(authFailure());
     expect(controller.state.lastError?.codeName, 'Auth');
   });
+
+  test('fetchFinished reports each fetch with its background flag, outcome '
+      'and error code -- what the auto fetch scheduler pauses on', () {
+    final RepoSessionController controller = RepoSessionController(
+      _FetchRecordingBindings(),
+      RepoIdentity.forWorkDir('/test/repo'),
+      _NoopRecents(),
+    );
+    addTearDown(controller.dispose);
+    final List<FetchFinished> seen = <FetchFinished>[];
+    controller.fetchFinished.listen(seen.add);
+    GbmEvent finished({Map<String, dynamic>? error}) => GbmEvent(
+      GbmEventType.workingCopyOperationFinished,
+      utf8.encode(
+        jsonEncode(<String, dynamic>{
+          'succeeded': error == null,
+          'error': ?error,
+          'choices': <dynamic>[],
+          'summary': '',
+          'kind': 'fetch',
+        }),
+      ),
+    );
+
+    controller.fetchRemote(background: true);
+    controller.debugHandleEvent(
+      finished(
+        error: <String, dynamic>{
+          'code': 6,
+          'codeName': 'HostKey',
+          'message': 'Unknown SSH host key',
+          'detail': '',
+          'argv': <String>[],
+          'exitCode': 128,
+        },
+      ),
+    );
+    controller.fetchRemote();
+    controller.debugHandleEvent(finished());
+
+    expect(seen, <FetchFinished>[
+      (background: true, succeeded: false, errorCodeName: 'HostKey'),
+      (background: false, succeeded: true, errorCodeName: null),
+    ]);
+  });
 }

@@ -555,6 +555,43 @@ void main() {
     });
   });
 
+  group('PreferencesDialogContent - General auto fetch', () {
+    // The copy once said nothing ran behind the switch
+    // ([DRIFT-auto-fetch-unwired]); AutoFetchHost runs it now.
+    testWidgets('the copy describes the running feature, not the unwired '
+        'one', (tester) async {
+      await _pump(tester, section: 'General');
+
+      expect(find.textContaining('還沒有背景排程'), findsNothing);
+      expect(find.textContaining('之後接上背景排程'), findsNothing);
+      expect(find.textContaining('開啟時先抓一次'), findsOneWidget);
+      expect(find.textContaining('直到手動 Fetch 成功'), findsOneWidget);
+    });
+
+    // AutoFetchScheduler also treats anything below one minute as one; this
+    // pins that the field never stores such a value in the first place.
+    testWidgets('the interval stores only a positive whole number of '
+        'minutes', (tester) async {
+      final result = await _pump(
+        tester,
+        section: 'General',
+        initialPrefs: <String, Object>{'appPrefs.autoFetchEnabled': true},
+      );
+      int minutes() =>
+          result.container.read(appPreferencesProvider).autoFetchMinutes;
+
+      await tester.enterText(find.byType(TextField).first, '3');
+      await tester.pump();
+      expect(minutes(), 3);
+
+      for (final String text in <String>['0', '-2', 'abc', '']) {
+        await tester.enterText(find.byType(TextField).first, text);
+        await tester.pump();
+        expect(minutes(), 3, reason: '"$text" must not be stored');
+      }
+    });
+  });
+
   group('PreferencesDialogContent - Repository sources', () {
     testWidgets(
       'editing the depth field and submitting calls setBaseFolderDepth',

@@ -347,16 +347,18 @@ class _GeneralSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         const _SectionHeading('自動 FETCH'),
-        // G1i: `[DRIFT-auto-fetch-unwired]` records that `autoFetchEnabled`/
-        // `autoFetchMinutes` are stored and drawn but read by no timer --
-        // this copy is worded to match that, not spec P11 item 9's prose
-        // (which describes the feature as if it already runs).
+        // Read by AutoFetchHost (`features/workspace/widgets/`). Spec P11
+        // item 9 for what it does, plus three user rulings the spec does not
+        // carry: 「Fetch on open 跟開關綁定」, 「開 dialog 時都不能做背景
+        // fetch」 and 「Auth/HostKey 失敗 → 暫停自動 fetch，直到手動 fetch 成
+        // 功；status bar + log 說明」. The failure wording is ERRCASES' row
+        // 「自動 fetch 失敗、網路不通 → Status bar + log … 下次排程自動重試」.
         _SettingSwitch(
           title: '在背景 fetch 目前開啟的 repository',
           subtitle:
               '純 fetch，不會動到 working tree，只抓目前開啟的這一個 '
-              'repository。目前這個開關只會把設定存起來——還沒有背景排程真的 '
-              '照著它去執行 fetch。',
+              'repository：開啟時先抓一次，之後每隔設定的分鐘數再抓一次；'
+              '切換 repository 時重新計時。',
           value: prefs.autoFetchEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoFetchEnabled: v),
@@ -375,8 +377,10 @@ class _GeneralSection extends ConsumerWidget {
         ],
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '之後接上背景排程後，fetch 失敗不會跳出對話框——結果只會反映在 '
-          'ahead/behind 數字、gone 標記和記錄裡。',
+          '結果反映在 ahead/behind 數字與 gone 標記上。失敗不彈窗——只記在 '
+          'status bar 與記錄裡，下次排程自動重試；認證或 host key 失敗則暫停'
+          '自動 fetch，直到手動 Fetch 成功。有前景作業、處於 conflict 狀態或'
+          '有對話框開著時，自動跳過該次。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,

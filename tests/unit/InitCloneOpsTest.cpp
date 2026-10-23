@@ -29,6 +29,64 @@ TEST(RunInitRepo, RunsGitInitWithThePath) {
               (std::vector<std::string>{"init", "--quiet", "/repos/new-project"}));
 }
 
+// New repository's 「預設分支名」 (DLGS). `-b` alone is not enough: git
+// refuses an invalid name only after it has created the directory, which
+// then stays behind (measured, git 2.56.0: `init -b a..b x` exits 128 and
+// leaves `x/`). So the name is checked first, and init never runs on a no.
+TEST(RunInitRepo, ChecksTheInitialBranchThenRunsGitInitWithIt) {
+    FakeProcessRunner runner;
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    EXPECT_TRUE(result);
+    ASSERT_EQ(runner.invocationCount(), 2u);
+    EXPECT_EQ(runner.invokedArgs(0),
+              (std::vector<std::string>{"check-ref-format", "--branch", "trunk"}));
+    EXPECT_EQ(runner.invokedArgs(1),
+              (std::vector<std::string>{"init", "--quiet", "-b", "trunk", "/repos/new-project"}));
+}
+
+TEST(RunInitRepo, RefusesAnInvalidInitialBranchWithoutRunningInit) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response invalid;
+    invalid.exitCode = 128;
+    invalid.err = "fatal: 'a..b' is not a valid branch name\n";
+    runner.whenArgsContain({"check-ref-format", "--branch", "a..b"}, invalid);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "a..b";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_NE(result.error().message.find("a..b"), std::string::npos) << result.error().message;
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// Only git's "no" is an invalid name; a check that never answered is
+// reported as what it was.
+TEST(RunInitRepo, ATimedOutBranchCheckIsNotReportedAsAnInvalidName) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response timedOut;
+    timedOut.timedOut = true;
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, timedOut);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
 TEST(RunInitRepo, RejectsEmptyPathWithoutRunningGit) {
     FakeProcessRunner runner;
     InitRepoRequest request;

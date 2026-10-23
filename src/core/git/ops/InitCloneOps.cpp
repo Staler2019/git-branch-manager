@@ -18,7 +18,26 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
     }
 
     GitCommand command;
-    command.args = {"init", "--quiet", fsutil::utf8FromPath(request.path)};
+    command.args = {"init", "--quiet"};
+    if (!request.initialBranch.empty()) {
+        GitCommand check;
+        check.args = {"check-ref-format", "--branch", request.initialBranch};
+        check.timeout = std::chrono::seconds(30);
+        auto checked = runner.run(check, token);
+        if (!checked) {
+            // Only git's own "no" means the name is invalid; a check that never
+            // answered is reported as what it was.
+            const GitError::Code code = checked.error().code;
+            if (code == GitError::Code::Timeout || code == GitError::Code::Cancelled) {
+                return fail(std::move(checked).error());
+            }
+            return fail(GitError::Code::InvalidArgument,
+                        "'" + request.initialBranch + "' is not a valid branch name");
+        }
+        command.args.push_back("-b");
+        command.args.push_back(request.initialBranch);
+    }
+    command.args.push_back(fsutil::utf8FromPath(request.path));
     command.timeout = std::chrono::seconds(30);
 
     auto result = runner.run(command, token);

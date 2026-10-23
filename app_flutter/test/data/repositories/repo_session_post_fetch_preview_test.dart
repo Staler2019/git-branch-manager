@@ -36,20 +36,37 @@ RefSnapshot _snapshotOf(List<String> remoteFullNames) => RefSnapshot(
   totalRefCount: remoteFullNames.length,
 );
 
-GbmEvent _fetchFinished({required bool succeeded}) {
+GbmEvent _fetchFinished({
+  required bool succeeded,
+  bool? refsMoved,
+  Map<String, dynamic>? error,
+}) {
   return GbmEvent(
     GbmEventType.workingCopyOperationFinished,
     utf8.encode(
       jsonEncode(<String, dynamic>{
         'succeeded': succeeded,
-        'error': null,
+        'error': error,
         'choices': <dynamic>[],
         'summary': 'Fetch',
         'kind': 'fetch',
+        // Only a background fetch's outcome carries the key (JsonCodec.cpp).
+        'refsMoved': ?refsMoved,
       }),
     ),
   );
 }
+
+/// Shaped as `capi::toJson(const GitError&)` sends it; `code` 5 is
+/// `GitError::Code::Auth` (src/core/base/Error.h).
+Map<String, dynamic> _authError() => <String, dynamic>{
+  'code': 5,
+  'codeName': 'Auth',
+  'message': 'Git needs credentials',
+  'detail': 'fatal: could not read Username',
+  'argv': <String>['git', 'fetch', 'origin'],
+  'exitCode': 128,
+};
 
 /// A completion event for something else on the same channel, with no kind.
 GbmEvent _otherWorkingCopyFinished() {
@@ -210,6 +227,70 @@ void main() {
       c.debugHandleEvent(_fetchFinished(succeeded: true));
 
       expect(_previewedRemotes(c), isEmpty);
+    });
+  });
+  group('a background (auto) fetch', () {
+    FakeRepoSessionController controller() {
+      final FakeRepoSessionController c = FakeRepoSessionController(
+        _identity,
+        RepoSessionState(
+          refs: _snapshotOf(<String>['refs/remotes/origin/main']),
+        ),
+      );
+      addTearDown(c.dispose);
+      return c;
+    }
+
+    test('that moved no ref previews nothing', () {
+      // A quiet remote cannot have made anything gone, and each preview is a
+      // network round trip -- every N minutes, per remote.
+      final FakeRepoSessionController c = controller();
+      c.debugRecordFetch(remoteName: 'origin', background: true);
+
+      c.debugHandleEvent(_fetchFinished(succeeded: true, refsMoved: false));
+
+      expect(_previewedRemotes(c), isEmpty);
+    });
+
+    test('that moved a ref previews like a manual fetch', () {
+      final FakeRepoSessionController c = controller();
+      c.debugRecordFetch(remoteName: 'origin', background: true);
+
+      c.debugHandleEvent(_fetchFinished(succeeded: true, refsMoved: true));
+
+      expect(_previewedRemotes(c), <String>['origin']);
+    });
+
+    test('that fails leaves lastError alone', () {
+      // 背景作業失敗一律不彈窗: the failure reaches the log and the status
+      // bar's error summary through its operation record, never the banner.
+      final FakeRepoSessionController c = controller();
+      c.debugRecordFetch(remoteName: 'origin', background: true);
+
+      c.debugHandleEvent(_fetchFinished(succeeded: false, error: _authError()));
+
+      expect(c.state.lastError, isNull);
+    });
+
+    test('a manual fetch that fails still sets lastError', () {
+      final FakeRepoSessionController c = controller();
+      c.debugRecordFetch(remoteName: 'origin');
+
+      c.debugHandleEvent(_fetchFinished(succeeded: false, error: _authError()));
+
+      expect(c.state.lastError?.codeName, 'Auth');
+    });
+
+    test('silences only its own outcome, not a manual fetch queued after '
+        'it', () {
+      final FakeRepoSessionController c = controller();
+      c.debugRecordFetch(remoteName: 'origin', background: true);
+      c.debugRecordFetch(remoteName: 'origin');
+
+      c.debugHandleEvent(_fetchFinished(succeeded: false, error: _authError()));
+      expect(c.state.lastError, isNull);
+      c.debugHandleEvent(_fetchFinished(succeeded: false, error: _authError()));
+      expect(c.state.lastError?.codeName, 'Auth');
     });
   });
 }

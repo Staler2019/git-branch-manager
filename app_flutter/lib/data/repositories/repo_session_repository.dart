@@ -1384,11 +1384,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           final bool succeeded = payload['succeeded'] != false;
           final Object? error = payload['error'];
           final bool isCommit = payload['kind'] == _commitOutcomeKind;
+          // Peeked before _handleWorkingCopyOutcomeKind pops it: 背景作業
+          // （自動 fetch）失敗一律不彈窗 (spec page 10), so its failure
+          // reaches only the log and the status bar's error summary, through
+          // its own operation record.
+          final bool backgroundFetch =
+              payload['kind'] == PendingOperationKind.fetch.wireName &&
+              (_pending.peekFetch()?.background ?? false);
           // One publish for the error and the commit count: a waiter on the
           // count must see the failure in the same state (see
           // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
           // re-read below, so the commit is settled before its merge ends.
-          if (!succeeded || isCommit) {
+          if ((!succeeded && !backgroundFetch) || isCommit) {
             final GitError? failure =
                 succeeded || error is! Map<String, dynamic>
                 ? null
@@ -2432,6 +2439,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     final PendingFetchRequest? request = _pending.takeFetch();
     if (request == null) return;
     if (payload['succeeded'] != true) return;
+    // A background fetch that moved nothing cannot have made a ref gone, and
+    // each preview below is a network round trip per remote, every interval.
+    if (request.background && payload['refsMoved'] == false) return;
 
     // Spec page 02 is explicit that a fetch must not silently remove a
     // remote-tracking ref, so this asks `git remote prune --dry-run` what a
@@ -2456,8 +2466,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// call instead of reaching this class's implementation. Same reason
   /// [debugRecordCheckout] exists.
   @visibleForTesting
-  void debugRecordFetch({String remoteName = ''}) =>
-      _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+  void debugRecordFetch({String remoteName = '', bool background = false}) =>
+      _pending.recordFetch(
+        PendingFetchRequest(remoteName: remoteName, background: background),
+      );
 
   /// Test-only: records a pending prune-remote request without going through
   /// [pruneRemote], for the same reason [debugRecordFetch] exists.
@@ -3860,13 +3872,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
+    bool background = false,
   }) {
     if (_session == nullptr) return;
     // Recorded before the call, so the outcome that comes back on
     // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED can be attributed to *this*
     // request rather than to whichever fetch happens to be at the head of
     // the queue. See PendingOperationTracker's doc comment.
-    _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+    _pending.recordFetch(
+      PendingFetchRequest(remoteName: remoteName, background: background),
+    );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
@@ -3878,7 +3893,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           count,
           prune ? 1 : 0,
           tags ? 1 : 0,
-          0,
+          background ? 1 : 0,
         ),
       );
     } finally {

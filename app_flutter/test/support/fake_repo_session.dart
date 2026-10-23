@@ -585,11 +585,13 @@ class FakeRepoSessionController extends RepoSessionController {
     List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
+    bool background = false,
   }) {
     commandLog.add(
       FakeCommand('fetchRemote', <String, Object?>{
         'remoteName': remoteName,
         'refs': refs,
+        'background': background,
       }),
     );
   }

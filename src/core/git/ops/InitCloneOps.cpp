@@ -25,11 +25,19 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
         check.timeout = std::chrono::seconds(30);
         auto checked = runner.run(check, token);
         if (!checked) {
-            // Only git's own "no" -- an exit code -- means the name is invalid;
-            // a check that never answered (timed out, cancelled, never
-            // started) is reported as what it was.
-            if (checked.error().exitCode == 0) {
+            // Only git's own "no" -- `die()`, exit 128 -- means the name is
+            // invalid; a check that never answered (timed out, cancelled,
+            // never started) is reported as what it was, and one that ended
+            // any other way (a signal is 128 + N) by its exit code.
+            const int exitCode = checked.error().exitCode;
+            if (exitCode == 0) {
                 return fail(std::move(checked).error());
+            }
+            if (exitCode != 128) {
+                return fail(checked.error().code,
+                            "Could not check the branch name: git exited with code " +
+                                std::to_string(exitCode),
+                            checked.error().detail);
             }
             return fail(GitError::Code::InvalidArgument,
                         "'" + request.initialBranch + "' is not a valid branch name");

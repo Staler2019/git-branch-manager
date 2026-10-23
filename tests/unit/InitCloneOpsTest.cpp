@@ -132,6 +132,31 @@ TEST(RunInitRepo, ATimedOutBranchCheckIsNotReportedAsAnInvalidName) {
     EXPECT_EQ(runner.invocationCount(), 1u);
 }
 
+// git says "no" to a name with `die()`, exit 128. A git killed by a signal
+// exits 128 + N on POSIX and whatever `TerminateProcess` was given on
+// Windows; neither has said anything about the name.
+TEST(RunInitRepo, ABranchCheckKilledBySignalIsNotReportedAsAnInvalidName) {
+    for (const int exitCode : {1, 137}) {
+        FakeProcessRunner runner;
+        FakeProcessRunner::Response killed;
+        killed.exitCode = exitCode;
+        runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, killed);
+
+        InitRepoRequest request;
+        request.path = "/repos/new-project";
+        request.initialBranch = "trunk";
+
+        GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+        ASSERT_FALSE(result) << exitCode;
+        EXPECT_NE(result.error().code, GitError::Code::InvalidArgument) << exitCode;
+        EXPECT_EQ(
+            result.error().message,
+            "Could not check the branch name: git exited with code " + std::to_string(exitCode));
+        EXPECT_EQ(runner.invocationCount(), 1u) << exitCode;
+    }
+}
+
 TEST(RunInitRepo, RejectsEmptyPathWithoutRunningGit) {
     FakeProcessRunner runner;
     InitRepoRequest request;

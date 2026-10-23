@@ -131,7 +131,34 @@ Mutation：P3 1 個，轉紅 core 1、capi 1；P4-a 2 個，各轉紅 1；P4-b 1
 會被比對擋下）以及 `trunk`／`café`／`@`（原樣放行）。PlatformMenuBar 另用 5 個探針測試驗證：三個 host 依不同順序 dispose、
 同一個 frame 內替換或全部移除、非 macOS、用真的 delegate 從歡迎畫面轉進 workspace。三個 P4 依預設延後：
 
-- device 成功案例約 5 分鐘，推測卡在最後的 `pumpAndSettle()`，未查證。
-- URL 帶不出資料夾名稱時，目標是上層資料夾本身，Clone 按鈕仍可按（C-D1 本來就是這樣），git 會以「目錄非空」失敗，可以恢復。
-- git 被訊號殺掉時 exit code 非零，會被報成名稱不合法；極端情況，不在本輪範圍。
+- ~~device 成功案例約 5 分鐘，推測卡在最後的 `pumpAndSettle()`，未查證。~~ 已查證，見下方「追加二」。
+- ~~URL 帶不出資料夾名稱時，目標是上層資料夾本身，Clone 按鈕仍可按（C-D1 本來就是這樣），git 會以「目錄非空」失敗，可以恢復。~~ 使用者裁示要修，已修（`c80da91f`、`9804b4d3`）。
+- ~~git 被訊號殺掉時 exit code 非零，會被報成名稱不合法；極端情況，不在本輪範圍。~~ 使用者認為「訊息不合理」，已修（`59a3df3a`）。
+
+## 追加二：三個 P4 的裁示與量測
+
+使用者裁示：5 分鐘「查證一下」；Clone「應跳警告不給按，或是以_替換不可組成的字元」，經詢問後選「兩者都做」；
+訊號中止「訊息不合理」。
+
+```
+59a3df3a fix  只有 exit 128（git 的 die）才算分支名不合法；其他非零報「Could not check the branch name: git exited with code N」
+c80da91f fix  cloneFolderNameFromUrl 把 < > " | ? * 與控制字元換成 _
+9804b4d3 fix  Clone 目標已存在且非空（含已是 repository）→ warn「$path 已存在且不是空的，git clone 會失敗。」並停用
+```
+
+- **exit code：** git 2.56.0 對 8 種不合法名稱（`a..b`、`-x`、`x.lock`、`foo//bar`、`@{u}`、`a b`、`a~b`、空字串）
+  一律回 128。POSIX runner 把訊號中止回報為 128+N（`ProcessRunner.cpp` 的 `wait()`）。測試同時涵蓋 exit 1
+  （Windows 被 `TerminateProcess` 終止時的常見碼）與 137。
+- **Mutation：** `59a3df3a` 跑 3 個，各轉紅 1；`c80da91f` 跑 4 個，轉紅 1/1/1/3；`9804b4d3` 跑 4 個，轉紅 3/3/1/1。
+- **5 分鐘的查證：** 用暫存的計時測試（不提交）量測。
+  - 單獨跑 6 次，成功案例 3–6 秒，每一步都不到 1 秒。
+  - 同時跑完整 `flutter test` 當負載時，20 次裡有 11 次變慢（30 秒以上）或失敗。
+  - 加上每次 pump 的計時後，看到**一次 `tester.pump(100ms)` 等了 532 秒**；其餘幾次卡在填欄位、按 Create 的步驟，一次約 11 分鐘。
+    另一次 `pumpAndSettle` 超過 10 分鐘，以 `pumpAndSettle timed out` 失敗。
+  - 卡的不是 init，也不是開 repo，而是 engine 遲遲不交出下一個 frame。
+  - 同時間每 5 秒記錄一次前景 app，共 569 筆：538 筆是 firefox，gbm_flutter 在前景只有 3 筆。
+  - 推測：macOS 視窗不在前景、可能被遮住時，engine 會好幾分鐘不出 frame。**沒有做遮住與未遮住的對照實驗，所以是推測。**
+  - 第一輪 G3 的 `context_menu_flows` 53:58、`operation_log_benign_exit` 53:55、`commit_flow` 12:44 是同一種形狀。
+  - 「歡迎畫面的 spinner 讓 `pumpAndSettle` 停不下來」這個推測已被反駁：歡迎畫面不自動掃描，也沒有 spinner。
+  - 本輪的程式碼沒有修改；可能的 harness 對策（例如 `LiveTestWidgetsFlutterBindingFramePolicy.benchmark`）未做，留給使用者裁示。
 

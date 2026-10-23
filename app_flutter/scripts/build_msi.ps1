@@ -49,6 +49,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $release 'gbm_flutter.exe'))) {
 if (-not (Test-Path -LiteralPath (Join-Path $release 'gbm_capi.dll'))) {
   throw "No gbm_capi.dll in $release."
 }
+# The VC++ runtime is bundled by windows/CMakeLists.txt too. Without it the
+# app resolves the runtime from System32, and an msvcp140.dll older than the
+# compiler (14.29 against a 14.51 build) crashes with c0000005 before the
+# first frame -- no window, no message.
+foreach ($runtime in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
+  if (-not (Test-Path -LiteralPath (Join-Path $release $runtime))) {
+    throw "No $runtime in $release."
+  }
+}
 
 $source = Join-Path $PSScriptRoot '..\windows\installer\Package.wxs'
 $outDir = Split-Path -Parent $OutFile

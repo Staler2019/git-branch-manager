@@ -121,3 +121,15 @@ push 不會互相競爭。
 - 「有新變化時 status bar 的分支區短暫高亮一次，不跳通知」：沒有實作。
 
 兩者都是畫面上的改動，依 G1 要先給設計、取得裁定。
+
+### verifier（fresh context）：CONFIRMED
+
+C++ 940/940、flutter `+4054 ~8`、analyze / format 乾淨；probe 另外確認：被取消的排隊背景 fetch
+會清掉 in-flight、token 不會進暫停那行、`showDialog` 從 shell 子頁開也算 dialog。兩個 advisory：
+
+- **A1（P3）**：在 Preferences 裡打開開關不會立刻 fetch——Preferences 本身是 dialog，開啟那次
+  tick 被 `dialogOpen` 擋掉，第一次 fetch 要等一個間隔。合乎裁定「開 dialog 時都不能做背景
+  fetch」與「跳過該次」；但 scheduler 的註解寫 ~~fetches at once~~，已原地更正。是否要在
+  Preferences 關閉後補抓一次，待使用者裁定。
+- **A2（P4）**：repo switcher popover 與 graph columns selector 用 `showGeneralDialog`，也會讓
+  該次跳過；偏保守，沒有正確性風險。

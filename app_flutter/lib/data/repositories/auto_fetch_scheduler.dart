@@ -52,7 +52,10 @@ class AutoFetchScheduler {
   /// the same values again do nothing.
   ///
   /// Turning it on -- including the first call with it on, which is the
-  /// session opening -- fetches at once and arms the interval; a new
+  /// session opening -- ~~fetches at once~~ ticks at once (through the gate
+  /// like any tick, so a switch flipped inside Preferences -- itself a
+  /// dialog -- is skipped and the first fetch comes one interval later) and
+  /// arms the interval; a new
   /// interval while on re-arms from now without an extra fetch; off cancels
   /// the timer. Below one minute counts as one: a zero period would spin.
   void configure({required bool enabled, required int minutes}) {

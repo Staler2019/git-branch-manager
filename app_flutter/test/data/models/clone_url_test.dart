@@ -18,6 +18,11 @@ void main() {
     '  https://h/o/r.git  ': 'r',
     '': '',
     'https://': '',
+    // Characters no folder name may hold on Windows or macOS become `_`
+    // (使用者裁示「以_替換不可組成的字元」).
+    'https://h/o/a|b?c*d': 'a_b_c_d',
+    'https://h/o/"q"<x>': '_q__x_',
+    'https://h/o/a\tb': 'a_b',
   };
   for (final MapEntry<String, String> c in cases.entries) {
     test('"${c.key}" -> "${c.value}"', () {

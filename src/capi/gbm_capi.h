@@ -971,12 +971,19 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
 /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
 /// the same refresh gbm_history_refresh() would (a fetch can bring in new
 /// commits on remote-tracking refs).
+///
+/// `background` non-zero is the auto fetch nobody pressed a button for: no
+/// GBM_EVENT_CREDENTIAL_REQUESTED is ever raised (every prompt is refused, see
+/// askpass::wireRefusing), the session's askpass watch is left alone for a
+/// foreground operation submitted meanwhile, and git skips auto maintenance
+/// and FETCH_HEAD.
 GBM_API void gbm_remote_fetch(GbmSessionHandle session,
                               const char* remoteName,
                               const char* const* refs,
                               int32_t refCount,
                               int32_t prune,
-                              int32_t tags);
+                              int32_t tags,
+                              int32_t background);
 
 /// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
 /// empty uses the branch's configured upstream. Async: fires

@@ -3878,6 +3878,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           count,
           prune ? 1 : 0,
           tags ? 1 : 0,
+          0,
         ),
       );
     } finally {

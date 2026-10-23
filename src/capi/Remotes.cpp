@@ -33,12 +33,14 @@ GBM_API void gbm_remote_fetch(GbmSessionHandle session,
                               const char* const* refs,
                               int32_t refCount,
                               int32_t prune,
-                              int32_t tags) {
+                              int32_t tags,
+                              int32_t background) {
     FetchRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.refs = toStringVector(refs, refCount);
     request.prune = prune != 0;
     request.tags = tags != 0;
+    request.background = background != 0;
     toSession(session)->fetchRemote(std::move(request));
 }
 

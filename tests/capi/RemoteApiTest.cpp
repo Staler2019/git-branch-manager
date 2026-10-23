@@ -184,7 +184,7 @@ TEST_F(RemoteApiTest, FetchBringsInNewRemoteCommits) {
     ASSERT_EQ(runIn(other, {"push", "--quiet", "origin", "main"}), 0);
     std::filesystem::remove_all(other, ec);
 
-    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -208,7 +208,7 @@ TEST_F(RemoteApiTest, FetchWithRefsBringsInOnlyTheNamedBranch) {
     ASSERT_NE(runGit({"rev-parse", "--verify", "origin/unwanted"}), 0);
 
     const char* refs[] = {"wanted"};
-    gbm_remote_fetch(session_, "origin", refs, 1, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", refs, 1, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -228,7 +228,7 @@ TEST_F(RemoteApiTest, FetchStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
     // that produced it (see OperationRunner.h's doc comment); fetch had no
     // override, which is why the post-fetch gone-marking had nothing stable
     // to hang off.
-    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -242,7 +242,7 @@ TEST_F(RemoteApiTest, AFailedFetchIsStampedToo) {
     // leave the queue misaligned and attribute the *next* fetch's outcome
     // to this request.
     const char* refs[] = {"main"};
-    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -252,7 +252,7 @@ TEST_F(RemoteApiTest, AFailedFetchIsStampedToo) {
 
 TEST_F(RemoteApiTest, FetchWithRefsButNoRemoteNameFailsCleanly) {
     const char* refs[] = {"main"};
-    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "", refs, 1, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
@@ -325,7 +325,7 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
     // resolves HEAD to a nonexistent refs/heads/master and exits 128 -- the
     // same trap the FetchBringsInNewRemoteCommits comment above calls out.
     ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
-    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     ASSERT_EQ(runIn(remote_, {"branch", "-D", "gone"}), 0);
@@ -344,7 +344,7 @@ TEST_F(RemoteApiTest, PrunePreviewListsARemoteTrackingBranchDeletedOnTheRemote) 
 TEST_F(RemoteApiTest, PruneDeletesExactlyTheSelectedRemoteTrackingRef) {
     // Explicit start point -- see the note in the preview test above.
     ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
-    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/gone"}), 0);
     ASSERT_EQ(runGit({"rev-parse", "--verify", "origin/main"}), 0);
@@ -367,7 +367,7 @@ TEST_F(RemoteApiTest, PruneStampsItsOutcomeWithAKindSoDartCanAttributeIt) {
     // prune" is wrong whenever any of the ~thirty other methods sharing
     // that channel is submitted in between.
     ASSERT_EQ(runIn(remote_, {"branch", "gone", "main"}), 0);
-    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0);
+    gbm_remote_fetch(session_, "origin", nullptr, 0, /*prune=*/0, /*tags=*/0, /*background=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
 
     const char* refs[] = {"origin/gone"};
@@ -435,6 +435,118 @@ TEST_F(RemoteApiTest, RemoveRemoteFailsWhenNoSuchRemote) {
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
     EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+}
+
+void setEnv(const char* name, const std::string& value) {
+#ifdef _WIN32
+    _putenv_s(name, value.c_str());
+#else
+    setenv(name, value.c_str(), 1);
+#endif
+}
+
+void unsetEnv(const char* name) {
+#ifdef _WIN32
+    _putenv_s(name, "");
+#else
+    unsetenv(name);
+#endif
+}
+
+/// A second remote, `sshremote`, reached through a shell script standing in
+/// for ssh (the CloneJobApiTest technique): the script plays git's askpass
+/// client against whatever GBM_ASKPASS_DIR the operation was given, so a
+/// test can see whether a credential prompt was -- or could be -- raised.
+class SshRemoteApiTest : public RemoteApiTest {
+protected:
+    void SetUp() override {
+        RemoteApiTest::SetUp();
+        ASSERT_EQ(runGit({"remote", "add", "sshremote", "ssh://example.invalid/r.git"}), 0);
+    }
+
+    void TearDown() override {
+        unsetEnv("GIT_SSH_COMMAND");
+        unsetEnv("GIT_SSH_VARIANT");
+        RemoteApiTest::TearDown();
+        std::error_code ec;
+        std::filesystem::remove(script_, ec);
+    }
+
+    void useSshScript(const std::string& body) {
+        script_ = repo_.parent_path() / (repo_.filename().string() + "-fake-ssh.sh");
+        {
+            std::ofstream file(script_, std::ios::binary);
+            file << body;
+        }
+        setEnv("GIT_SSH_COMMAND", "sh '" + script_.generic_string() + "'");
+        setEnv("GIT_SSH_VARIANT", "ssh");
+    }
+
+    std::filesystem::path script_;
+};
+
+TEST_F(SshRemoteApiTest, BackgroundFetchNeverRaisesACredentialPrompt) {
+    useSshScript(
+        "if [ -n \"$GBM_ASKPASS_DIR\" ]; then\n"
+        "  printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request\"\n"
+        "  sleep 2\n"
+        "fi\n"
+        "exit 1\n");
+
+    gbm_remote_fetch(session_,
+                     "sshremote",
+                     nullptr,
+                     0,
+                     /*prune=*/0,
+                     /*tags=*/0,
+                     /*background=*/1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":false"), std::string::npos) << outcome;
+    EXPECT_TRUE(log_.lastPayloadOfType(GBM_EVENT_CREDENTIAL_REQUESTED).empty())
+        << "nobody pressed a button, so nothing may ask for a password";
+}
+
+TEST_F(SshRemoteApiTest, PushQueuedBehindABackgroundFetchStillRaisesItsPrompt) {
+    // The fetch (upload-pack) holds the queue for a second; the push
+    // (receive-pack) asks for a password. The push takes its askpass watch
+    // when it is submitted, i.e. while the fetch is still running -- so a
+    // background fetch that released "the" watch on finishing would delete
+    // the push's request directory and its prompt would never appear.
+    useSshScript(
+        "case \"$*\" in\n"
+        "  *upload-pack*) sleep 1; exit 1 ;;\n"
+        "esac\n"
+        "printf 'Password for push: ' > \"$GBM_ASKPASS_DIR/request\" || exit 1\n"
+        "while [ ! -f \"$GBM_ASKPASS_DIR/cancel\" ] && [ ! -f \"$GBM_ASKPASS_DIR/response\" ] &&"
+        " [ -d \"$GBM_ASKPASS_DIR\" ]; do\n"
+        "  sleep 0.05\n"
+        "done\n"
+        "exit 1\n");
+
+    gbm_remote_fetch(session_,
+                     "sshremote",
+                     nullptr,
+                     0,
+                     /*prune=*/0,
+                     /*tags=*/0,
+                     /*background=*/1);
+    const char* branches[] = {"main"};
+    gbm_push(session_,
+             "sshremote",
+             branches,
+             1,
+             /*setUpstream=*/0,
+             /*pushTags=*/0,
+             /*forceWithLease=*/0);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_CREDENTIAL_REQUESTED);
+    })) << "the push's password prompt was lost";
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_CREDENTIAL_REQUESTED),
+              "{\"prompt\":\"Password for push: \"}");
+    gbm_cancel_credential(session_);
 }
 
 }  // namespace

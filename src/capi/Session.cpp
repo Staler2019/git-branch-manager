@@ -1191,6 +1191,16 @@ RemoteListPtr Session::currentRemotes() const {
 }
 
 void Session::fetchRemote(FetchRequest request) {
+    if (request.background) {
+        // No askpass watch at all: there is one poller per session, so a
+        // background fetch that took it -- and released it on finishing --
+        // would delete the request directory of a push submitted while it
+        // ran, and that push's password prompt would never appear.
+        // FetchOperation refuses every prompt for a background fetch anyway.
+        submitWorkingCopyOperation(makeFetchOperation(std::move(request)),
+                                   [this]() { refreshHistory(); });
+        return;
+    }
     request.askpassDir = beginAskpass();
     submitWorkingCopyOperation(
         makeFetchOperation(std::move(request)),

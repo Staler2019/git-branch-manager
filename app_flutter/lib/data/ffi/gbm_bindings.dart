@@ -664,6 +664,7 @@ typedef _RemoteFetchNative = Void Function(
   Int32 refCount,
   Int32 prune,
   Int32 tags,
+  Int32 background,
 );
 typedef RemoteFetchDart = void Function(
   Pointer<Void> session,
@@ -672,6 +673,7 @@ typedef RemoteFetchDart = void Function(
   int refCount,
   int prune,
   int tags,
+  int background,
 );
 
 typedef _PullNative = Void Function(

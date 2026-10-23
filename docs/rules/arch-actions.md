@@ -21,10 +21,11 @@ all three:
 1. **Keyboard** — `WorkspaceActionShortcuts` (`workspace_action_shortcuts.dart`)
    wraps the shell in `Shortcuts` + `Actions`; a bound key press dispatches a
    `GbmActionIntent(id)`, whose `CallbackAction` calls `handlers[id]?.call()`.
-2. **macOS system menu bar** — `PlatformMenuBarHost` builds a real
-   `PlatformMenuBar` from the same map; `PlatformMenuItem(onSelected:
-   handlers[item.id])` — a `null` value is what makes macOS grey the item
-   out natively.
+2. **macOS system menu bar** — `PlatformMenuBarHost` ~~builds a real
+   `PlatformMenuBar` from the same map~~ sends the same map to
+   `platformMenuDelegate` (two `PlatformMenuBar`s collide on a page swap);
+   `PlatformMenuItem(onSelected: handlers[item.id])` — a `null` value is what
+   makes macOS grey the item out natively.
 3. **In-window menu** — `MenuBarRow` (rendered instead of (2) on non-macOS,
    spec page 01) resolves most ids via `Actions.maybeInvoke(context,
    GbmActionIntent(id))`, which reaches the same `Actions` block as (1). Five

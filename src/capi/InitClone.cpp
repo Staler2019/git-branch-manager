@@ -20,7 +20,7 @@ int32_t errorCodeOrdinal(const GitError& error) {
 
 }  // namespace
 
-GBM_API int32_t gbm_repo_init(const char* path) {
+GBM_API int32_t gbm_repo_init(const char* path, const char* initial_branch) {
     const GitResult<GitInstallation> installation = sharedGitInstallation();
     if (!installation) {
         setStagingBuffer(toJson(installation.error()));
@@ -30,6 +30,7 @@ GBM_API int32_t gbm_repo_init(const char* path) {
 
     InitRepoRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
+    request.initialBranch = initial_branch != nullptr ? initial_branch : "";
 
     const CancellationSource cancel;  // Synchronous, like gbm_discovery_scan_all.
     const GitResult<void> result = runInitRepo(*runner, request, cancel.token());

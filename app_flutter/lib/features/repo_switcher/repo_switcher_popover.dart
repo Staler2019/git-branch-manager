@@ -246,7 +246,7 @@ Future<void> promptNewRepository(
           init: () {
             final Pointer<Utf8> pathPtr = path.toNativeUtf8();
             try {
-              if (bindings.repoInit(pathPtr) == 0) return null;
+              if (bindings.repoInit(pathPtr, nullptr) == 0) return null;
             } finally {
               malloc.free(pathPtr);
             }

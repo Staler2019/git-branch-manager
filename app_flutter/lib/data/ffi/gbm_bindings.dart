@@ -1266,8 +1266,14 @@ typedef HasCommitGraphDart = int Function(Pointer<Void> session);
 typedef _WriteCommitGraphNative = Void Function(Pointer<Void> session);
 typedef WriteCommitGraphDart = void Function(Pointer<Void> session);
 
-typedef _RepoInitNative = Int32 Function(Pointer<Utf8> path);
-typedef RepoInitDart = int Function(Pointer<Utf8> path);
+typedef _RepoInitNative = Int32 Function(
+  Pointer<Utf8> path,
+  Pointer<Utf8> initialBranch,
+);
+typedef RepoInitDart = int Function(
+  Pointer<Utf8> path,
+  Pointer<Utf8> initialBranch,
+);
 
 typedef _GitVersionJsonNative = Int32 Function();
 typedef GitVersionJsonDart = int Function();

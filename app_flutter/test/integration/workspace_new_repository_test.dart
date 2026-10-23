@@ -26,7 +26,7 @@ class _FailingInit extends FakeGbmBindings {
 
   @override
   RepoInitDart get repoInit =>
-      (Pointer<Utf8> path) => -3;
+      (Pointer<Utf8> path, Pointer<Utf8> initialBranch) => -3;
 
   @override
   LastResultJsonLenDart get lastResultJsonLen =>

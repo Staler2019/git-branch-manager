@@ -26,10 +26,11 @@ class _FakeInitCloneBindings implements GbmBindings {
   String? lastInitPath;
 
   @override
-  RepoInitDart get repoInit => (Pointer<Utf8> path) {
-    lastInitPath = path.toDartString();
-    return initResult;
-  };
+  RepoInitDart get repoInit =>
+      (Pointer<Utf8> path, Pointer<Utf8> initialBranch) {
+        lastInitPath = path.toDartString();
+        return initResult;
+      };
 
   @override
   LastResultJsonLenDart get lastResultJsonLen =>

@@ -256,7 +256,7 @@ void main() {
     // assert on the dialog's presence instead. Its conflict gate is also the
     // only one not routed through isActionEnabled(): BranchTreeItem takes a
     // plain `conflictActive` param, so it needs its own transition coverage
-    // per CLAUDE.md's rule at the end of "Action availability state machine".
+    // per [TEST-tiers] (.claude/rules/arch-testing.md).
     testWidgets('the sidebar\'s 05-B Rename… opens the dialog seeded '
         'with the clicked branch', (tester) async {
       await pumpWorkspace(

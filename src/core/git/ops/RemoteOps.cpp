@@ -27,6 +27,8 @@ public:
     /// Operation::kind() exists to draw.
     std::string kind() const override { return "fetch"; }
 
+    bool isBackground() const override { return request_.background; }
+
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,
                          CancellationToken token) override {

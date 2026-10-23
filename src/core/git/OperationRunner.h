@@ -91,6 +91,12 @@ public:
     /// for those means running the operation's own --abort afterwards, not a kill.
     virtual bool killableMidFlight() const { return false; }
 
+    /// Low-priority work nobody pressed a button for (the auto fetch). Read
+    /// only by OperationRunner::submit(): a foreground operation submitted
+    /// while such a unit is still queued cancels it, so the user's action never
+    /// waits behind it. A running one is left alone -- it may hold ref locks.
+    virtual bool isBackground() const { return false; }
+
     /// Runs the operation. Called on the repository's serial queue.
     virtual OperationOutcome run(IProcessRunner& runner,
                                  const RepoPaths& paths,

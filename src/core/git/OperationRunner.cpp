@@ -39,6 +39,16 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
     Handle handle;
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (!operation->isBackground()) {
+            // cancel()'s invariant 2: tripped before the lock is released, so
+            // the worker cannot pop one and spawn git in between. The running
+            // unit is not in queue_ and is never touched here.
+            for (auto& waiting : queue_) {
+                if (waiting.operation->isBackground()) {
+                    waiting.source.cancel();
+                }
+            }
+        }
         handle.id = nextQueuedOperationId();
         QueuedOperation queued{handle.id, std::move(operation), std::move(onDone), handle.cancel};
         queue_.push_back(std::move(queued));

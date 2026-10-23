@@ -403,5 +403,12 @@ TEST(FetchOperation, ForegroundFetchKeepsItsPromptAndPlainArgs) {
     EXPECT_EQ(envOf(runner.invocations()[0], "GBM_ASKPASS_DIR"), "/tmp/gbm-askpass-foreground");
 }
 
+TEST(FetchOperation, OnlyABackgroundFetchIsABackgroundUnit) {
+    FetchRequest background;
+    background.background = true;
+    EXPECT_TRUE(makeFetchOperation(background)->isBackground());
+    EXPECT_FALSE(makeFetchOperation(FetchRequest{})->isBackground());
+}
+
 }  // namespace
 }  // namespace gbm

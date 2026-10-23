@@ -32,7 +32,11 @@ List<BackgroundTask> backgroundTasksFromOperationLog(List<GbmLogEntry> log) {
     }
     final List<String> args = _commandArgs(entry.argv);
     if (args.isEmpty) continue;
-    final (String label, bool isFolded)? kind = _taskKind(args);
+    // 使用者裁定 2026-10-24 on P11 item 9 「只在 status bar 的 +N task 內
+    // 顯示」: 「可折」, and alone it is the main item like Prune.
+    final (String label, bool isFolded)? kind = entry.isAutoFetch
+        ? ('Auto fetch', true)
+        : _taskKind(args);
     if (kind == null) continue;
     (kind.$2 ? folded : foreground).add(
       BackgroundTask.gitCommand(

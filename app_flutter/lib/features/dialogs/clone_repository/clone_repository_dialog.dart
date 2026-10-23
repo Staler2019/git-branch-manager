@@ -66,14 +66,13 @@ class _CloneRepositoryDialogContentState
 
   /// 「URL 貼上後自動帶出資料夾名，可手改」: under the folder 瀏覽… picked,
   /// else the first enabled base folder, until the destination is typed in
-  /// by hand. With neither there is no parent to put it under, so the field
-  /// is left alone.
+  /// by hand -- and the parent itself once the URL names no folder (C-D1).
+  /// With neither there is no parent to put it under, so the field is left
+  /// alone.
   void _onUrlChanged(String url) {
     if (!_destEdited) {
       final String? parent = _pickedParent ?? _defaultParent();
-      if (parent != null && cloneFolderNameFromUrl(url).isNotEmpty) {
-        _dest.text = cloneDestinationPath(parent, url);
-      }
+      if (parent != null) _dest.text = cloneDestinationPath(parent, url);
     }
     setState(() {});
   }

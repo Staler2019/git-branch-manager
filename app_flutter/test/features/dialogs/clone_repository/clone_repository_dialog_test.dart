@@ -330,6 +330,24 @@ void main() {
     );
   });
 
+  // C-D1: 「URL 空白時就是選到的資料夾」 holds after typing too, not only
+  // at the moment 瀏覽… returns.
+  testWidgets('a URL that stops naming a folder falls back to the parent', (
+    tester,
+  ) async {
+    await _pump(tester, picked: '/Volumes/work');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.pump();
+    await tester.enterText(_field('clone-url-field'), '');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work',
+    );
+  });
+
   testWidgets('a cancelled 瀏覽… leaves the destination alone', (tester) async {
     await _pump(tester, folders: <BaseFolderRecord>[_folder('/src')]);
     await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');

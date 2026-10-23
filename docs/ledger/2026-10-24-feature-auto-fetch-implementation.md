@@ -114,13 +114,17 @@ push 不會互相競爭。
 - 既有 P3：兩個排隊的前景 askpass 作業本來就會互踩 poller（本輪沒有新增，也沒修）。
 - 惡意 repo config（F10）、取消延遲（F9）：見計畫的 security dispositions。
 
-### 發現但需要裁定（spec P11 item 9，尚未動）
+### ~~發現但需要裁定~~ 已裁定（spec P11 item 9）
 
-- 「只在 status bar 的 +N task 內顯示」：背景 fetch 目前以完整的「Fetching …」task 出現，
-  沒有摺進 +N。
-- 「有新變化時 status bar 的分支區短暫高亮一次，不跳通知」：沒有實作。
-
-兩者都是畫面上的改動，依 G1 要先給設計、取得裁定。
+- 「只在 status bar 的 +N task 內顯示」：~~背景 fetch 目前以完整的「Fetching …」task 出現，
+  沒有摺進 +N。~~ 使用者裁定「可折」，spec-auditor 審過後再裁定：**單獨時當主項目**（同 Prune，
+  spec 沒寫只有摺疊作業時 zone 2 畫什麼）、標籤 **Auto fetch**（背景 fetch 是 `--all`，拿不到
+  remote 名）、執行中被拒的 Cancel **「拒絕訊息只進 log」**（warning，不設 `lastError`）。
+  ae720efa（`OperationRecord.isAutoFetch` 以 argv 判斷，mutation 6 / 6）、9984ef4f（mutation
+  5 / 5，第 5 個靠補上的測試才變紅）。
+- 「有新變化時 status bar 的分支區短暫高亮一次，不跳通知」：使用者裁定**「這個不需要」**。
+- verifier A1（在 Preferences 裡打開開關不立刻 fetch）：使用者裁定不補抓——「只要關掉應該就不能
+  auto fetch」，維持現狀。
 
 ### verifier（fresh context）：CONFIRMED
 

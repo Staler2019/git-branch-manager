@@ -34,6 +34,12 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
             return fail(GitError::Code::InvalidArgument,
                         "'" + request.initialBranch + "' is not a valid branch name");
         }
+        // `--branch` expands `@{-N}` against the cwd's repository and prints
+        // what it accepted; anything but the name itself was a shorthand.
+        if (checked.value().out != request.initialBranch) {
+            return fail(GitError::Code::InvalidArgument,
+                        "'" + request.initialBranch + "' is not a valid branch name");
+        }
         command.args.push_back("-b");
         command.args.push_back(request.initialBranch);
     }

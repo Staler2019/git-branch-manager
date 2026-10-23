@@ -6,7 +6,6 @@
 #include "core/git/GitExecutable.h"
 #include "support/GitCli.h"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -93,6 +92,38 @@ TEST_F(InitCloneApiTest, AnInvalidInitialBranchLeavesNothingOnDisk) {
     const std::filesystem::path repo = base_ / "new-project";
 
     const int32_t result = gbm_repo_init(repo.string().c_str(), "a..b");
+
+    EXPECT_LT(result, 0);
+    EXPECT_NE(lastResultJson().find("InvalidArgument"), std::string::npos) << lastResultJson();
+    EXPECT_FALSE(std::filesystem::exists(repo));
+}
+
+// The app's cwd may be inside a repository (launched from a terminal), where
+// `check-ref-format --branch @{-1}` succeeds by expanding to the previous
+// branch; init must still refuse it before creating anything.
+TEST_F(InitCloneApiTest, APreviousBranchShorthandIsRefusedEvenFromInsideARepository) {
+    const std::filesystem::path host = base_ / "host";
+    std::filesystem::create_directories(host);
+    ASSERT_EQ(GitCli::run(host, {"init", "--quiet", "-b", "main"}), 0);
+    ASSERT_EQ(GitCli::run(host,
+                          {"-c",
+                           "user.name=t",
+                           "-c",
+                           "user.email=t@t",
+                           "commit",
+                           "--quiet",
+                           "--allow-empty",
+                           "-m",
+                           "one"}),
+              0);
+    ASSERT_EQ(GitCli::run(host, {"checkout", "--quiet", "-b", "other"}), 0);
+    ASSERT_EQ(GitCli::run(host, {"checkout", "--quiet", "main"}), 0);
+
+    const std::filesystem::path previous = std::filesystem::current_path();
+    std::filesystem::current_path(host);
+    const std::filesystem::path repo = base_ / "new-project";
+    const int32_t result = gbm_repo_init(repo.string().c_str(), "@{-1}");
+    std::filesystem::current_path(previous);
 
     EXPECT_LT(result, 0);
     EXPECT_NE(lastResultJson().find("InvalidArgument"), std::string::npos) << lastResultJson();

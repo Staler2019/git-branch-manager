@@ -35,6 +35,9 @@ TEST(RunInitRepo, RunsGitInitWithThePath) {
 // leaves `x/`). So the name is checked first, and init never runs on a no.
 TEST(RunInitRepo, ChecksTheInitialBranchThenRunsGitInitWithIt) {
     FakeProcessRunner runner;
+    FakeProcessRunner::Response valid;
+    valid.out = "trunk";
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, valid);
     InitRepoRequest request;
     request.path = "/repos/new-project";
     request.initialBranch = "trunk";
@@ -65,6 +68,29 @@ TEST(RunInitRepo, RefusesAnInvalidInitialBranchWithoutRunningInit) {
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
     EXPECT_NE(result.error().message.find("a..b"), std::string::npos) << result.error().message;
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// `--branch` expands `@{-N}` to the branch checked out N switches ago in
+// whatever repository the process's cwd is in (measured, git 2.56.0: exit
+// 0 and prints the expansion), and `init -b @{-1}` then fails after making
+// the directory. The check prints the name it accepted, so a name that
+// comes back different was never a literal branch name.
+TEST(RunInitRepo, RefusesANameTheCheckExpandedToAnotherBranch) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response expanded;
+    expanded.out = "fix/previous";
+    runner.whenArgsContain({"check-ref-format", "--branch", "@{-1}"}, expanded);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "@{-1}";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_NE(result.error().message.find("@{-1}"), std::string::npos) << result.error().message;
     EXPECT_EQ(runner.invocationCount(), 1u);
 }
 

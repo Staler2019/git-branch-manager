@@ -94,6 +94,25 @@ TEST(RunInitRepo, RefusesANameTheCheckExpandedToAnotherBranch) {
     EXPECT_EQ(runner.invocationCount(), 1u);
 }
 
+// A check git never ran is not a verdict on the name either: the error is
+// reported as what it was, so the Log does not blame the name.
+TEST(RunInitRepo, ABranchCheckGitNeverRanIsNotReportedAsAnInvalidName) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response notStarted;
+    notStarted.spawnFailed = true;
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, notStarted);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::SpawnFailed);
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
 // Only git's "no" is an invalid name; a check that never answered is
 // reported as what it was.
 TEST(RunInitRepo, ATimedOutBranchCheckIsNotReportedAsAnInvalidName) {

@@ -25,10 +25,10 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
         check.timeout = std::chrono::seconds(30);
         auto checked = runner.run(check, token);
         if (!checked) {
-            // Only git's own "no" means the name is invalid; a check that never
-            // answered is reported as what it was.
-            const GitError::Code code = checked.error().code;
-            if (code == GitError::Code::Timeout || code == GitError::Code::Cancelled) {
+            // Only git's own "no" -- an exit code -- means the name is invalid;
+            // a check that never answered (timed out, cancelled, never
+            // started) is reported as what it was.
+            if (checked.error().exitCode == 0) {
                 return fail(std::move(checked).error());
             }
             return fail(GitError::Code::InvalidArgument,

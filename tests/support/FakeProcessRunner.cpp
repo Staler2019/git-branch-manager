@@ -80,6 +80,11 @@ GitResult<ProcessResult> FakeProcessRunner::run(const GitCommand& command,
     if (response.cancelled) {
         return cancelled();
     }
+    if (response.spawnFailed) {
+        GitError error(GitError::Code::SpawnFailed, "Could not start git", "");
+        error.argv = command.args;
+        return fail(std::move(error));
+    }
     ProcessResult result;
     result.exitCode = response.exitCode;
     result.out = response.out;

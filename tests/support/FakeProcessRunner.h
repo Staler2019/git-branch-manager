@@ -26,6 +26,9 @@ public:
         /// Answers as a cancelled invocation would -- for a reader that must
         /// tell "cancelled partway" apart from every other failure.
         bool cancelled = false;
+        /// Answers as a git that never started would (`SpawnFailed`, no exit
+        /// code) -- for a reader that must not mistake it for git's own "no".
+        bool spawnFailed = false;
         /// Stops the stream after this many records, simulating a killed child.
         std::size_t truncateAfterRecords = 0;
     };

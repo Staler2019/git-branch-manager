@@ -44,6 +44,16 @@
 - `flutter build windows --release` 成功；`build_msi.ps1` 通過；`msiexec /a` 解開的 MSI 內有全部 8 個 runtime DLL。
 - 修正後的 bundle 正常開啟，`msvcp140.dll`／`vcruntime140.dll`／`vcruntime140_1.dll` 都從 bundle 目錄載入。
 - 未驗證：公司電腦本身（無法取證）。release.yml 的 Windows leg 要到下次 release 才會實際跑這條路徑（`ci.yml` 不建 MSI）。
+  plan-verifier（事後補跑）REVISE：PR CI 測不到；runner 的 redist 由 `ilammy/msvc-dev-cmd` 的 toolset 決定，與本機 14.44 不同；
+  release 的 tag 先於 build 推出，失敗只能 fix-forward。處置 FIX：改寫驗收如下。
+- Merge 後驗收（待填）：release run ID ＿＿；`Package (Windows)` 通過與否 ＿＿；發佈 MSI 內 `msvcp140.dll`／`vcruntime140.dll`／
+  `vcruntime140_1.dll` 的 FileVersion ＿＿，對照 build log 的 MSVC toolset 版本 ＿＿。失敗則 fix-forward 發下一版，不刪 tag。
 - 計畫原本要加一條 `CI-` rule，最後沒加：`ops-toolchain-ci.md` 的開頭規定，由檢查強制的規則只寫在檢查點的註解，
   而 `build_msi.ps1` 的檢查與 `windows/CMakeLists.txt` 的註解已涵蓋。
 - 已知取捨：app-local runtime 不會被 Windows Update 修補，要靠每次 release 重新帶入 runner image 的版本。
+
+## Review
+
+- plan-verifier（事後補跑）：第一次 REVISE（PR CI 測不到 release 打包），FIX 改寫驗收；收尾審查 READY。
+- verifier：CONFIRMED，五項全部通過（含以 EqualizerAPO 14.29 重現 0xC0000005、修正後 bundle 從自身目錄載入 14.44 runtime）。
+- verifier P4：註解「14.51 build」把 System32 runtime 版本誤當編譯器版本；FIX，已更正（本機編譯器為 cl 19.44／toolset 14.44）。

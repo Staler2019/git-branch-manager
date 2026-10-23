@@ -901,11 +901,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
       // and Clone share the same footer entry points too -- see
       // promptNewRepository()/promptCloneRepository() in
       // repo_switcher_popover.dart.
-      GbmActionId.fileNewRepository: () => promptNewRepository(
-        context,
-        ref,
-        sink: ref.read(repoSessionProvider(identity).notifier).recordAppLog,
-      ),
+      GbmActionId.fileNewRepository: () =>
+          promptNewRepository(context, originWorkDir: identity.workDir),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () =>
           promptCloneRepository(context, originWorkDir: identity.workDir),

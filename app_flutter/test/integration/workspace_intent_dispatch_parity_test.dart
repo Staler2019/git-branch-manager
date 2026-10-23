@@ -21,6 +21,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/workspace/widgets/platform_menu_bar_host.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/features/sidebar/sidebar_panel.dart';
 
@@ -278,10 +279,10 @@ void main() {
           identity: identity,
           isMacOS: true,
         );
-        final PlatformMenuBar bar = tester.widget<PlatformMenuBar>(
-          find.byType(PlatformMenuBar),
-        );
-        final PlatformMenuItem? item = _findMenuItem(bar.menus, 'Refresh');
+        final List<PlatformMenuItem> menus = tester
+            .widget<PlatformMenuBarHost>(find.byType(PlatformMenuBarHost))
+            .platformMenus();
+        final PlatformMenuItem? item = _findMenuItem(menus, 'Refresh');
         expect(item, isNotNull, reason: 'View > Refresh must exist on macOS');
         expect(
           item!.onSelected,

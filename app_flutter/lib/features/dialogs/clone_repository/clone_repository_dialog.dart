@@ -11,9 +11,12 @@ import '../../../data/repositories/discovery_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../data/repositories/window_log_repository.dart';
+import '../../../data/services/file_save_picker.dart';
+import '../../../data/services/target_directory_probe.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_dialog_field_kinds.dart';
 import '../../../widgets/gbm_dialog_shell.dart';
 import '../../../widgets/gbm_input_decoration.dart';
 
@@ -41,6 +44,9 @@ class _CloneRepositoryDialogContentState
   final TextEditingController _url = TextEditingController();
   final TextEditingController _dest = TextEditingController();
   bool _destEdited = false;
+
+  /// The folder 瀏覽… picked; until then the first enabled base folder.
+  String? _pickedParent;
   late final GitVersion? _git;
   late bool _recurseSubmodules;
   bool _shallow = false;
@@ -60,18 +66,29 @@ class _CloneRepositoryDialogContentState
     super.dispose();
   }
 
-  /// 「URL 貼上後自動帶出資料夾名，可手改」: under the first enabled base
-  /// folder, until the destination is typed in by hand. With no base folder
-  /// there is no parent to put it under, so the field is left alone.
+  /// 「URL 貼上後自動帶出資料夾名，可手改」: under the folder 瀏覽… picked,
+  /// else the first enabled base folder, until the destination is typed in
+  /// by hand -- and the parent itself once the URL names no folder (C-D1).
+  /// With neither there is no parent to put it under, so the field is left
+  /// alone.
   void _onUrlChanged(String url) {
     if (!_destEdited) {
-      final String? parent = _defaultParent();
-      final String name = cloneFolderNameFromUrl(url);
-      if (parent != null && name.isNotEmpty) {
-        _dest.text = '${parent.replaceAll(RegExp(r'[/\\]+$'), '')}/$name';
-      }
+      final String? parent = _pickedParent ?? _defaultParent();
+      if (parent != null) _dest.text = cloneDestinationPath(parent, url);
     }
     setState(() {});
+  }
+
+  /// C-D1: the picked folder is the parent, and picking one hands the
+  /// destination back to the URL.
+  Future<void> _browse() async {
+    final String? dir = await ref.read(fileSavePickerProvider).pickDirectory();
+    if (dir == null || !mounted) return;
+    setState(() {
+      _pickedParent = dir;
+      _destEdited = false;
+      _dest.text = cloneDestinationPath(dir, _url.text);
+    });
   }
 
   String? _defaultParent() {
@@ -109,8 +126,16 @@ class _CloneRepositoryDialogContentState
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    final String dest = _dest.text.trim();
+    // git clone refuses a destination that exists and is not empty, so say
+    // so here instead of in the Log afterwards; a repository is not empty.
+    final bool destTaken = switch (probeTargetDirectory(dest)) {
+      TargetDirectoryState.nonEmpty ||
+      TargetDirectoryState.gitRepository => true,
+      TargetDirectoryState.missing || TargetDirectoryState.empty => false,
+    };
     final bool canClone =
-        _url.text.trim().isNotEmpty && _dest.text.trim().isNotEmpty;
+        _url.text.trim().isNotEmpty && dest.isNotEmpty && !destTaken;
     final GitVersion? git = _git;
     TextStyle label() =>
         TextStyle(fontSize: GbmTypography.textXs, color: colors.textSecondary);
@@ -169,21 +194,39 @@ class _CloneRepositoryDialogContentState
             const SizedBox(height: GbmSpacing.space3),
             Text('目標路徑', style: label()),
             const SizedBox(height: GbmSpacing.space1),
-            SizedBox(
-              height: GbmSpacing.inputHeight,
-              child: TextField(
-                key: const Key('clone-dest-field'),
-                controller: _dest,
-                style: mono,
-                onChanged: (_) => setState(() => _destEdited = true),
-                onSubmitted: (_) {
-                  if (canClone) _clone();
-                },
-                decoration: gbmInputDecoration(colors: colors),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: SizedBox(
+                    height: GbmSpacing.inputHeight,
+                    child: TextField(
+                      key: const Key('clone-dest-field'),
+                      controller: _dest,
+                      style: mono,
+                      onChanged: (_) => setState(() => _destEdited = true),
+                      onSubmitted: (_) {
+                        if (canClone) _clone();
+                      },
+                      decoration: gbmInputDecoration(colors: colors),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+                GbmButton(
+                  label: '瀏覽…',
+                  kind: GbmButtonKind.secondary,
+                  icon: const Icon(Icons.folder_open_outlined),
+                  onPressed: _browse,
+                ),
+              ],
             ),
             const SizedBox(height: GbmSpacing.space1),
             Text('URL 貼上後自動帶出資料夾名，可手改', style: hint()),
+            if (destTaken) ...<Widget>[
+              const SizedBox(height: GbmSpacing.space2),
+              GbmDialogWarnField(message: '$dest 已存在且不是空的，git clone 會失敗。'),
+            ],
             const SizedBox(height: GbmSpacing.space2),
             check(
               '一併 clone submodule',

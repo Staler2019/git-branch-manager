@@ -13,6 +13,9 @@ namespace gbm {
 
 struct InitRepoRequest {
     std::filesystem::path path;
+    /// DLGS' 「預設分支名」: `-b <name>`. Empty leaves it to git
+    /// (`init.defaultBranch`, else git's own default).
+    std::string initialBranch;
 };
 
 struct CloneRepoRequest {
@@ -39,7 +42,9 @@ struct CloneRepoRequest {
 /// IProcessRunner directly rather than an Operation. `path` is created if it
 /// doesn't already exist (git init does this itself, including missing
 /// parents); reinitializing an existing repository is not treated as an
-/// error, matching git's own behavior.
+/// error, matching git's own behavior. A non-empty `initialBranch` is checked
+/// with `git check-ref-format --branch` first: git refuses an invalid `-b` only
+/// after creating the directory, which would stay behind.
 GitResult<void> runInitRepo(IProcessRunner& runner,
                             const InitRepoRequest& request,
                             CancellationToken token);

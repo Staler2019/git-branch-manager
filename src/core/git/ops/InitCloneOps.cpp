@@ -18,7 +18,40 @@ GitResult<void> runInitRepo(IProcessRunner& runner,
     }
 
     GitCommand command;
-    command.args = {"init", "--quiet", fsutil::utf8FromPath(request.path)};
+    command.args = {"init", "--quiet"};
+    if (!request.initialBranch.empty()) {
+        GitCommand check;
+        check.args = {"check-ref-format", "--branch", request.initialBranch};
+        check.timeout = std::chrono::seconds(30);
+        auto checked = runner.run(check, token);
+        if (!checked) {
+            // Only git's own "no" -- `die()`, exit 128 -- means the name is
+            // invalid; a check that never answered (timed out, cancelled,
+            // never started) is reported as what it was, and one that ended
+            // any other way (a signal is 128 + N) by its exit code.
+            const int exitCode = checked.error().exitCode;
+            if (exitCode == 0) {
+                return fail(std::move(checked).error());
+            }
+            if (exitCode != 128) {
+                return fail(checked.error().code,
+                            "Could not check the branch name: git exited with code " +
+                                std::to_string(exitCode),
+                            checked.error().detail);
+            }
+            return fail(GitError::Code::InvalidArgument,
+                        "'" + request.initialBranch + "' is not a valid branch name");
+        }
+        // `--branch` expands `@{-N}` against the cwd's repository and prints
+        // what it accepted; anything but the name itself was a shorthand.
+        if (checked.value().out != request.initialBranch) {
+            return fail(GitError::Code::InvalidArgument,
+                        "'" + request.initialBranch + "' is not a valid branch name");
+        }
+        command.args.push_back("-b");
+        command.args.push_back(request.initialBranch);
+    }
+    command.args.push_back(fsutil::utf8FromPath(request.path));
     command.timeout = std::chrono::seconds(30);
 
     auto result = runner.run(command, token);

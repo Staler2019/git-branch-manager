@@ -29,6 +29,134 @@ TEST(RunInitRepo, RunsGitInitWithThePath) {
               (std::vector<std::string>{"init", "--quiet", "/repos/new-project"}));
 }
 
+// New repository's 「預設分支名」 (DLGS). `-b` alone is not enough: git
+// refuses an invalid name only after it has created the directory, which
+// then stays behind (measured, git 2.56.0: `init -b a..b x` exits 128 and
+// leaves `x/`). So the name is checked first, and init never runs on a no.
+TEST(RunInitRepo, ChecksTheInitialBranchThenRunsGitInitWithIt) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response valid;
+    valid.out = "trunk";
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, valid);
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    EXPECT_TRUE(result);
+    ASSERT_EQ(runner.invocationCount(), 2u);
+    EXPECT_EQ(runner.invokedArgs(0),
+              (std::vector<std::string>{"check-ref-format", "--branch", "trunk"}));
+    EXPECT_EQ(runner.invokedArgs(1),
+              (std::vector<std::string>{"init", "--quiet", "-b", "trunk", "/repos/new-project"}));
+}
+
+TEST(RunInitRepo, RefusesAnInvalidInitialBranchWithoutRunningInit) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response invalid;
+    invalid.exitCode = 128;
+    invalid.err = "fatal: 'a..b' is not a valid branch name\n";
+    runner.whenArgsContain({"check-ref-format", "--branch", "a..b"}, invalid);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "a..b";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_NE(result.error().message.find("a..b"), std::string::npos) << result.error().message;
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// `--branch` expands `@{-N}` to the branch checked out N switches ago in
+// whatever repository the process's cwd is in (measured, git 2.56.0: exit
+// 0 and prints the expansion), and `init -b @{-1}` then fails after making
+// the directory. The check prints the name it accepted, so a name that
+// comes back different was never a literal branch name.
+TEST(RunInitRepo, RefusesANameTheCheckExpandedToAnotherBranch) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response expanded;
+    expanded.out = "fix/previous";
+    runner.whenArgsContain({"check-ref-format", "--branch", "@{-1}"}, expanded);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "@{-1}";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::InvalidArgument);
+    EXPECT_NE(result.error().message.find("@{-1}"), std::string::npos) << result.error().message;
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// A check git never ran is not a verdict on the name either: the error is
+// reported as what it was, so the Log does not blame the name.
+TEST(RunInitRepo, ABranchCheckGitNeverRanIsNotReportedAsAnInvalidName) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response notStarted;
+    notStarted.spawnFailed = true;
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, notStarted);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::SpawnFailed);
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// Only git's "no" is an invalid name; a check that never answered is
+// reported as what it was.
+TEST(RunInitRepo, ATimedOutBranchCheckIsNotReportedAsAnInvalidName) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response timedOut;
+    timedOut.timedOut = true;
+    runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, timedOut);
+
+    InitRepoRequest request;
+    request.path = "/repos/new-project";
+    request.initialBranch = "trunk";
+
+    GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+    ASSERT_FALSE(result);
+    EXPECT_EQ(result.error().code, GitError::Code::Timeout);
+    EXPECT_EQ(runner.invocationCount(), 1u);
+}
+
+// git says "no" to a name with `die()`, exit 128. A git killed by a signal
+// exits 128 + N on POSIX and whatever `TerminateProcess` was given on
+// Windows; neither has said anything about the name.
+TEST(RunInitRepo, ABranchCheckKilledBySignalIsNotReportedAsAnInvalidName) {
+    for (const int exitCode : {1, 137}) {
+        FakeProcessRunner runner;
+        FakeProcessRunner::Response killed;
+        killed.exitCode = exitCode;
+        runner.whenArgsContain({"check-ref-format", "--branch", "trunk"}, killed);
+
+        InitRepoRequest request;
+        request.path = "/repos/new-project";
+        request.initialBranch = "trunk";
+
+        GitResult<void> result = runInitRepo(runner, request, CancellationToken{});
+
+        ASSERT_FALSE(result) << exitCode;
+        EXPECT_NE(result.error().code, GitError::Code::InvalidArgument) << exitCode;
+        EXPECT_EQ(
+            result.error().message,
+            "Could not check the branch name: git exited with code " + std::to_string(exitCode));
+        EXPECT_EQ(runner.invocationCount(), 1u) << exitCode;
+    }
+}
+
 TEST(RunInitRepo, RejectsEmptyPathWithoutRunningGit) {
     FakeProcessRunner runner;
     InitRepoRequest request;

@@ -15,6 +15,7 @@
 // is exactly how a system-provided item slipped past.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/workspace/widgets/platform_menu_bar_host.dart';
 import 'package:gbm_flutter/actions/gbm_action_id.dart';
 import 'package:gbm_flutter/actions/gbm_menu_model.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -106,10 +107,10 @@ void main() {
         topLevelRoutes: _dialogRoutes,
       );
 
-      final PlatformMenuBar bar = tester.widget<PlatformMenuBar>(
-        find.byType(PlatformMenuBar),
-      );
-      final PlatformMenuItem item = _findItem(bar.menus, 'About');
+      final List<PlatformMenuItem> menus = tester
+          .widget<PlatformMenuBarHost>(find.byType(PlatformMenuBarHost))
+          .platformMenus();
+      final PlatformMenuItem item = _findItem(menus, 'About');
 
       expect(
         item.onSelected,

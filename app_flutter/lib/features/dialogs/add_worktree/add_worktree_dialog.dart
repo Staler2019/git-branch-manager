@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +7,7 @@ import '../../../data/models/worktree_info.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../data/services/file_save_picker.dart';
+import '../../../data/services/target_directory_probe.dart';
 import '../../../routing/app_router.dart';
 import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
@@ -252,12 +251,6 @@ class _AddWorktreeDialogContentState
     return repo.isEmpty ? '$root/$leaf' : '$root/$repo/$leaf';
   }
 
-  bool _pathExistsAndNonEmpty(String path) {
-    if (path.isEmpty) return false;
-    final Directory dir = Directory(path);
-    return dir.existsSync() && dir.listSync().isNotEmpty;
-  }
-
   void _submit(RepoSessionState session) {
     final String path = _pathController.text.trim();
     if (path.isEmpty) return;
@@ -380,7 +373,10 @@ class _AddWorktreeDialogContentState
     final bool pathEnabled = effectiveBranchName.isNotEmpty;
 
     final String path = _pathController.text.trim();
-    final bool pathTaken = _pathExistsAndNonEmpty(path);
+    final TargetDirectoryState target = probeTargetDirectory(path);
+    final bool pathTaken =
+        target == TargetDirectoryState.nonEmpty ||
+        target == TargetDirectoryState.gitRepository;
 
     final List<String> existingLocalNames = session.refs.localBranches
         .map((RefInfo b) => b.shortName)

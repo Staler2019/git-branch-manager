@@ -18,10 +18,35 @@ void main() {
     '  https://h/o/r.git  ': 'r',
     '': '',
     'https://': '',
+    // Characters no folder name may hold on Windows or macOS become `_`
+    // (使用者裁示「以_替換不可組成的字元」).
+    'https://h/o/a|b?c*d': 'a_b_c_d',
+    'https://h/o/"q"<x>': '_q__x_',
+    'https://h/o/a\tb': 'a_b',
   };
   for (final MapEntry<String, String> c in cases.entries) {
     test('"${c.key}" -> "${c.value}"', () {
       expect(cloneFolderNameFromUrl(c.key), c.value);
     });
   }
+
+  // C-D1: 「選的是上層」 -- the destination is the parent plus the folder the
+  // URL names, or the parent itself while the URL names none.
+  group('cloneDestinationPath', () {
+    test('joins the parent and the URL\'s folder name', () {
+      expect(
+        cloneDestinationPath('/Users/alice/src', 'git@h:o/design-tokens.git'),
+        '/Users/alice/src/design-tokens',
+      );
+    });
+
+    test('does not double a trailing separator on the parent', () {
+      expect(cloneDestinationPath('/src/', 'https://h/o/r'), '/src/r');
+      expect(cloneDestinationPath(r'C:\src\', 'https://h/o/r'), r'C:\src/r');
+    });
+
+    test('is the parent itself while the URL names no folder', () {
+      expect(cloneDestinationPath('/src/', ''), '/src');
+    });
+  });
 }

@@ -2,6 +2,8 @@
 // URL and destination, the two checkboxes (R18, ASK-3 (a) / W-D5), the
 // note, and Clone closes the dialog and starts a background job (R14: no
 // error under the fields, no reopening).
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,11 +18,13 @@ import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:gbm_flutter/widgets/gbm_dialog_field_kinds.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../support/fake_repo_session.dart';
@@ -84,6 +88,23 @@ class _Discovery extends StateNotifier<DiscoveryState>
       throw UnsupportedError('not used');
 }
 
+class _Picker implements FileSavePicker {
+  _Picker(this.directory);
+  final String? directory;
+
+  @override
+  Future<String?> pickDirectory() async => directory;
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) =>
+      throw UnimplementedError();
+}
+
 BaseFolderRecord _folder(String path, {bool enabled = true}) =>
     BaseFolderRecord(
       id: path.length,
@@ -113,6 +134,7 @@ Future<_Harness> _pump(
   GitVersion? version = const GitVersion(2, 50, 1),
   List<BaseFolderRecord> folders = const <BaseFolderRecord>[],
   String? originWorkDir,
+  String? picked,
 }) async {
   final _Native native = _Native(version);
   final FakeRepoSessionController session = FakeRepoSessionController(
@@ -134,6 +156,7 @@ Future<_Harness> _pump(
     overrides: <Override>[
       cloneJobNativeProvider.overrideWithValue(native),
       discoveryProvider.overrideWith((ref) => _Discovery(folders)),
+      fileSavePickerProvider.overrideWithValue(_Picker(picked)),
       windowLogProvider.overrideWith(
         (ref) => WindowLogController(maxEntries: 100),
       ),
@@ -259,6 +282,145 @@ void main() {
     expect(
       tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
       '',
+    );
+  });
+
+  // C-D1: 瀏覽… picks the parent; the URL keeps naming the folder under it
+  // until the destination is edited by hand.
+  testWidgets('瀏覽… picks the parent folder the URL\'s name goes under', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      folders: <BaseFolderRecord>[_folder('/Users/alice/src')],
+      picked: '/Volumes/work',
+    );
+    expect(find.widgetWithText(GbmButton, '瀏覽…'), findsOneWidget);
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    TextField dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/Volumes/work');
+
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/tokens.git');
+    await tester.pump();
+    dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/Volumes/work/tokens');
+
+    await tester.enterText(_field('clone-dest-field'), '/mine');
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/other');
+    await tester.pump();
+    dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/mine');
+  });
+
+  testWidgets('瀏覽… after a hand edit starts following the URL again', (
+    tester,
+  ) async {
+    await _pump(tester, picked: '/Volumes/work');
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.enterText(_field('clone-dest-field'), '/mine');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work/r',
+    );
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/next');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work/next',
+    );
+  });
+
+  // C-D1: 「URL 空白時就是選到的資料夾」 holds after typing too, not only
+  // at the moment 瀏覽… returns.
+  testWidgets('a URL that stops naming a folder falls back to the parent', (
+    tester,
+  ) async {
+    await _pump(tester, picked: '/Volumes/work');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.pump();
+    await tester.enterText(_field('clone-url-field'), '');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work',
+    );
+  });
+
+  // git clone refuses a destination that exists and is not empty, so the
+  // dialog says so before Clone instead of after (使用者裁示「兩者都做」).
+  group('an existing destination', () {
+    late Directory base;
+    setUp(() => base = Directory.systemTemp.createTempSync('gbm_clone_'));
+    tearDown(() => base.deleteSync(recursive: true));
+
+    Finder warn(String path) => find.widgetWithText(
+      GbmDialogWarnField,
+      '$path 已存在且不是空的，git clone 會失敗。',
+    );
+
+    testWidgets('that is not empty warns and disables Clone', (tester) async {
+      File('${base.path}/r/a.txt').createSync(recursive: true);
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(warn('${base.path}/r'), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('that is a repository warns and disables Clone', (
+      tester,
+    ) async {
+      Directory('${base.path}/r/.git').createSync(recursive: true);
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(warn('${base.path}/r'), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
+
+    testWidgets('that is empty is fine', (tester) async {
+      Directory('${base.path}/r').createSync();
+      await _pump(tester);
+      await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+      await tester.enterText(_field('clone-dest-field'), '${base.path}/r');
+      await tester.pump();
+      expect(find.byType(GbmDialogWarnField), findsNothing);
+      expect(_cloneButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a URL naming no folder leaves the parent, which is refused', (
+      tester,
+    ) async {
+      File('${base.path}/other.txt').createSync();
+      await _pump(tester, picked: base.path);
+      await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+      await tester.pumpAndSettle();
+      await tester.enterText(_field('clone-url-field'), 'git@h:');
+      await tester.pump();
+      expect(
+        tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+        base.path,
+      );
+      expect(warn(base.path), findsOneWidget);
+      expect(_cloneButton(tester).onPressed, isNull);
+    });
+  });
+
+  testWidgets('a cancelled 瀏覽… leaves the destination alone', (tester) async {
+    await _pump(tester, folders: <BaseFolderRecord>[_folder('/src')]);
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/src/r',
     );
   });
 

@@ -227,11 +227,7 @@ class _WelcomeScreenState extends ConsumerState<WelcomeScreen> {
   /// functions its `_buildActionHandlers()` does.
   Map<GbmActionId, VoidCallback> _callbacks(WindowLogState windowLog) {
     return <GbmActionId, VoidCallback>{
-      GbmActionId.fileNewRepository: () => promptNewRepository(
-        context,
-        ref,
-        sink: ref.read(windowLogProvider.notifier).recordAppLog,
-      ),
+      GbmActionId.fileNewRepository: () => promptNewRepository(context),
       GbmActionId.fileOpenRepository: () => promptOpenRepository(context, ref),
       GbmActionId.fileCloneRepository: () => promptCloneRepository(context),
       GbmActionId.fileSwitchRepository: _switcherController.open,

@@ -1516,7 +1516,10 @@ GBM_API void gbm_write_commit_graph(GbmSessionHandle session);
 /// `path` is created if it doesn't already exist. Returns 0 on success, or a
 /// negative GbmErrorCode with the staging buffer populated with a GitError
 /// JSON.
-GBM_API int32_t gbm_repo_init(const char* path);
+/// `initial_branch` is the branch HEAD starts on (`git init -b`); null or
+/// empty leaves git's own default. A name git rejects fails with
+/// InvalidArgument before `path` is created.
+GBM_API int32_t gbm_repo_init(const char* path, const char* initial_branch);
 
 /// Populates the staging buffer with the git every invocation runs, as
 /// `{"major":n,"minor":n,"patch":n}` -- the clone dialog defaults "clone

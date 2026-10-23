@@ -181,4 +181,10 @@ C5 讓 L0 從 28,678 增加到 28,884，超過 ceiling。第二次派 `memory-st
 - C5 的說明壓短到一句（-106）。
 - 刪掉 `docs/rules/README.md` 第 3 點「The largest files today」那一段。它列的行數已經過時（`arch-actions.md` 寫 143 行，實際 146 行），原則在同一點的前幾句已經說過。
 
-套用後 L0 為 28,186，ceiling 從 28,678 降到 28,200。其他三級（`CLAUDE.md` 的遷移歷史、`[ACT-availability]` 與程式碼重複的 id 清單等，最多可再省約 4,200）沒有套用，留給使用者裁示。
+套用後 L0 為 28,186，ceiling 從 28,678 降到 28,200。其他三級（`CLAUDE.md` 的遷移歷史、`[ACT-availability]` 與程式碼重複的 id 清單等，最多可再省約 4,200）~~沒有套用，留給使用者裁示~~。使用者裁示「照他說的，因為他負責管memory」，於是改套 `memory-steward` 推薦的那一級（只有標為選用的「Three layers」表不套）：
+
+- `CLAUDE.md`：開頭說明、遷移歷史與過時計數（「Roughly 49 comments」實為 42 個檔案中的 52 處）、ledger 段落、176KB／5,900 行的敘述。
+- `docs/rules/README.md`：前綴表中已退役檔案的註記、第 4 點的字數歷史。
+- `docs/rules/arch-actions.md`：「65 values」；`[ACT-availability]` 的 12 個 id 與三個額外 gate，`gbm_action_availability.dart` 的 doc comment 與 `gbm_action_availability_test.dart` 都有；`[ACT-recovery-choice-wire]` 的 Consequence 與 Abort 說明，壓成一句並指向程式碼註解。
+
+L0 為 24,456，ceiling 降到 24,500。

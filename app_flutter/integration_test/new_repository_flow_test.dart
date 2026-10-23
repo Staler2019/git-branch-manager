@@ -51,13 +51,9 @@ void main() {
   testWidgets('Create inits the repository on the chosen branch and opens it', (
     tester,
   ) async {
-    // Started from a repository window: going from the welcome screen to a
-    // workspace mounts a second PlatformMenuBar before the first is gone,
-    // which fails a framework assertion on its own (the Open path does the
-    // same); that is not what this test is about.
-    final String origin = createTempGitRepo();
-    addTearDown(() => deleteTempGitRepo(origin));
-    await pumpRealAppOn(tester, origin);
+    // From the welcome screen: the router mounts the workspace before it
+    // disposes the welcome screen, and each has a PlatformMenuBarHost.
+    await pumpRealAppWithNoRepo(tester);
     await create(tester, name: 'fresh', branch: 'trunk');
     final String fresh = '${parent.path}/fresh';
     await pumpUntil(
@@ -69,6 +65,8 @@ void main() {
 
     final String head = File('$fresh/.git/HEAD').readAsStringSync().trim();
     expect(head, 'ref: refs/heads/trunk');
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('an invalid branch leaves nothing on disk and opens nothing', (

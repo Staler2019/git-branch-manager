@@ -39,12 +39,14 @@ Future<void> _pump(
   );
 }
 
-PlatformMenuBar _bar(WidgetTester tester) =>
-    tester.widget<PlatformMenuBar>(find.byType(PlatformMenuBar));
+/// What the host sends the embedder.
+List<PlatformMenuItem> _menus(WidgetTester tester) => tester
+    .widget<PlatformMenuBarHost>(find.byType(PlatformMenuBarHost))
+    .platformMenus();
 
 /// Every ordinary item the built menu tree declares, flattened.
 List<PlatformMenuItem> _items(WidgetTester tester) => <PlatformMenuItem>[
-  for (final PlatformMenuItem menu in _bar(tester).menus)
+  for (final PlatformMenuItem menu in _menus(tester))
     if (menu is PlatformMenu)
       for (final PlatformMenuItem item in menu.menus) item,
 ];
@@ -56,29 +58,154 @@ PlatformMenuItem? _itemLabelled(WidgetTester tester, String label) {
   return null;
 }
 
+/// Records what reaches the embedder. Its lock always grants, so what is
+/// under test is the order of `setMenus`/`clearMenus` -- the half a release
+/// build keeps once the debug lock's asserts are compiled out.
+class _RecordingDelegate extends PlatformMenuDelegate {
+  final List<List<String>?> calls = <List<String>?>[];
+
+  @override
+  void setMenus(List<PlatformMenuItem> topLevelMenus) => calls.add(<String>[
+    for (final PlatformMenuItem m in topLevelMenus) m.label,
+  ]);
+
+  @override
+  void clearMenus() => calls.add(null);
+
+  @override
+  bool debugLockDelegate(BuildContext context) => true;
+
+  @override
+  bool debugUnlockDelegate(BuildContext context) => true;
+}
+
+/// One host per screen; [titles] tells them apart in what was sent.
+Widget _host(String title) => PlatformMenuBarHost(
+  menus: <GbmMenuModel>[
+    GbmMenuModel(title: title, items: const <GbmMenuItemModel>[]),
+  ],
+  handlers: const <GbmActionId, VoidCallback?>{},
+  isMacOSOverride: true,
+  child: Text(title),
+);
+
 void main() {
-  testWidgets('off macOS it is a passthrough, adding no menu bar', (
+  // Welcome → workspace: the router mounts the new screen before the old one
+  // is disposed. The old screen's teardown must not wipe the menus the new
+  // one just sent, and two hosts alive at once must not trip the framework.
+  testWidgets('a host disposed after a newer one mounted leaves the newer '
+      'one\'s menus in place', (tester) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
+
+    Widget screens(List<String> titles) => MaterialApp(
+      home: Column(
+        children: <Widget>[
+          for (final String t in titles)
+            KeyedSubtree(key: ValueKey(t), child: _host(t)),
+        ],
+      ),
+    );
+    await tester.pumpWidget(screens(<String>['Welcome']));
+    await tester.pumpWidget(screens(<String>['Welcome', 'Workspace']));
+    await tester.pumpWidget(screens(<String>['Workspace']));
+
+    expect(tester.takeException(), isNull);
+    expect(delegate.calls.last, <String>['Workspace']);
+  });
+
+  testWidgets('when the owner goes first, the next newest host re-sends its '
+      'own menus', (tester) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
+
+    Widget screens(List<String> titles) => MaterialApp(
+      home: Column(
+        children: <Widget>[
+          for (final String t in titles)
+            KeyedSubtree(key: ValueKey(t), child: _host(t)),
+        ],
+      ),
+    );
+    await tester.pumpWidget(screens(<String>['Welcome', 'Workspace']));
+    await tester.pumpWidget(screens(<String>['Welcome']));
+
+    expect(delegate.calls.last, <String>['Welcome']);
+  });
+
+  testWidgets('a host that is not the owner rebuilding sends nothing', (
     tester,
   ) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
+
+    // The same instance: Flutter does not update an identical widget, so
+    // only the older host rebuilds on the second pump.
+    final Widget newer = KeyedSubtree(
+      key: const ValueKey('Workspace'),
+      child: _host('Workspace'),
+    );
+    Widget screens() => MaterialApp(
+      home: Column(
+        children: <Widget>[
+          KeyedSubtree(key: const ValueKey('Welcome'), child: _host('Welcome')),
+          newer,
+        ],
+      ),
+    );
+    await tester.pumpWidget(screens());
+    await tester.pumpWidget(screens());
+
+    expect(delegate.calls.last, <String>['Workspace']);
+  });
+
+  testWidgets('the last host to go clears the menus', (tester) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
+
+    await tester.pumpWidget(MaterialApp(home: _host('Welcome')));
+    await tester.pumpWidget(const MaterialApp(home: Text('none')));
+
+    expect(delegate.calls, contains(equals(<String>['Welcome'])));
+    expect(delegate.calls.last, isNull);
+  });
+
+  testWidgets('off macOS it is a passthrough that sends no menus', (
+    tester,
+  ) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
     await _onMacOS(() async {
       await _pump(tester, isMacOS: false);
+      await tester.pumpWidget(const SizedBox());
 
-      expect(find.byType(PlatformMenuBar), findsNothing);
-      expect(
-        find.text('workspace'),
-        findsOneWidget,
-        reason: 'the child must still render',
-      );
+      expect(delegate.calls, isEmpty);
     });
   });
 
-  testWidgets('on macOS it wraps the child in a PlatformMenuBar', (
+  testWidgets('on macOS it sends the menus and still renders the child', (
     tester,
   ) async {
+    final PlatformMenuDelegate original = tester.binding.platformMenuDelegate;
+    final _RecordingDelegate delegate = _RecordingDelegate();
+    tester.binding.platformMenuDelegate = delegate;
+    addTearDown(() => tester.binding.platformMenuDelegate = original);
     await _onMacOS(() async {
       await _pump(tester, isMacOS: true);
 
-      expect(find.byType(PlatformMenuBar), findsOneWidget);
+      expect(delegate.calls.last, <String>[
+        for (final GbmMenuModel m in gbmMenus) m.title,
+      ]);
       expect(find.text('workspace'), findsOneWidget);
     });
   });
@@ -90,7 +217,7 @@ void main() {
       await _pump(tester, isMacOS: true);
 
       expect(
-        _bar(tester).menus.map((PlatformMenuItem m) => m.label).toList(),
+        _menus(tester).map((PlatformMenuItem m) => m.label).toList(),
         gbmMenus.map((GbmMenuModel m) => m.title).toList(),
       );
     });

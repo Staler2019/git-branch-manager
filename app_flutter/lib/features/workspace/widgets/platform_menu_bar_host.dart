@@ -15,13 +15,19 @@ import '../../../actions/gbm_shortcuts.dart';
 /// row is `MenuBarRow`; this widget is the macOS half, and on other platforms
 /// it is a passthrough so the two never both render.
 ///
-/// [PlatformMenuBar] renders no Flutter widgets of its own -- it hands the
-/// menu structure to the embedder -- so wrapping [child] with it is
-/// invisible on any platform whose embedder ignores it.
+/// It sends the menus to the embedder itself
+/// (`WidgetsBinding.platformMenuDelegate`) rather than through a
+/// [PlatformMenuBar], because the welcome screen and the workspace each
+/// have one and the router mounts the next screen before it disposes the
+/// last. Two `PlatformMenuBar`s alive at once fail the framework's lock
+/// assertion in a debug build, and in a release build the old one's
+/// `dispose()` clears the menus the new one has just sent. Here the most
+/// recently mounted live host owns the menu bar; when the owner goes, the
+/// next newest re-sends its own, and the last one out clears it.
 ///
 /// For testability, [isMacOSOverride] forces platform behaviour; if null
 /// (the default), [Platform.isMacOS] is used.
-class PlatformMenuBarHost extends StatelessWidget {
+class PlatformMenuBarHost extends StatefulWidget {
   const PlatformMenuBarHost({
     super.key,
     required this.child,
@@ -45,6 +51,9 @@ class PlatformMenuBarHost extends StatelessWidget {
 
   bool get _isMacOS => isMacOSOverride ?? Platform.isMacOS;
 
+  @override
+  State<PlatformMenuBarHost> createState() => _PlatformMenuBarHostState();
+
   /// The actions macOS supplies itself, and which must therefore not be
   /// duplicated as ordinary items. Quit is the only one: it lives in the
   /// application menu, which `PlatformMenuBar` leaves alone (the embedder
@@ -63,68 +72,64 @@ class PlatformMenuBarHost extends StatelessWidget {
     GbmActionId.fileExit,
   };
 
-  @override
-  Widget build(BuildContext context) {
-    if (!_isMacOS) return child;
-
+  /// The menu tree this host sends: one [PlatformMenu] per [menus] entry.
+  /// Public so a test can read and invoke what the embedder receives.
+  List<PlatformMenuItem> platformMenus() {
     final Map<GbmActionId, GbmKeyboardShortcut> shortcuts = gbmActionShortcuts(
       true,
     );
 
-    return PlatformMenuBar(
-      menus: <PlatformMenuItem>[
-        for (final GbmMenuModel menu in menus)
-          PlatformMenu(
-            label: menu.title,
-            menus: <PlatformMenuItem>[
-              for (final GbmMenuItemModel item in menu.items)
-                if (!_systemProvided.contains(item.id))
-                  // A submenu parent with declared children (Tools >
-                  // Rewrite history) becomes a real nested macOS submenu.
-                  // The two dynamic submenu parents (viewGraphColumns,
-                  // viewTheme) declare no children and stay flat items, as
-                  // they were -- their content is built at the widget layer
-                  // and has no PlatformMenu equivalent.
-                  if (item.isSubmenuParent && item.children.isNotEmpty)
-                    PlatformMenu(
-                      label: item.label,
-                      menus: <PlatformMenuItem>[
-                        for (final GbmMenuItemModel child in item.children)
-                          PlatformMenuItem(
-                            label: child.label,
-                            shortcut: _activatorFor(shortcuts[child.id]),
-                            onSelected: handlers[child.id],
-                          ),
-                      ],
-                    )
-                  else
-                    PlatformMenuItem(
-                      label: item.label,
-                      shortcut: _activatorFor(shortcuts[item.id]),
-                      onSelected: handlers[item.id],
-                    ),
-              // Quit is appended to the menu it belongs to, so it still
-              // sits under File even though macOS owns its behaviour.
-              //
-              // `hasMenu` is not optional: PlatformProvidedMenuItem throws
-              // when the *running* platform has no such menu, and
-              // isMacOSOverride only decides whether this widget builds at
-              // all -- it does not change defaultTargetPlatform. Without the
-              // guard, forcing the macOS branch anywhere else (a widget
-              // test, a desktop embedder reporting another platform) throws
-              // while building.
-              if (menu.items.any((i) => i.id == GbmActionId.fileExit) &&
-                  PlatformProvidedMenuItem.hasMenu(
-                    PlatformProvidedMenuItemType.quit,
-                  ))
-                const PlatformProvidedMenuItem(
-                  type: PlatformProvidedMenuItemType.quit,
-                ),
-            ],
-          ),
-      ],
-      child: child,
-    );
+    return <PlatformMenuItem>[
+      for (final GbmMenuModel menu in menus)
+        PlatformMenu(
+          label: menu.title,
+          menus: <PlatformMenuItem>[
+            for (final GbmMenuItemModel item in menu.items)
+              if (!_systemProvided.contains(item.id))
+                // A submenu parent with declared children (Tools >
+                // Rewrite history) becomes a real nested macOS submenu.
+                // The two dynamic submenu parents (viewGraphColumns,
+                // viewTheme) declare no children and stay flat items, as
+                // they were -- their content is built at the widget layer
+                // and has no PlatformMenu equivalent.
+                if (item.isSubmenuParent && item.children.isNotEmpty)
+                  PlatformMenu(
+                    label: item.label,
+                    menus: <PlatformMenuItem>[
+                      for (final GbmMenuItemModel child in item.children)
+                        PlatformMenuItem(
+                          label: child.label,
+                          shortcut: _activatorFor(shortcuts[child.id]),
+                          onSelected: handlers[child.id],
+                        ),
+                    ],
+                  )
+                else
+                  PlatformMenuItem(
+                    label: item.label,
+                    shortcut: _activatorFor(shortcuts[item.id]),
+                    onSelected: handlers[item.id],
+                  ),
+            // Quit is appended to the menu it belongs to, so it still
+            // sits under File even though macOS owns its behaviour.
+            //
+            // `hasMenu` is not optional: PlatformProvidedMenuItem throws
+            // when the *running* platform has no such menu, and
+            // isMacOSOverride only decides whether this widget builds at
+            // all -- it does not change defaultTargetPlatform. Without the
+            // guard, forcing the macOS branch anywhere else (a widget
+            // test, a desktop embedder reporting another platform) throws
+            // while building.
+            if (menu.items.any((i) => i.id == GbmActionId.fileExit) &&
+                PlatformProvidedMenuItem.hasMenu(
+                  PlatformProvidedMenuItemType.quit,
+                ))
+              const PlatformProvidedMenuItem(
+                type: PlatformProvidedMenuItemType.quit,
+              ),
+          ],
+        ),
+    ];
   }
 
   /// Translates a [GbmKeyboardShortcut] into the activator the embedder
@@ -142,4 +147,48 @@ class PlatformMenuBarHost extends StatelessWidget {
       alt: shortcut.alt,
     );
   }
+}
+
+class _PlatformMenuBarHostState extends State<PlatformMenuBarHost> {
+  /// Live macOS hosts, oldest first; the last one owns the menu bar.
+  static final List<_PlatformMenuBarHostState> _live =
+      <_PlatformMenuBarHostState>[];
+
+  bool get _owns => _live.isNotEmpty && identical(_live.last, this);
+
+  void _send() => WidgetsBinding.instance.platformMenuDelegate.setMenus(
+    widget.platformMenus(),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    if (!widget._isMacOS) return;
+    _live.add(this);
+    _send();
+  }
+
+  @override
+  void didUpdateWidget(PlatformMenuBarHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Handlers are new closures every build, as PlatformMenuBar saw them.
+    if (_owns) _send();
+  }
+
+  @override
+  void dispose() {
+    final bool owned = _owns;
+    _live.remove(this);
+    if (owned) {
+      if (_live.isEmpty) {
+        WidgetsBinding.instance.platformMenuDelegate.clearMenus();
+      } else {
+        _live.last._send();
+      }
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../actions/auto_fetch_gate.dart';
 
 /// `Timer.periodic`'s shape, injected so a test ticks an interval by hand.
@@ -30,7 +32,7 @@ class AutoFetchScheduler {
   final AutoFetchPeriodicTimer _periodic;
   final AutoFetchConditions Function() _readConditions;
   final void Function() _fetch;
-  final void Function() _onPaused;
+  final void Function(String codeName) _onPaused;
 
   Timer? _timer;
   bool? _enabled;
@@ -45,9 +47,6 @@ class AutoFetchScheduler {
   /// Anything else -- the network above all -- is retried at the next
   /// interval, as spec P11 item 9 says.
   static const Set<String> pausingErrorCodes = <String>{'Auth', 'HostKey'};
-
-  /// Whether an Auth/HostKey failure has paused auto fetch.
-  bool get paused => _paused;
 
   /// Applies the current Preferences. Called on open and on every change;
   /// the same values again do nothing.
@@ -82,7 +81,7 @@ class AutoFetchScheduler {
       _inFlight = false;
       if (!succeeded && pausingErrorCodes.contains(errorCodeName)) {
         _paused = true;
-        _onPaused();
+        _onPaused(errorCodeName!);
       }
     } else if (succeeded) {
       _paused = false;
@@ -121,10 +120,17 @@ class AutoFetchSchedulerFactory {
 
   /// [readConditions] supplies every [AutoFetchConditions] input except the
   /// two the scheduler owns, which it overwrites. [onPaused] fires once per
-  /// pause, for the caller to say so in the log.
+  /// pause with the error code that caused it, for the caller to say
+  /// so in the log.
   AutoFetchScheduler create({
     required AutoFetchConditions Function() readConditions,
     required void Function() fetch,
-    required void Function() onPaused,
+    required void Function(String codeName) onPaused,
   }) => AutoFetchScheduler._(periodic, readConditions, fetch, onPaused);
 }
+
+/// Overridden in tests with a hand-ticked timer.
+final Provider<AutoFetchSchedulerFactory> autoFetchSchedulerFactoryProvider =
+    Provider<AutoFetchSchedulerFactory>(
+      (Ref ref) => const AutoFetchSchedulerFactory(),
+    );

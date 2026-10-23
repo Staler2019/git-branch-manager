@@ -2344,6 +2344,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void recordDraftNotSaved() =>
       _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
 
+  /// Logs that the auto fetch paused itself after an Auth/HostKey failure
+  /// ([codeName]) -- `AutoFetchScheduler`'s onPaused. An error, so the status
+  /// bar's summary shows it. A no-op once disposed.
+  void recordAutoFetchPaused(String codeName) {
+    if (!mounted) return;
+    _appendAppLog(
+      AppLogEvents.autoFetchPaused(codeName, atEpochMs: _nowEpochMs()),
+    );
+  }
+
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.

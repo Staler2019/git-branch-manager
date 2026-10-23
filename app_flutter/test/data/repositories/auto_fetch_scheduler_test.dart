@@ -51,7 +51,7 @@ class _Harness {
         ).create(
           readConditions: () => conditions,
           fetch: () => fetches++,
-          onPaused: () => pauses++,
+          onPaused: pausedWith.add,
         );
   }
 
@@ -59,7 +59,7 @@ class _Harness {
   final List<_FakePeriodicTimer> timers = <_FakePeriodicTimer>[];
   AutoFetchConditions conditions = _clear;
   int fetches = 0;
-  int pauses = 0;
+  final List<String> pausedWith = <String>[];
 
   Iterable<_FakePeriodicTimer> get live =>
       timers.where((_FakePeriodicTimer t) => t.isActive);
@@ -176,8 +176,7 @@ void main() {
       h.scheduler.configure(enabled: true, minutes: 10);
 
       h.finishBackground(succeeded: false, codeName: codeName);
-      expect(h.scheduler.paused, isTrue);
-      expect(h.pauses, 1);
+      expect(h.pausedWith, <String>[codeName]);
       h.timer.fire();
       expect(h.fetches, 1);
 
@@ -186,10 +185,10 @@ void main() {
         succeeded: false,
         errorCodeName: codeName,
       );
-      expect(h.scheduler.paused, isTrue);
+      h.timer.fire();
+      expect(h.fetches, 1);
 
       h.scheduler.onFetchFinished(background: false, succeeded: true);
-      expect(h.scheduler.paused, isFalse);
       h.timer.fire();
       expect(h.fetches, 2);
     });
@@ -200,8 +199,7 @@ void main() {
     h.scheduler.configure(enabled: true, minutes: 10);
 
     h.finishBackground(succeeded: false, codeName: 'Network');
-    expect(h.scheduler.paused, isFalse);
-    expect(h.pauses, 0);
+    expect(h.pausedWith, isEmpty);
     h.timer.fire();
     expect(h.fetches, 2);
   });

@@ -178,6 +178,34 @@ abstract final class AppLogEvents {
     );
   }
 
+  /// The auto fetch (spec P11 item 9, 「自動 fetch」) pausing itself after
+  /// its fetch failed with [codeName] `Auth` or `HostKey` --
+  /// `AutoFetchScheduler.pausingErrorCodes`. 使用者裁定 2026-10-23: 「Auth/
+  /// HostKey 失敗 → 暫停自動 fetch，直到手動 fetch 成功；status bar + log 說
+  /// 明」; the spec itself has no pause, only 「下次排程自動重試」 for a
+  /// network failure.
+  ///
+  /// Error, not warning: P10 item 3 lights the status bar's summary only for
+  /// an unread error, and the ruling asks for the status bar. The failed
+  /// fetch's own record says what git said; this line says what happens
+  /// next. Names the cause per code, so a host-key pause does not read as a
+  /// password problem. "Fetch" is the toolbar and menu label (spec P02).
+  static AppLogEntry autoFetchPaused(
+    String codeName, {
+    required int atEpochMs,
+  }) {
+    final String cause = codeName == 'HostKey'
+        ? 'the SSH host key is not trusted'
+        : 'authentication failed';
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message:
+          'Auto fetch paused: $cause. It resumes after a manual Fetch '
+          'succeeds.',
+    );
+  }
+
   // Failures (and successes) of a user's own click -- open a terminal or an
   // external app, export a file, save the log, create a repository -- are
   // app actions now: app_actions.dart's factories own their wording and

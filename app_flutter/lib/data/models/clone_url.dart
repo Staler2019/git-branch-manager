@@ -16,4 +16,13 @@ String cloneFolderNameFromUrl(String url) {
   return cut < 0 ? s : s.substring(cut + 1);
 }
 
+/// The Clone dialog's destination for [parent] (C-D1, 「選的是上層」):
+/// [parent] plus the folder [url] names, or [parent] itself while the URL
+/// names none.
+String cloneDestinationPath(String parent, String url) {
+  final String base = _trimSeparators(parent);
+  final String name = cloneFolderNameFromUrl(url);
+  return name.isEmpty ? base : '$base/$name';
+}
+
 String _trimSeparators(String s) => s.replaceAll(RegExp(r'[/\\]+$'), '');

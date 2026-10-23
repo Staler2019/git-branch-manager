@@ -16,6 +16,7 @@ import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
+import 'package:gbm_flutter/data/services/file_save_picker.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
@@ -84,6 +85,23 @@ class _Discovery extends StateNotifier<DiscoveryState>
       throw UnsupportedError('not used');
 }
 
+class _Picker implements FileSavePicker {
+  _Picker(this.directory);
+  final String? directory;
+
+  @override
+  Future<String?> pickDirectory() async => directory;
+
+  @override
+  Future<List<String>> openFiles({
+    List<String> extensions = const <String>[],
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String?> saveFile({required String suggestedName}) =>
+      throw UnimplementedError();
+}
+
 BaseFolderRecord _folder(String path, {bool enabled = true}) =>
     BaseFolderRecord(
       id: path.length,
@@ -113,6 +131,7 @@ Future<_Harness> _pump(
   GitVersion? version = const GitVersion(2, 50, 1),
   List<BaseFolderRecord> folders = const <BaseFolderRecord>[],
   String? originWorkDir,
+  String? picked,
 }) async {
   final _Native native = _Native(version);
   final FakeRepoSessionController session = FakeRepoSessionController(
@@ -134,6 +153,7 @@ Future<_Harness> _pump(
     overrides: <Override>[
       cloneJobNativeProvider.overrideWithValue(native),
       discoveryProvider.overrideWith((ref) => _Discovery(folders)),
+      fileSavePickerProvider.overrideWithValue(_Picker(picked)),
       windowLogProvider.overrideWith(
         (ref) => WindowLogController(maxEntries: 100),
       ),
@@ -259,6 +279,65 @@ void main() {
     expect(
       tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
       '',
+    );
+  });
+
+  // C-D1: 瀏覽… picks the parent; the URL keeps naming the folder under it
+  // until the destination is edited by hand.
+  testWidgets('瀏覽… picks the parent folder the URL\'s name goes under', (
+    tester,
+  ) async {
+    await _pump(
+      tester,
+      folders: <BaseFolderRecord>[_folder('/Users/alice/src')],
+      picked: '/Volumes/work',
+    );
+    expect(find.widgetWithText(GbmButton, '瀏覽…'), findsOneWidget);
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    TextField dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/Volumes/work');
+
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/tokens.git');
+    await tester.pump();
+    dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/Volumes/work/tokens');
+
+    await tester.enterText(_field('clone-dest-field'), '/mine');
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/other');
+    await tester.pump();
+    dest = tester.widget<TextField>(_field('clone-dest-field'));
+    expect(dest.controller!.text, '/mine');
+  });
+
+  testWidgets('瀏覽… after a hand edit starts following the URL again', (
+    tester,
+  ) async {
+    await _pump(tester, picked: '/Volumes/work');
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.enterText(_field('clone-dest-field'), '/mine');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work/r',
+    );
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/next');
+    await tester.pump();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/Volumes/work/next',
+    );
+  });
+
+  testWidgets('a cancelled 瀏覽… leaves the destination alone', (tester) async {
+    await _pump(tester, folders: <BaseFolderRecord>[_folder('/src')]);
+    await tester.enterText(_field('clone-url-field'), 'https://h/o/r.git');
+    await tester.tap(find.widgetWithText(GbmButton, '瀏覽…'));
+    await tester.pumpAndSettle();
+    expect(
+      tester.widget<TextField>(_field('clone-dest-field')).controller!.text,
+      '/src/r',
     );
   });
 

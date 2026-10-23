@@ -11,6 +11,7 @@ import '../../../data/repositories/discovery_repository.dart';
 import '../../../data/repositories/repo_identity.dart';
 import '../../../data/repositories/repo_session_repository.dart';
 import '../../../data/repositories/window_log_repository.dart';
+import '../../../data/services/file_save_picker.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
@@ -41,6 +42,9 @@ class _CloneRepositoryDialogContentState
   final TextEditingController _url = TextEditingController();
   final TextEditingController _dest = TextEditingController();
   bool _destEdited = false;
+
+  /// The folder 瀏覽… picked; until then the first enabled base folder.
+  String? _pickedParent;
   late final GitVersion? _git;
   late bool _recurseSubmodules;
   bool _shallow = false;
@@ -60,18 +64,30 @@ class _CloneRepositoryDialogContentState
     super.dispose();
   }
 
-  /// 「URL 貼上後自動帶出資料夾名，可手改」: under the first enabled base
-  /// folder, until the destination is typed in by hand. With no base folder
-  /// there is no parent to put it under, so the field is left alone.
+  /// 「URL 貼上後自動帶出資料夾名，可手改」: under the folder 瀏覽… picked,
+  /// else the first enabled base folder, until the destination is typed in
+  /// by hand. With neither there is no parent to put it under, so the field
+  /// is left alone.
   void _onUrlChanged(String url) {
     if (!_destEdited) {
-      final String? parent = _defaultParent();
-      final String name = cloneFolderNameFromUrl(url);
-      if (parent != null && name.isNotEmpty) {
-        _dest.text = '${parent.replaceAll(RegExp(r'[/\\]+$'), '')}/$name';
+      final String? parent = _pickedParent ?? _defaultParent();
+      if (parent != null && cloneFolderNameFromUrl(url).isNotEmpty) {
+        _dest.text = cloneDestinationPath(parent, url);
       }
     }
     setState(() {});
+  }
+
+  /// C-D1: the picked folder is the parent, and picking one hands the
+  /// destination back to the URL.
+  Future<void> _browse() async {
+    final String? dir = await ref.read(fileSavePickerProvider).pickDirectory();
+    if (dir == null || !mounted) return;
+    setState(() {
+      _pickedParent = dir;
+      _destEdited = false;
+      _dest.text = cloneDestinationPath(dir, _url.text);
+    });
   }
 
   String? _defaultParent() {
@@ -169,18 +185,32 @@ class _CloneRepositoryDialogContentState
             const SizedBox(height: GbmSpacing.space3),
             Text('目標路徑', style: label()),
             const SizedBox(height: GbmSpacing.space1),
-            SizedBox(
-              height: GbmSpacing.inputHeight,
-              child: TextField(
-                key: const Key('clone-dest-field'),
-                controller: _dest,
-                style: mono,
-                onChanged: (_) => setState(() => _destEdited = true),
-                onSubmitted: (_) {
-                  if (canClone) _clone();
-                },
-                decoration: gbmInputDecoration(colors: colors),
-              ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Expanded(
+                  child: SizedBox(
+                    height: GbmSpacing.inputHeight,
+                    child: TextField(
+                      key: const Key('clone-dest-field'),
+                      controller: _dest,
+                      style: mono,
+                      onChanged: (_) => setState(() => _destEdited = true),
+                      onSubmitted: (_) {
+                        if (canClone) _clone();
+                      },
+                      decoration: gbmInputDecoration(colors: colors),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: GbmSpacing.space2),
+                GbmButton(
+                  label: '瀏覽…',
+                  kind: GbmButtonKind.secondary,
+                  icon: const Icon(Icons.folder_open_outlined),
+                  onPressed: _browse,
+                ),
+              ],
             ),
             const SizedBox(height: GbmSpacing.space1),
             Text('URL 貼上後自動帶出資料夾名，可手改', style: hint()),

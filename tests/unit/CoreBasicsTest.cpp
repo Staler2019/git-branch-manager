@@ -1357,6 +1357,32 @@ TEST(Askpass, WireIsANoOpWithAnEmptyDirectory) {
         << "a command with no askpass directory must behave exactly as it did before M3";
 }
 
+TEST(Askpass, WireRefusingRoutesEveryPromptToAClientThatFails) {
+    GitCommand command;
+    askpass::wireRefusing(command);
+
+    auto find = [&command](const std::string& key) -> std::optional<std::string> {
+        for (const auto& [k, v] : command.envOverrides) {
+            if (k == key) {
+                return v;
+            }
+        }
+        return std::nullopt;
+    };
+
+    // Every prompt source git or ssh would consult -- an inherited GIT_ASKPASS,
+    // the user's core.askPass, SSH_ASKPASS -- must land on our own client, and
+    // an empty request directory makes that client exit 1 without asking.
+    EXPECT_TRUE(find("GIT_ASKPASS").has_value());
+    EXPECT_TRUE(find("SSH_ASKPASS").has_value());
+    EXPECT_EQ(find("SSH_ASKPASS_REQUIRE"), "force");
+    EXPECT_EQ(find("GBM_ASKPASS_MODE"), "1");
+    EXPECT_EQ(find("GBM_ASKPASS_DIR"), "");
+    EXPECT_EQ(find("GCM_INTERACTIVE"), "false");
+    EXPECT_FALSE(find("GIT_SSH_COMMAND").has_value())
+        << "overriding the ssh command would clobber the user's core.sshCommand";
+}
+
 TEST(Askpass, ClientWritesTheRequestAndFailsPromptlyOnCancel) {
     const auto dir = askpass::makeRequestDir();
     ASSERT_FALSE(dir.empty());

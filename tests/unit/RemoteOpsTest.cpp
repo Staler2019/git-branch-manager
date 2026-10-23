@@ -6,6 +6,8 @@
 #include "support/FakeProcessRunner.h"
 
 #include <gtest/gtest.h>
+#include <optional>
+#include <string>
 
 namespace gbm {
 namespace {
@@ -335,6 +337,70 @@ TEST(PruneRemoteOperation, ReportsGitErrorOnFailure) {
 
     EXPECT_FALSE(outcome.succeeded);
     ASSERT_TRUE(outcome.error.has_value());
+}
+
+std::optional<std::string> envOf(const GitCommand& command, const std::string& key) {
+    for (const auto& [k, v] : command.envOverrides) {
+        if (k == key) {
+            return v;
+        }
+    }
+    return std::nullopt;
+}
+
+TEST(FetchOperation, BackgroundFetchSkipsMaintenanceAndFetchHead) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch", "--all"}, response);
+
+    FetchRequest request;
+    request.background = true;
+    auto operation = makeFetchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    EXPECT_TRUE(outcome.succeeded);
+    EXPECT_EQ(runner.invokedArgs(0),
+              (std::vector<std::string>{
+                  "fetch", "--no-auto-maintenance", "--no-write-fetch-head", "--all"}));
+}
+
+TEST(FetchOperation, BackgroundFetchRefusesPromptsEvenWithAnAskpassDir) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch"}, response);
+
+    FetchRequest request;
+    request.background = true;
+    request.askpassDir = "/tmp/gbm-askpass-should-be-ignored";
+    auto operation = makeFetchOperation(request);
+
+    operation->run(runner, testPaths(), CancellationToken{});
+
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    const GitCommand& command = runner.invocations()[0];
+    EXPECT_EQ(envOf(command, "GBM_ASKPASS_DIR"), "")
+        << "nobody pressed a button, so no credential prompt may be raised";
+    EXPECT_EQ(envOf(command, "GCM_INTERACTIVE"), "false");
+}
+
+TEST(FetchOperation, ForegroundFetchKeepsItsPromptAndPlainArgs) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response response;
+    response.exitCode = 0;
+    runner.whenArgsContain({"fetch"}, response);
+
+    FetchRequest request;
+    request.askpassDir = "/tmp/gbm-askpass-foreground";
+    auto operation = makeFetchOperation(request);
+
+    operation->run(runner, testPaths(), CancellationToken{});
+
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    EXPECT_EQ(runner.invokedArgs(0), (std::vector<std::string>{"fetch", "--all"}));
+    EXPECT_EQ(envOf(runner.invocations()[0], "GBM_ASKPASS_DIR"), "/tmp/gbm-askpass-foreground");
 }
 
 }  // namespace

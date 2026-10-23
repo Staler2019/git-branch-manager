@@ -61,6 +61,11 @@ struct FetchRequest {
     /// empty means "no credential prompt is possible", and an auth failure is
     /// reported immediately instead.
     std::filesystem::path askpassDir;
+    /// The auto fetch nobody pressed a button for: every credential prompt is
+    /// refused (askpass::wireRefusing, `askpassDir` ignored), and git is told
+    /// not to start auto maintenance or overwrite FETCH_HEAD behind the
+    /// user's back.
+    bool background = false;
 };
 
 struct PullRequest {

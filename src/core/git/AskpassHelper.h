@@ -41,6 +41,19 @@ inline constexpr auto kResponseTimeout = std::chrono::minutes(10);
 /// cleanly on an auth prompt, since GIT_TERMINAL_PROMPT is always 0).
 void wire(GitCommand& command, const std::filesystem::path& dir);
 
+/// For a command nobody pressed a button for (the background auto fetch):
+/// every prompt git or ssh could raise must fail at once rather than appear.
+/// GIT_TERMINAL_PROMPT=0 alone does not get there -- git asks GIT_ASKPASS,
+/// then `core.askPass`, then SSH_ASKPASS before it ever looks at it, and an
+/// app started from an IDE terminal inherits that IDE's GIT_ASKPASS. So both
+/// askpass variables point at this executable with an *empty* request
+/// directory, which runClient() answers with exit 1; Git Credential Manager is
+/// told not to open its own window. The ssh command is deliberately left
+/// alone: overriding GIT_SSH_COMMAND would replace the user's
+/// `core.sshCommand` (a chosen key, a ProxyCommand), and SSH_ASKPASS_REQUIRE
+/// already makes ssh's passphrase and host-key questions go to the client.
+void wireRefusing(GitCommand& command);
+
 /// Creates a fresh, empty, owner-only per-request directory under the system
 /// temp directory -- `mkdtemp` on POSIX (0700, unpredictable name, never an
 /// existing directory), since on Linux that is the shared /tmp. Returns an

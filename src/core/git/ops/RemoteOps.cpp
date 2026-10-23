@@ -38,6 +38,10 @@ public:
         }
 
         std::vector<std::string> args{"fetch"};
+        if (request_.background) {
+            args.emplace_back("--no-auto-maintenance");
+            args.emplace_back("--no-write-fetch-head");
+        }
         if (request_.prune) {
             args.emplace_back("--prune");
         }
@@ -54,7 +58,11 @@ public:
         }
 
         GitCommand command(paths.commandDir(), std::move(args));
-        askpass::wire(command, request_.askpassDir);
+        if (request_.background) {
+            askpass::wireRefusing(command);
+        } else {
+            askpass::wire(command, request_.askpassDir);
+        }
 
         auto result = runner.run(command, token);
         if (!result) {

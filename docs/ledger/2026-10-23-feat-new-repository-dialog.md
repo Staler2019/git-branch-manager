@@ -160,5 +160,6 @@ c80da91f fix  cloneFolderNameFromUrl 把 < > " | ? * 與控制字元換成 _
   - 推測：macOS 視窗不在前景、可能被遮住時，engine 會好幾分鐘不出 frame。**沒有做遮住與未遮住的對照實驗，所以是推測。**
   - 第一輪 G3 的 `context_menu_flows` 53:58、`operation_log_benign_exit` 53:55、`commit_flow` 12:44 是同一種形狀。
   - 「歡迎畫面的 spinner 讓 `pumpAndSettle` 停不下來」這個推測已被反駁：歡迎畫面不自動掃描，也沒有 spinner。
-  - 本輪的程式碼沒有修改；可能的 harness 對策（例如 `LiveTestWidgetsFlutterBindingFramePolicy.benchmark`）未做，留給使用者裁示。
+  - 本輪的程式碼沒有修改；可能的 harness 對策（例如 `LiveTestWidgetsFlutterBindingFramePolicy.benchmark`）~~未做，留給使用者裁示~~
+    使用者裁示「framePolicy benchmark 先不做」。
 

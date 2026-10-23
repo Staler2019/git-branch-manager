@@ -33,6 +33,10 @@ abstract final class RoutePaths {
   /// so a refusal or failure is logged there ([cloneRepositoryDialogPath]).
   static const String cloneRepositoryDialog = '/dialogs/clone-repository';
 
+  /// App-level for the same reason as [cloneRepositoryDialog]: a repository
+  /// may be created where none is open ([newRepositoryDialogPath]).
+  static const String newRepositoryDialog = '/dialogs/new-repository';
+
   /// App-level: a clone job's credential prompt, wherever the user is
   /// (P3-J3). `?job=` names the job ([cloneCredentialDialogPath]).
   static const String cloneCredentialDialog = '/dialogs/clone-credential';
@@ -324,6 +328,12 @@ abstract final class RoutePaths {
           path: cloneRepositoryDialog,
           queryParameters: <String, String>{'origin': originWorkDir},
         ).toString();
+
+  /// See [cloneRepositoryDialogPath].
+  static String newRepositoryDialogPath({String? originWorkDir}) => _withQuery(
+    newRepositoryDialog,
+    <String, String>{'origin': ?originWorkDir},
+  );
 
   static String cloneCredentialDialogPath(int jobId) => Uri(
     path: cloneCredentialDialog,

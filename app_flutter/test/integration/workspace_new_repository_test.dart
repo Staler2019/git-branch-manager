@@ -9,9 +9,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
+import 'package:gbm_flutter/data/models/base_folder_record.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/repositories/discovery_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/routing/app_router.dart';
+import 'package:gbm_flutter/widgets/gbm_button.dart';
+import 'package:go_router/go_router.dart';
 
 import '../support/fake_repo_session.dart';
 import '../support/pump_workspace.dart';
@@ -41,6 +46,34 @@ class _FailingInit extends FakeGbmBindings {
       };
 }
 
+/// One enabled base folder, so 位置 starts at `/repos`.
+class _Discovery extends StateNotifier<DiscoveryState>
+    implements DiscoveryController {
+  _Discovery()
+    : super(
+        const DiscoveryState(
+          baseFolders: <BaseFolderRecord>[
+            BaseFolderRecord(
+              id: 1,
+              path: '/repos',
+              enabled: true,
+              maxDepth: 3,
+              followLinks: false,
+              lastScanStarted: 0,
+              lastScanFinished: 0,
+              lastScanDirs: 0,
+              lastScanMs: 0,
+              lastScanSkipped: 0,
+            ),
+          ],
+        ),
+      );
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not used');
+}
+
 void main() {
   testWidgets('a failed New repository… is an error line in this session', (
     tester,
@@ -50,22 +83,21 @@ void main() {
       identity: _identity,
       overrides: <Override>[
         gbmBindingsProvider.overrideWithValue(_FailingInit()),
+        discoveryProvider.overrideWith((ref) => _Discovery()),
       ],
+      topLevelRoutes: <RouteBase>[newRepositoryDialogRoute()],
     );
 
     await tester.tap(find.text('File'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New repository…'));
     await tester.pumpAndSettle();
-    // The workspace has text fields of its own; type into the prompt's.
     await tester.enterText(
-      find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byType(TextField),
-      ),
-      '/repos/blocked',
+      find.byKey(const Key('new-repo-name-field')),
+      'blocked',
     );
-    await tester.tap(find.text('OK'));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(GbmButton, 'Create repository'));
     await tester.pumpAndSettle();
 
     expect(

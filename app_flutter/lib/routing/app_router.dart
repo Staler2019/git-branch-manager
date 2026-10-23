@@ -30,6 +30,7 @@ import '../features/dialogs/lock_worktree/lock_worktree_dialog.dart';
 import '../features/dialogs/manage_base_folders/manage_base_folders_dialog.dart';
 import '../features/dialogs/merge/merge_dialog.dart';
 import '../features/dialogs/new_branch/new_branch_dialog.dart';
+import '../features/dialogs/new_repository/new_repository_dialog.dart';
 import '../features/dialogs/preferences/preferences_dialog.dart';
 import '../features/dialogs/prune_remote_branches/prune_remote_branches_dialog.dart';
 import '../features/dialogs/rebase_onto/rebase_onto_dialog.dart';
@@ -259,6 +260,7 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       // App-level: no `:repoId` to resolve. See RoutePaths.preferencesDialog.
       preferencesDialogRoute(),
       cloneRepositoryDialogRoute(),
+      newRepositoryDialogRoute(),
       cloneCredentialDialogRoute(),
       dialogRoute(
         path: RoutePaths.repositorySettingsDialog,
@@ -540,6 +542,14 @@ GoRoute preferencesDialogRoute() => dialogRoute(
 GoRoute cloneRepositoryDialogRoute() => dialogRoute(
   path: RoutePaths.cloneRepositoryDialog,
   builder: (context, state) => CloneRepositoryDialogContent(
+    originWorkDir: state.uri.queryParameters['origin'],
+  ),
+);
+
+/// App-level, like [cloneRepositoryDialogRoute], with the same `?origin=`.
+GoRoute newRepositoryDialogRoute() => dialogRoute(
+  path: RoutePaths.newRepositoryDialog,
+  builder: (context, state) => NewRepositoryDialogContent(
     originWorkDir: state.uri.queryParameters['origin'],
   ),
 );

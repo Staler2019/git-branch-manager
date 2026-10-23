@@ -1,13 +1,9 @@
 // Covers promptNewRepository()/promptCloneRepository() in
 // repo_switcher_popover.dart: File → New repository…/Clone repository… and
 // the switcher popover footer's entries all funnel through these two
-// functions. New reaches gbm_repo_init() directly via gbmBindingsProvider
-// (there is no session yet for a RepoSessionController to dispatch
-// through), so this drives a configurable fake GbmBindings. Clone only
-// opens the routed Clone dialog; the dialog's own test covers the rest.
-import 'dart:ffi';
+// functions. Both only open their routed dialog; each dialog's own test
+// covers the rest.
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,41 +13,16 @@ import 'package:gbm_flutter/features/repo_switcher/repo_switcher_popover.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
-import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:go_router/go_router.dart';
 
+/// Neither function reaches the bindings any more; this only fails loudly
+/// if one starts to.
 class _FakeInitCloneBindings implements GbmBindings {
-  int initResult = 0;
-  String errorJson = '';
-  String? lastInitPath;
-
-  @override
-  RepoInitDart get repoInit =>
-      (Pointer<Utf8> path, Pointer<Utf8> initialBranch) {
-        lastInitPath = path.toDartString();
-        return initResult;
-      };
-
-  @override
-  LastResultJsonLenDart get lastResultJsonLen =>
-      () => utf8ByteLength(errorJson);
-
-  @override
-  LastResultJsonCopyDart get lastResultJsonCopy =>
-      (Pointer<Uint8> out, int outLen) {
-        final List<int> bytes = errorJson.codeUnits;
-        for (int i = 0; i < outLen && i < bytes.length; i++) {
-          out[i] = bytes[i];
-        }
-      };
-
   @override
   Never noSuchMethod(Invocation invocation) {
     throw UnsupportedError('Not implemented for testing');
   }
 }
-
-int utf8ByteLength(String s) => s.codeUnits.length;
 
 Future<GoRouter> _pump(
   WidgetTester tester,
@@ -71,6 +42,12 @@ Future<GoRouter> _pump(
           body: Text(
             'clone dialog from ${state.uri.queryParameters['origin']}',
           ),
+        ),
+      ),
+      GoRoute(
+        path: RoutePaths.newRepositoryDialog,
+        builder: (context, state) => Scaffold(
+          body: Text('new dialog from ${state.uri.queryParameters['origin']}'),
         ),
       ),
       GoRoute(
@@ -95,16 +72,20 @@ Future<GoRouter> _pump(
   return router;
 }
 
-class _NewRepoButton extends ConsumerWidget {
-  const _NewRepoButton({this.lines});
+class _NewRepoButton extends StatelessWidget {
+  const _NewRepoButton({this.origin, this.onDismiss});
 
-  /// Every line [promptNewRepository]'s action logs.
-  final List<AppLogEntry>? lines;
+  final String? origin;
+  final VoidCallback? onDismiss;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     return ElevatedButton(
-      onPressed: () => promptNewRepository(context, ref, sink: lines?.add),
+      onPressed: () => promptNewRepository(
+        context,
+        originWorkDir: origin,
+        onDismiss: onDismiss,
+      ),
       child: const Text('New'),
     );
   }
@@ -130,85 +111,30 @@ class _CloneRepoButton extends StatelessWidget {
 }
 
 void main() {
+  // N-D5: the dialog runs init itself (its own test covers that), so only
+  // which dialog opens, from which window (R13), and the dismiss are here.
   group('promptNewRepository', () {
-    testWidgets('runs gbm_repo_init and switches to the new repository', (
-      tester,
-    ) async {
-      final _FakeInitCloneBindings bindings = _FakeInitCloneBindings();
-      final List<AppLogEntry> lines = <AppLogEntry>[];
-      final GoRouter router = await _pump(
+    testWidgets('opens the New repository dialog naming the window it came '
+        'from', (tester) async {
+      int dismissed = 0;
+      await _pump(
         tester,
-        _NewRepoButton(lines: lines),
-        bindings,
+        _NewRepoButton(origin: '/repos/here', onDismiss: () => dismissed++),
+        _FakeInitCloneBindings(),
       );
-
       await tester.tap(find.text('New'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '/repos/new-project');
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
-
-      expect(bindings.lastInitPath, '/repos/new-project');
-      // Ruling R4: a success is logged too.
-      expect(lines.map((AppLogEntry e) => e.message), <String>[
-        'Created a repository at /repos/new-project',
-      ]);
-      expect(
-        router.routerDelegate.currentConfiguration.uri.toString(),
-        RoutePaths.workspaceFor(Uri.encodeComponent('/repos/new-project')),
-      );
+      expect(find.text('new dialog from /repos/here'), findsOneWidget);
+      expect(dismissed, 1);
     });
 
-    testWidgets('cancelling the prompt calls gbm_repo_init with nothing', (
+    testWidgets('from a window with no repository, it names none', (
       tester,
     ) async {
-      final _FakeInitCloneBindings bindings = _FakeInitCloneBindings();
-      await _pump(tester, const _NewRepoButton(), bindings);
-
+      await _pump(tester, const _NewRepoButton(), _FakeInitCloneBindings());
       await tester.tap(find.text('New'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
-      expect(bindings.lastInitPath, isNull);
-    });
-
-    // A failure goes to the caller -- File → New repository… logs it as an
-    // error line (open-with-apps-spec.html screen 3) -- never a toast.
-    testWidgets('reports the GitError message and stays put when init fails', (
-      tester,
-    ) async {
-      final List<AppLogEntry> lines = <AppLogEntry>[];
-      final _FakeInitCloneBindings bindings = _FakeInitCloneBindings()
-        ..initResult = -3
-        ..errorJson =
-            '{"code":2,"codeName":"InvalidArgument",'
-            '"message":"A repository path is required","detail":"",'
-            '"argv":[],"exitCode":0}';
-      final GoRouter router = await _pump(
-        tester,
-        _NewRepoButton(lines: lines),
-        bindings,
-      );
-
-      await tester.tap(find.text('New'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '/repos/blocked');
-      await tester.tap(find.text('OK'));
-      await tester.pumpAndSettle();
-
-      expect(
-        lines.map((AppLogEntry e) => (e.level, e.message)),
-        <(OperationLogLevel, String)>[
-          (
-            OperationLogLevel.error,
-            'Could not create a repository at /repos/blocked: '
-                'A repository path is required',
-          ),
-        ],
-      );
-      expect(find.byType(SnackBar), findsNothing);
-      expect(router.routerDelegate.currentConfiguration.uri.toString(), '/');
+      expect(find.text('new dialog from null'), findsOneWidget);
     });
   });
 

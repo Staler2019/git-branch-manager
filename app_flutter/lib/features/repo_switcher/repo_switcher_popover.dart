@@ -14,21 +14,14 @@
 /// rather than faked.
 library;
 
-import 'dart:convert';
-import 'dart:ffi' hide Size;
 import 'dart:math' as math;
 
-import 'package:ffi/ffi.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/ffi/gbm_bindings.dart';
-import '../../data/ffi/json_codec.dart';
-import '../../data/models/git_error.dart';
 import '../../data/models/repo_record.dart';
 import '../../data/repositories/discovery_repository.dart';
-import '../../data/repositories/gbm_bindings_provider.dart';
 import '../../data/repositories/recents_repository.dart';
 import '../../data/models/app_action.dart';
 import '../../data/repositories/app_log_sink.dart';
@@ -40,9 +33,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/lucide_icon.dart';
-import '../../widgets/prompt_text_dialog.dart';
 import '../../routing/dialog_route.dart';
-import '../../data/models/app_action_outcome.dart';
 import '../../data/services/app_action_runner.dart';
 import '../../data/services/app_actions.dart';
 
@@ -209,62 +200,22 @@ Future<void> promptOpenRepository(
   router.go(RoutePaths.workspaceFor(repoIdFor(path)));
 }
 
-/// Runs `git init` on a path the user provides (via `gbm_repo_init()`), then
-/// opens it exactly like [promptOpenRepository] does -- a fresh repository
-/// has no session of its own to open until it exists on disk. Backs File →
-/// New repository…
+/// Opens the New repository dialog ([RoutePaths.newRepositoryDialog]).
+/// Backs File → New repository… and the welcome screen's button; the
+/// dialog runs `git init` itself (N-D5).
 ///
-/// Needs [ref] (unlike [promptOpenRepository]) because init runs before any
-/// session exists: there is no `RepoSessionController` yet to dispatch
-/// through, so this reaches `gbm_repo_init()` directly via
-/// `gbmBindingsProvider`.
-///
-/// An app action (ruling R4): success and failure are one line each through
-/// [sink] -- File → New repository… passes the session it was started from,
-/// so a failure lights that window's red summary (P10 #3) and is never a
-/// toast. Taken before the prompt opens, so it outlives the menu.
-Future<void> promptNewRepository(
-  BuildContext context,
-  WidgetRef ref, {
-  required AppLogSink? sink,
+/// [originWorkDir] and [onDismiss] as for [promptCloneRepository].
+void promptNewRepository(
+  BuildContext context, {
+  String? originWorkDir,
   VoidCallback? onDismiss,
-}) async {
+}) {
   final GoRouter router = GoRouter.of(context);
-  final String? path = await promptText(
-    context,
-    title: 'New Repository',
-    label: 'Path for the new repository',
-  );
-  if (path == null) return;
-
-  final GbmBindings bindings = ref.read(gbmBindingsProvider);
-  final AppActionOutcome<void> outcome = await ref
-      .read(appActionRunnerProvider)
-      .run(
-        initRepositoryAction(
-          path: path,
-          init: () {
-            final Pointer<Utf8> pathPtr = path.toNativeUtf8();
-            try {
-              if (bindings.repoInit(pathPtr, nullptr) == 0) return null;
-            } finally {
-              malloc.free(pathPtr);
-            }
-            return _decodeInitErrorMessage(bindings);
-          },
-        ),
-        sink: sink,
-      );
-  if (outcome is! AppActionSucceeded<void>) return;
-
   onDismiss?.call();
-  router.go(RoutePaths.workspaceFor(repoIdFor(path)));
-}
-
-String _decodeInitErrorMessage(GbmBindings bindings) {
-  final String json = readLastResultJson(bindings);
-  if (json.isEmpty) return 'The operation failed.';
-  return GitError.fromJson(jsonDecode(json) as Map<String, dynamic>).message;
+  pushDialogRouteOn(
+    router,
+    RoutePaths.newRepositoryDialogPath(originWorkDir: originWorkDir),
+  );
 }
 
 /// Opens the Clone dialog ([RoutePaths.cloneRepositoryDialog]). Backs the

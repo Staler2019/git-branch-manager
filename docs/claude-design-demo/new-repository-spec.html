@@ -1,0 +1,361 @@
+<title>New repository 對話框</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+/* Layout: a spec sheet. Each screen is a framed mock drawn in the app's own tokens
+   (--gbm-*, from app_flutter/lib/theme/tokens.dart: light = _lightIde, dark = _darkTechnical),
+   followed by its value-source table. Page chrome uses --pg-* only, so it never bleeds into a mock.
+   Source tags: [DLGS] spec DLGS entry 「New repository」 · [DLGF] spec dlgFields() · [KIT] .gbm-* component CSS ·
+   [P6] spec page 06 full-size dialog mock · [P17] spec page 17 dialog field layout ·
+   [PREC] welcome-and-clone-spec.html / worktree-dialogs-spec.html, already ruled and implemented
+   (gbm_dialog_field_kinds.dart textXs/textSm) · [APP] the existing Flutter widget, file:line given in the table. */
+
+/* ---------- page chrome (not drawn values) ---------- */
+:root {
+  --pg-ground: #f4f5f7; --pg-surface: #ffffff; --pg-line: #dcdfe4; --pg-ink: #14181d;
+  --pg-ink-2: #4f5966; --pg-accent: #1857b8; --pg-warn-bg: #fff4db; --pg-warn-ink: #7a5200;
+  --pg-rule-bg: #e6f6ec; --pg-rule-ink: #136c37; --pg-code-bg: #e4edfd; --pg-code-ink: #1857b8;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --pg-ground: #0b0e12; --pg-surface: #12161c; --pg-line: #232a33; --pg-ink: #e7edf4;
+  --pg-ink-2: #9aa4b1; --pg-accent: #6fa8ff; --pg-warn-bg: #3a2a05; --pg-warn-ink: #f2c366;
+  --pg-rule-bg: #0f2e1a; --pg-rule-ink: #7ee2a8; --pg-code-bg: #0d2a4d; --pg-code-ink: #8dbbff;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --pg-ground: #0b0e12; --pg-surface: #12161c; --pg-line: #232a33; --pg-ink: #e7edf4;
+  --pg-ink-2: #9aa4b1; --pg-accent: #6fa8ff; --pg-warn-bg: #3a2a05; --pg-warn-ink: #f2c366;
+  --pg-rule-bg: #0f2e1a; --pg-rule-ink: #7ee2a8; --pg-code-bg: #0d2a4d; --pg-code-ink: #8dbbff;
+  color-scheme: dark; }
+
+/* ---------- app tokens (drawn values) — tokens.dart:290-398 ---------- */
+:root {
+  --gbm-surface-panel: #FFFFFF; --gbm-surface-panel-raised: #FFFFFF; --gbm-surface-sunken: #F5F6F8;
+  --gbm-border-subtle: #EAECEF; --gbm-border-default: #DCDFE4; --gbm-border-strong: #C6CAD1;
+  --gbm-text-primary: #1C2128; --gbm-text-secondary: #57606A; --gbm-text-tertiary: #8B949E;
+  --gbm-text-on-accent: #FFFFFF; --gbm-accent: #2F81F7; --gbm-warning: #9A6700;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.12); /* tokens.dart:488-495 shadowMd */
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --gbm-surface-panel: #0D1117; --gbm-surface-panel-raised: #161B22; --gbm-surface-sunken: #010409;
+  --gbm-border-subtle: #21262D; --gbm-border-default: #30363D; --gbm-border-strong: #3D444D;
+  --gbm-text-primary: #E6EDF3; --gbm-text-secondary: #9198A1; --gbm-text-tertiary: #6E7681;
+  --gbm-text-on-accent: #FFFFFF; --gbm-accent: #2F81F7; --gbm-warning: #D29922;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.5); } }
+:root[data-theme="dark"] {
+  --gbm-surface-panel: #0D1117; --gbm-surface-panel-raised: #161B22; --gbm-surface-sunken: #010409;
+  --gbm-border-subtle: #21262D; --gbm-border-default: #30363D; --gbm-border-strong: #3D444D;
+  --gbm-text-primary: #E6EDF3; --gbm-text-secondary: #9198A1; --gbm-text-tertiary: #6E7681;
+  --gbm-text-on-accent: #FFFFFF; --gbm-accent: #2F81F7; --gbm-warning: #D29922;
+  --gbm-shadow-md: 0 4px 12px rgba(0,0,0,.5); }
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; background: var(--pg-ground); color: var(--pg-ink);
+  font-family: -apple-system, "Segoe UI", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+  font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 32px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.top-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.eyebrow { font-family: "JetBrains Mono", monospace; font-size: 11.5px; letter-spacing: .06em; color: var(--pg-ink-2); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; line-height: 1.35; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--pg-ink-2); font-weight: 600; }
+p { margin: 0; max-width: 72ch; }
+.lede { color: var(--pg-ink-2); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--pg-line); padding-top: 18px; }
+.theme-toggle { display: inline-flex; border: 1px solid var(--pg-line); border-radius: 8px; overflow: hidden; }
+.theme-toggle button { font: inherit; font-size: 12.5px; padding: 4px 12px; border: 0; background: var(--pg-surface); color: var(--pg-ink-2); cursor: pointer; }
+.theme-toggle button[aria-pressed="true"] { background: var(--pg-code-bg); color: var(--pg-code-ink); }
+.stage { overflow-x: auto; padding: 20px; background: var(--pg-surface); border: 1px solid var(--pg-line); border-radius: 8px; }
+.stage-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.cap { font-size: 12px; color: var(--pg-ink-2); margin-bottom: 6px; }
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--pg-line); vertical-align: top; }
+th { font-weight: 600; color: var(--pg-ink-2); font-size: 12px; }
+td code, p code, li code { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 80ch; }
+
+/* =====================================================================
+   SPECIMENS — class names are the Flutter widgets
+   ===================================================================== */
+
+/* GbmButton .sm (gbm_button.dart) */
+.gbm-btn { font-family: inherit; font-weight: 500; border-radius: 6px; display: inline-flex; align-items: center; gap: 8px; /* [KIT] .gbm-btn */
+  border: 1px solid transparent; white-space: nowrap; cursor: pointer; } /* [KIT] .gbm-btn */
+.gbm-btn.sm { height: 24px; font-size: 11px; padding: 0 8px; }                                /* [KIT] .gbm-btn-sm */
+.gbm-btn.primary { background: var(--gbm-accent); color: var(--gbm-text-on-accent); }         /* [KIT] .gbm-btn-primary */
+.gbm-btn.secondary { background: var(--gbm-surface-panel-raised); border-color: var(--gbm-border-default); color: var(--gbm-text-primary); } /* [KIT] .gbm-btn-secondary */
+.kbd { font-family: "JetBrains Mono", monospace; font-size: 11px; color: var(--gbm-text-secondary); background: var(--gbm-surface-sunken); /* [APP] gbm_kbd_chip.dart:24-39 GbmKbdChip, ruled precedent (welcome-and-clone-spec.html 推測值, W-D13) */
+  border: 1px solid var(--gbm-border-default); border-radius: 4px; padding: 2px 8px; white-space: nowrap; display: inline-block; } /* [APP] gbm_kbd_chip.dart:28-34 */
+
+/* --- GbmDialogShell (P6 full-size mock; same block as worktree-dialogs-spec.html) --- */
+.gbm-dialog-shell { width: 480px; max-width: 100%; /* max-width = page glue */ background: var(--gbm-surface-panel-raised); /* [P17] 對話框最寬 480px; tokens.dart:557; [KIT] .gbm-panel-raised */
+  border: 1px solid var(--gbm-border-default); border-radius: 10px; box-shadow: var(--gbm-shadow-md); /* [P6] border; [KIT] --radius-lg, --shadow-md */
+  font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; color: var(--gbm-text-primary); overflow: hidden; } /* [APP] tokens.dart:409 fontUi; colour [KIT] body{color:var(--text-primary)}; CJK fallback = page glue */
+.mkbar { display: flex; align-items: center; gap: 8px; padding: 12px 15px; border-bottom: 1px solid var(--gbm-border-subtle); } /* [P6] padding, border; [KIT] .mkbar gap */
+.mkbar__title { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; line-height: 1.25; } /* [P17] flex:1; min-width = page glue; [P6] 13/600; [PREC] line-height (worktree-dialogs-spec.html) */
+.dlg-body { padding: 14px 15px; display: flex; flex-direction: column; gap: 11px; }             /* [P6] */
+.fld { display: flex; flex-direction: column; gap: 4px; }                                       /* [P17] */
+.fld__label { font-size: 11px; color: var(--gbm-text-secondary); line-height: 1.5; } /* [P6]; [PREC] line-height */
+.note { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.7; }                   /* [DLGF] colour, line-height; [PREC] size (W-D13); [APP] clone_repository_dialog.dart:203 height 1.7 */
+.fld__hint { font-size: 11px; color: var(--gbm-text-tertiary); line-height: 1.6; }              /* [PREC] size (P17 says 10, W-D13); [P17] colour, line-height */
+.box { display: flex; align-items: center; height: 30px; padding: 0 12px; font-size: 12.5px;    /* [KIT] .gbm-input (DLGF says 11px, pad 5 8; W-D13 took KIT) */
+  border: 1px solid var(--gbm-border-default); border-radius: 6px; background: var(--gbm-surface-panel); /* [DLGF] */
+  color: var(--gbm-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* [DLGF] value colour; overflow = page glue */
+.box--focus { border-color: var(--gbm-accent); }                                                /* [DLGF] k:'focus' */
+.box--mono { font-family: "JetBrains Mono", monospace; font-size: 11.5px; }                     /* [DLGF] mono family; [PREC] size (DLGF says 11, W-D13) */
+.opt { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; line-height: 1.5; } /* [P17] gap; [DLGF] line-height; [PREC] size (DLGF/P6 say 11.5, W-D13) */
+.opt__mark { width: 15px; height: 15px; flex-shrink: 0; margin-top: 2px; border-radius: 3px;    /* [KIT] .gbm-checkbox 15 r3; [DLGF] margin-top:2px */
+  border: 1.5px solid var(--gbm-border-strong); background: var(--gbm-surface-panel); }          /* [KIT] .gbm-checkbox (DLGF off = transparent) */
+.opt[data-on="1"] .opt__mark { background: var(--gbm-accent); border-color: var(--gbm-accent); display: grid; place-items: center; } /* [DLGF] chk-on */
+.opt[data-on="1"] .opt__mark::after { content: ""; width: 8px; height: 4px; border-left: 2px solid #fff; border-bottom: 2px solid #fff; transform: rotate(-45deg) translate(1px, -1px); } /* inferred: check glyph, see #inferred */
+.fld__ctl { display: flex; align-items: flex-start; gap: 8px; }                                /* [P17] gap:8px; [APP] add_worktree_dialog.dart:532 SizedBox(width: space2) */
+.fld__ctl .box { flex: 1; min-width: 0; }                                                       /* [APP] add_worktree_dialog.dart:513 Expanded */
+.gbm-btn.md { height: 30px; font-size: 12.5px; padding: 0 12px; }                                /* [KIT] .gbm-btn h30 text-sm pad 0/12; [APP] gbm_button.dart:150-156 normal */
+.gbm-btn .ic { display: inline-flex; }                                                          /* page glue */
+.tag { font-family: "JetBrains Mono", monospace; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; background: var(--pg-rule-bg); color: var(--pg-rule-ink); } /* page chrome */
+.dlg-actions { display: flex; justify-content: flex-end; gap: 7px; padding: 11px 15px; border-top: 1px solid var(--gbm-border-subtle); } /* [P6] */
+.gbm-btn[disabled] { opacity: .45; cursor: not-allowed; }                                     /* [KIT] .gbm-btn[disabled] */
+/* --- warn field: [P17] surface-sunken + 2px --warning left rail. NOT .gbm-banner-warning --- */
+.warn { font-size: 11px; line-height: 1.65; color: var(--gbm-text-secondary);                /* [APP] gbm_dialog_field_kinds.dart:123 textXs (PREC page says 12.5, DLGF 10.5); [DLGF] line-height, colour */
+  background: var(--gbm-surface-sunken); border: 1px solid var(--gbm-border-subtle);          /* [DLGF] isWarn */
+  border-left: 2px solid var(--gbm-warning); border-radius: 6px; padding: 8px; }              /* [DLGF] isWarn; [APP] :119 padding all(8) (DLGF 8 9) */
+.flow { font-family: "JetBrains Mono", monospace; font-size: 12px; line-height: 1.6; margin: 0; padding: 14px 16px; background: var(--pg-surface); border: 1px solid var(--pg-line); border-radius: 8px; overflow-x: auto; color: var(--pg-ink); } /* page glue */
+
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="top-row">
+      <div class="eyebrow">Round B · G1 設計稿 定稿 · feat/new-repository-dialog · 2026-10-23</div>
+      <div class="theme-toggle" role="group" aria-label="配色">
+        <button type="button" data-set="dark" aria-pressed="false">Dark</button>
+        <button type="button" data-set="light" aria-pressed="false">Light</button>
+      </div>
+    </div>
+    <h1>New repository 換成三欄對話框，Clone 與 New repository 的路徑都能瀏覽</h1>
+    <p class="lede">現在 File → New repository… 開的是 <code>promptText</code>：一個 <code>AlertDialog</code>，標題 <code>New Repository</code>，只有「Path for the new repository」一欄（<code>repo_switcher_popover.dart:226-262</code>、<code>prompt_text_dialog.dart:26-50</code>）。這裡照 DLGS「New repository」重畫，並依第一輪裁定拿掉兩個勾選；外框、欄位、按鈕沿用 Clone 對話框已在用的 <code>GbmDialogShell</code>（N-D7）。路徑欄旁的「瀏覽…」照 Add worktree 已實作的畫法（<code>add_worktree_dialog.dart:502-538</code>；程式註解 <code>:113</code> 稱它為 D5）。</p>
+    <p class="lede">P20 原文：這三個功能「不列入現階段驗收」，版面先畫好是為了「實作時不用再回來問長怎樣」。P20 的卡片是縮圖尺寸，所以尺寸取 P6 與已核定的 shell，內容取 DLGS。</p>
+  </header>
+
+  <section class="screen" id="dialog">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · DLGS New repository（第一輪裁定後）</div>
+      <h2>New repository 的四種狀態</h2>
+      <p class="lede">按 <code>Create repository</code> 後對話框關閉，結果寫進 Log；成功就轉到新 repository（N-D5）。</p>
+    </div>
+    <div class="stage stage-row">
+      <div><div class="cap">a · 一般情況：位置預設為第一個啟用的來源資料夾</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">New repository</span><span class="kbd">Ctrl/Cmd+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">名稱</div><div class="box box--focus">graph-bench</div></div>
+            <div class="fld"><div class="fld__label">位置</div><div class="fld__ctl"><div class="box box--mono">~/src</div><button class="gbm-btn md secondary"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>瀏覽…</button></div><div class="fld__hint">預設為 Preferences 的第一個來源資料夾</div></div>
+            <div class="fld"><div class="fld__label">預設分支名</div><div class="box box--mono">main</div></div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary">Create repository</button></div>
+        </div>
+      </div>
+      <div><div class="cap">b · 沒有來源資料夾：名稱、位置都空白，按鈕停用</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">New repository</span><span class="kbd">Ctrl/Cmd+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">名稱</div><div class="box box--focus"></div></div>
+            <div class="fld"><div class="fld__label">位置</div><div class="fld__ctl"><div class="box box--mono"></div><button class="gbm-btn md secondary"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>瀏覽…</button></div><div class="fld__hint">預設為 Preferences 的第一個來源資料夾</div></div>
+            <div class="fld"><div class="fld__label">預設分支名</div><div class="box box--mono">main</div></div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary" disabled>Create repository</button></div>
+        </div>
+      </div>
+      <div><div class="cap">c · 目標已經是 repository：停用（N-D2）</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">New repository</span><span class="kbd">Ctrl/Cmd+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">名稱</div><div class="box box--focus">git-branch-manager</div></div>
+            <div class="fld"><div class="fld__label">位置</div><div class="fld__ctl"><div class="box box--mono">~/src</div><button class="gbm-btn md secondary"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>瀏覽…</button></div><div class="fld__hint">預設為 Preferences 的第一個來源資料夾</div></div>
+            <div class="fld"><div class="fld__label">預設分支名</div><div class="box box--mono">main</div></div>
+            <div class="warn">~/src/git-branch-manager 已經是 git repository。</div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary" disabled>Create repository</button></div>
+        </div>
+      </div>
+      <div><div class="cap">d · 目標存在但不是 repository、也不是空的：可以建，先警告（N-D2）</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">New repository</span><span class="kbd">Ctrl/Cmd+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">名稱</div><div class="box box--focus">notes</div></div>
+            <div class="fld"><div class="fld__label">位置</div><div class="fld__ctl"><div class="box box--mono">~/src</div><button class="gbm-btn md secondary"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>瀏覽…</button></div><div class="fld__hint">預設為 Preferences 的第一個來源資料夾</div></div>
+            <div class="fld"><div class="fld__label">預設分支名</div><div class="box box--mono">main</div></div>
+            <div class="warn">~/src/notes 已存在且不是空的，會在現有檔案上建立 repository。</div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary">Create repository</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>元件</th><th>值</th><th>出處</th><th>現在的 app</th></tr></thead>
+      <tbody>
+        <tr><td>外框、標題列、內容、按鈕列</td><td>畫的是 P6 mock：480 寬；title 13 / 600、padding 12 15；body 14 15、gap 11；actions 11 15、gap 7、兩顆都是 sm</td><td>[P6]；寬 [APP] <code>tokens.dart:557</code></td><td><code>GbmDialogShell</code> 實際是標題列與按鈕列 padding 16 / 12、內容只有左右 16、按鈕間距 8、陰影 black .3 blur 24 y8（<code>gbm_dialog_shell.dart:77-155</code>）。N-D7 裁定照原樣用</td></tr>
+        <tr><td>標題、快捷鍵</td><td><code>New repository</code>、<code>Ctrl/Cmd+N</code>；kbd 畫成 app 的 <code>GbmKbdChip</code>（11px、textSecondary、pad 2 8），實際顯示平台組合鍵</td><td>[DLGS] name / key；kbd [PREC] W-D13</td><td>標題寫成 <code>New Repository</code>（大寫 R），和 DLGS 不同；快捷鍵已綁（<code>gbm_shortcuts.dart:115</code>）</td></tr>
+        <tr><td>主要按鈕</td><td><code>Create repository</code>（primary，不是 danger）</td><td>[DLGS] primary；dlgGroup 的 btnCls</td><td><code>TextButton('OK')</code></td></tr>
+        <tr><td>名稱</td><td>focus（accent 邊框）、<strong>不是</strong> mono</td><td>[DLGS] k:'focus'，沒有 mono</td><td>沒有</td></tr>
+        <tr><td>位置</td><td>text、mono、hint「預設為 Preferences 的第一個來源資料夾」，右邊「瀏覽…」</td><td>欄位 [DLGS]；按鈕 使用者裁定 2026-10-23「clone、新增repo需要改畫面，資料夾輸入改成可以瀏覽資料夾」，畫法 [APP] Add worktree（<code>add_worktree_dialog.dart:502-538</code>）</td><td>沒有。Clone 的 <code>_defaultParent()</code> 已有「第一個啟用的來源資料夾」（<code>clone_repository_dialog.dart:77-83</code>）</td></tr>
+        <tr><td>「瀏覽…」按鈕</td><td>secondary、一般尺寸（30 高、12.5px、padding 0 12）、folder 圖示 13、和欄位間距 8；開系統的資料夾選擇器，選到的資料夾填進位置</td><td>尺寸 [KIT] <code>.gbm-btn</code>（30 / 12.5 / 0 12）與 [APP] <code>gbm_button.dart:150-156</code> 一致；<code>worktree-dialogs-spec.html:567</code> 的圖是 30 高但 11px、padding 0 8，和 KIT、app 都不同，這裡不照它。顏色 [KIT] <code>.gbm-btn-secondary</code>；[P17] gap 8；圖示路徑 [PREC] <code>worktree-dialogs-spec.html:567</code></td><td>Add worktree 已有同一顆（<code>GbmButton</code> + <code>Icons.folder_open_outlined</code>，<code>fileSavePickerProvider.pickDirectory()</code>）</td></tr>
+        <tr><td>預設分支名</td><td>text、mono、初值 <code>main</code></td><td>[DLGS] v:'main'；N-D6</td><td>沒有；<code>runInitRepo</code> 只跑 <code>git init --quiet &lt;path&gt;</code>（<code>InitCloneOps.cpp:21</code>），不帶 <code>-b</code></td></tr>
+        <tr><td>兩個勾選</td><td><span style="text-decoration:line-through">「建立 .gitignore（從全域範本）」chk-on；「建立第一筆空 commit」chk</span> 拿掉</td><td>使用者裁定 2026-10-23：N-D1「拿掉這個勾選」、N-D4「不要新建commit」。spec 一併修訂（見下方 spec 修訂）</td><td>沒有</td></tr>
+        <tr><td>欄位標籤語言</td><td>名稱 / 位置 / 預設分支名（中文）；標題、按鈕英文</td><td>[DLGS]；<code>.claude/skills/ui-spec-design/SKILL.md:112</code>「使用者裁定 2026-09-04: dialogs follow this.」</td><td>英文「Path for the new repository」</td></tr>
+        <tr><td>停用的主要按鈕</td><td>opacity .45</td><td>[KIT] <code>.gbm-btn[disabled]</code></td><td><code>GbmButton</code> 的 <code>onPressed: null</code> 只把文字淡到 .45，底色與邊框不變（<code>gbm_button.dart:164-167</code>）</td></tr>
+        <tr><td>warn 欄位（c、d）</td><td>sunken + 1px borderSubtle + 2px warning 左線、r6、padding 8、11px</td><td>[DLGF] isWarn；字級與 padding 照已實作的 <code>GbmDialogWarnField</code></td><td><code>GbmDialogWarnField</code>（<code>gbm_dialog_field_kinds.dart:96</code>，<code>add_worktree_dialog.dart:561</code> 已用）</td></tr>
+        <tr><td>入口</td><td>workspace 的 File 選單與 Ctrl/Cmd+N（<code>workspace_screen.dart:904</code>）；歡迎畫面的按鈕、選單與快捷鍵（<code>welcome_screen.dart:230</code>、<code>:331</code>）</td><td>[APP]</td><td>兩處都呼叫 <code>promptNewRepository()</code>。plan 寫的「三個入口（含 repo switcher）」不對：footer 只有 Open / Clone（<code>repo_switcher_popover.dart:671-685</code>）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="clone">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · DLGS Clone repository</div>
+      <h2>Clone：目標路徑旁加「瀏覽…」，其他不變</h2>
+      <p class="lede">只多一顆按鈕，其餘照 <code>welcome-and-clone-spec.html</code> 畫面 4 已核定、已實作的樣子。</p>
+    </div>
+    <div class="stage stage-row">
+      <div><div class="cap">目標路徑旁加「瀏覽…」</div>
+        <div class="gbm-dialog-shell">
+          <div class="mkbar"><span class="mkbar__title">Clone repository</span><span class="kbd">Ctrl/Cmd+Shift+N</span></div>
+          <div class="dlg-body">
+            <div class="fld"><div class="fld__label">URL</div><div class="box box--focus box--mono">git@github.com:Staler2019/git-branch-manager.git</div></div>
+            <div class="fld"><div class="fld__label">目標路徑</div><div class="fld__ctl"><div class="box box--mono">~/src/git-branch-manager</div><button class="gbm-btn md secondary"><span class="ic"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg></span>瀏覽…</button></div><div class="fld__hint">URL 貼上後自動帶出資料夾名，可手改</div></div>
+            <div class="opt" data-on="1"><span class="opt__mark"></span><span>一併 clone submodule</span></div>
+            <div class="opt" data-on="0"><span class="opt__mark"></span><span>淺層 clone（--depth 1）</span></div>
+            <div class="note">進行中不卡 dialog：進度走 P10 背景作業列，完成後自動開啟。</div>
+          </div>
+          <div class="dlg-actions"><button class="gbm-btn sm secondary">Cancel</button><button class="gbm-btn sm primary">Clone</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>元件</th><th>值</th><th>出處</th><th>現在的 app</th></tr></thead>
+      <tbody>
+        <tr><td>「瀏覽…」</td><td>和畫面 1 同一顆。選到資料夾後，目標路徑 = <code>&lt;選到的資料夾&gt;/&lt;URL 帶出的資料夾名&gt;</code>；URL 還沒填時就是選到的資料夾本身（C-D1）</td><td>使用者裁定 2026-10-23「clone、新增repo需要改畫面，資料夾輸入改成可以瀏覽資料夾」；畫法 [APP] Add worktree</td><td><code>clone_repository_dialog.dart:170-184</code> 只有 TextField</td></tr>
+        <tr><td>其他欄位、勾選、note</td><td>不變</td><td>[PREC] <code>welcome-and-clone-spec.html</code> 畫面 4</td><td>已照做；note 在 app 是 hint 樣式（<code>clone_repository_dialog.dart:201-204</code>）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="flow">
+    <div class="screen-head">
+      <div class="eyebrow">流程</div>
+      <h2>按下 Create repository 之後</h2>
+      <p class="lede">目標路徑 = 位置 / 名稱。git 行為是在 git 2.56.0、暫存目錄實測的結果。</p>
+    </div>
+<pre class="flow">對話框關閉
+  │
+  ├─ git check-ref-format --branch &lt;預設分支名&gt;   不合法 → 不建目錄，Log 寫 error（N-D3）
+  ├─ git init --quiet -b &lt;預設分支名&gt; &lt;位置/名稱&gt;   失敗 → Log 寫 error，結束
+  └─ Log：Created a repository at &lt;path&gt; → 轉到新 repository</pre>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>情況</th><th>git 實測</th><th>對話框怎麼處理</th></tr></thead>
+      <tbody>
+        <tr><td>新路徑</td><td><code>init -b trunk fresh</code> exit 0，HEAD 是 <code>refs/heads/trunk</code>；缺的上層目錄 git 自己建</td><td>a</td></tr>
+        <tr><td>目錄存在、不是空的、不是 repository</td><td>exit 0，原本的檔案變成 untracked（<code>?? a.txt</code>）</td><td>d：可以建，先用 warn 說清楚</td></tr>
+        <tr><td>已經是 repository</td><td>exit 0，印 <code>warning: re-init: ignored --initial-branch=other</code>，HEAD 不變</td><td>c：停用。git 不會報錯，但 <code>-b</code> 不會生效</td></tr>
+        <tr><td>分支名不合法（<code>a..b</code>）</td><td>exit 128 <code>fatal: invalid initial branch name</code>，<strong>但目錄已經被建出來、留在磁碟上</strong></td><td>先跑 <code>check-ref-format</code>，不合法就不跑 init（N-D3）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="spec-revisions">
+    <div class="screen-head">
+      <div class="eyebrow">spec 修訂</div>
+      <h2>裁定後要改的 spec 內容</h2>
+      <p class="lede">和 A9 拿掉「Delete merged branches…」同一個做法：改 spec 本文，並在 P16 <code>REVISIONS</code> 加列。單獨一個 chore commit，在實作之前。</p>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>位置</th><th>原本</th><th>改成</th></tr></thead>
+      <tbody>
+        <tr><td>DLGS「New repository」</td><td><code>chk-on</code>「建立 .gitignore（從全域範本）」、<code>chk</code>「建立第一筆空 commit」</td><td>兩列刪除；「位置」加註旁邊有「瀏覽…」</td></tr>
+        <tr><td>DLGS「Clone repository」</td><td>「目標路徑」只有輸入框</td><td>加註旁邊有「瀏覽…」</td></tr>
+        <tr><td>P16 REVISIONS（新增兩列）</td><td>現有 7 列，最後一列是 A9 的 05-J（spec 第 3694 行附近）</td><td>照 <code>{ area, was, now }</code> 的格式：<br><code>{ area: 'P20 New repository', was: '名稱、位置、預設分支名，加兩個勾選：建立 .gitignore（從全域範本）、建立第一筆空 commit', now: '拿掉兩個勾選；位置旁加「瀏覽…」（使用者裁定 2026-10-23：「拿掉這個勾選」、「不要新建commit」、「資料夾輸入改成可以瀏覽資料夾」）' }</code><br><code>{ area: 'DLGS Clone repository', was: '目標路徑只有輸入框', now: '目標路徑旁加「瀏覽…」（使用者裁定 2026-10-23：「clone、新增repo需要改畫面，資料夾輸入改成可以瀏覽資料夾」）' }</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="inferred">
+    <div class="screen-head">
+      <div class="eyebrow">推測值</div>
+      <h2>沒有出處、我自己填的值</h2>
+    </div>
+    <ul class="notes">
+      <li>c、d 的 warn 欄位本身：DLGS 的 New repository 條目沒有 <code>warn</code>，是 N-D2 的裁定加上的；位置放在最後一欄之後。</li>
+      <li>c、d 的 warn 文字「&lt;path&gt; 已經是 git repository。」「&lt;path&gt; 已存在且不是空的，會在現有檔案上建立 repository。」：句型仿 <code>add_worktree_dialog.dart:561</code>。</li>
+      <li>「第一個來源資料夾」讀成「第一個<strong>啟用的</strong>來源資料夾」，和 Clone 的 <code>_defaultParent()</code> 一致；沒有啟用的來源資料夾時位置欄空白。</li>
+      <li>名稱欄的限制：不可空白、不可含 <code>/</code> 或 <code>\</code>、不可是 <code>.</code> 或 <code>..</code>；不符合時按鈕停用，不另外寫字。名稱、位置、預設分支名任一空白時按鈕也停用。</li>
+            <li>「瀏覽…」與 hint 的位置：hint 放在輸入框與按鈕那一列的下方。<span style="text-decoration:line-through">和 Add worktree 一樣</span> 更正（spec-auditor）：Add worktree 的位置欄沒有 hint；這個順序的出處是 P17 欄位模板（label → 控制列 → hint）與 Clone 現在的畫法。</li>
+      <li>按鈕圖示：畫的是 <code>worktree-dialogs-spec.html:567</code> 的資料夾圖示（關起來的資料夾）、13px；實作沿用 Add worktree 的 <code>Icons.folder_open_outlined</code>，不照這裡的路徑與尺寸。</li>
+      <li>四個畫面的範例值：graph-bench / ~/src / main 是 DLGS 原值，其他是示意。</li>
+      <li>勾選框的白色勾號（Clone）：照已核定的前例頁畫法，實作用 Flutter <code>Checkbox</code>。</li>
+    </ul>
+  </section>
+
+  <section class="screen" id="audits">
+    <div class="screen-head">
+      <div class="eyebrow">稽核</div>
+      <h2>機械稽核的結果</h2>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>稽核</th><th>結果</th></tr></thead>
+      <tbody><tr><td>沒有出處的值</td><td>specimen CSS 0 筆</td></tr>
+        <tr><td>token 覆蓋</td><td>用到的 <code>--gbm-*</code> 在 light、dark（media）、dark（data-theme）三個區塊都有定義；沒有未定義、沒有沒用到的</td></tr>
+        <tr><td>沒用到的 class</td><td>0（第二版拿掉勾選後刪掉 <code>.opt__hint</code>、<code>.opt.is-off</code>）</td></tr>
+        <tr><td>對比（WCAG）</td><td>低於 4.5 的兩組，都來自 <code>tokens.dart</code>，<strong>沒有在這頁改</strong>：hint 的 <code>textTertiary</code> 對 raised（light 3.08 / dark 3.77）；primary 按鈕白字對 accent 3.75。其餘：標題 16.18 / 14.64、標籤 6.39 / 5.94、欄位值 16.18 / 16.02、warn 5.91 / 7.05、secondary 按鈕 16.18 / 14.64</td></tr>
+        <tr><td>HTML 結構</td><td><code>html.parser</code>：0 個不成對、0 個未關閉</td></tr>
+        <tr><td>和實作對照</td><td>見兩個畫面表格的「現在的 app」欄。shell 的 padding 與按鈕間距 app 照 P6 文字的 16，圖照 P6 mock（N-D7 裁定沿用 app）</td></tr>
+        <tr><td>spec-auditor 第一版</td><td>66 列：MATCH 49、MISMATCH 6、UNSOURCED 5、已列推測 5、裁定 1。已處理：<code>promptText</code> 的錯誤說法、語言裁定的出處（第一版原處更正）、4 處引用標籤、5 個沒用到的 class、kbd 改 <code>GbmKbdChip</code>、warn 改 <code>GbmDialogWarnField</code>、行高補前例值。MISMATCH 6 列全是 spec 內部或 spec 對 tokens 的差異（W-D13；dark 陰影 spec blur 16、tokens 12）</td></tr>
+        <tr><td>spec-auditor 第二版</td><td>48 列：MATCH 36、MISMATCH 8、UNSOURCED 2、已列推測 1、裁定 1。全部已處理：三個行號差一行（<code>add_worktree_dialog.dart:513</code>、<code>:532</code>、<code>clone_repository_dialog.dart:170</code>）；「worktree-dialogs-spec.html D5」不存在（D5 只是 <code>add_worktree_dialog.dart:113</code> 的程式註解），改指程式；「瀏覽…」尺寸前例頁的圖（11px、0 8）與 KIT／app 衝突，採 KIT／app 並寫明；hint 位置的理由錯（原處更正）；Clone note 行高 1.6 改回 1.7；Clone 列補上裁定原文；REVISIONS 補上 was 欄，並把非裁定原話移出「使用者裁定」括號</td></tr>
+        <tr><td>元件混淆</td><td>warn 是對話框內的 <code>warn</code> 欄位，不是 <code>.gbm-banner-warning</code>；欄位標籤是 P6 的 11px <code>textSecondary</code>，不是 <code>.mklbl</code>；「瀏覽…」是一般尺寸的 <code>.gbm-btn</code>，不是按鈕列的 sm</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="decisions">
+    <div class="screen-head">
+      <div class="eyebrow">裁定</div>
+      <h2>裁定（2026-10-23 定稿：「定稿，開始實作」）</h2>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>#</th><th>問題</th><th>裁定 / 建議</th></tr></thead>
+      <tbody>
+        <tr><td>N-D1</td><td>「從全域範本」的範本是什麼（git 沒有全域 .gitignore 範本）</td><td><span class="tag">裁定</span>「拿掉這個勾選」</td></tr>
+        <tr><td>N-D2</td><td>目標路徑已存在</td><td><span class="tag">裁定</span>已是 repository → 停用 + warn；存在且非空 → 可以建 + warn；空目錄照常</td></tr>
+        <tr><td>N-D3</td><td>分支名不合法時 git 會留下空目錄</td><td><span class="tag">裁定</span>照建議：core 先跑 <code>git check-ref-format --branch</code>，不合法就不跑 init</td></tr>
+        <tr><td>N-D4</td><td>空 commit 的細節</td><td><span class="tag">裁定</span>「不要新建commit」→ 拿掉「建立第一筆空 commit」，New repository 不建任何 commit。使用者確認（2026-10-23）「對，拿掉空 commit 勾選」</td></tr>
+        <tr><td>N-D5</td><td>按下去之後</td><td><span class="tag">裁定</span>照建議：按下就關，成敗只進 Log</td></tr>
+        <tr><td>N-D6</td><td>預設分支名的初值</td><td><span class="tag">裁定</span>照建議：固定 <code>main</code></td></tr>
+        <tr><td>N-D7</td><td>外框數值 P6 mock、P6 文字、app 三方不同</td><td><span class="tag">裁定</span>沿用現有 <code>GbmDialogShell</code>；要不要改 shell 另案</td></tr>
+        <tr><td>C-D1</td><td>Clone 的「瀏覽…」選到資料夾後，目標路徑怎麼組</td><td><span class="tag">裁定</span>「選的是上層」（2026-10-23）：選的是<strong>上層</strong>資料夾，目標路徑 = 選到的資料夾 / URL 帶出的資料夾名；URL 空白時就是選到的資料夾。之後改 URL 仍會更新資料夾名，直到手改過目標路徑（和現在的「可手改」規則一致）。<br>替代：選到的資料夾就是 clone 的目的地本身（和 Add worktree 一樣直接填入）</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var buttons = document.querySelectorAll('.theme-toggle button');
+  function current() {
+    var t = root.getAttribute('data-theme');
+    if (t) return t;
+    return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  function paint() { var c = current(); buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.set === c)); }); }
+  try { var saved = localStorage.getItem('gbm-spec-theme'); if (saved) root.setAttribute('data-theme', saved); } catch (e) {}
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () {
+      root.setAttribute('data-theme', b.dataset.set);
+      try { localStorage.setItem('gbm-spec-theme', b.dataset.set); } catch (e) {}
+      paint();
+    });
+  });
+  paint();
+})();
+</script>

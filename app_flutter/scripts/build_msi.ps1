@@ -51,7 +51,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $release 'gbm_capi.dll'))) {
 }
 # The VC++ runtime is bundled by windows/CMakeLists.txt too. Without it the
 # app resolves the runtime from System32, and an msvcp140.dll older than the
-# compiler (14.29 against a 14.51 build) crashes with c0000005 before the
+# compiler (14.29 under v0.62.0) crashes with c0000005 before the
 # first frame -- no window, no message.
 foreach ($runtime in 'msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll') {
   if (-not (Test-Path -LiteralPath (Join-Path $release $runtime))) {

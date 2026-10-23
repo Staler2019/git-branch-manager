@@ -112,7 +112,7 @@ install(FILES "$<TARGET_FILE:gbm_capi>" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
 # The VC++ runtime (msvcp140.dll and friends), app-local: the loader looks
 # next to the executable before System32, so the copy that matches this
 # compiler wins over whatever the machine has. A System32 msvcp140.dll older
-# than the compiler -- 14.29 against a 14.51 build -- crashes in the new STL's
+# than the compiler -- 14.29 under v0.62.0 -- crashes in the new STL's
 # std::mutex with c0000005 before the first frame, so the app shows no window
 # and no message. build_msi.ps1 refuses to package a bundle without it.
 set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)

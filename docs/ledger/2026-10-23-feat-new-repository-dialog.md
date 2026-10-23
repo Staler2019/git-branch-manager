@@ -60,8 +60,13 @@ workspace 的 File 選單和歡迎畫面。
 
 ## Result
 
-**測試：** core 667、capi 247、Flutter 3993 全綠，analyzer 0。device 測試
-`new_repository_flow_test` 2/2、`worktree_add_refresh` 2/2。
+**測試：** ~~core 667、capi 247、Flutter 3993 全綠，analyzer 0。device 測試
+`new_repository_flow_test` 2/2、`worktree_add_refresh` 2/2。~~（`74e12d5d` 當時的數字）
+裁示後的修正完成於 `39e6fa92`，G3 重跑：core 669、capi 248、Flutter 3998（skip 8）全綠，analyzer 0。
+device 層 23 個檔案逐一跑完。首跑 19 綠、4 紅：`commit_file_counts` +1 -1、`commit_flow` +0 -1、
+`context_menu_flows` +2 -3（耗時 53:58）、`revert_commit_flow` +0 -1。4 個檔案都沒有用到本輪改過的符號
+（grep `PlatformMenu|promptNewRepository|repoInit|cloneDestination|probeTargetDirectory`），在同一個 HEAD
+上逐一重跑後都綠（2/2、1/1、5/5、1/1）。首跑的迴圈只留下每個檔案最後一行，**失敗訊息沒有保留下來，原因未查證**。
 
 **Mutation**（mutations-run／tests-reddened 分開記）：
 
@@ -81,15 +86,52 @@ workspace 的 File 選單和歡迎畫面。
 「More than one active PlatformMenuBar」debug 斷言。用既有的 Open 路徑做最小重現，同樣是紅的。
 `WelcomeScreen` 與 `WorkspaceScreen` 各自掛一個 `PlatformMenuBarHost`，新頁面的 `initState` 比舊頁面的
 `dispose` 早執行。Flutter 的 `_PlatformMenuBarState.dispose` 會呼叫 `clearMenus()`，所以推測 release
-build 轉場後系統選單會被清空，要等下一次 rebuild 重送才恢復。**這個推測沒有量測。**
-device 測試的成功案例因此改從 repository 視窗開始。這個缺陷要不要修、要不要開 issue，交給使用者裁示。
+build 轉場後系統選單會被清空，要等下一次 rebuild 重送才恢復。~~**這個推測沒有量測。**~~ 已量測：widget 測試裝上記錄用的 delegate，照 release 的呼叫順序（鎖一律放行），轉場後最後一個呼叫是 `clearMenus`。
+~~device 測試的成功案例因此改從 repository 視窗開始。這個缺陷要不要修、要不要開 issue，交給使用者裁示。~~ 使用者裁示「都修」，修正見下方「追加：裁示後的修正」。device 測試的成功案例已改回從歡迎畫面出發。
 
 **Verifier：** 新開 context 的 `verifier` 對 HEAD `74e12d5d` 回 **CONFIRMED**：core／capi／Flutter 全套件與
 device 測試都重跑過。三個 advisory 依 P3／P4 預設處理，都延後，未更動已 CONFIRMED 的實作：
 
-- **P3（延後，待使用者裁示）：** `@{-N}` 形式的分支名。`check-ref-format --branch` 沒有指定 `repoDir`，
+- ~~**P3（延後，待使用者裁示）：**~~ **P3（已修，`9c79248b`）：** `@{-N}` 形式的分支名。`check-ref-format --branch` 沒有指定 `repoDir`，
   會在 process 的 cwd 執行。cwd 在某個 repo 內時，`@{-1}` 會被展開成前一個分支而通過檢查；接著
   `init -b '@{-1}'` 失敗，並留下空目錄。verifier 在本 repo 內實測 rc=0，在非 repo 目錄實測 rc=128。
   錯誤訊息仍會正確進 Log，只是 N-D3 「不建目錄」的保證在這個條件下不成立。從 Finder 啟動時 cwd 通常是 `/`。
-- **P4（延後）：** 除了 Timeout／Cancelled，檢查本身起不來（例如 spawn 失敗）也會被報成「不是有效的分支名」。
-- **P4（延後）：** 在 Clone 選了上層之後，若 URL 改成帶不出資料夾名，目標路徑會保留舊值，不會退回成上層本身。
+- ~~**P4（延後）：**~~ **P4-a（已修，`08f78c4c`）：** 除了 Timeout／Cancelled，檢查本身起不來（例如 spawn 失敗）也會被報成「不是有效的分支名」。
+- ~~**P4（延後）：**~~ **P4-b（已修，`e48a6204`）：** 在 Clone 選了上層之後，若 URL 改成帶不出資料夾名，目標路徑會保留舊值，不會退回成上層本身。
+
+## 追加：裁示後的修正
+
+使用者裁示：「都修，修完再 push 開 PR」、「p4-a要照實回報 p4-b也修」。四個修正各自一個 commit：
+
+```
+9c79248b fix  @{-N}：check-ref-format --branch 印出的名字和輸入不同就拒絕
+08f78c4c fix  只有 git 回了非零 exit code 才判定分支名不合法，其餘錯誤照實回報
+e48a6204 fix  Clone：URL 帶不出資料夾名時，目標路徑退回上層資料夾
+39e6fa92 fix  PlatformMenuBarHost 改成由「最後掛上且仍存在」的 host 擁有選單
+```
+
+- **P3：** `check-ref-format --branch` 會把它接受的名字印到 stdout。在 repo 裡，`@{-1}` 會印出前一個分支名，
+  不在 repo 裡則 exit 128（git 2.56.0 實測，十種名字的對照記在 scratchpad，未提交）。所以比對 stdout 與輸入，
+  不必猜 cwd。capi 測試會把 cwd 切到一個有前一個分支的 repo 實跑。fake 的 `out` 原本是 `"trunk\n"`，
+  已改成和真 runner 一樣不帶結尾換行（[CPP-run-not-byte-exact]）。
+- **P4-a：** `FakeProcessRunner::Response` 新增 `spawnFailed`。判斷條件從「code 不是 Timeout／Cancelled」
+  改成「`exitCode == 0` 就照實回報」：git 沒有回答，就不是 git 的「不合法」。
+- **P4-b：** `_onUrlChanged` 在手改目標路徑之前，一律以 `cloneDestinationPath` 重算。
+- **PlatformMenuBar：** host 不再掛 `PlatformMenuBar` widget，改成直接呼叫 `platformMenuDelegate`。
+  靜態的 `_live` 清單保存還活著的 host，最後一個是 owner，只有 owner 在 rebuild 時重送選單。owner
+  dispose 時交給次新的 host 重送，最後一個離開時才 `clearMenus`。三個讀 `PlatformMenuBar` widget 的測試
+  改讀 `platformMenus()`。第一版的 mutation 中 M1（不交棒）與 M2（非 owner 也送）沒轉紅，補上「owner
+  先走」與「只有舊的 host rebuild」兩個測試後才轉紅。
+
+Mutation：P3 1 個，轉紅 core 1、capi 1；P4-a 2 個，各轉紅 1；P4-b 1 個，轉紅 1；PlatformMenuBar
+跑 8 次（M1、M2 各兩次）：前 6 次中 2 次未轉紅，補測試後重跑 M1、M2 都轉紅。最終 6 個 mutation 都有效，各轉紅 1。
+
+**Verifier（裁示後）：** 這是第二次派新開 context 的 `verifier`，對象是 HEAD `39e6fa92`，回 **CONFIRMED**。
+它重跑了全套件與 `new_repository_flow` device 測試，並在 git 2.56.0 實測 `@{-1}`／`@{-2}`／`@{-1}x`（在 repo 內被展開，
+會被比對擋下）以及 `trunk`／`café`／`@`（原樣放行）。PlatformMenuBar 另用 5 個探針測試驗證：三個 host 依不同順序 dispose、
+同一個 frame 內替換或全部移除、非 macOS、用真的 delegate 從歡迎畫面轉進 workspace。三個 P4 依預設延後：
+
+- device 成功案例約 5 分鐘，推測卡在最後的 `pumpAndSettle()`，未查證。
+- URL 帶不出資料夾名稱時，目標是上層資料夾本身，Clone 按鈕仍可按（C-D1 本來就是這樣），git 會以「目錄非空」失敗，可以恢復。
+- git 被訊號殺掉時 exit code 非零，會被報成名稱不合法；極端情況，不在本輪範圍。
+

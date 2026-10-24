@@ -20,7 +20,13 @@ import 'diff_line_menu_items.dart';
 /// With soft wrap off the code slides sideways underneath the gutter, and
 /// anything the gutter does not cover shows the scrolled line text to the left
 /// of its own line numbers.
-const double kDiffGutterWidth = GbmSpacing.space3 + 36 + 36 + 14;
+const double kDiffGutterWidth = kDiffLinePaddingX + 36 + 36 + 14;
+
+/// A diff row's left and right padding: KIT `.gbm-diffline`'s
+/// `padding: 1px 10px`. It was `space3` (12) until 使用者裁定 2026-10-24
+/// (`docs/claude-design-demo/wc-full-file-view-spec.html` §03) sent the
+/// drawing back to the spec.
+const double kDiffLinePaddingX = 10;
 
 /// The style a diff line's code is drawn in, colour aside.
 ///
@@ -127,8 +133,8 @@ class DiffLineView extends StatelessWidget {
               ? BoxDecoration(color: colors.accent.withValues(alpha: 0.18))
               : null,
           padding: EdgeInsets.only(
-            left: softWrap ? GbmSpacing.space3 : 0,
-            right: GbmSpacing.space3,
+            left: softWrap ? kDiffLinePaddingX : 0,
+            right: kDiffLinePaddingX,
             top: 1,
             bottom: 1,
           ),
@@ -159,7 +165,7 @@ class DiffLineView extends StatelessWidget {
                         background: background,
                         child: Padding(
                           padding: const EdgeInsets.only(
-                            left: GbmSpacing.space3,
+                            left: kDiffLinePaddingX,
                           ),
                           child: _gutterCells(colors, textColor, marker),
                         ),
@@ -270,5 +276,5 @@ double diffFileContentWidth(
         ].join('\n'),
         style: kDiffCodeTextStyle,
       ) +
-      GbmSpacing.space3;
+      kDiffLinePaddingX;
 }

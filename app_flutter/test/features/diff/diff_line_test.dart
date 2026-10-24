@@ -12,9 +12,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
+import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/code_line_metrics.dart';
 
 void main() {
   group('DiffLineView', () {
@@ -253,6 +255,97 @@ void main() {
       await tester.tap(find.text('Stage hunk'));
       await tester.pumpAndSettle();
       expect(anyTapped, isFalse);
+    });
+  });
+
+  // 使用者裁定 2026-10-24 (wc-full-file-view-spec.html §03): the row's
+  // horizontal padding is KIT `.gbm-diffline`'s `padding: 1px 10px`, not
+  // `space3`. Measured on the painted text, in both wrap modes, because the
+  // unwrapped row moves its left padding into the pinned gutter.
+  group('DiffLineView horizontal padding is .gbm-diffline\'s 10px', () {
+    const DiffLine line = DiffLine(
+      kind: DiffLineKind.context,
+      oldLine: 7,
+      newLine: 7,
+      text: 'ctx',
+    );
+
+    Future<void> pump(WidgetTester tester, {required bool softWrap}) =>
+        tester.pumpWidget(
+          MaterialApp(
+            theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
+            home: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 400,
+                  child: DiffLineView(softWrap: softWrap, line: line),
+                ),
+              ),
+            ),
+          ),
+        );
+
+    for (final bool softWrap in <bool>[true, false]) {
+      testWidgets('code starts 10 + 36 + 36 + 14 from the row edge '
+          '(softWrap: $softWrap)', (WidgetTester tester) async {
+        await pump(tester, softWrap: softWrap);
+        final Rect row = tester.getRect(find.byType(DiffLineView));
+        final Rect code = tester.getRect(find.text('ctx'));
+        expect(code.left - row.left, 10 + 36 + 36 + 14);
+      });
+
+      testWidgets('line numbers end 10 + 36 from the row edge '
+          '(softWrap: $softWrap)', (WidgetTester tester) async {
+        await pump(tester, softWrap: softWrap);
+        final Rect row = tester.getRect(find.byType(DiffLineView));
+        final Rect oldNumber = tester.getRect(find.text('7').first);
+        expect(oldNumber.right - row.left, 10 + 36);
+      });
+    }
+
+    testWidgets('the unwrapped scroll extent leaves 10 after the widest line', (
+      WidgetTester tester,
+    ) async {
+      final DiffFile file = DiffFile(
+        oldPath: 'a.dart',
+        newPath: 'a.dart',
+        kind: FileChangeKind.modified,
+        oldMode: '',
+        newMode: '',
+        oldBlob: '',
+        newBlob: '',
+        binary: false,
+        similarity: 0,
+        addedLines: 0,
+        removedLines: 0,
+        displayPath: 'a.dart',
+        hunks: const <DiffHunk>[
+          DiffHunk(
+            oldStart: 7,
+            oldCount: 1,
+            newStart: 7,
+            newCount: 1,
+            heading: '',
+            lines: <DiffLine>[line],
+          ),
+        ],
+      );
+      expect(
+        diffFileContentWidth(file, softWrap: false, memo: CodeWidthMemo()),
+        kDiffGutterWidth + widestLineWidth('ctx', kDiffCodeTextStyle) + 10,
+      );
+    });
+
+    testWidgets('the wrapped code stops 10 short of the row\'s right edge', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, softWrap: true);
+      final Rect row = tester.getRect(find.byType(DiffLineView));
+      final Rect code = tester.getRect(
+        find.ancestor(of: find.text('ctx'), matching: find.byType(Expanded)),
+      );
+      expect(row.right - code.right, 10);
     });
   });
 }

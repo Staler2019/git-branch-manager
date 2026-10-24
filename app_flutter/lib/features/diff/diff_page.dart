@@ -110,7 +110,7 @@ class _DiffPageState extends ConsumerState<DiffPage> {
                 ].join('\n'),
                 style: kDiffCodeTextStyle,
               ) +
-              GbmSpacing.space3;
+              kDiffLinePaddingX;
 
     return SelectionArea(
       child: GbmCodeHScroll(

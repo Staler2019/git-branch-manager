@@ -3834,6 +3834,39 @@ TEST_F(RealRepoTest, CherryPicksASingleCommitOntoAnotherBranch) {
     EXPECT_EQ(subject->out, "feature commit");
 }
 
+// Spec page 07's MSGS table, Cherry-pick row: the trailing
+// "(cherry picked from commit …)" line, which Preferences can turn off.
+TEST_F(RealRepoTest, CherryPickRecordOriginAppendsTheSourceLineOnlyWhenAsked) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));
+    commitFile("b.txt", "b\n", "feature b");
+    commitFile("c.txt", "c\n", "feature c");
+    ASSERT_TRUE(run({"switch", "--quiet", "main"}));
+    auto b = run({"rev-parse", "feature~1"});
+    auto c = run({"rev-parse", "feature"});
+    ASSERT_TRUE(b);
+    ASSERT_TRUE(c);
+
+    OperationRunner operations(*runner_, paths_);
+    CherryPickRequest with;
+    with.commits = {ObjectId::fromHex(b->out)};
+    with.recordOrigin = true;
+    auto first = submitAndWait(operations, makeCherryPickOperation(with));
+    ASSERT_TRUE(first.succeeded) << (first.error ? first.error->detail : "");
+    auto body = run({"log", "-1", "--format=%B"});
+    ASSERT_TRUE(body);
+    EXPECT_NE(body->out.find("(cherry picked from commit " + b->out + ")"), std::string::npos)
+        << body->out;
+
+    CherryPickRequest without;
+    without.commits = {ObjectId::fromHex(c->out)};
+    auto second = submitAndWait(operations, makeCherryPickOperation(without));
+    ASSERT_TRUE(second.succeeded) << (second.error ? second.error->detail : "");
+    body = run({"log", "-1", "--format=%B"});
+    ASSERT_TRUE(body);
+    EXPECT_EQ(body->out.find("cherry picked from"), std::string::npos) << body->out;
+}
+
 TEST_F(RealRepoTest, CherryPicksARangeInOldestFirstOrder) {
     commitFile("a.txt", "1\n", "c1");
     ASSERT_TRUE(run({"switch", "--quiet", "-c", "feature"}));

@@ -52,6 +52,9 @@ public:
         if (request_.noCommit) {
             args.emplace_back("--no-commit");
         }
+        if (request_.recordOrigin) {
+            args.emplace_back("-x");
+        }
         for (const ObjectId& commit : request_.commits) {
             args.push_back(commit.hex());
         }

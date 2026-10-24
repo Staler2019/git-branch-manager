@@ -161,6 +161,8 @@ Future<SharedPreferences> _pumpRealApp(
     'fileListViewMode',
     'diffViewMode',
     'appPrefs.softWrapEnabled',
+    // Same reason: on, every Working Copy diff draws the whole file.
+    'appPrefs.fullFileViewEnabled',
     // fix/refresh-ui-first-tiering, C1/C4: a developer who has flipped one
     // of these three in their own real app would otherwise have every
     // later device test in the session silently measuring the other

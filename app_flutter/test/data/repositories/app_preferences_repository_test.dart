@@ -35,6 +35,9 @@ void main() {
       // before this field existed, because a bare `Text` defaults to
       // `softWrap: true`. See the field's own doc comment.
       expect(p.softWrapEnabled, isFalse);
+      // Full-file view (wc-full-file-view-spec.html): off, so the diff opens
+      // on the -U3 cards it always showed until the user asks for the file.
+      expect(p.fullFileViewEnabled, isFalse);
       // Developer flags (fix/refresh-ui-first-tiering): the two behaviour
       // flags default to the new behaviour so a fresh profile gets it
       // without visiting Preferences; the timing readout defaults off since
@@ -66,6 +69,7 @@ void main() {
         autoUpdateCheckEnabled: false,
         skippedVersion: '9.9.9',
         softWrapEnabled: true,
+        fullFileViewEnabled: true,
         showRefreshTimings: true,
         keepDiffDuringRefresh: false,
         tieredRefresh: false,
@@ -85,12 +89,29 @@ void main() {
       expect(read.autoUpdateCheckEnabled, isFalse);
       expect(read.skippedVersion, '9.9.9');
       expect(read.softWrapEnabled, isTrue);
+      expect(read.fullFileViewEnabled, isTrue);
       expect(read.showRefreshTimings, isTrue);
       expect(read.keepDiffDuringRefresh, isFalse);
       expect(read.tieredRefresh, isFalse);
       expect(read.showLogTimeouts, isTrue);
       expect(read.showLogColumnHeaders, isTrue);
       expect(read.overwriteWithPreparedMessage, isFalse);
+    });
+
+    // Set opposite to soft wrap, its neighbour in both the store and the
+    // diff pane: with both true a key read from the other's slot still
+    // reads true.
+    test('full-file view is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(const AppPreferences(fullFileViewEnabled: true));
+      expect(repo.read().fullFileViewEnabled, isTrue);
+      expect(repo.read().softWrapEnabled, isFalse);
+
+      await repo.write(const AppPreferences(softWrapEnabled: true));
+      expect(repo.read().fullFileViewEnabled, isFalse);
     });
 
     // Written with the two LOG flags set differently, each way round: with
@@ -117,6 +138,19 @@ void main() {
       );
       expect(repo.read().showLogTimeouts, isFalse);
       expect(repo.read().showLogColumnHeaders, isTrue);
+    });
+
+    // The toggle writes through copyWith, so a field copyWith forgets is a
+    // button that flips nothing.
+    test('copyWith carries the full-file view both ways', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences on = base.copyWith(fullFileViewEnabled: true);
+      expect(on.fullFileViewEnabled, isTrue);
+      expect(on.copyWith(softWrapEnabled: true).fullFileViewEnabled, isTrue);
+      expect(
+        on.copyWith(fullFileViewEnabled: false).fullFileViewEnabled,
+        isFalse,
+      );
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

@@ -44,6 +44,7 @@ class AppPreferences {
     this.skippedVersion = '',
     // Ruling: off by default -- `docs/records/2026-10-04-soft-wrap-off-by-default.md`
     this.softWrapEnabled = false,
+    this.fullFileViewEnabled = false,
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
     this.tieredRefresh = true,
@@ -122,6 +123,14 @@ class AppPreferences {
   /// with the line-number gutter pinned at the left edge.
   final bool softWrapEnabled;
 
+  /// Working Copy diff: draw the whole file around the -U3 cards rather
+  /// than the cards alone, in both `2 file` and `unified`. Not from the
+  /// spec -- a user-requested addition like [softWrapEnabled], designed in
+  /// `docs/claude-design-demo/wc-full-file-view-spec.html`; global and
+  /// remembered by the user's ruling (「記住，全域偏好」). Off by default, so
+  /// the diff opens the way it always has.
+  final bool fullFileViewEnabled;
+
   /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
   /// seventh the user asked for to A/B the three flags below on real
   /// hardware. See `docs/records/2026-10-04-soft-wrap-off-by-default.md` for the precedent of a
@@ -187,6 +196,7 @@ class AppPreferences {
     bool? autoUpdateCheckEnabled,
     String? skippedVersion,
     bool? softWrapEnabled,
+    bool? fullFileViewEnabled,
     bool? showRefreshTimings,
     bool? keepDiffDuringRefresh,
     bool? tieredRefresh,
@@ -209,6 +219,7 @@ class AppPreferences {
           autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
       skippedVersion: skippedVersion ?? this.skippedVersion,
       softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
+      fullFileViewEnabled: fullFileViewEnabled ?? this.fullFileViewEnabled,
       showRefreshTimings: showRefreshTimings ?? this.showRefreshTimings,
       keepDiffDuringRefresh:
           keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
@@ -306,6 +317,9 @@ class AppPreferencesRepository {
       softWrapEnabled:
           _prefs.getBool('${_kPrefix}softWrapEnabled') ??
           defaults.softWrapEnabled,
+      fullFileViewEnabled:
+          _prefs.getBool('${_kPrefix}fullFileViewEnabled') ??
+          defaults.fullFileViewEnabled,
       showRefreshTimings:
           _prefs.getBool('${_kPrefix}showRefreshTimings') ??
           defaults.showRefreshTimings,
@@ -347,6 +361,10 @@ class AppPreferencesRepository {
     );
     await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
     await _prefs.setBool('${_kPrefix}softWrapEnabled', p.softWrapEnabled);
+    await _prefs.setBool(
+      '${_kPrefix}fullFileViewEnabled',
+      p.fullFileViewEnabled,
+    );
     await _prefs.setBool('${_kPrefix}showRefreshTimings', p.showRefreshTimings);
     await _prefs.setBool(
       '${_kPrefix}keepDiffDuringRefresh',

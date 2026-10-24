@@ -142,6 +142,17 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  /// Recorded for the same reason as [requestDiff].
+  @override
+  void requestFullDiff(String path, {bool staged = false}) {
+    commandLog.add(
+      FakeCommand('requestFullDiff', <String, Object?>{
+        'path': path,
+        'staged': staged,
+      }),
+    );
+  }
+
   @override
   void resolveConflict(
     String path,

@@ -52,6 +52,18 @@ void requestWorkingCopyDiff(
       .requestDiff(path, staged: staged);
 }
 
+/// [requestWorkingCopyDiff] with unlimited context, for the full-file view.
+void requestWorkingCopyFullDiff(
+  WidgetRef ref,
+  RepoIdentity identity,
+  String path, {
+  bool staged = false,
+}) {
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .requestFullDiff(path, staged: staged);
+}
+
 void stageFiles(WidgetRef ref, RepoIdentity identity, List<String> paths) {
   ref.read(repoSessionProvider(identity).notifier).stageFiles(paths);
 }

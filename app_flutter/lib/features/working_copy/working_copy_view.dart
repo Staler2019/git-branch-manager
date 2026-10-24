@@ -196,6 +196,18 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     ) {
       _requestBothSides(next);
     });
+    // Switched on with a file already selected: its full diffs are wanted
+    // now, not on the next click or status change.
+    ref.listen<bool>(
+      appPreferencesProvider.select((p) => p.fullFileViewEnabled),
+      (bool? previous, bool next) {
+        if (next && previous != true) {
+          _requestBothSides(
+            ref.read(wc.repoWorkingCopyStatusProvider(widget.identity)),
+          );
+        }
+      },
+    );
 
     _watchAmendPrefill(session);
     _watchPreparedMessage();
@@ -530,13 +542,30 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// side has to be asked for under its own path. A single request is why
   /// the pane used to go stale on whichever side the user was not looking
   /// at when a line was staged.
+  ///
+  /// With the full-file view on, each side's full-context diff is asked for
+  /// beside it, under the same path: the view fills between the -U3 cards
+  /// from it, and the two are compared against each other, so they must be
+  /// asked for together.
   void _requestBothSides(WorkingCopyStatus status) {
     final ({String? unstaged, String? staged}) sides = _selectedSides(status);
+    final bool full = ref.read(appPreferencesProvider).fullFileViewEnabled;
     if (sides.unstaged case final String path) {
       wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: false);
+      if (full) {
+        wc.requestWorkingCopyFullDiff(
+          ref,
+          widget.identity,
+          path,
+          staged: false,
+        );
+      }
     }
     if (sides.staged case final String path) {
       wc.requestWorkingCopyDiff(ref, widget.identity, path, staged: true);
+      if (full) {
+        wc.requestWorkingCopyFullDiff(ref, widget.identity, path, staged: true);
+      }
     }
   }
 

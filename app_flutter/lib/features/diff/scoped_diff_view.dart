@@ -327,6 +327,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   }
 
   void _reportScope(TemporaryScope? temporary) {
+    _temporary = temporary;
     final void Function(void Function()? submit)? report =
         widget.onTemporaryScopeChanged;
     if (report == null) return;
@@ -335,9 +336,20 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _reportedScope = hasScope;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      report(hasScope ? () => _submitTemporary(temporary) : null);
-      // `temporary` is promoted non-null by `hasScope` above.
+      report(hasScope ? _submitCurrentTemporary : null);
     });
+  }
+
+  /// The scope the last build resolved. The submitter [_reportScope]
+  /// publishes reads this when it is called rather than capturing the scope
+  /// it was published with: it is republished only when a scope starts or
+  /// stops existing, so a captured one went stale the moment the range grew
+  /// (Shift+Down after the first row staged only that row).
+  TemporaryScope? _temporary;
+
+  void _submitCurrentTemporary() {
+    final TemporaryScope? temporary = _temporary;
+    if (temporary != null) _submitTemporary(temporary);
   }
 
   /// Spends the one-shot scope: submit, forget, and drop the highlight too

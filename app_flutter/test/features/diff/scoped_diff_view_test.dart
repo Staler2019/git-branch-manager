@@ -692,6 +692,30 @@ void main() {
       );
     });
 
+    // The published submitter is what `repositoryStageSelectedLines` (the
+    // keyboard and menu path) calls, and it is published only when a scope
+    // starts or ends existing -- so it must read the scope when called, not
+    // the one it was published with. Captured instead, a range grown by
+    // Shift+Down after its first row staged only that first row.
+    testWidgets('the published submitter stages the range as it is now, not '
+        'as it was when first published', (WidgetTester tester) async {
+      await pump(tester, _file(<String>['.+..-.']));
+      await clickThen(tester, 'h0 l0');
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      expect(temporaryLabel('Stage 1 line'), findsOneWidget);
+      for (int i = 0; i < 3; i++) {
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      }
+      expect(temporaryLabel('Stage 4 lines (2 changed)'), findsOneWidget);
+
+      submitters.last!();
+      await tester.pump();
+
+      expect(staged, hasLength(1));
+      expect(staged.single.hunkIndex, 0);
+      expect(staged.single.lines, <int>[1, 4]);
+    });
+
     // The demo's 變體 B nests `.variant-B-temp` **inside**
     // `.variant-B-card`, wrapping the selected rows in place; the card goes
     // `.variant-B-card-muted` and its own button `.variant-B-btn-off`. This

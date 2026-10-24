@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -53,6 +55,41 @@ List<List<int>> _spans(List<DiffScope> scopes) =>
 
 List<List<int>> _changed(List<DiffScope> scopes) =>
     scopes.map((DiffScope s) => s.changedLineIndices).toList(growable: false);
+
+/// A hunk from a sketch with real line numbers: `.` advances both sides,
+/// `-` the old side only, `+` the new side only.
+DiffHunk _numbered(
+  String sketch, {
+  required int oldStart,
+  required int newStart,
+}) {
+  int oldLine = oldStart;
+  int newLine = newStart;
+  final List<DiffLine> lines = <DiffLine>[];
+  for (int i = 0; i < sketch.length; i++) {
+    final String c = sketch[i];
+    lines.add(
+      DiffLine(
+        kind: switch (c) {
+          '+' => DiffLineKind.added,
+          '-' => DiffLineKind.removed,
+          _ => DiffLineKind.context,
+        },
+        oldLine: c == '+' ? 0 : oldLine++,
+        newLine: c == '-' ? 0 : newLine++,
+        text: 'line $i',
+      ),
+    );
+  }
+  return DiffHunk(
+    oldStart: oldStart,
+    oldCount: oldLine - oldStart,
+    newStart: newStart,
+    newCount: newLine - newStart,
+    heading: '',
+    lines: lines,
+  );
+}
 
 /// The barriers a staged side that adds exactly [indexLines] hands the
 /// unstaged side -- the shape every pre-position barrier test was written in.
@@ -213,46 +250,270 @@ void main() {
   });
 
   group('splitHunkIntoScopes -- barriers', () {
-    // A barrier is a hunk line the gap rule may not swallow. In the merged
-    // `unified` list it is a line the *other* diff draws as a change of its
-    // own, so folding across it would put one card's span over another
-    // card's position -- and that is exactly the reported defect: an
-    // untracked file whose middle line is staged drew two cards where git
-    // sees three regions.
-    test('a barrier between two changes splits them, inside the gap', () {
-      // `+ + . + +` -- one unchanged line, well inside the gap rule's 2.
-      final DiffHunk hunk = _hunk('++.++');
+    // A barrier is the *other* diff's change, as an [IndexKey]. A scope may
+    // not span across one: 使用者裁定 ①「兩張卡片都包住同一個未變更行 →
+    // 卡片在這裡切開」and ②「對側純插入／純刪除落在卡片範圍中間 → 卡片在那個
+    // 位置切開」. Strictly between two consecutive own changes, under
+    // [compareIndexKeys] -- so at an equal (line, offset) the rank decides
+    // which side of the barrier this side's row is on.
+    IndexBarriers stagedSide(String sketch, {required int start}) =>
+        IndexBarriers.ofChanges(<DiffSide>[
+          (
+            file: _file(
+              hunks: <DiffHunk>[
+                _numbered(sketch, oldStart: start, newStart: start),
+              ],
+            ),
+            staged: true,
+          ),
+        ]);
+    IndexBarriers unstagedSide(String sketch, {required int start}) =>
+        IndexBarriers.ofChanges(<DiffSide>[
+          (
+            file: _file(
+              hunks: <DiffHunk>[
+                _numbered(sketch, oldStart: start, newStart: start),
+              ],
+            ),
+            staged: false,
+          ),
+        ]);
+
+    test('the other side\'s change on an unchanged line between two changes '
+        'splits them, and that line stays out of both', () {
+      // Unstaged `+ + . + +` over index line 1; staged adds index line 1.
+      final DiffHunk hunk = _numbered('++.++', oldStart: 1, newStart: 1);
       expect(splitHunkIntoScopes(hunk), hasLength(1));
-      expect(splitHunkIntoScopes(hunk, barriers: const <int>{2}), hasLength(2));
-    });
-
-    test('the barrier line itself stays out of both scopes', () {
       final List<DiffScope> scopes = splitHunkIntoScopes(
-        _hunk('++.++'),
-        barriers: const <int>{2},
+        hunk,
+        barriers: stagedSide('+', start: 1),
       );
-      expect(scopes[0].lineIndices, <int>[0, 1]);
-      expect(scopes[1].lineIndices, <int>[3, 4]);
+      expect(_spans(scopes), <List<int>>[
+        <int>[0, 1],
+        <int>[3, 4],
+      ]);
     });
 
-    test('a barrier outside every gap changes nothing', () {
-      // Leading context is already outside every scope, so naming it a
-      // barrier cannot split anything -- the split must come from the gap
-      // between two changes, not from the barrier's mere presence.
-      final DiffHunk hunk = _hunk('.++++');
-      expect(splitHunkIntoScopes(hunk, barriers: const <int>{0}), hasLength(1));
-    });
-
-    test('a barrier on a changed line does not split its own run', () {
-      // The rule is「the gap rule may not *swallow* a barrier」, not「a
-      // barrier ends a scope」. A changed line is not swallowed context, and
-      // splitting a run of real changes there would fragment the commonest
-      // case -- staging part of a block -- for no gain: both sides already
-      // get their own card at that position.
+    test('a barrier before every change changes nothing', () {
+      final DiffHunk hunk = _numbered('.++++', oldStart: 1, newStart: 1);
       expect(
-        splitHunkIntoScopes(_hunk('+++'), barriers: const <int>{1}),
+        splitHunkIntoScopes(hunk, barriers: stagedSide('+', start: 1)),
         hasLength(1),
       );
+    });
+
+    test('ruling ②: a staged deletion inside an unstaged card splits it', () {
+      // Unstaged removes index 10 and 13, context 11-12 in between: one card
+      // under the gap rule. Staged deletes a HEAD-only line after index 11,
+      // which has no index number -> (11, 1). Before the fix that row was no
+      // barrier at all (changedIndexLines skips it).
+      final DiffHunk unstaged = _numbered('-..-', oldStart: 10, newStart: 10);
+      expect(splitHunkIntoScopes(unstaged), hasLength(1));
+      final List<DiffScope> scopes = splitHunkIntoScopes(
+        unstaged,
+        barriers: stagedSide('.-.', start: 11),
+      );
+      expect(_spans(scopes), <List<int>>[
+        <int>[0],
+        <int>[3],
+      ]);
+    });
+
+    test('ruling ①: a staged card is split by an unstaged insertion it would '
+        'otherwise share an unchanged line with', () {
+      // Staged adds index 10 and 12 (context 11 between -> one card holding
+      // 11). Unstaged inserts after 10 and removes 12, so its card would hold
+      // 11 too. The unstaged insertion (10, 1) sits strictly inside the
+      // staged span, so the staged card splits and 11 leaves it.
+      final DiffHunk staged = _numbered('+.+', oldStart: 10, newStart: 10);
+      expect(splitHunkIntoScopes(staged, staged: true), hasLength(1));
+      final List<DiffScope> scopes = splitHunkIntoScopes(
+        staged,
+        staged: true,
+        barriers: unstagedSide('.+.-', start: 10),
+      );
+      expect(_spans(scopes), <List<int>>[
+        <int>[0],
+        <int>[2],
+      ]);
+    });
+
+    test('both sides change the same index line: in the middle of an unstaged '
+        'run, the run splits after it', () {
+      // Unstaged removes 9, 10, 11; staged adds 10 -> (10, 0, rank 1) sorts
+      // after unstaged's own (10, 0, rank 0) and before (11, 0, 0).
+      final DiffHunk unstaged = _numbered('---', oldStart: 9, newStart: 9);
+      expect(
+        _spans(
+          splitHunkIntoScopes(unstaged, barriers: stagedSide('+', start: 10)),
+        ),
+        <List<int>>[
+          <int>[0, 1],
+          <int>[2],
+        ],
+      );
+    });
+
+    test('both sides change the same index line: at the end of an unstaged '
+        'run, nothing splits', () {
+      final DiffHunk unstaged = _numbered('---', oldStart: 9, newStart: 9);
+      expect(
+        splitHunkIntoScopes(unstaged, barriers: stagedSide('+', start: 11)),
+        hasLength(1),
+      );
+    });
+
+    test('both sides fill the same gap: a multi-line unstaged insertion is '
+        'not split by a staged deletion at the same position', () {
+      // Both are (10, 1); equal keys on this side have nothing strictly
+      // between them, so the three insertions stay one card.
+      final DiffHunk unstaged = _numbered('.+++.', oldStart: 10, newStart: 10);
+      expect(
+        splitHunkIntoScopes(unstaged, barriers: stagedSide('.-.', start: 10)),
+        hasLength(1),
+      );
+    });
+  });
+
+  group('merged scopes -- seeded property', () {
+    // Builds one consistent pair of diffs over an index of [n] lines: each
+    // index line is either untouched, added by staging (absent in HEAD), or
+    // removed in the work tree -- or *both*, case (1). Each gap between two
+    // index lines may hold HEAD-only lines (staged deletions) and work-tree
+    // insertions -- both at once is case (2). One hunk per side, every row
+    // present, so the scope split sees the whole file.
+    ({DiffHunk staged, DiffHunk unstaged, bool case1, bool case2}) pair(
+      Random rng,
+      int n,
+    ) {
+      final StringBuffer staged = StringBuffer();
+      final StringBuffer unstaged = StringBuffer();
+      bool case1 = false;
+      bool case2 = false;
+      void gap() {
+        final int deletions = rng.nextInt(3) == 0 ? 1 + rng.nextInt(2) : 0;
+        final int insertions = rng.nextInt(3) == 0 ? 1 + rng.nextInt(2) : 0;
+        staged.write('-' * deletions);
+        unstaged.write('+' * insertions);
+        if (deletions > 0 && insertions > 0) case2 = true;
+      }
+
+      gap();
+      for (int line = 1; line <= n; line++) {
+        final bool stagedAdds = rng.nextInt(4) == 0;
+        final bool unstagedRemoves = rng.nextInt(4) == 0;
+        staged.write(stagedAdds ? '+' : '.');
+        unstaged.write(unstagedRemoves ? '-' : '.');
+        if (stagedAdds && unstagedRemoves) case1 = true;
+        gap();
+      }
+      return (
+        staged: _numbered(staged.toString(), oldStart: 1, newStart: 1),
+        unstaged: _numbered(unstaged.toString(), oldStart: 1, newStart: 1),
+        case1: case1,
+        case2: case2,
+      );
+    }
+
+    IndexKey keyAt(DiffHunk hunk, int i, {required bool staged}) {
+      final IndexPosition p = indexPositionOf(hunk, i, staged: staged);
+      return (
+        line: p.line,
+        offset: p.offset,
+        rank: indexRankOf(staged: staged),
+      );
+    }
+
+    test('no two cards of different sides overlap, and a card\'s context '
+        'never shares a position with the other side\'s card rows', () {
+      final Random rng = Random(20261024);
+      int sawCase1 = 0;
+      int sawCase2 = 0;
+      for (int round = 0; round < 400; round++) {
+        final ({DiffHunk staged, DiffHunk unstaged, bool case1, bool case2}) p =
+            pair(rng, 2 + rng.nextInt(10));
+        if (p.case1) sawCase1++;
+        if (p.case2) sawCase2++;
+        final DiffFile stagedFile = _file(hunks: <DiffHunk>[p.staged]);
+        final DiffFile unstagedFile = _file(hunks: <DiffHunk>[p.unstaged]);
+        final List<IndexBarriers> barriers = DiffBarrierMemo().barriersFor(
+          <DiffSide>[
+            (file: unstagedFile, staged: false),
+            (file: stagedFile, staged: true),
+          ],
+        );
+        final List<DiffScope> u = splitHunkIntoScopes(
+          p.unstaged,
+          barriers: barriers[0],
+        );
+        final List<DiffScope> st = splitHunkIntoScopes(
+          p.staged,
+          staged: true,
+          barriers: barriers[1],
+        );
+
+        for (final DiffScope a in u) {
+          final IndexKey aLo = keyAt(
+            p.unstaged,
+            a.lineIndices.first,
+            staged: false,
+          );
+          final IndexKey aHi = keyAt(
+            p.unstaged,
+            a.lineIndices.last,
+            staged: false,
+          );
+          for (final DiffScope b in st) {
+            final IndexKey bLo = keyAt(
+              p.staged,
+              b.lineIndices.first,
+              staged: true,
+            );
+            final IndexKey bHi = keyAt(
+              p.staged,
+              b.lineIndices.last,
+              staged: true,
+            );
+            final bool overlap =
+                compareIndexKeys(aLo, bHi) <= 0 &&
+                compareIndexKeys(bLo, aHi) <= 0;
+            expect(
+              overlap,
+              isFalse,
+              reason:
+                  'round $round: ${p.unstaged.lines.map((DiffLine l) => l.kind.name[0]).join()} '
+                  'vs ${p.staged.lines.map((DiffLine l) => l.kind.name[0]).join()}',
+            );
+
+            // Shared (line, offset) is allowed only between two change rows.
+            for (final int i in a.lineIndices) {
+              for (final int j in b.lineIndices) {
+                final IndexPosition pa = indexPositionOf(
+                  p.unstaged,
+                  i,
+                  staged: false,
+                );
+                final IndexPosition pb = indexPositionOf(
+                  p.staged,
+                  j,
+                  staged: true,
+                );
+                if (compareIndexPositions(pa, pb) != 0) continue;
+                expect(
+                  a.changedLineIndices.contains(i) &&
+                      b.changedLineIndices.contains(j),
+                  isTrue,
+                  reason: 'round $round shares $pa on a context row',
+                );
+              }
+            }
+          }
+        }
+      }
+      // The generator has to reach the two tie states, or the property says
+      // nothing about them.
+      expect(sawCase1, greaterThan(20));
+      expect(sawCase2, greaterThan(20));
     });
   });
 
@@ -271,11 +532,18 @@ void main() {
       return hunkSegments(hunk, splitHunkIntoScopes(hunk));
     }
 
+    // A hidden row is one the staged side draws as a change, so the staged
+    // side's barriers are what keeps it out of every unstaged scope too.
     List<DiffSegment> segmentsHiding(String sketch, Set<int> hidden) {
-      final DiffHunk hunk = _hunk(sketch);
+      final DiffHunk hunk = _numbered(sketch, oldStart: 1, newStart: 1);
       return hunkSegments(
         hunk,
-        splitHunkIntoScopes(hunk, barriers: hidden),
+        splitHunkIntoScopes(
+          hunk,
+          barriers: _stagedAdds(<int>[
+            for (final int i in hidden) hunk.lines[i].oldLine,
+          ]),
+        ),
         hiddenLines: hidden,
       );
     }

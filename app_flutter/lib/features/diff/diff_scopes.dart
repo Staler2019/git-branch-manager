@@ -47,18 +47,28 @@ class DiffScope {
 /// one, so a caller can render "nothing to stage here" without a special
 /// case.
 ///
-/// [barriers] are hunk line indices the gap rule may **not** swallow. Only
-/// the lines strictly between two changes are tested, so a barrier that
-/// lands on a changed line does nothing -- the rule is「may not swallow a
-/// barrier」, not「a barrier ends a scope」. Splitting a run of real changes
-/// would fragment the commonest case, staging part of a block, and buy
-/// nothing: in a merged list both sides already get their own card at that
-/// position.
+/// [barriers] are the *other* diff's changes. A scope may not span across
+/// one: two consecutive changes of this hunk stay apart when a barrier's
+/// [IndexKey] lies strictly between theirs (使用者裁定 ①②,
+/// `docs/records/2026-10-04-merged-diff-region-order.md`). That covers the
+/// other side's change on a context line between them, its pure insertion
+/// or deletion between two index lines, and -- through the rank -- its
+/// change of the very index line this side changes too. Equal keys on this
+/// side (a run of insertions at one position) have nothing strictly between
+/// them, so the run stays whole. Consequence: no two cards of a merged list
+/// overlap in key order, so neither can hold a row the other draws.
 List<DiffScope> splitHunkIntoScopes(
   DiffHunk hunk, {
   int maxGap = kDefaultScopeGap,
-  Set<int> barriers = const <int>{},
+  bool staged = false,
+  IndexBarriers barriers = IndexBarriers.none,
 }) {
+  final int rank = indexRankOf(staged: staged);
+  final List<IndexPosition> positions = barriers.isEmpty
+      ? const <IndexPosition>[]
+      : _positionsOf(hunk, staged: staged);
+  IndexKey keyOf(int i) =>
+      (line: positions[i].line, offset: positions[i].offset, rank: rank);
   final List<int> changed = <int>[
     for (int i = 0; i < hunk.lines.length; i++)
       if (_isChanged(hunk.lines[i].kind)) i,
@@ -75,13 +85,9 @@ List<DiffScope> splitHunkIntoScopes(
   for (final int index in changed.skip(1)) {
     // The unchanged lines strictly between this change and the previous one.
     final int gap = index - group.last - 1;
-    bool blocked = false;
-    for (int i = group.last + 1; i < index; i++) {
-      if (barriers.contains(i)) {
-        blocked = true;
-        break;
-      }
-    }
+    final bool blocked =
+        !barriers.isEmpty &&
+        barriers.anyStrictlyBetween(keyOf(group.last), keyOf(index));
     if (gap <= maxGap && !blocked) {
       group.add(index);
     } else {
@@ -209,6 +215,23 @@ class IndexBarriers {
   final Set<int> indexLines;
 
   bool get isEmpty => keys.isEmpty;
+
+  /// Whether some key lies strictly between [low] and [high] under
+  /// [compareIndexKeys] -- a binary search, because a full-file hunk asks
+  /// this once per pair of adjacent changes.
+  bool anyStrictlyBetween(IndexKey low, IndexKey high) {
+    int lo = 0;
+    int hi = keys.length;
+    while (lo < hi) {
+      final int mid = (lo + hi) >> 1;
+      if (compareIndexKeys(keys[mid], low) <= 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo < keys.length && compareIndexKeys(keys[lo], high) < 0;
+  }
 }
 
 /// The index lines the *other* sides change, per side -- memoised.
@@ -297,11 +320,8 @@ Map<int, List<DiffScope>> splitDiffFileIntoScopes(
       hunkIndex: splitHunkIntoScopes(
         file.hunks[hunkIndex],
         maxGap: maxGap,
-        barriers: barrierLineIndices(
-          file.hunks[hunkIndex],
-          staged: staged,
-          indexLines: barriers.indexLines,
-        ),
+        staged: staged,
+        barriers: barriers,
       ),
   };
 }

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -233,6 +234,26 @@ class AppPreferencesRepository {
 
   static const String _externalAppsKey = '${_kPrefix}externalApps';
 
+  /// Keys of settings this class no longer has (see its doc comment, and
+  /// 「Prune while fetching」 before them). Nothing reads them, so a value
+  /// left on disk only takes up space.
+  static const List<String> _retiredKeys = <String>[
+    '${_kPrefix}recordManualOpens',
+    '${_kPrefix}autoScanEnabled',
+    '${_kPrefix}autoScanMinutes',
+    '${_kPrefix}globalGitignoreEnabled',
+    '${_kPrefix}globalGitignorePath',
+    '${_kPrefix}globalGitignoreSource',
+    '${_kPrefix}autoFetchPrune',
+  ];
+
+  /// Removes every [_retiredKeys] entry still stored. The in-memory cache
+  /// drops each key at once; the returned future is the disk write.
+  Future<void> removeRetiredKeys() => Future.wait(<Future<bool>>[
+    for (final String key in _retiredKeys)
+      if (_prefs.containsKey(key)) _prefs.remove(key),
+  ]);
+
   /// No key: the platform defaults. A value that is not a JSON list: the
   /// defaults again -- a damaged blob must not leave the user with nothing.
   /// A list: every entry [ExternalAppEntry.fromJson] accepts, in order; one
@@ -356,7 +377,9 @@ final Provider<AppPreferencesRepository> appPreferencesRepositoryProvider =
     });
 
 class AppPreferencesNotifier extends StateNotifier<AppPreferences> {
-  AppPreferencesNotifier(this._repo) : super(_repo.read());
+  AppPreferencesNotifier(this._repo) : super(_repo.read()) {
+    unawaited(_repo.removeRetiredKeys());
+  }
 
   final AppPreferencesRepository _repo;
 

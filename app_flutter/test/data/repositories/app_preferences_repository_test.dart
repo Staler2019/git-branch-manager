@@ -132,6 +132,43 @@ void main() {
 
   // open-with-apps-spec.html: the worktree panel's ▾ list. Ruling D4 --
   // one file-manager entry per platform until the user edits the list.
+  // Settings removed by user ruling 「移除開關」 (and the earlier
+  // 「Prune while fetching」): their stored values have no reader, so 「留著
+  // 沒有意義」 -- opening Preferences' store clears them.
+  group('AppPreferencesNotifier retired keys', () {
+    const Map<String, Object> retired = <String, Object>{
+      'appPrefs.recordManualOpens': false,
+      'appPrefs.autoScanEnabled': true,
+      'appPrefs.autoScanMinutes': 45,
+      'appPrefs.globalGitignoreEnabled': true,
+      'appPrefs.globalGitignorePath': '~/.config/git/ignore',
+      'appPrefs.globalGitignoreSource': 'imported',
+      'appPrefs.autoFetchPrune': true,
+    };
+
+    test('building the notifier removes every retired key and keeps the '
+        'live ones', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        ...retired,
+        'appPrefs.confirmForcePush': false,
+        'unrelated.key': 'kept',
+      });
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      final AppPreferencesNotifier notifier = AppPreferencesNotifier(
+        AppPreferencesRepository(prefs),
+      );
+      addTearDown(notifier.dispose);
+
+      for (final String key in retired.keys) {
+        expect(prefs.containsKey(key), isFalse, reason: key);
+      }
+      expect(prefs.getBool('appPrefs.confirmForcePush'), isFalse);
+      expect(prefs.getString('unrelated.key'), 'kept');
+      expect(notifier.state.confirmForcePush, isFalse);
+    });
+  });
+
   group('AppPreferencesRepository.externalApps', () {
     Future<AppPreferencesRepository> repoWith(
       Map<String, Object> stored, {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/parsed_diff.dart';
@@ -904,6 +905,57 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final int lo = anchorIndex < focusIndex ? anchorIndex : focusIndex;
     final int hi = anchorIndex < focusIndex ? focusIndex : anchorIndex;
     _tracker.setTouched(rows.sublist(lo, hi + 1).toSet());
+    _revealAfterLayout(rows[focusIndex]);
+  }
+
+  /// Scrolls the list so row [key] -- the end `Shift + ↑ ↓` just moved --
+  /// is on screen, once the frame the move causes has laid it out.
+  ///
+  /// After layout, because that frame can add or drop a one-shot block's
+  /// head above the row. A row the lazy list has not built has no box to
+  /// reveal: the list first jumps to the estimate of its item's offset
+  /// ([DiffListModel.offsetOf]) and corrects against the real box one
+  /// frame later. Only the vertical position moves; `Scrollable.ensureVisible`
+  /// would also scroll the code sideways to the row's far edge.
+  ///
+  /// Either edge, whichever way the key moved: a new block head can push
+  /// the row an upward step reached below the view.
+  void _revealAfterLayout(String key) {
+    bool reveal() {
+      final RenderObject? row = _tracker
+          .keyFor(key)
+          .currentContext
+          ?.findRenderObject();
+      if (row == null || !_vertical.hasClients) return false;
+      final ScrollPosition position = _vertical.position;
+      position.ensureVisible(
+        row,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      position.ensureVisible(
+        row,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+      return true;
+    }
+
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || reveal()) return;
+      final DiffListModel? model = _model;
+      final int? row = model?.rowIndexOf(key);
+      if (model == null || row == null || !_vertical.hasClients) return;
+      final ScrollPosition position = _vertical.position;
+      position.jumpTo(
+        model
+            .offsetOf(model.itemOfRow(row))
+            .clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) reveal();
+      });
+      SchedulerBinding.instance.ensureVisualUpdate();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   /// Where a pointer at [global] is in the painted rows, as a position on a

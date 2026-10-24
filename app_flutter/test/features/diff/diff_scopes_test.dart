@@ -517,6 +517,100 @@ void main() {
     });
   });
 
+  group('hiddenContextLines -- one row per index line', () {
+    // Extends 使用者裁定 B (「hidden, not drawn twice」) to a context row the
+    // other side draws as context too. Survivors: (a) gap vs gap keeps the
+    // unstaged copy; (b)(c) gap vs card keeps the card's copy -- a card
+    // cannot drop a row from inside itself.
+    List<int> paintedIndexLines(DiffHunk unstaged, DiffHunk staged) {
+      final List<DiffSide> sides = <DiffSide>[
+        (file: _file(hunks: <DiffHunk>[unstaged]), staged: false),
+        (file: _file(hunks: <DiffHunk>[staged]), staged: true),
+      ];
+      final List<IndexBarriers> barriers = DiffBarrierMemo().barriersFor(sides);
+      final List<Map<int, List<DiffScope>>> scopes =
+          <Map<int, List<DiffScope>>>[
+            for (int i = 0; i < 2; i++)
+              splitDiffFileIntoScopes(
+                sides[i].file!,
+                staged: sides[i].staged,
+                barriers: barriers[i],
+              ),
+          ];
+      final List<Map<int, Set<int>>> hidden = hiddenContextLines(sides, scopes);
+      final List<int> lines = <int>[];
+      for (int i = 0; i < 2; i++) {
+        final DiffHunk hunk = sides[i].file!.hunks.single;
+        for (final DiffSegment segment in hunkSegments(
+          hunk,
+          scopes[i][0]!,
+          hiddenLines: hidden[i][0] ?? const <int>{},
+        )) {
+          for (final int index in segment.lineIndices) {
+            final DiffLine line = hunk.lines[index];
+            final int number = sides[i].staged ? line.newLine : line.oldLine;
+            // Offset-1 rows hold no index line, so they cannot collide.
+            if (number > 0) lines.add(number * 10 + i);
+          }
+        }
+      }
+      return lines..sort();
+    }
+
+    // Encoded as indexLine * 10 + side (0 unstaged, 1 staged), so one list
+    // says both "drawn once" and "by whom".
+    test(
+      '(a) both sides\' gaps hold index 6-8: the unstaged copy survives',
+      () {
+        expect(
+          paintedIndexLines(
+            _numbered('...-', oldStart: 6, newStart: 6),
+            _numbered('+...', oldStart: 5, newStart: 5),
+          ),
+          <int>[51, 60, 70, 80, 90],
+        );
+      },
+    );
+
+    test('(b) a staged card holds index 11, the unstaged gap drops it', () {
+      expect(
+        paintedIndexLines(
+          _numbered('...-', oldStart: 11, newStart: 11),
+          _numbered('+.+', oldStart: 10, newStart: 10),
+        ),
+        // 12 is the staged change (the unstaged copy was already hidden by
+        // ruling B); 11 now stays only inside the staged card.
+        <int>[101, 111, 121, 130, 140],
+      );
+    });
+
+    test('(c) an unstaged card holds index 11, the staged gap drops it', () {
+      expect(
+        paintedIndexLines(
+          _numbered('-.-', oldStart: 10, newStart: 10),
+          _numbered('..+', oldStart: 11, newStart: 11),
+        ),
+        <int>[100, 110, 120, 131],
+      );
+    });
+
+    test('a lone side hides nothing', () {
+      final List<DiffSide> sides = <DiffSide>[
+        (
+          file: _file(
+            hunks: <DiffHunk>[_numbered('.-.', oldStart: 1, newStart: 1)],
+          ),
+          staged: false,
+        ),
+      ];
+      final List<Map<int, Set<int>>> hidden = hiddenContextLines(
+        sides,
+        <Map<int, List<DiffScope>>>[splitDiffFileIntoScopes(sides[0].file!)],
+      );
+      expect(hidden.single, isEmpty);
+    });
+  });
+
   group('hunkSegments', () {
     List<String> shape(List<DiffSegment> segments) => segments
         .map(
@@ -979,7 +1073,6 @@ void main() {
           (line: 4, offset: 0, rank: 1),
           (line: 4, offset: 1, rank: 1),
         ]);
-        expect(barriers.indexLines, <int>{2, 4});
       },
     );
 
@@ -1046,8 +1139,8 @@ void main() {
 
       // Not its own: a side never blocks itself, or every change would end
       // its own scope.
-      expect(barriers[0].indexLines, <int>{7});
-      expect(barriers[1].indexLines, <int>{3});
+      expect(barriers[0].keys, <IndexKey>[(line: 7, offset: 0, rank: 1)]);
+      expect(barriers[1].keys, <IndexKey>[(line: 3, offset: 0, rank: 0)]);
     });
 
     test('the same files hand back the same set instances', () {
@@ -1081,8 +1174,8 @@ void main() {
         (file: at(<int>[8], staged: true), staged: true),
       ]);
 
-      expect(first[0].indexLines, <int>{7});
-      expect(second[0].indexLines, <int>{8});
+      expect(first[0].keys, <IndexKey>[(line: 7, offset: 0, rank: 1)]);
+      expect(second[0].keys, <IndexKey>[(line: 8, offset: 0, rank: 1)]);
     });
 
     test('a flipped staged flag recomputes, on the same file', () {
@@ -1119,15 +1212,21 @@ void main() {
         memo.barriersFor(<DiffSide>[
           (file: null, staged: false),
           (file: both, staged: true),
-        ])[0].indexLines,
-        <int>{5},
+        ])[0].keys,
+        <IndexKey>[
+          (line: 5, offset: 0, rank: 1),
+          (line: 5, offset: 1, rank: 1),
+        ],
       );
       expect(
         memo.barriersFor(<DiffSide>[
           (file: null, staged: false),
           (file: both, staged: false),
-        ])[0].indexLines,
-        <int>{9},
+        ])[0].keys,
+        <IndexKey>[
+          (line: 0, offset: 1, rank: 0),
+          (line: 9, offset: 0, rank: 0),
+        ],
       );
     });
 

@@ -826,7 +826,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // Every drawable block of every source, decorated with where it sits on
     // the index -- the ruler the two diffs share ([indexPositionOf]).
     final List<_Block> blocks = <_Block>[];
-    final List<IndexBarriers> barriers = _barriersBySource();
+    final List<Map<int, Set<int>>> hidden = hiddenContextLines(<DiffSide>[
+      for (final ScopedDiffSource source in widget.sources)
+        (file: source.file, staged: source.staged),
+    ], scopesBySource);
 
     for (
       int sourceIndex = 0;
@@ -842,14 +845,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         for (final DiffSegment segment in hunkSegments(
           hunk,
           byHunk[hunkIndex] ?? const <DiffScope>[],
-          // 使用者裁定 B (docs/records/2026-10-04-merged-diff-region-order.md): a context row whose index line the *other* source
-          // draws as a change of its own is dropped here rather than drawn
-          // twice. Empty for a single source, so `2 file` mode is untouched.
-          hiddenLines: barrierLineIndices(
-            hunk,
-            staged: source.staged,
-            indexLines: barriers[sourceIndex].indexLines,
-          ),
+          // 使用者裁定 B (docs/records/2026-10-04-merged-diff-region-order.md),
+          // extended to context the other source draws as context: a row
+          // another source already draws is dropped here rather than drawn
+          // twice ([hiddenContextLines]). Empty for a single source, so
+          // `2 file` mode is untouched.
+          hiddenLines: hidden[sourceIndex][hunkIndex] ?? const <int>{},
         )) {
           blocks.add((
             sourceIndex: sourceIndex,

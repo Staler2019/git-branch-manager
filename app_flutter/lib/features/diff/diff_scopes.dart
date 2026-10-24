@@ -125,27 +125,6 @@ Set<int> changedIndexLines(DiffFile? file, {required bool staged}) {
   return lines;
 }
 
-/// The line indices of [hunk] that occupy one of [indexLines].
-///
-/// [staged] picks which side of the hunk is the index, exactly as
-/// [indexPositionOf] does -- and getting it wrong finds nothing rather than
-/// finding the wrong thing, which is why the pure test for it asserts a
-/// *miss*.
-Set<int> barrierLineIndices(
-  DiffHunk hunk, {
-  required bool staged,
-  required Set<int> indexLines,
-}) {
-  if (indexLines.isEmpty) return const <int>{};
-  final Set<int> found = <int>{};
-  for (int i = 0; i < hunk.lines.length; i++) {
-    final DiffLine line = hunk.lines[i];
-    final int number = staged ? line.newLine : line.oldLine;
-    if (number > 0 && indexLines.contains(number)) found.add(i);
-  }
-  return found;
-}
-
 /// One diff of a file, as the barrier rule sees it: its content and which
 /// side of it is the index.
 typedef DiffSide = ({DiffFile? file, bool staged});
@@ -170,19 +149,16 @@ int compareIndexKeys(IndexKey a, IndexKey b) {
 /// one side must respect them.
 ///
 /// [keys] is every changed row of those sides, offset-1 rows included,
-/// sorted by [compareIndexKeys]. [indexLines] is the subset that occupies an
-/// index line ([changedIndexLines]) -- what [barrierLineIndices] and the
-/// hidden-row rule read.
+/// sorted by [compareIndexKeys].
 class IndexBarriers {
-  const IndexBarriers._(this.keys, this.indexLines);
+  const IndexBarriers._(this.keys);
 
   /// What a lone side gets: the same instance every time, so
   /// [DiffScopeCache]'s identity check hits.
-  static const IndexBarriers none = IndexBarriers._(<IndexKey>[], <int>{});
+  static const IndexBarriers none = IndexBarriers._(<IndexKey>[]);
 
   factory IndexBarriers.ofChanges(Iterable<DiffSide> sides) {
     final List<IndexKey> keys = <IndexKey>[];
-    final Set<int> indexLines = <int>{};
     for (final DiffSide side in sides) {
       final DiffFile? file = side.file;
       if (file == null || file.binary) continue;
@@ -201,18 +177,13 @@ class IndexBarriers {
           ));
         }
       }
-      indexLines.addAll(changedIndexLines(file, staged: side.staged));
     }
     if (keys.isEmpty) return none;
     keys.sort(compareIndexKeys);
-    return IndexBarriers._(
-      List<IndexKey>.unmodifiable(keys),
-      Set<int>.unmodifiable(indexLines),
-    );
+    return IndexBarriers._(List<IndexKey>.unmodifiable(keys));
   }
 
   final List<IndexKey> keys;
-  final Set<int> indexLines;
 
   bool get isEmpty => keys.isEmpty;
 
@@ -602,6 +573,117 @@ List<DiffSegment> hunkSegments(
   gapUpTo(hunk.lines.length);
 
   return List<DiffSegment>.unmodifiable(segments);
+}
+
+/// For each of [sides], by hunk index, the context rows outside every scope
+/// that a merged list must not draw because another side already draws the
+/// same index line -- the one place the merged list's 「hidden, not drawn
+/// twice」 rule is computed, so [hunkSegments] is only ever told the answer.
+///
+/// A gap row of side *i* at index line `L` is hidden when another side *j*
+/// draws `L`:
+/// - as a change -- 使用者裁定 B;
+/// - as context inside one of its cards -- a card cannot drop a row from
+///   inside itself, so the gap's copy goes;
+/// - as gap context too, and *i* sorts after *j* ([indexRankOf]) -- the
+///   unstaged copy survives, the same tie-break the merged sort uses.
+///
+/// Two cards never hold the same index line ([splitHunkIntoScopes]'s
+/// barriers), so these three cases are all there are. A lone side hides
+/// nothing.
+List<Map<int, Set<int>>> hiddenContextLines(
+  List<DiffSide> sides,
+  List<Map<int, List<DiffScope>>> scopesBySide,
+) {
+  if (sides.length < 2) {
+    return <Map<int, Set<int>>>[
+      for (int i = 0; i < sides.length; i++) const <int, Set<int>>{},
+    ];
+  }
+
+  // Per side: the index lines it changes, holds as card context, and holds
+  // as gap context.
+  final List<({Set<int> changed, Set<int> card, Set<int> gap})> drawn =
+      <({Set<int> changed, Set<int> card, Set<int> gap})>[];
+  for (int i = 0; i < sides.length; i++) {
+    final DiffSide side = sides[i];
+    final Set<int> card = <int>{};
+    final Set<int> gap = <int>{};
+    final DiffFile? file = side.file;
+    if (file != null && !file.binary) {
+      for (int h = 0; h < file.hunks.length; h++) {
+        final DiffHunk hunk = file.hunks[h];
+        final Set<int> inCards = <int>{
+          for (final DiffScope scope
+              in scopesBySide[i][h] ?? const <DiffScope>[])
+            ...scope.lineIndices,
+        };
+        for (int l = 0; l < hunk.lines.length; l++) {
+          final DiffLine line = hunk.lines[l];
+          if (line.kind != DiffLineKind.context) continue;
+          final int number = side.staged ? line.newLine : line.oldLine;
+          if (number <= 0) continue;
+          (inCards.contains(l) ? card : gap).add(number);
+        }
+      }
+    }
+    drawn.add((
+      changed: changedIndexLines(file, staged: side.staged),
+      card: card,
+      gap: gap,
+    ));
+  }
+
+  return <Map<int, Set<int>>>[
+    for (int i = 0; i < sides.length; i++)
+      _hiddenFor(i, sides, scopesBySide[i], drawn),
+  ];
+}
+
+Map<int, Set<int>> _hiddenFor(
+  int i,
+  List<DiffSide> sides,
+  Map<int, List<DiffScope>> scopes,
+  List<({Set<int> changed, Set<int> card, Set<int> gap})> drawn,
+) {
+  final DiffSide side = sides[i];
+  final DiffFile? file = side.file;
+  if (file == null || file.binary) return const <int, Set<int>>{};
+  final int rank = indexRankOf(staged: side.staged);
+
+  bool otherDraws(int indexLine) {
+    for (int j = 0; j < sides.length; j++) {
+      if (j == i) continue;
+      final ({Set<int> changed, Set<int> card, Set<int> gap}) other = drawn[j];
+      if (other.changed.contains(indexLine) || other.card.contains(indexLine)) {
+        return true;
+      }
+      if (rank > indexRankOf(staged: sides[j].staged) &&
+          other.gap.contains(indexLine)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  final Map<int, Set<int>> hidden = <int, Set<int>>{};
+  for (int h = 0; h < file.hunks.length; h++) {
+    final DiffHunk hunk = file.hunks[h];
+    final Set<int> inCards = <int>{
+      for (final DiffScope scope in scopes[h] ?? const <DiffScope>[])
+        ...scope.lineIndices,
+    };
+    final Set<int> rows = <int>{};
+    for (int l = 0; l < hunk.lines.length; l++) {
+      if (inCards.contains(l)) continue;
+      final DiffLine line = hunk.lines[l];
+      if (line.kind != DiffLineKind.context) continue;
+      final int number = side.staged ? line.newLine : line.oldLine;
+      if (number > 0 && otherDraws(number)) rows.add(l);
+    }
+    if (rows.isNotEmpty) hidden[h] = rows;
+  }
+  return hidden;
 }
 
 /// The text on a scope's Stage/Unstage button.

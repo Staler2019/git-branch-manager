@@ -1328,6 +1328,142 @@ void main() {
     });
   });
 
+  group('ScopedDiffView -- merged list draws each index line once', () {
+    late List<({bool staged, int hunkIndex, List<int> lines})> pressed;
+
+    setUp(() => pressed = <({bool staged, int hunkIndex, List<int> lines})>[]);
+
+    /// A one-hunk file from a sketch with real line numbers. A context row's
+    /// text is `ctx <index line>` -- the same in both diffs, as git would
+    /// print it -- so a duplicate is two widgets with one text.
+    DiffFile sketched(
+      String sketch, {
+      required int start,
+      required bool staged,
+      required String tag,
+    }) {
+      int oldLine = start;
+      int newLine = start;
+      final List<DiffLine> lines = <DiffLine>[];
+      for (int i = 0; i < sketch.length; i++) {
+        final String c = sketch[i];
+        final int o = c == '+' ? 0 : oldLine++;
+        final int n = c == '-' ? 0 : newLine++;
+        lines.add(
+          DiffLine(
+            kind: switch (c) {
+              '+' => DiffLineKind.added,
+              '-' => DiffLineKind.removed,
+              _ => DiffLineKind.context,
+            },
+            oldLine: o,
+            newLine: n,
+            text: c == '.' ? 'ctx ${staged ? n : o}' : '$tag $c$i',
+          ),
+        );
+      }
+      return DiffFile(
+        oldPath: 'lib/a.dart',
+        newPath: 'lib/a.dart',
+        kind: FileChangeKind.modified,
+        oldMode: '',
+        newMode: '',
+        oldBlob: '',
+        newBlob: '',
+        binary: false,
+        similarity: 0,
+        addedLines: 0,
+        removedLines: 0,
+        displayPath: 'lib/a.dart',
+        hunks: <DiffHunk>[
+          DiffHunk(
+            oldStart: start,
+            oldCount: oldLine - start,
+            newStart: start,
+            newCount: newLine - start,
+            heading: '',
+            lines: lines,
+          ),
+        ],
+      );
+    }
+
+    /// Case (b): the staged card adds index 10 and 12 and holds context 11;
+    /// the unstaged hunk's leading context is 11-13 before it removes 14.
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          showColumnHeads: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: sketched('...-', start: 11, staged: false, tag: 'un'),
+              staged: false,
+              onStageScope: (int h, List<int> l) =>
+                  pressed.add((staged: false, hunkIndex: h, lines: l)),
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: sketched('+.+', start: 10, staged: true, tag: 'st'),
+              staged: true,
+              onStageScope: (int h, List<int> l) =>
+                  pressed.add((staged: true, hunkIndex: h, lines: l)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('a context line inside the staged card is not drawn again by '
+        'the unstaged gap', (tester) async {
+      await pump(tester);
+
+      expect(find.text('ctx 11'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-1')),
+          matching: find.text('ctx 11'),
+        ),
+        findsOneWidget,
+        reason: 'the card keeps its own copy; the gap row is the one dropped',
+      );
+      // 12 was already hidden by ruling B (the staged side changes it); 13
+      // belongs to nobody else and stays.
+      expect(find.text('ctx 12'), findsNothing);
+      expect(find.text('ctx 13'), findsOneWidget);
+    });
+
+    testWidgets('a drag across the surviving context stages only the framed '
+        'change', (tester) async {
+      await pump(tester);
+
+      final Rect fromRect = tester.getRect(find.text('ctx 13'));
+      final Rect toRect = tester.getRect(find.text('un -3'));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(fromRect.left + 1, fromRect.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(toRect.right - 1, toRect.center.dy));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(temporaryLabel('Stage 2 lines (1 changed)'));
+      await tester.pump();
+
+      expect(pressed, hasLength(1));
+      expect(pressed.single.staged, isFalse);
+      expect(pressed.single.hunkIndex, 0);
+      expect(pressed.single.lines, <int>[3]);
+    });
+  });
+
   group('ScopedDiffView -- U5: the direction is the first card painted', () {
     late List<({bool staged, int hunkIndex, List<int> lines})> staged;
 

@@ -137,3 +137,42 @@ C++ 940/940、flutter `+4054 ~8`、analyze / format 乾淨；probe 另外確認�
   Preferences 關閉後補抓一次，待使用者裁定。
 - **A2（P4）**：repo switcher popover 與 graph columns selector 用 `showGeneralDialog`，也會讓
   該次跳過；偏保守，沒有正確性風險。
+
+## Preferences 說明與四個孤兒開關（同一個 branch，第二段）
+
+### Situation
+
+使用者回報「preference 頁下面註解太多了，使用者完全不需要知道」，並更正範圍：「我說的是preference頁的選項說明喔」。
+G1 的 spec-auditor 同時找出四個存得下、畫得出、沒有任何讀取端的設定（#102 的形狀）：
+`recordManualOpens`、`autoScanEnabled`/`autoScanMinutes`、`globalGitignoreEnabled`/`Path`/`Source`、
+`cherryPickAddsSourceLine`（`CherryPickOps.cpp` 從沒加 `-x`）。
+
+### Task
+
+使用者裁定（2026-10-24）：
+
+1. 範圍「整個 Preferences 頁」；處理方式「只留影響，不留來源、原因考量還是什麼其他種種」。
+2. 「記住手動開啟的 repository」、「在背景重新掃描基礎資料夾」、「使用全域 gitignore 檔案」→「移除開關」。
+3. 「cherry-pick 時加上 (cherry picked from commit …)」→「接上」。
+
+### Action
+
+| commit | 內容 | mutation（跑 / 變紅） |
+|---|---|---|
+| ab18565b | 六個分頁的說明改寫成只講影響；刪主題 token 說明 | 8 / 8 |
+| c144cd9a | 移除 `recordManualOpens`（開啟的 repo 一律記錄，行為不變） | 1 / 1 |
+| 750dbc90 | 移除 `autoScan*`（Rescan now 與新增資料夾時的掃描不變） | 1 / 1 |
+| c85dc9a1 | 移除 `globalGitignore*`、路徑欄位與「從 .gitconfig 匯入」標籤 | 1 / 1 |
+| 0fbd5e09 | core：`CherryPickRequest.recordOrigin` → `-x` | 2 / 2 |
+| b94cf6ec | capi `gbm_cherry_pick(..., recordOrigin)`，C 與 Dart binding 同一個 commit | 3 / 3（capi 那個先寫成 unused-parameter build fail，改 `(void)` 後重跑） |
+| 11acf007 | `repoSessionProvider` 把 `cherryPickAddsSourceLine` 推進 `cherryPickRecordsOrigin`（開啟時 + `ref.listen`） | 2 / 2 |
+
+- `git cherry-pick -n -x` 一樣會把來源行寫進 MERGE_MSG（shell probe 確認），所以 `--no-commit` 搭 `-x` 不衝突。
+- 已存在使用者 SharedPreferences 裡的三組舊 key 沒有清掉：沒有讀取端，留著不影響行為。
+
+### Result
+
+- Preferences 說明只剩影響；三個開關不再出現；cherry-pick 依開關加上來源行（預設開）。
+- spec-conformance-matrix P11 第 4、6、8 列與 MSGS 列原地更正；orphan 記錄補第 16–19 個；
+  [CULT-orphan-wiring] 的次數改為 19。
+- #102 本身沒有更新（GitHub 是外部動作，這輪只授權本地 commit）。

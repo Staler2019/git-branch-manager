@@ -15,8 +15,10 @@ Everything below works end to end on Linux, macOS and Windows.
 - **The working copy**: status, stage/unstage by file, hunk or line, commit and
   amend.
 - **Merge** (fast-forward-only / no-fast-forward / squash), **cherry-pick**
-  (single, multi and range), and **conflict resolution** across all three index
-  stages, with a side-by-side diff.
+  (single, multi and range; each picked message ends with
+  "(cherry picked from commit …)" unless Preferences turns it off), and
+  **conflict resolution** across all three index stages, with a side-by-side
+  diff.
 - **A dedicated conflict resolution window**, opened from the state banner's
   Resolve Conflicts button (or by double-clicking a conflicted file): a
   resizable, modal window listing every conflicted file — resolved ones stay
@@ -55,7 +57,9 @@ Everything below works end to end on Linux, macOS and Windows.
   (`cmd` on Windows). Spec: `docs/claude-design-demo/open-with-apps-spec.html`.
 - **Fetch, pull and push**, with credential prompts routed through an askpass
   helper rather than failing outright, and force-pushing offering only
-  `--force-with-lease`, never a bare `--force`.
+  `--force-with-lease`, never a bare `--force`. With Preferences' auto fetch
+  on, the open repository is fetched when it opens and every N minutes, in
+  the background, never while a dialog is open.
 - **An operation log** recording every Git command, its exit code, duration and
   full stderr, with a copy button.
 - **Interactive rebase**: reorder, drop, squash and fixup commits from an

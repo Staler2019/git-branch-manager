@@ -12,6 +12,7 @@ import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_block_order.dart';
 import 'diff_full_file_fill.dart';
+import 'diff_row_keys.dart';
 import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';

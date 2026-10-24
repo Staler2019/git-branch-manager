@@ -151,9 +151,9 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   static int _countScopes(
     DiffSide side,
     DiffScopeCache cache,
-    Set<int> barriers,
+    IndexBarriers barriers,
   ) => cache
-      .scopesOf(side.file, staged: side.staged, barrierIndexLines: barriers)
+      .scopesOf(side.file, staged: side.staged, barriers: barriers)
       .values
       .fold<int>(0, (int sum, List<DiffScope> scopes) => sum + scopes.length);
 
@@ -167,7 +167,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       (file: widget.unstagedFile, staged: false),
       (file: widget.stagedFile, staged: true),
     ];
-    final List<Set<int>> barriers = _barriers.barriersFor(sides);
+    final List<IndexBarriers> barriers = _barriers.barriersFor(sides);
     return (
       unstaged: _countScopes(sides[0], _unstagedScopes, barriers[0]),
       staged: _countScopes(sides[1], _stagedScopes, barriers[1]),

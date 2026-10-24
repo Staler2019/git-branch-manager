@@ -54,6 +54,35 @@ List<List<int>> _spans(List<DiffScope> scopes) =>
 List<List<int>> _changed(List<DiffScope> scopes) =>
     scopes.map((DiffScope s) => s.changedLineIndices).toList(growable: false);
 
+/// The barriers a staged side that adds exactly [indexLines] hands the
+/// unstaged side -- the shape every pre-position barrier test was written in.
+IndexBarriers _stagedAdds(List<int> indexLines) =>
+    IndexBarriers.ofChanges(<DiffSide>[
+      (
+        file: _file(
+          hunks: <DiffHunk>[
+            DiffHunk(
+              oldStart: 1,
+              oldCount: 0,
+              newStart: 1,
+              newCount: indexLines.length,
+              heading: '',
+              lines: <DiffLine>[
+                for (final int line in indexLines)
+                  DiffLine(
+                    kind: DiffLineKind.added,
+                    oldLine: 0,
+                    newLine: line,
+                    text: 'x',
+                  ),
+              ],
+            ),
+          ],
+        ),
+        staged: true,
+      ),
+    ]);
+
 void main() {
   group('splitHunkIntoScopes -- the gap rule', () {
     test('0 unchanged lines between two changes keeps them in one scope', () {
@@ -441,14 +470,14 @@ void main() {
               DiffFile file, {
               int maxGap = kDefaultScopeGap,
               bool staged = false,
-              Set<int> barrierIndexLines = const <int>{},
+              IndexBarriers barriers = IndexBarriers.none,
             }) {
               calls++;
               return splitDiffFileIntoScopes(
                 file,
                 maxGap: maxGap,
                 staged: staged,
-                barrierIndexLines: barrierIndexLines,
+                barriers: barriers,
               );
             },
       );
@@ -484,7 +513,7 @@ void main() {
       final Map<int, List<DiffScope>> withBarrier = cache.scopesOf(
         file,
         staged: false,
-        barrierIndexLines: <int>{0},
+        barriers: _stagedAdds(<int>[1]),
       );
 
       expect(calls, 2, reason: 'the barrier set is part of the key');
@@ -493,10 +522,10 @@ void main() {
 
     test('the same barrier set instance hits', () {
       final DiffFile file = _file(hunks: <DiffHunk>[_hunk('++.++')]);
-      final Set<int> barriers = <int>{0};
+      final IndexBarriers barriers = _stagedAdds(<int>[1]);
 
-      cache.scopesOf(file, staged: false, barrierIndexLines: barriers);
-      cache.scopesOf(file, staged: false, barrierIndexLines: barriers);
+      cache.scopesOf(file, staged: false, barriers: barriers);
+      cache.scopesOf(file, staged: false, barriers: barriers);
 
       expect(calls, 1);
     });
@@ -611,6 +640,104 @@ void main() {
     });
   });
 
+  group('IndexBarriers.ofChanges', () {
+    test(
+      'keys every changed row, offset-1 rows included, sorted with rank',
+      () {
+        // A staged hunk: index line 4 added, then a HEAD-only line deleted
+        // after it (no index number -> (4, 1)); an unstaged hunk removing
+        // index line 2. Context rows contribute nothing.
+        final IndexBarriers barriers = IndexBarriers.ofChanges(<DiffSide>[
+          (
+            file: _file(
+              hunks: <DiffHunk>[
+                DiffHunk(
+                  oldStart: 3,
+                  oldCount: 2,
+                  newStart: 3,
+                  newCount: 2,
+                  heading: '',
+                  lines: <DiffLine>[
+                    DiffLine(
+                      kind: DiffLineKind.context,
+                      oldLine: 3,
+                      newLine: 3,
+                      text: 'c',
+                    ),
+                    DiffLine(
+                      kind: DiffLineKind.added,
+                      oldLine: 0,
+                      newLine: 4,
+                      text: 'a',
+                    ),
+                    DiffLine(
+                      kind: DiffLineKind.removed,
+                      oldLine: 4,
+                      newLine: 0,
+                      text: 'd',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            staged: true,
+          ),
+          (
+            file: _file(
+              hunks: <DiffHunk>[
+                DiffHunk(
+                  oldStart: 2,
+                  oldCount: 1,
+                  newStart: 2,
+                  newCount: 0,
+                  heading: '',
+                  lines: <DiffLine>[
+                    DiffLine(
+                      kind: DiffLineKind.removed,
+                      oldLine: 2,
+                      newLine: 0,
+                      text: 'r',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            staged: false,
+          ),
+        ]);
+
+        expect(barriers.keys, <IndexKey>[
+          (line: 2, offset: 0, rank: 0),
+          (line: 4, offset: 0, rank: 1),
+          (line: 4, offset: 1, rank: 1),
+        ]);
+        expect(barriers.indexLines, <int>{2, 4});
+      },
+    );
+
+    test('at an equal position the unstaged rank sorts first', () {
+      // The tie the merged list breaks unstaged-first; [indexRankOf] is the
+      // number, compareIndexKeys is the only place it is read.
+      expect(
+        compareIndexKeys(
+          (line: 10, offset: 1, rank: indexRankOf(staged: false)),
+          (line: 10, offset: 1, rank: indexRankOf(staged: true)),
+        ),
+        lessThan(0),
+      );
+    });
+
+    test('no change anywhere is the shared none instance', () {
+      expect(
+        identical(
+          IndexBarriers.ofChanges(<DiffSide>[(file: null, staged: true)]),
+          IndexBarriers.none,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('DiffBarrierMemo', () {
     /// A file whose one hunk changes exactly the index lines in [indexLines].
     ///
@@ -644,15 +771,15 @@ void main() {
 
     test('each side gets the other side\'s changed index lines', () {
       final DiffBarrierMemo memo = DiffBarrierMemo();
-      final List<Set<int>> barriers = memo.barriersFor(<DiffSide>[
+      final List<IndexBarriers> barriers = memo.barriersFor(<DiffSide>[
         (file: at(<int>[3], staged: false), staged: false),
         (file: at(<int>[7], staged: true), staged: true),
       ]);
 
       // Not its own: a side never blocks itself, or every change would end
       // its own scope.
-      expect(barriers[0], <int>{7});
-      expect(barriers[1], <int>{3});
+      expect(barriers[0].indexLines, <int>{7});
+      expect(barriers[1].indexLines, <int>{3});
     });
 
     test('the same files hand back the same set instances', () {
@@ -664,8 +791,8 @@ void main() {
         (file: staged, staged: true),
       ];
 
-      final List<Set<int>> first = memo.barriersFor(sides());
-      final List<Set<int>> second = memo.barriersFor(sides());
+      final List<IndexBarriers> first = memo.barriersFor(sides());
+      final List<IndexBarriers> second = memo.barriersFor(sides());
 
       // Identity, not equality: DiffScopeCache keys on `identical`, so an
       // equal-but-new set re-splits every frame and this memo buys nothing.
@@ -677,17 +804,17 @@ void main() {
       final DiffBarrierMemo memo = DiffBarrierMemo();
       final DiffFile unstaged = at(<int>[3], staged: false);
 
-      final List<Set<int>> first = memo.barriersFor(<DiffSide>[
+      final List<IndexBarriers> first = memo.barriersFor(<DiffSide>[
         (file: unstaged, staged: false),
         (file: at(<int>[7], staged: true), staged: true),
       ]);
-      final List<Set<int>> second = memo.barriersFor(<DiffSide>[
+      final List<IndexBarriers> second = memo.barriersFor(<DiffSide>[
         (file: unstaged, staged: false),
         (file: at(<int>[8], staged: true), staged: true),
       ]);
 
-      expect(first[0], <int>{7});
-      expect(second[0], <int>{8});
+      expect(first[0].indexLines, <int>{7});
+      expect(second[0].indexLines, <int>{8});
     });
 
     test('a flipped staged flag recomputes, on the same file', () {
@@ -724,14 +851,14 @@ void main() {
         memo.barriersFor(<DiffSide>[
           (file: null, staged: false),
           (file: both, staged: true),
-        ])[0],
+        ])[0].indexLines,
         <int>{5},
       );
       expect(
         memo.barriersFor(<DiffSide>[
           (file: null, staged: false),
           (file: both, staged: false),
-        ])[0],
+        ])[0].indexLines,
         <int>{9},
       );
     });
@@ -740,12 +867,12 @@ void main() {
       final DiffBarrierMemo memo = DiffBarrierMemo();
       final DiffFile only = at(<int>[3], staged: false);
 
-      final List<Set<int>> first = memo.barriersFor(<DiffSide>[
+      final List<IndexBarriers> first = memo.barriersFor(<DiffSide>[
         (file: only, staged: false),
       ]);
-      // A fresh `<int>{}` would be equal and not identical, so the cache
+      // A fresh empty IndexBarriers would be equal and not identical, so the cache
       // below it would miss on every build -- the `2 file` mode's own case.
-      expect(identical(first[0], const <int>{}), isTrue);
+      expect(identical(first[0], IndexBarriers.none), isTrue);
     });
   });
 
@@ -807,7 +934,7 @@ void main() {
         splitDiffFileIntoScopes(
           untrackedUnstaged(),
           staged: false,
-          barrierIndexLines: const <int>{1},
+          barriers: _stagedAdds(<int>[1]),
         )[0],
         hasLength(2),
       );
@@ -818,7 +945,7 @@ void main() {
         splitDiffFileIntoScopes(
           untrackedUnstaged(),
           staged: false,
-          barrierIndexLines: const <int>{99},
+          barriers: _stagedAdds(<int>[99]),
         )[0],
         hasLength(1),
       );
@@ -833,7 +960,7 @@ void main() {
         splitDiffFileIntoScopes(
           untrackedUnstaged(),
           staged: true,
-          barrierIndexLines: const <int>{1},
+          barriers: _stagedAdds(<int>[1]),
         )[0],
         hasLength(1),
       );

@@ -144,6 +144,73 @@ Set<int> barrierLineIndices(
 /// side of it is the index.
 typedef DiffSide = ({DiffFile? file, bool staged});
 
+/// The merged list's tie-break as a number: at an equal [IndexPosition] the
+/// unstaged side comes first. One function so the split and the sort cannot
+/// disagree about it.
+int indexRankOf({required bool staged}) => staged ? 1 : 0;
+
+/// An [IndexPosition] plus the side's [indexRankOf] -- a total order over the
+/// rows of both diffs, where [IndexPosition] alone ties two sides.
+typedef IndexKey = ({int line, int offset, int rank});
+
+int compareIndexKeys(IndexKey a, IndexKey b) {
+  final int byLine = a.line.compareTo(b.line);
+  if (byLine != 0) return byLine;
+  final int byOffset = a.offset.compareTo(b.offset);
+  return byOffset != 0 ? byOffset : a.rank.compareTo(b.rank);
+}
+
+/// The changes of the *other* sides of a merged list, as the scope split of
+/// one side must respect them.
+///
+/// [keys] is every changed row of those sides, offset-1 rows included,
+/// sorted by [compareIndexKeys]. [indexLines] is the subset that occupies an
+/// index line ([changedIndexLines]) -- what [barrierLineIndices] and the
+/// hidden-row rule read.
+class IndexBarriers {
+  const IndexBarriers._(this.keys, this.indexLines);
+
+  /// What a lone side gets: the same instance every time, so
+  /// [DiffScopeCache]'s identity check hits.
+  static const IndexBarriers none = IndexBarriers._(<IndexKey>[], <int>{});
+
+  factory IndexBarriers.ofChanges(Iterable<DiffSide> sides) {
+    final List<IndexKey> keys = <IndexKey>[];
+    final Set<int> indexLines = <int>{};
+    for (final DiffSide side in sides) {
+      final DiffFile? file = side.file;
+      if (file == null || file.binary) continue;
+      final int rank = indexRankOf(staged: side.staged);
+      for (final DiffHunk hunk in file.hunks) {
+        final List<IndexPosition> positions = _positionsOf(
+          hunk,
+          staged: side.staged,
+        );
+        for (int i = 0; i < hunk.lines.length; i++) {
+          if (!_isChanged(hunk.lines[i].kind)) continue;
+          keys.add((
+            line: positions[i].line,
+            offset: positions[i].offset,
+            rank: rank,
+          ));
+        }
+      }
+      indexLines.addAll(changedIndexLines(file, staged: side.staged));
+    }
+    if (keys.isEmpty) return none;
+    keys.sort(compareIndexKeys);
+    return IndexBarriers._(
+      List<IndexKey>.unmodifiable(keys),
+      Set<int>.unmodifiable(indexLines),
+    );
+  }
+
+  final List<IndexKey> keys;
+  final Set<int> indexLines;
+
+  bool get isEmpty => keys.isEmpty;
+}
+
 /// The index lines the *other* sides change, per side -- memoised.
 ///
 /// A merged list draws two diffs of the same file at once, and the gap rule
@@ -171,15 +238,15 @@ typedef DiffSide = ({DiffFile? file, bool staged});
 /// line, a card would keep a seam where nothing is any more, or lose one
 /// where something now is.
 class DiffBarrierMemo {
-  List<Set<int>> _barriers = const <Set<int>>[];
+  List<IndexBarriers> _barriers = const <IndexBarriers>[];
   List<DiffSide> _key = const <DiffSide>[];
 
-  /// The barrier index lines for each of [sides], in the same order.
+  /// The other sides' changes for each of [sides], in the same order.
   ///
-  /// The returned sets are the *same instances* across a hit, which is what
-  /// lets [DiffScopeCache]'s own identity check hit in turn -- a fresh set
-  /// per build would re-split every frame however good this memo was.
-  List<Set<int>> barriersFor(List<DiffSide> sides) {
+  /// The returned objects are the *same instances* across a hit, which is
+  /// what lets [DiffScopeCache]'s own identity check hit in turn -- a fresh
+  /// one per build would re-split every frame however good this memo was.
+  List<IndexBarriers> barriersFor(List<DiffSide> sides) {
     if (sides.length == _key.length) {
       bool same = true;
       for (int i = 0; i < sides.length; i++) {
@@ -192,21 +259,19 @@ class DiffBarrierMemo {
       if (same) return _barriers;
     }
 
-    final List<Set<int>> barriers = <Set<int>>[];
-    for (int i = 0; i < sides.length; i++) {
-      final Set<int> other = <int>{};
-      for (int j = 0; j < sides.length; j++) {
-        if (j == i) continue;
-        other.addAll(changedIndexLines(sides[j].file, staged: sides[j].staged));
-      }
-      // `const` so a lone side hands the cache the *same* empty set on every
-      // build -- a fresh `<int>{}` would miss on identity and re-split every
-      // frame, which is what this memo is for.
-      barriers.add(other.isEmpty ? const <int>{} : other);
-    }
+    // A lone side gets [IndexBarriers.none], the *same* instance on every
+    // build -- a fresh empty one would miss on identity and re-split every
+    // frame, which is what this memo is for.
+    final List<IndexBarriers> barriers = <IndexBarriers>[
+      for (int i = 0; i < sides.length; i++)
+        IndexBarriers.ofChanges(<DiffSide>[
+          for (int j = 0; j < sides.length; j++)
+            if (j != i) sides[j],
+        ]),
+    ];
 
     _key = List<DiffSide>.unmodifiable(sides);
-    _barriers = List<Set<int>>.unmodifiable(barriers);
+    _barriers = List<IndexBarriers>.unmodifiable(barriers);
     return _barriers;
   }
 }
@@ -224,7 +289,7 @@ Map<int, List<DiffScope>> splitDiffFileIntoScopes(
   DiffFile file, {
   int maxGap = kDefaultScopeGap,
   bool staged = false,
-  Set<int> barrierIndexLines = const <int>{},
+  IndexBarriers barriers = IndexBarriers.none,
 }) {
   if (file.binary) return const <int, List<DiffScope>>{};
   return <int, List<DiffScope>>{
@@ -235,7 +300,7 @@ Map<int, List<DiffScope>> splitDiffFileIntoScopes(
         barriers: barrierLineIndices(
           file.hunks[hunkIndex],
           staged: staged,
-          indexLines: barrierIndexLines,
+          indexLines: barriers.indexLines,
         ),
       ),
   };
@@ -247,7 +312,7 @@ typedef DiffFileScopeSplitter = Map<int, List<DiffScope>> Function(
   DiffFile file, {
   int maxGap,
   bool staged,
-  Set<int> barrierIndexLines,
+  IndexBarriers barriers,
 });
 
 /// Remembers the scope split of the [DiffFile] it was last asked about.
@@ -286,7 +351,7 @@ class DiffScopeCache {
   DiffFile? _file;
   int _maxGap = kDefaultScopeGap;
   bool _staged = false;
-  Set<int> _barrierIndexLines = const <int>{};
+  IndexBarriers _barriers = IndexBarriers.none;
   Map<int, List<DiffScope>> _scopes = const <int, List<DiffScope>>{};
 
   /// The scopes of [file], split at most once per distinct [file] instance.
@@ -297,7 +362,7 @@ class DiffScopeCache {
     DiffFile? file, {
     int maxGap = kDefaultScopeGap,
     bool staged = false,
-    Set<int> barrierIndexLines = const <int>{},
+    IndexBarriers barriers = IndexBarriers.none,
   }) {
     if (file == null) {
       _file = null;
@@ -307,19 +372,14 @@ class DiffScopeCache {
     if (identical(file, _file) &&
         maxGap == _maxGap &&
         staged == _staged &&
-        identical(barrierIndexLines, _barrierIndexLines)) {
+        identical(barriers, _barriers)) {
       return _scopes;
     }
     _file = file;
     _maxGap = maxGap;
     _staged = staged;
-    _barrierIndexLines = barrierIndexLines;
-    _scopes = _split(
-      file,
-      maxGap: maxGap,
-      staged: staged,
-      barrierIndexLines: barrierIndexLines,
-    );
+    _barriers = barriers;
+    _scopes = _split(file, maxGap: maxGap, staged: staged, barriers: barriers);
     return _scopes;
   }
 }
@@ -406,18 +466,28 @@ IndexPosition indexPositionOf(
   int lineIndex, {
   required bool staged,
 }) {
-  int line = (staged ? hunk.newStart : hunk.oldStart) - 1;
-  if (hunk.lines.isEmpty) return (line: line, offset: 1);
+  if (hunk.lines.isEmpty) {
+    return (line: (staged ? hunk.newStart : hunk.oldStart) - 1, offset: 1);
+  }
   final int last = lineIndex < hunk.lines.length
       ? lineIndex
       : hunk.lines.length - 1;
-  int own = 0;
-  for (int i = 0; i <= last; i++) {
-    final DiffLine element = hunk.lines[i];
-    own = staged ? element.newLine : element.oldLine;
-    if (own > 0) line = own;
-  }
-  return (line: line, offset: own > 0 ? 0 : 1);
+  return _positionsOf(hunk, staged: staged)[last];
+}
+
+/// [indexPositionOf] for every line of [hunk] in one pass -- the one place
+/// the walk is written, so a whole-hunk caller is linear rather than
+/// quadratic.
+List<IndexPosition> _positionsOf(DiffHunk hunk, {required bool staged}) {
+  int line = (staged ? hunk.newStart : hunk.oldStart) - 1;
+  return <IndexPosition>[
+    for (final DiffLine element in hunk.lines)
+      () {
+        final int own = staged ? element.newLine : element.oldLine;
+        if (own > 0) line = own;
+        return (line: line, offset: own > 0 ? 0 : 1);
+      }(),
+  ];
 }
 
 /// Orders two [IndexPosition]s: by index line first, then by whether the row

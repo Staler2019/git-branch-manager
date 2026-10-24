@@ -189,20 +189,20 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// say 「1 未暫存」 over two Stage cards ([CULT-single-source-of-truth]).
   final DiffBarrierMemo _barriers = DiffBarrierMemo();
 
-  List<Set<int>> _barriersBySource() => _barriers.barriersFor(<DiffSide>[
+  List<IndexBarriers> _barriersBySource() => _barriers.barriersFor(<DiffSide>[
     for (final ScopedDiffSource source in widget.sources)
       (file: source.file, staged: source.staged),
   ]);
 
   /// The scopes of every source, by source index.
   List<Map<int, List<DiffScope>>> _scopesBySource() {
-    final List<Set<int>> barriers = _barriersBySource();
+    final List<IndexBarriers> barriers = _barriersBySource();
     return <Map<int, List<DiffScope>>>[
       for (int i = 0; i < widget.sources.length; i++)
         _cacheFor(i).scopesOf(
           widget.sources[i].file,
           staged: widget.sources[i].staged,
-          barrierIndexLines: barriers[i],
+          barriers: barriers[i],
         ),
     ];
   }
@@ -826,7 +826,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // Every drawable block of every source, decorated with where it sits on
     // the index -- the ruler the two diffs share ([indexPositionOf]).
     final List<_Block> blocks = <_Block>[];
-    final List<Set<int>> barriers = _barriersBySource();
+    final List<IndexBarriers> barriers = _barriersBySource();
 
     for (
       int sourceIndex = 0;
@@ -848,7 +848,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
           hiddenLines: barrierLineIndices(
             hunk,
             staged: source.staged,
-            indexLines: barriers[sourceIndex],
+            indexLines: barriers[sourceIndex].indexLines,
           ),
         )) {
           blocks.add((

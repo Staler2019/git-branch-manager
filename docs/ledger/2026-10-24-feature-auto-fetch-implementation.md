@@ -176,3 +176,10 @@ G1 的 spec-auditor 同時找出四個存得下、畫得出、沒有任何讀取
 - spec-conformance-matrix P11 第 4、6、8 列與 MSGS 列原地更正；orphan 記錄補第 16–19 個；
   [CULT-orphan-wiring] 的次數改為 19。
 - #102 本身沒有更新（GitHub 是外部動作，這輪只授權本地 commit）。
+
+### verifier（fresh context，cherry-pick `-x`）：CONFIRMED
+
+逐 commit 檢查 C/Dart arity（0fbd5e09 6 個、b94cf6ec 起 7 個，parity test 都綠），ctest 942/942、flutter
+`+4072 ~8`。真 git 2.56.0 probe：`--no-commit -x` 與衝突時的 MERGE_MSG 都帶來源行；編輯後 continue 不會重複加，
+刪掉後也不會被補回；多 commit 序列裡衝突之後的 commit 仍帶 `-x`。兩個 P4 advisory，不修：b94cf6ec 單獨出貨時
+開關還沒接上（預設值相同）；「`-x` + 衝突 + 編輯後 continue」只有手動 probe，沒有自動測試。

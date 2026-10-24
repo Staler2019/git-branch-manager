@@ -134,7 +134,7 @@ void main() {
     // `flutter_test` reports `TargetPlatform.android` by default, and
     // Material's ambient `ScrollBehavior` only adds its own scrollbars on
     // desktop -- so on the default platform the suppression inside
-    // `GbmCodeScrollWell` is invisible and a test that omits this override
+    // the well (`GbmCodeHScroll`) is invisible and a test that omits this override
     // passes with it deleted. The app ships on macOS, Windows and Linux
     // only, so the default platform is the one case that never happens.
     //
@@ -184,7 +184,7 @@ void main() {
     final Iterable<ScrollableState> inFirstWell = tester
         .stateList<ScrollableState>(
           find.descendant(
-            of: find.byType(GbmCodeScrollWell).first,
+            of: find.byType(GbmCodeHScroll).first,
             matching: find.byType(Scrollable),
           ),
         );
@@ -213,7 +213,7 @@ void main() {
     await _pump(tester, softWrap: true);
 
     final Rect pane = tester.getRect(find.byType(WorkingCopyDiffPane));
-    final Rect well = tester.getRect(find.byType(GbmCodeScrollWell).first);
+    final Rect well = tester.getRect(find.byType(GbmCodeHScroll).first);
     expect(well.bottom, lessThanOrEqualTo(pane.bottom + _tolerance));
     expect(find.byType(GbmPinnedGutter), findsNothing);
   });

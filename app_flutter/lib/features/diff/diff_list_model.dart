@@ -85,6 +85,7 @@ class DiffListModel {
     final List<int> itemRowStart = <int>[];
     final List<int> cardItems = <int>[];
     final List<int> changedRows = <int>[];
+    final List<int> fillRunOffsets = <int>[];
 
     double rowExtentOf(DiffLine line) {
       final int chars = metrics.charsPerLine;
@@ -97,6 +98,7 @@ class DiffListModel {
       itemRowStart.add(rowKeys.length);
       items.add(item);
       extents.add(extent);
+      fillRunOffsets.add(0);
     }
 
     for (int i = 0; i < leadingExtents.length; i++) {
@@ -107,8 +109,12 @@ class DiffListModel {
     int? lastHunkIndex;
     for (final DiffBlock block in blocks) {
       if (block.segment case DiffFillSegment(:final List<DiffFillRow> rows)) {
-        for (final DiffFillRow row in rows) {
+        // One segment is one run: [orderedDiffBlocks] joins adjacent fill
+        // rows whatever their source.
+        for (int k = 0; k < rows.length; k++) {
+          final DiffFillRow row = rows[k];
           add(DiffFillItem(row), rowExtentOf(row.line));
+          fillRunOffsets[items.length - 1] = k;
           rowKeys.add(selectionFillRowKey(row.sourceIndex, row.indexLine));
         }
         continue;
@@ -164,6 +170,7 @@ class DiffListModel {
       List<int>.unmodifiable(cardItems),
       List<int>.unmodifiable(changedRows),
       offsets,
+      Int32List.fromList(fillRunOffsets),
     );
   }
 
@@ -176,6 +183,7 @@ class DiffListModel {
     this.cardItems,
     this.changedRows,
     this._offsets,
+    this._fillRunOffsets,
   );
 
   /// Every item, in painted order: the leading items, then the diff.
@@ -199,6 +207,12 @@ class DiffListModel {
   /// `_offsets[i]` is the estimated top of item `i`; the last entry is the
   /// total.
   final Float64List _offsets;
+
+  final Int32List _fillRunOffsets;
+
+  /// How many fill rows of the same run come before fill item [item]: the
+  /// segment of the run's dashed rule it draws. 0 for any other item.
+  int fillRunOffsetOf(int item) => _fillRunOffsets[item];
 
   /// Where [key] sits in [rowKeys], or null when no row has it.
   int? rowIndexOf(String key) => _rowIndex[key];

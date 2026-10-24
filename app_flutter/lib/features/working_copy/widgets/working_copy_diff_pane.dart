@@ -212,48 +212,34 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               axis: Axis.horizontal,
               spec: GbmLayout.splitterWcDiffSides,
               storageId: 'wc.diffSides',
-              children: <Widget>[
-                GbmCodeScrollWell(
-                  contentWidth: _widthOf(widget.unstagedFile, _unstagedMemo),
-                  verticalController: _unstagedScroll,
-                  backdrop: colors.surfaceSunken,
-                  child: _side(staged: false),
-                ),
-                GbmCodeScrollWell(
-                  contentWidth: _widthOf(widget.stagedFile, _stagedMemo),
-                  verticalController: _stagedScroll,
-                  backdrop: colors.surfaceSunken,
-                  child: _side(staged: true),
-                ),
-              ],
+              children: <Widget>[_side(staged: false), _side(staged: true)],
             ),
-            // One well over both halves, because this mode's whole point is
-            // that they scroll as one column -- and therefore one width, the
-            // wider of the two, or the narrower side's rows would stop short
-            // of the shared scroll extent.
-            WorkingCopyDiffMode.unified => GbmCodeScrollWell(
+            // **One view holding both directions**, not two stacked.
+            // 「應該是單一 view 檢視 stage/unstage scope and button，而非
+            // 還是拆成上下檢視」 -- two views one above the other is what
+            // shipped, and it was two columns rotated rather than a merged
+            // list. The cards carry their own direction now (U2), the
+            // ordering is by index region (U1), and the column heads are
+            // gone because there is no column left for them to label (U3).
+            //
+            // One scroll position over both halves, because this mode's
+            // whole point is that they scroll as one column -- and therefore
+            // one width, the wider of the two, or the narrower side's rows
+            // would stop short of the shared scroll extent.
+            WorkingCopyDiffMode.unified => ScopedDiffView(
+              sources: <ScopedDiffSource>[
+                _source(staged: false),
+                _source(staged: true),
+              ],
+              showColumnHeads: false,
+              onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
+              softWrap: widget.softWrap,
+              verticalController: _unstagedScroll,
               contentWidth: math.max(
                 _widthOf(widget.unstagedFile, _unstagedMemo),
                 _widthOf(widget.stagedFile, _stagedMemo),
               ),
-              verticalController: _unstagedScroll,
               backdrop: colors.surfaceSunken,
-              // **One view holding both directions**, not two stacked.
-              // 「應該是單一 view 檢視 stage/unstage scope and button，而非
-              // 還是拆成上下檢視」 -- two views one above the other is what
-              // shipped, and it was two columns rotated rather than a merged
-              // list. The cards carry their own direction now (U2), the
-              // ordering is by index region (U1), and the column heads are
-              // gone because there is no column left for them to label (U3).
-              child: ScopedDiffView(
-                sources: <ScopedDiffSource>[
-                  _source(staged: false),
-                  _source(staged: true),
-                ],
-                showColumnHeads: false,
-                onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
-                softWrap: widget.softWrap,
-              ),
             ),
           },
         ),
@@ -281,10 +267,16 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     onDiscardScope: staged ? null : widget.onDiscardScope,
   );
 
+  /// One `2 file` column: its own scroll position and its own width.
   Widget _side({required bool staged}) => ScopedDiffView(
     sources: <ScopedDiffSource>[_source(staged: staged)],
     onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
     softWrap: widget.softWrap,
+    verticalController: staged ? _stagedScroll : _unstagedScroll,
+    contentWidth: staged
+        ? _widthOf(widget.stagedFile, _stagedMemo)
+        : _widthOf(widget.unstagedFile, _unstagedMemo),
+    backdrop: context.gbmColors.surfaceSunken,
   );
 }
 

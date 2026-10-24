@@ -76,14 +76,14 @@ Future<void> _pump(
   final DiffFile file = _fileWith(text, contextText);
   return pumpGbmWidget(
     tester,
-    // The well is the *pane's* in the real tree, so it is the pane's here
-    // too. Pumping `ScopedDiffView` bare would test a composition that never
-    // ships -- and would have kept passing after the well moved out of it,
-    // which is the shape of a fixture that cannot disagree with the code.
+    // The scroll well is the view's own now (the lazy list it scrolls is
+    // inside it), fed the width and backdrop the pane hands it in the real
+    // tree.
     child: SizedBox(
       width: 420,
       height: 400,
-      child: GbmCodeScrollWell(
+      child: ScopedDiffView(
+        softWrap: softWrap,
         contentWidth: diffFileContentWidth(
           file,
           softWrap: softWrap,
@@ -91,17 +91,14 @@ Future<void> _pump(
         ),
         verticalController: ScrollController(),
         backdrop: const Color(0xFF000000),
-        child: ScopedDiffView(
-          softWrap: softWrap,
-          sources: <ScopedDiffSource>[
-            ScopedDiffSource(
-              title: 'Unstaged',
-              file: file,
-              staged: false,
-              onStageScope: (int h, List<int> l) {},
-            ),
-          ],
-        ),
+        sources: <ScopedDiffSource>[
+          ScopedDiffSource(
+            title: 'Unstaged',
+            file: file,
+            staged: false,
+            onStageScope: (int h, List<int> l) {},
+          ),
+        ],
       ),
     ),
   );

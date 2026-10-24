@@ -154,7 +154,8 @@ void main() {
     addTearDown(tester.view.reset);
     await pumpGbmWidget(
       tester,
-      child: SingleChildScrollView(
+      child: Align(
+        alignment: Alignment.topLeft,
         child: SizedBox(
           width: 800,
           child: ScopedDiffView(
@@ -250,8 +251,27 @@ void main() {
 
       await pump(tester, fill: _loneFill);
       expect(find.byType(GbmButton), findsNWidgets(excerptButtons));
-      // Three fill runs: above, between and below the two hunks.
-      expect(find.byType(GbmDashedLine), findsNWidgets(excerptRules + 3));
+      // One rule per fill row, each continuing the one above it: the list
+      // builds one item per fill row, so no widget spans a run (使用者裁定
+      // 2026-10-24：每列 1 item，虛線接續). It was one rule per run -- three,
+      // above, between and below the two hunks -- while the list was eager.
+      expect(
+        find.byType(GbmDashedLine),
+        findsNWidgets(excerptRules + _loneFill.length),
+      );
+      // The run above the first hunk is index lines 1 and 2, segments 0 and
+      // 1 of one rule.
+      GbmDashedLine ruleOf(String text) => tester.widget<GbmDashedLine>(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text(text, findRichText: true),
+            matching: find.byType(IntrinsicHeight),
+          ),
+          matching: find.byType(GbmDashedLine),
+        ),
+      );
+      expect(ruleOf('fill 1').segment, 0);
+      expect(ruleOf('fill 2').segment, 1);
       expect(
         find.ancestor(
           of: find.text('fill 9'),

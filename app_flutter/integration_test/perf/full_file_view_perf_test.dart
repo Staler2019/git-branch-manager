@@ -19,7 +19,6 @@ import 'package:gbm_flutter/features/diff/diff_full_file_fill.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
-import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
 import 'package:integration_test/integration_test.dart';
 
 /// A file of [total] lines with one-line replacements at [edited], as one
@@ -145,22 +144,20 @@ void main() {
           MaterialApp(
             theme: buildGbmTheme(GbmThemeVariant.darkTechnical),
             home: Scaffold(
-              body: GbmCodeScrollWell(
+              body: ScopedDiffView(
                 contentWidth: 1400,
                 verticalController: vertical,
                 backdrop: const Color(0xFF101010),
-                child: ScopedDiffView(
-                  softWrap: softWrap,
-                  fill: fill,
-                  sources: <ScopedDiffSource>[
-                    ScopedDiffSource(
-                      title: 'Unstaged',
-                      file: excerpt,
-                      staged: false,
-                      onStageScope: (int h, List<int> l) {},
-                    ),
-                  ],
-                ),
+                softWrap: softWrap,
+                fill: fill,
+                sources: <ScopedDiffSource>[
+                  ScopedDiffSource(
+                    title: 'Unstaged',
+                    file: excerpt,
+                    staged: false,
+                    onStageScope: (int h, List<int> l) {},
+                  ),
+                ],
               ),
             ),
           ),

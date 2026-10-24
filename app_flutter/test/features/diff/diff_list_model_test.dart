@@ -218,6 +218,14 @@ void main() {
         'f:0:6',
       ]);
       expect(model.cardItems, <int>[3]);
+      // Which segment of its run's dashed rule each fill row draws; 0 for
+      // anything that is not a fill row.
+      expect(
+        <int>[
+          for (int i = 0; i < model.items.length; i++) model.fillRunOffsetOf(i),
+        ],
+        <int>[0, 1, 0, 0, 0, 0, 1],
+      );
       _expectConsistent(model);
     });
 

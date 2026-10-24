@@ -5,7 +5,8 @@
 // scrollable above the SelectionArea** -- a shape no user ever sees. The claim
 // those twenty-odd drag tests rest on is that the well's two `Scrollable`s do
 // not contest a mouse-kind drag in the gesture arena, and nothing at any tier
-// was checking it for `GbmCodeScrollWell`.
+// was checking it for the well (`GbmCodeScrollWell` then, `ScopedDiffView`'s
+// own `GbmCodeHScroll` over its lazy list now).
 //
 // The premise (CLAUDE.md, and pinned for `GbmCodeHScroll` in
 // `gbm_code_hscroll_test.dart`): `ScrollBehavior.dragDevices` defaults to
@@ -130,7 +131,7 @@ void main() {
   ) async {
     await pumpPane(tester);
 
-    final Finder well = find.byType(GbmCodeScrollWell).first;
+    final Finder well = find.byType(GbmCodeHScroll).first;
     final Iterable<Axis> axes = find
         .descendant(of: well, matching: find.byType(Scrollable))
         .evaluate()

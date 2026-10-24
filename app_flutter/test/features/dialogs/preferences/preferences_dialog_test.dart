@@ -543,7 +543,7 @@ void main() {
         initialPrefs: <String, Object>{'appPrefs.skippedVersion': '9.9.9'},
       );
 
-      expect(find.textContaining('9.9.9'), findsOneWidget);
+      expect(find.text('啟動檢查會跳過 9.9.9 版。'), findsOneWidget);
 
       await tester.ensureVisible(find.text('Stop skipping'));
       await tester.pumpAndSettle();
@@ -555,6 +555,79 @@ void main() {
     });
   });
 
+  // 使用者裁定 2026-10-24: 「preference頁的選項說明…使用者完全不需要知道」,
+  // 「只留影響，不留來源、原因考量還是什麼其他種種」. Each row: the section,
+  // what a description now says, and the rationale / mechanism it dropped.
+  group('option descriptions say only the effect', () {
+    final List<(String, List<String>, List<String>)> rows =
+        <(String, List<String>, List<String>)>[
+          (
+            'General',
+            <String>[
+              '開啟 repository 時與每隔設定的分鐘數各 fetch 一次，不會更動 working tree。',
+              '失敗時不彈窗；認證失敗會暫停，直到手動 Fetch 成功。',
+              '啟動時檢查有沒有新版本，一天最多一次。',
+            ],
+            <String>['結果反映在 ahead/behind', '問一次 GitHub', '切換 repository 時重新計時'],
+          ),
+          (
+            'Repository sources',
+            <String>['清空清單不會刪除磁碟上的 repository。'],
+            <String>['只是忘記這些項目'],
+          ),
+          (
+            'Appearance',
+            <String>['套用在 diff、blame、patch 和衝突解決畫面。'],
+            <String>['token 集合', '水平捲軸'],
+          ),
+          (
+            'External apps',
+            <String>[
+              '在 worktree 資料夾裡執行（macOS／Linux 用 login shell，Windows 用 cmd）；'
+                  '{path} 會換成 worktree 的完整路徑（Windows 換成 .）。',
+            ],
+            <String>['PATH 與你的 terminal 相同'],
+          ),
+          (
+            'Advanced',
+            <String>[
+              '分支和 remote 分岔、要 force-push 時，先顯示會覆蓋多少筆 remote commit；'
+                  '關閉後直接 force-push。',
+              '密碼、remote URL 裡的 token 與檔案內容不會寫進記錄。',
+              'Log 常出現 TIMEOUT 時調高，從下一個指令開始生效。',
+            ],
+            <String>['防毒、資安掃描'],
+          ),
+          (
+            'Developer',
+            <String>[
+              '刷新時，內容沒變的檔案保留已載入的 diff。',
+              '切回視窗時先更新目前分支與 working copy，其餘稍後再更新。',
+              '在狀態列顯示切回視窗後 refs／status／diff／bg 各自的毫秒數。',
+              'Log 多一欄，顯示每個指令的時限。',
+              'Log 最上面顯示欄名。',
+            ],
+            <String>['指紋', '十二支', '已乘逾時倍率'],
+          ),
+        ];
+    for (final (String section, List<String> says, List<String> dropped)
+        in rows) {
+      testWidgets(section, (tester) async {
+        await _pump(
+          tester,
+          section: section,
+          initialPrefs: <String, Object>{'appPrefs.autoFetchEnabled': true},
+        );
+        for (final String text in says) {
+          expect(find.text(text), findsOneWidget, reason: text);
+        }
+        for (final String text in dropped) {
+          expect(find.textContaining(text), findsNothing, reason: text);
+        }
+      });
+    }
+  });
+
   group('PreferencesDialogContent - General auto fetch', () {
     // The copy once said nothing ran behind the switch
     // ([DRIFT-auto-fetch-unwired]); AutoFetchHost runs it now.
@@ -564,7 +637,7 @@ void main() {
 
       expect(find.textContaining('還沒有背景排程'), findsNothing);
       expect(find.textContaining('之後接上背景排程'), findsNothing);
-      expect(find.textContaining('開啟時先抓一次'), findsOneWidget);
+      expect(find.textContaining('各 fetch 一次'), findsOneWidget);
       expect(find.textContaining('直到手動 Fetch 成功'), findsOneWidget);
     });
 

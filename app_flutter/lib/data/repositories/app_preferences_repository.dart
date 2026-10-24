@@ -23,11 +23,14 @@ import '../models/external_app_entry.dart';
 /// not expose yet (metered-network pausing, log file rotation on disk), the
 /// field is absent rather than present-and-ignored -- a preference that
 /// silently does nothing is worse than one that is not offered.
+///
+/// Absent by the user's ruling 「移除開關」, each once stored and drawn but
+/// read by nothing (#102): spec page 11 item 6's 「記住手動開啟的
+/// repository」 (every opened repository is recorded).
 class AppPreferences {
   const AppPreferences({
     this.autoFetchEnabled = false,
     this.autoFetchMinutes = 10,
-    this.recordManualOpens = true,
     this.autoScanEnabled = false,
     this.autoScanMinutes = 30,
     this.globalGitignoreEnabled = false,
@@ -65,10 +68,6 @@ class AppPreferences {
   /// the same treatment 計量網路暫停 already gets.
   final bool autoFetchEnabled;
   final int autoFetchMinutes;
-
-  /// General. Spec page 11 item 6: manually-opened repositories are recorded
-  /// in their own list rather than mixed into the base folders.
-  final bool recordManualOpens;
 
   /// Repository sources. Spec page 11 item 4: background rescan of the base
   /// folders; when off, scanning only happens on an explicit Rescan now.
@@ -202,7 +201,6 @@ class AppPreferences {
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
-    bool? recordManualOpens,
     bool? autoScanEnabled,
     int? autoScanMinutes,
     bool? globalGitignoreEnabled,
@@ -227,7 +225,6 @@ class AppPreferences {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
       autoFetchMinutes: autoFetchMinutes ?? this.autoFetchMinutes,
-      recordManualOpens: recordManualOpens ?? this.recordManualOpens,
       autoScanEnabled: autoScanEnabled ?? this.autoScanEnabled,
       autoScanMinutes: autoScanMinutes ?? this.autoScanMinutes,
       globalGitignoreEnabled:
@@ -300,9 +297,6 @@ class AppPreferencesRepository {
       autoFetchMinutes:
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
-      recordManualOpens:
-          _prefs.getBool('${_kPrefix}recordManualOpens') ??
-          defaults.recordManualOpens,
       autoScanEnabled:
           _prefs.getBool('${_kPrefix}autoScanEnabled') ??
           defaults.autoScanEnabled,
@@ -365,7 +359,6 @@ class AppPreferencesRepository {
   Future<void> write(AppPreferences p) async {
     await _prefs.setBool('${_kPrefix}autoFetchEnabled', p.autoFetchEnabled);
     await _prefs.setInt('${_kPrefix}autoFetchMinutes', p.autoFetchMinutes);
-    await _prefs.setBool('${_kPrefix}recordManualOpens', p.recordManualOpens);
     await _prefs.setBool('${_kPrefix}autoScanEnabled', p.autoScanEnabled);
     await _prefs.setInt('${_kPrefix}autoScanMinutes', p.autoScanMinutes);
     await _prefs.setBool(

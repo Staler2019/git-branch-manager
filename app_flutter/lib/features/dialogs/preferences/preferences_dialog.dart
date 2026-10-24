@@ -382,19 +382,6 @@ class _GeneralSection extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('開啟 REPOSITORY'),
-        _SettingSwitch(
-          title: '記住手動開啟的 repository',
-          subtitle:
-              '用 Open repository… 開啟的 repository 會另外記在自己的清單，跟 '
-              '掃描到的基礎資料夾分開——臨時開一次的專案不需要因此更動掃描 '
-              '設定。',
-          value: prefs.recordManualOpens,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(recordManualOpens: v),
-          ),
-        ),
-        const SizedBox(height: GbmSpacing.space4),
         // Not from the spec -- the 21-page design predates the update
         // feature. Placed in General beside the other two background
         // activities (automatic fetch, scanning) for the same reason they

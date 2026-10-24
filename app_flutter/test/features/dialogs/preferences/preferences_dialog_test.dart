@@ -628,6 +628,17 @@ void main() {
     }
   });
 
+  // Switches that were stored and drawn but read by nothing (#102) are
+  // removed by user ruling, 「移除開關」.
+  group('switches nothing reads are absent', () {
+    testWidgets('General has no record-manual-opens switch', (tester) async {
+      await _pump(tester, section: 'General');
+
+      expect(find.text('記住手動開啟的 repository'), findsNothing);
+      expect(find.text('開啟 REPOSITORY'), findsNothing);
+    });
+  });
+
   group('PreferencesDialogContent - General auto fetch', () {
     // The copy once said nothing ran behind the switch
     // ([DRIFT-auto-fetch-unwired]); AutoFetchHost runs it now.

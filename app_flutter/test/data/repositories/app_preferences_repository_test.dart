@@ -19,8 +19,6 @@ void main() {
       // Spec page 11 item 9: auto-fetch defaults to every 10 minutes.
       expect(p.autoFetchMinutes, 10);
       expect(p.autoFetchEnabled, isFalse);
-      // Spec page 11 item 6: recording manual opens is on by default.
-      expect(p.recordManualOpens, isTrue);
       // Spec page 06's Force push row: the confirmation is on until the user
       // turns it off.
       expect(p.confirmForcePush, isTrue);
@@ -64,7 +62,6 @@ void main() {
       const AppPreferences written = AppPreferences(
         autoFetchEnabled: true,
         autoFetchMinutes: 3,
-        recordManualOpens: false,
         autoScanEnabled: true,
         autoScanMinutes: 45,
         globalGitignoreEnabled: true,
@@ -89,7 +86,6 @@ void main() {
       final AppPreferences read = repo.read();
       expect(read.autoFetchEnabled, isTrue);
       expect(read.autoFetchMinutes, 3);
-      expect(read.recordManualOpens, isFalse);
       expect(read.autoScanEnabled, isTrue);
       expect(read.autoScanMinutes, 45);
       expect(read.globalGitignoreEnabled, isTrue);
@@ -142,7 +138,7 @@ void main() {
 
       expect(next.confirmForcePush, isFalse);
       expect(next.autoFetchMinutes, base.autoFetchMinutes);
-      expect(next.recordManualOpens, base.recordManualOpens);
+      expect(next.logMemoryLimit, base.logMemoryLimit);
       expect(next.logRetentionDays, base.logRetentionDays);
     });
   });

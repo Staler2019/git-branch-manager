@@ -2142,8 +2142,6 @@ void main() {
       await tester.tap(find.text('Git'));
       await tester.pumpAndSettle();
 
-      expect(find.text('全域 GITIGNORE'), findsOneWidget);
-      expect(find.text('使用全域 gitignore 檔案'), findsOneWidget);
       expect(find.text('COMMIT 訊息'), findsOneWidget);
       expect(
         find.text('（預設）cherry-pick 時加上「(cherry picked from commit …)」'),
@@ -2158,24 +2156,6 @@ void main() {
       expect(find.text('GLOBAL GITIGNORE'), findsNothing);
       expect(find.text('COMMIT MESSAGES'), findsNothing);
     });
-
-    testWidgets(
-      'the global gitignore path field is 30px tall with a r6 border (G4)',
-      (tester) async {
-        await _pumpPreferences(tester);
-        await tester.tap(find.text('Git'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('使用全域 gitignore 檔案'));
-        await tester.pumpAndSettle();
-
-        final Finder finder = find.byType(TextField);
-        expect(tester.getSize(finder).height, GbmSpacing.inputHeight);
-        final TextField field = tester.widget<TextField>(finder);
-        final OutlineInputBorder border =
-            field.decoration!.border! as OutlineInputBorder;
-        expect(border.borderRadius, BorderRadius.circular(GbmSpacing.radiusMd));
-      },
-    );
 
     testWidgets(
       'the Appearance section is Chinese, old English gone -- theme names '

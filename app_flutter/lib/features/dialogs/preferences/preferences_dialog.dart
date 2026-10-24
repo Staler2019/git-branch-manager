@@ -839,41 +839,6 @@ class _GitSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('全域 GITIGNORE'),
-        _SettingSwitch(
-          title: '使用全域 gitignore 檔案',
-          subtitle:
-              '會寫入 core.excludesFile，所以命令列也套用同一份規則。關閉這個 '
-              '設定只會移除設定值——檔案本身不會被刪除。',
-          value: prefs.globalGitignoreEnabled,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(globalGitignoreEnabled: v),
-          ),
-        ),
-        if (prefs.globalGitignoreEnabled) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space2),
-          _GitignorePathField(
-            initialValue: prefs.globalGitignorePath,
-            onChanged: (String v) => notifier.update(
-              (AppPreferences p) => p.copyWith(
-                globalGitignorePath: v,
-                globalGitignoreSource: 'manual',
-              ),
-            ),
-          ),
-          if (prefs.globalGitignoreSource == 'imported') ...<Widget>[
-            const SizedBox(height: GbmSpacing.space1),
-            Text(
-              '從 .gitconfig 匯入',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                fontStyle: FontStyle.italic,
-                color: context.gbmColors.textTertiary,
-              ),
-            ),
-          ],
-        ],
-        const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('COMMIT 訊息'),
         _SettingSwitch(
           title: '（預設）cherry-pick 時加上「(cherry picked from commit …)」',
@@ -889,67 +854,6 @@ class _GitSection extends ConsumerWidget {
           value: prefs.overwriteWithPreparedMessage,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(overwriteWithPreparedMessage: v),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GitignorePathField extends StatefulWidget {
-  const _GitignorePathField({
-    required this.initialValue,
-    required this.onChanged,
-  });
-
-  final String initialValue;
-  final ValueChanged<String> onChanged;
-
-  @override
-  State<_GitignorePathField> createState() => _GitignorePathFieldState();
-}
-
-class _GitignorePathFieldState extends State<_GitignorePathField> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialValue);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          '全域 gitignore 檔案路徑',
-          style: TextStyle(
-            fontSize: GbmTypography.textXs,
-            color: colors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: GbmSpacing.space1),
-        SizedBox(
-          height: GbmSpacing.inputHeight,
-          child: TextField(
-            key: const Key('preferences-gitignore-path-field'),
-            controller: _controller,
-            onChanged: widget.onChanged,
-            style: const TextStyle(fontFamily: GbmTypography.fontMono),
-            decoration: gbmInputDecoration(
-              colors: colors,
-              hintText: '~/.config/git/ignore',
-            ),
           ),
         ),
       ],

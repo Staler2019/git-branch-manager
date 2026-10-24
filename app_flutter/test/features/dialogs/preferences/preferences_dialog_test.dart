@@ -647,6 +647,14 @@ void main() {
       expect(find.text('自動掃描'), findsNothing);
       expect(find.text('Rescan now'), findsOneWidget);
     });
+
+    testWidgets('Git has no global-gitignore switch', (tester) async {
+      await _pump(tester, section: 'Git');
+
+      expect(find.text('使用全域 gitignore 檔案'), findsNothing);
+      expect(find.text('全域 GITIGNORE'), findsNothing);
+      expect(find.text('COMMIT 訊息'), findsOneWidget);
+    });
   });
 
   group('PreferencesDialogContent - General auto fetch', () {
@@ -838,38 +846,6 @@ void main() {
   });
 
   group('PreferencesDialogContent - Git', () {
-    testWidgets(
-      'shows the imported-from-.gitconfig label when the source is imported',
-      (tester) async {
-        await _pump(
-          tester,
-          initialPrefs: <String, Object>{
-            'appPrefs.globalGitignoreEnabled': true,
-            'appPrefs.globalGitignoreSource': 'imported',
-          },
-        );
-
-        await tester.tap(find.text('Git'));
-        await tester.pumpAndSettle();
-
-        expect(find.text('從 .gitconfig 匯入'), findsOneWidget);
-      },
-    );
-
-    testWidgets('shows no source label when nothing has been imported', (
-      tester,
-    ) async {
-      await _pump(
-        tester,
-        initialPrefs: <String, Object>{'appPrefs.globalGitignoreEnabled': true},
-      );
-
-      await tester.tap(find.text('Git'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('從 .gitconfig 匯入'), findsNothing);
-    });
-
     // Ruling ⑪: overwriting the box with git's prepared message is the
     // default, and the switch that turns it off flips only that preference.
     testWidgets('turning off the prepared-message overwrite flips only it', (

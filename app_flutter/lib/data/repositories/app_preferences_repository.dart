@@ -26,16 +26,14 @@ import '../models/external_app_entry.dart';
 ///
 /// Absent by the user's ruling 「移除開關」, each once stored and drawn but
 /// read by nothing (#102): spec page 11 item 6's 「記住手動開啟的
-/// repository」 (every opened repository is recorded), and item 4's
+/// repository」 (every opened repository is recorded), item 4's
 /// 「在背景重新掃描基礎資料夾」 (scans run on Rescan now and when a folder is
-/// added).
+/// added), and item 8's 「使用全域 gitignore 檔案」 (`core.excludesFile` is
+/// left to git config).
 class AppPreferences {
   const AppPreferences({
     this.autoFetchEnabled = false,
     this.autoFetchMinutes = 10,
-    this.globalGitignoreEnabled = false,
-    this.globalGitignorePath = '',
-    this.globalGitignoreSource = '',
     this.cherryPickAddsSourceLine = true,
     this.overwriteWithPreparedMessage = true,
     this.confirmForcePush = true,
@@ -68,24 +66,6 @@ class AppPreferences {
   /// the same treatment 計量網路暫停 already gets.
   final bool autoFetchEnabled;
   final int autoFetchMinutes;
-
-  /// Git. Spec page 11 item 8: writes `core.excludesFile`, shared with the
-  /// CLI. Disabling removes the setting without deleting the file.
-  final bool globalGitignoreEnabled;
-  final String globalGitignorePath;
-
-  /// Where [globalGitignorePath] came from: `''` (never set), `'imported'`
-  /// (read from the user's pre-existing `git config --global
-  /// core.excludesFile` at some point), or `'manual'` (typed into the path
-  /// field). Scoped down from the original ask: nothing in this app
-  /// currently *detects* an importable value (that would mean reading the
-  /// user's global git config, which has no capi entry point yet), so today
-  /// only the `''`/`'manual'` states are ever actually reached in
-  /// production. `'imported'` exists so a future round can wire up
-  /// detection without another field-plus-migration round trip, and so the
-  /// label-rendering logic in `_GitSection` has something real to switch on
-  /// and test now.
-  final String globalGitignoreSource;
 
   /// Git. Spec page 07's `MSGS` table, Cherry-pick row: the trailing
   /// "(cherry picked from commit …)" line "可在 Preferences 關閉".
@@ -196,9 +176,6 @@ class AppPreferences {
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
-    bool? globalGitignoreEnabled,
-    String? globalGitignorePath,
-    String? globalGitignoreSource,
     bool? cherryPickAddsSourceLine,
     bool? overwriteWithPreparedMessage,
     bool? confirmForcePush,
@@ -218,11 +195,6 @@ class AppPreferences {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
       autoFetchMinutes: autoFetchMinutes ?? this.autoFetchMinutes,
-      globalGitignoreEnabled:
-          globalGitignoreEnabled ?? this.globalGitignoreEnabled,
-      globalGitignorePath: globalGitignorePath ?? this.globalGitignorePath,
-      globalGitignoreSource:
-          globalGitignoreSource ?? this.globalGitignoreSource,
       cherryPickAddsSourceLine:
           cherryPickAddsSourceLine ?? this.cherryPickAddsSourceLine,
       overwriteWithPreparedMessage:
@@ -288,15 +260,6 @@ class AppPreferencesRepository {
       autoFetchMinutes:
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
-      globalGitignoreEnabled:
-          _prefs.getBool('${_kPrefix}globalGitignoreEnabled') ??
-          defaults.globalGitignoreEnabled,
-      globalGitignorePath:
-          _prefs.getString('${_kPrefix}globalGitignorePath') ??
-          defaults.globalGitignorePath,
-      globalGitignoreSource:
-          _prefs.getString('${_kPrefix}globalGitignoreSource') ??
-          defaults.globalGitignoreSource,
       cherryPickAddsSourceLine:
           _prefs.getBool('${_kPrefix}cherryPickAddsSourceLine') ??
           defaults.cherryPickAddsSourceLine,
@@ -344,18 +307,6 @@ class AppPreferencesRepository {
   Future<void> write(AppPreferences p) async {
     await _prefs.setBool('${_kPrefix}autoFetchEnabled', p.autoFetchEnabled);
     await _prefs.setInt('${_kPrefix}autoFetchMinutes', p.autoFetchMinutes);
-    await _prefs.setBool(
-      '${_kPrefix}globalGitignoreEnabled',
-      p.globalGitignoreEnabled,
-    );
-    await _prefs.setString(
-      '${_kPrefix}globalGitignorePath',
-      p.globalGitignorePath,
-    );
-    await _prefs.setString(
-      '${_kPrefix}globalGitignoreSource',
-      p.globalGitignoreSource,
-    );
     await _prefs.setBool(
       '${_kPrefix}cherryPickAddsSourceLine',
       p.cherryPickAddsSourceLine,

@@ -25,9 +25,6 @@ void main() {
       // Spec page 10's LOGRULES retention row.
       expect(p.logMemoryLimit, 2000);
       expect(p.logRetentionDays, 7);
-      // Nothing has been imported yet -- see the field's own doc comment for
-      // why detection is not wired up this round.
-      expect(p.globalGitignoreSource, '');
       // The startup update check is on until the user turns it off.
       expect(p.autoUpdateCheckEnabled, isTrue);
       // No release has been skipped. Empty rather than null: `copyWith`
@@ -62,9 +59,6 @@ void main() {
       const AppPreferences written = AppPreferences(
         autoFetchEnabled: true,
         autoFetchMinutes: 3,
-        globalGitignoreEnabled: true,
-        globalGitignorePath: '~/.config/git/ignore',
-        globalGitignoreSource: 'imported',
         cherryPickAddsSourceLine: false,
         confirmForcePush: false,
         logMemoryLimit: 500,
@@ -84,9 +78,6 @@ void main() {
       final AppPreferences read = repo.read();
       expect(read.autoFetchEnabled, isTrue);
       expect(read.autoFetchMinutes, 3);
-      expect(read.globalGitignoreEnabled, isTrue);
-      expect(read.globalGitignorePath, '~/.config/git/ignore');
-      expect(read.globalGitignoreSource, 'imported');
       expect(read.cherryPickAddsSourceLine, isFalse);
       expect(read.confirmForcePush, isFalse);
       expect(read.logMemoryLimit, 500);

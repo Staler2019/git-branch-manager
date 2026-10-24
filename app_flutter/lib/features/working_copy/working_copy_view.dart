@@ -36,6 +36,7 @@ import '../../widgets/gbm_badge.dart' show GbmBadge, GbmBadgeKind;
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/split_pane.dart';
+import '../diff/diff_full_file_fill.dart';
 import '../diff/temporary_scope_provider.dart';
 import '../conflict_resolution/original_operation_message_dialog.dart'
     show splitOriginalOperationMessage;
@@ -176,6 +177,9 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final Map<String, WorkingCopyDiffReply> diffs = ref.watch(
       wc.repoWorkingCopyDiffsProvider(widget.identity),
     );
+    final Map<String, WorkingCopyDiffReply> fullDiffs = ref.watch(
+      wc.repoWorkingCopyFullDiffsProvider(widget.identity),
+    );
     final FileListViewMode viewMode = ref.watch(fileListViewModeProvider);
     final GbmColors colors = context.gbmColors;
 
@@ -244,7 +248,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
                 viewMode: viewMode,
               ),
               // Diff pane
-              _buildDiffPane(context, status: status, diffs: diffs),
+              _buildDiffPane(
+                context,
+                status: status,
+                diffs: diffs,
+                fullDiffs: fullDiffs,
+              ),
             ],
           ),
         ),
@@ -403,6 +412,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     BuildContext context, {
     required WorkingCopyStatus status,
     required Map<String, WorkingCopyDiffReply> diffs,
+    required Map<String, WorkingCopyDiffReply> fullDiffs,
   }) {
     final GbmColors colors = context.gbmColors;
     final StateController<void Function()?> scopeSubmit = ref.read(
@@ -425,8 +435,34 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     final WorkingCopyDiffReply? stagedReply = sides.staged == null
         ? null
         : diffs[workingCopyDiffKey(sides.staged!, staged: true)];
+    final bool fullFile = ref.watch(
+      appPreferencesProvider.select((p) => p.fullFileViewEnabled),
+    );
+    final DiffFile? unstagedFull = !fullFile || sides.unstaged == null
+        ? null
+        : _fileOf(
+            fullDiffs[workingCopyDiffKey(sides.unstaged!, staged: false)],
+          );
+    final DiffFile? stagedFull = !fullFile || sides.staged == null
+        ? null
+        : _fileOf(fullDiffs[workingCopyDiffKey(sides.staged!, staged: true)]);
+    _refetchIfDisagreeing(
+      sides.unstaged,
+      _fileOf(unstagedReply),
+      unstagedFull,
+      staged: false,
+    );
+    _refetchIfDisagreeing(
+      sides.staged,
+      _fileOf(stagedReply),
+      stagedFull,
+      staged: true,
+    );
 
     return WorkingCopyDiffPane(
+      unstagedFullFile: unstagedFull,
+      stagedFullFile: stagedFull,
+      fullFile: fullFile,
       // Read here rather than inside ScopedDiffView: this is the nearest
       // container that already holds a Riverpod dependency, and keeping the
       // diff widgets on plain values is what lets their tests pump them
@@ -498,6 +534,30 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
   /// empty `files` can mean -- a diff refused for its size -- is carried by
   /// `truncated` and read separately above. What is left here really is "no
   /// change on that side".
+  /// Asks for both of one side's diffs again when they disagree on which
+  /// lines changed, so the full-file view can fill; the pane stays in
+  /// excerpt mode meanwhile. After the frame, because a provider write from
+  /// `build` is forbidden; the controller asks at most once per
+  /// fingerprint, so a rebuild that sees the same pair asks nothing more.
+  void _refetchIfDisagreeing(
+    String? path,
+    DiffFile? excerpt,
+    DiffFile? full, {
+    required bool staged,
+  }) {
+    if (path == null || excerpt == null || full == null) return;
+    if (fullDiffAgreesWith(excerpt, full)) return;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      wc.refetchDisagreeingWorkingCopyDiffs(
+        ref,
+        widget.identity,
+        path,
+        staged: staged,
+      );
+    });
+  }
+
   DiffFile? _fileOf(WorkingCopyDiffReply? reply) =>
       reply == null || reply.diff.files.isEmpty ? null : reply.diff.files.first;
 

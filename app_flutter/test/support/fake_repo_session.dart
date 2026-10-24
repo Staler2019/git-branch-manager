@@ -153,6 +153,18 @@ class FakeRepoSessionController extends RepoSessionController {
     );
   }
 
+  /// Recorded; answers as the real one does the first time for a key.
+  @override
+  bool refetchDisagreeingDiffs(String path, {required bool staged}) {
+    commandLog.add(
+      FakeCommand('refetchDisagreeingDiffs', <String, Object?>{
+        'path': path,
+        'staged': staged,
+      }),
+    );
+    return true;
+  }
+
   @override
   void resolveConflict(
     String path,

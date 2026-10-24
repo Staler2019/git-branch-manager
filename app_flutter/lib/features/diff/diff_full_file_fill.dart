@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import '../../data/models/parsed_diff.dart';
 
 /// One unchanged row the full-file view draws between the -U3 cards: which
@@ -75,6 +77,23 @@ int? _indexLineOf(DiffLine line, {required bool staged}) {
   if (line.kind == DiffLineKind.noNewlineMarker || n == 0) return null;
   return n;
 }
+
+/// How many lines [file]'s longer side has, as far as its hunks reach --
+/// for a full-context diff, the file's whole length.
+int diffFileLineCount(DiffFile file) {
+  int lines = 0;
+  for (final DiffHunk hunk in file.hunks) {
+    lines = math.max(lines, hunk.oldStart + hunk.oldCount - 1);
+    lines = math.max(lines, hunk.newStart + hunk.newCount - 1);
+  }
+  return lines;
+}
+
+/// Whether [full] changes exactly the rows [excerpt] does (kind, line
+/// numbers, text) -- false when the file moved between the two git
+/// invocations, the case [fullFileFillRows] refuses to fill.
+bool fullDiffAgreesWith(DiffFile excerpt, DiffFile full) =>
+    _sameChanges(excerpt, full);
 
 bool _sameChanges(DiffFile a, DiffFile b) {
   final List<String> ca = _changes(a);

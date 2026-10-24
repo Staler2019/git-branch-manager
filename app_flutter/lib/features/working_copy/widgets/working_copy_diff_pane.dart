@@ -9,6 +9,7 @@ import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
+import '../../diff/diff_full_file_fill.dart';
 import '../../diff/diff_scopes.dart';
 import '../../diff/scoped_diff_view.dart';
 import '../../diff/widgets/diff_line.dart';
@@ -45,6 +46,12 @@ enum WorkingCopyDiffMode {
 /// user last clicked and a single `lastDiff` slot held one reply, so staging
 /// part of a file left the other side stale and invisible -- the half-staged
 /// state the redesign exists to make legible had nowhere to be seen.
+/// The longest file the full-file view draws, in lines. Measured, not
+/// chosen: on macOS (profile build) 5,000 lines open in 72-77 ms with a
+/// scroll p90 of 15-16 ms per frame, inside the 100 ms / 16 ms budget,
+/// and 20,000 lines take 530 ms to open and 47-57 ms per frame.
+const int kFullFileViewMaxLines = 5000;
+
 class WorkingCopyDiffPane extends StatefulWidget {
   const WorkingCopyDiffPane({
     super.key,
@@ -60,6 +67,9 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.onTemporaryScopeChanged,
     required this.softWrap,
     this.scrollController,
+    this.unstagedFullFile,
+    this.stagedFullFile,
+    this.fullFile = false,
   });
 
   /// What the titlebar names. A staged rename is two different paths, so the
@@ -69,6 +79,14 @@ class WorkingCopyDiffPane extends StatefulWidget {
 
   final DiffFile? unstagedFile;
   final DiffFile? stagedFile;
+
+  /// Each side's full-context diff, the full-file view's fill source; null
+  /// until it lands or while the view is off.
+  final DiffFile? unstagedFullFile;
+  final DiffFile? stagedFullFile;
+
+  /// `AppPreferences.fullFileViewEnabled`.
+  final bool fullFile;
   final bool unstagedLoading;
   final bool stagedLoading;
 
@@ -180,6 +198,44 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   double _widthOf(DiffFile? file, CodeWidthMemo memo) =>
       diffFileContentWidth(file, softWrap: widget.softWrap, memo: memo);
 
+  /// What a side is measured for width from: its full diff while that side
+  /// is filled, since the fill rows widen it; its -U3 diff otherwise.
+  DiffFile? _widthSource({required bool staged}) {
+    final DiffFile? full = staged
+        ? widget.stagedFullFile
+        : widget.unstagedFullFile;
+    return widget.fullFile && full != null
+        ? full
+        : (staged ? widget.stagedFile : widget.unstagedFile);
+  }
+
+  /// The fill rows for a view showing [sides] (`false` unstaged, `true`
+  /// staged), or null for excerpt mode: the full-file view is off, a full
+  /// diff has not landed or disagrees with its -U3 one
+  /// ([fullFileFillRows]), or the file is longer than
+  /// [kFullFileViewMaxLines].
+  ///
+  /// Not cached: the pane rebuilds when its inputs change, not per scroll
+  /// frame, and [fullFileFillRows] is O(lines) -- 3 ms at 5,000.
+  List<DiffFillRow>? _fillFor(List<bool> sides) {
+    if (!widget.fullFile) return null;
+    final List<DiffFillSource> sources = <DiffFillSource>[
+      for (final bool staged in sides)
+        (
+          excerpt: staged ? widget.stagedFile : widget.unstagedFile,
+          full: staged ? widget.stagedFullFile : widget.unstagedFullFile,
+          staged: staged,
+        ),
+    ];
+    for (final DiffFillSource source in sources) {
+      final DiffFile? full = source.full;
+      if (full != null && diffFileLineCount(full) > kFullFileViewMaxLines) {
+        return null;
+      }
+    }
+    return fullFileFillRows(sources);
+  }
+
   @override
   void dispose() {
     _stagedScroll.dispose();
@@ -236,10 +292,11 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               softWrap: widget.softWrap,
               verticalController: _unstagedScroll,
               contentWidth: math.max(
-                _widthOf(widget.unstagedFile, _unstagedMemo),
-                _widthOf(widget.stagedFile, _stagedMemo),
+                _widthOf(_widthSource(staged: false), _unstagedMemo),
+                _widthOf(_widthSource(staged: true), _stagedMemo),
               ),
               backdrop: colors.surfaceSunken,
+              fill: _fillFor(const <bool>[false, true]),
             ),
           },
         ),
@@ -274,9 +331,10 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     softWrap: widget.softWrap,
     verticalController: staged ? _stagedScroll : _unstagedScroll,
     contentWidth: staged
-        ? _widthOf(widget.stagedFile, _stagedMemo)
-        : _widthOf(widget.unstagedFile, _unstagedMemo),
+        ? _widthOf(_widthSource(staged: true), _stagedMemo)
+        : _widthOf(_widthSource(staged: false), _unstagedMemo),
     backdrop: context.gbmColors.surfaceSunken,
+    fill: _fillFor(<bool>[staged]),
   );
 }
 

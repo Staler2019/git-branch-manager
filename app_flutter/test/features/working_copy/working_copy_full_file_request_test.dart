@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -13,6 +14,7 @@ import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
 
 import '../../support/fake_repo_session.dart';
+import '../../support/full_file_diffs.dart';
 import '../../support/pump_app.dart';
 
 final RepoIdentity _identity = RepoIdentity(
@@ -44,8 +46,12 @@ const WorkingCopyEntry _bothSides = WorkingCopyEntry(
 
 void main() {
   Future<(FakeRepoSessionController, ProviderContainer)> pump(
-    WidgetTester tester,
-  ) async {
+    WidgetTester tester, {
+    Map<String, WorkingCopyDiffReply> diffs =
+        const <String, WorkingCopyDiffReply>{},
+    Map<String, WorkingCopyDiffReply> fullDiffs =
+        const <String, WorkingCopyDiffReply>{},
+  }) async {
     final FakeRepoSessionController fake = FakeRepoSessionController(
       _identity,
       const RepoSessionState(),
@@ -64,9 +70,10 @@ void main() {
             .overrideWithValue(
               const WorkingCopyStatus(entries: <WorkingCopyEntry>[_bothSides]),
             ),
+        wc.repoWorkingCopyDiffsProvider(_identity).overrideWithValue(diffs),
         wc
-            .repoWorkingCopyDiffsProvider(_identity)
-            .overrideWithValue(const <String, WorkingCopyDiffReply>{}),
+            .repoWorkingCopyFullDiffsProvider(_identity)
+            .overrideWithValue(fullDiffs),
       ],
     );
     return (fake, container);
@@ -128,5 +135,83 @@ void main() {
     await setFullFile(container, false);
     await tester.pump();
     expect(requests(fake, 'requestFullDiff'), hasLength(2));
+  });
+
+  group('with the replies in', () {
+    WorkingCopyDiffReply reply(DiffFile file) => WorkingCopyDiffReply(
+      path: 'lib/a.dart',
+      staged: false,
+      diff: ParsedDiff(
+        files: <DiffFile>[file],
+        truncated: false,
+        inputBytes: 0,
+      ),
+    );
+    final String key = workingCopyDiffKey('lib/a.dart', staged: false);
+    // Line 9 is the first after the first card's -U3 window (2-8): only a
+    // fill row draws it, and it is near enough the top to be built.
+    Finder filled() => find.text('L9', findRichText: true);
+
+    Future<FakeRepoSessionController> show(
+      WidgetTester tester, {
+      required Set<int> fullEdits,
+      bool on = true,
+    }) async {
+      final (
+        FakeRepoSessionController fake,
+        ProviderContainer container,
+      ) = await pump(
+        tester,
+        diffs: <String, WorkingCopyDiffReply>{
+          key: reply(replacementsDiff(40, const <int>{5, 30}, context: 3)),
+        },
+        fullDiffs: <String, WorkingCopyDiffReply>{
+          key: reply(replacementsDiff(40, fullEdits, context: kAllContext)),
+        },
+      );
+      await setFullFile(container, on);
+      await tester.pump();
+      await tester.tap(find.text('lib/a.dart').first);
+      await tester.pump();
+      await tester.pump();
+      return fake;
+    }
+
+    testWidgets('an agreeing full diff fills the pane and refetches nothing', (
+      WidgetTester tester,
+    ) async {
+      final FakeRepoSessionController fake = await show(
+        tester,
+        fullEdits: const <int>{5, 30},
+      );
+      expect(filled(), findsOneWidget);
+      expect(requests(fake, 'refetchDisagreeingDiffs'), isEmpty);
+    });
+
+    testWidgets('a disagreeing one asks for both diffs again, once per side '
+        'that disagrees', (WidgetTester tester) async {
+      final FakeRepoSessionController fake = await show(
+        tester,
+        fullEdits: const <int>{5, 31},
+      );
+      expect(filled(), findsNothing);
+      expect(requests(fake, 'refetchDisagreeingDiffs'), <String>[
+        'false:lib/a.dart',
+      ]);
+    });
+
+    // A full diff left in the session from before the view was switched off
+    // is not the view's business any more: refetching it would spend git
+    // invocations on a view nobody is looking at.
+    testWidgets('off: a stale disagreeing full diff refetches nothing', (
+      WidgetTester tester,
+    ) async {
+      final FakeRepoSessionController fake = await show(
+        tester,
+        fullEdits: const <int>{5, 31},
+        on: false,
+      );
+      expect(requests(fake, 'refetchDisagreeingDiffs'), isEmpty);
+    });
   });
 }

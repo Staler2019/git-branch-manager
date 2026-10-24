@@ -921,6 +921,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       }
 
       switch (block.segment) {
+        // Unreachable until this view passes a fill to [orderedDiffBlocks].
+        case DiffFillSegment():
+          break;
         case DiffGapSegment():
           children.add(
             _GapBlock(

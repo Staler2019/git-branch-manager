@@ -1,4 +1,5 @@
 import '../../data/models/parsed_diff.dart';
+import 'diff_full_file_fill.dart';
 
 /// How many unchanged lines may sit between two changed lines before they
 /// stop being "one change".
@@ -521,6 +522,21 @@ final class DiffScopeSegment extends DiffSegment {
 
   @override
   List<int> get lineIndices => scope.lineIndices;
+}
+
+/// Unchanged rows the full-file view draws between the -U3 hunks -- see
+/// [fullFileFillRows].
+///
+/// They belong to no hunk, so there is no hunk-line index to give:
+/// [lineIndices] is empty, and each row carries its own source and index
+/// line instead. Nothing a stage, unstage or discard sends can name one.
+final class DiffFillSegment extends DiffSegment {
+  const DiffFillSegment(this.rows);
+
+  final List<DiffFillRow> rows;
+
+  @override
+  List<int> get lineIndices => const <int>[];
 }
 
 /// Interleaves [scopes] with the context runs between them, in order.

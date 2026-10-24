@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/diff_block_order.dart';
+import 'package:gbm_flutter/features/diff/diff_full_file_fill.dart';
 import 'package:gbm_flutter/features/diff/diff_scopes.dart';
 
 /// A hunk from a sketch with real line numbers: `.` advances both sides,
@@ -70,9 +71,37 @@ List<String> _rows(List<DiffBlock> blocks) => <String>[
       '${b.sourceIndex}:${b.hunkIndex}:$line',
 ];
 
-String _shape(DiffBlock b) =>
-    '${b.segment is DiffScopeSegment ? 'card' : 'gap'} '
-    '${b.sourceIndex}:${b.segment.lineIndices.join(',')}';
+String _shape(DiffBlock b) => switch (b.segment) {
+  DiffFillSegment(:final List<DiffFillRow> rows) =>
+    'fill ${rows.map((DiffFillRow r) => '${r.sourceIndex}.${r.indexLine}').join(',')}',
+  DiffScopeSegment() =>
+    'card ${b.sourceIndex}:${b.segment.lineIndices.join(',')}',
+  DiffGapSegment() => 'gap ${b.sourceIndex}:${b.segment.lineIndices.join(',')}',
+};
+
+/// Fill rows for the index lines [lines], all from [sourceIndex].
+List<DiffFillRow> _fill(Iterable<int> lines, {int sourceIndex = 0}) =>
+    <DiffFillRow>[
+      for (final int l in lines)
+        (
+          sourceIndex: sourceIndex,
+          indexLine: l,
+          line: DiffLine(
+            kind: DiffLineKind.context,
+            oldLine: l,
+            newLine: l,
+            text: 'fill $l',
+          ),
+        ),
+    ];
+
+/// The [_shape] of a fill run over [lines], each `source.line`.
+String _fillShape(Iterable<int> lines, {int sourceIndex = 0}) =>
+    'fill ${lines.map((int l) => '$sourceIndex.$l').join(',')}';
+
+Iterable<int> _range(int from, int to) => <int>[
+  for (int l = from; l <= to; l++) l,
+];
 
 void main() {
   group('orderedDiffBlocks -- merged order is per row', () {
@@ -165,6 +194,127 @@ void main() {
               position: (line: 0, offset: 0),
             )),
       ]);
+    });
+  });
+
+  // The full-file view's fill rows: index lines no -U3 hunk draws
+  // ([fullFileFillRows]). Placed by the same index ruler the hunks are, so a
+  // run lands between the hunks it sits between in the file and nowhere
+  // else; the expected lists below take the hunk blocks from the no-fill
+  // call and splice the fill in, so the hunks' own blocks are pinned to be
+  // exactly what excerpt mode draws.
+  group('orderedDiffBlocks -- full-file fill rows', () {
+    // Index lines 5-10 and 30-35 are drawn by the two hunks (old side);
+    // the file has 40.
+    final List<DiffSide> lone = <DiffSide>[
+      (
+        file: _file(<DiffHunk>[
+          _numbered('...+...', start: 5),
+          _numbered('...-...', start: 30),
+        ]),
+        staged: false,
+      ),
+    ];
+    final List<int> undrawn = <int>[
+      ..._range(1, 4),
+      ..._range(11, 29),
+      ..._range(37, 40),
+    ];
+
+    List<String> hunkShapes(List<DiffBlock> blocks, int hunkIndex) => <String>[
+      for (final DiffBlock b in blocks)
+        if (b.segment is! DiffFillSegment && b.hunkIndex == hunkIndex)
+          _shape(b),
+    ];
+
+    test(
+      'a lone side gets each fill run between the hunks it sits between',
+      () {
+        final List<Map<int, List<DiffScope>>> scopes = _scopes(lone);
+        final List<DiffBlock> excerpt = orderedDiffBlocks(lone, scopes);
+
+        expect(
+          orderedDiffBlocks(lone, scopes, fill: _fill(undrawn)).map(_shape),
+          <String>[
+            _fillShape(_range(1, 4)),
+            ...hunkShapes(excerpt, 0),
+            _fillShape(_range(11, 29)),
+            ...hunkShapes(excerpt, 1),
+            _fillShape(_range(37, 40)),
+          ],
+        );
+      },
+    );
+
+    test('an empty fill (the hunks already show the whole file) changes '
+        'nothing', () {
+      final List<Map<int, List<DiffScope>>> scopes = _scopes(lone);
+      expect(
+        orderedDiffBlocks(
+          lone,
+          scopes,
+          fill: const <DiffFillRow>[],
+        ).map(_shape),
+        orderedDiffBlocks(lone, scopes).map(_shape),
+      );
+    });
+
+    test('a merged list places the fill on the shared index ruler', () {
+      // Unstaged changes index 5-10's middle, staged index 30-35's: the two
+      // sides' hunks are far apart, so the fill sits between them.
+      final List<DiffSide> merged = <DiffSide>[
+        (
+          file: _file(<DiffHunk>[_numbered('...+...', start: 5)]),
+          staged: false,
+        ),
+        (
+          file: _file(<DiffHunk>[_numbered('...-...', start: 30)]),
+          staged: true,
+        ),
+      ];
+      final List<Map<int, List<DiffScope>>> scopes = _scopes(merged);
+      final List<DiffBlock> excerpt = orderedDiffBlocks(merged, scopes);
+      final List<String> unstagedBlocks = <String>[
+        for (final DiffBlock b in excerpt)
+          if (b.sourceIndex == 0) _shape(b),
+      ];
+      final List<String> stagedBlocks = <String>[
+        for (final DiffBlock b in excerpt)
+          if (b.sourceIndex == 1) _shape(b),
+      ];
+      // Staged runs HEAD -> index, so its index lines are the new side:
+      // '...-...' from 30 keeps 30-35 on the index (the deletion has none).
+      final List<int> fillLines = <int>[
+        ..._range(1, 4),
+        ..._range(11, 29),
+        ..._range(36, 40),
+      ];
+
+      expect(
+        orderedDiffBlocks(merged, scopes, fill: _fill(fillLines)).map(_shape),
+        <String>[
+          _fillShape(_range(1, 4)),
+          ...unstagedBlocks,
+          _fillShape(_range(11, 29)),
+          ...stagedBlocks,
+          _fillShape(_range(36, 40)),
+        ],
+      );
+    });
+
+    test('fill rows from either source join into one run where adjacent', () {
+      // Not a shape fullFileFillRows produces today (the unstaged side
+      // supplies every row it can), but nothing about a run depends on who
+      // supplied each row: each row keeps its own source.
+      final List<Map<int, List<DiffScope>>> scopes = _scopes(lone);
+      final List<DiffFillRow> fill = <DiffFillRow>[
+        ..._fill(_range(1, 2)),
+        ..._fill(_range(3, 4), sourceIndex: 1),
+      ];
+      expect(
+        orderedDiffBlocks(lone, scopes, fill: fill).map(_shape).first,
+        'fill 0.1,0.2,1.3,1.4',
+      );
     });
   });
 }

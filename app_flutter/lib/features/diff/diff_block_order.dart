@@ -1,4 +1,5 @@
 import '../../data/models/parsed_diff.dart';
+import 'diff_full_file_fill.dart';
 import 'diff_scopes.dart';
 
 /// One drawable block of a merged (or single-source) diff list: which
@@ -15,10 +16,16 @@ typedef DiffBlock = ({
 /// the widgets and the selection range read ([SPEC-range-follows-paint-order]).
 ///
 /// A side with no file, a binary file or no hunks draws nothing.
+///
+/// [fill] is the full-file view's unchanged rows ([fullFileFillRows]), or
+/// null in excerpt mode. Each is placed on the same index ruler at
+/// `(indexLine, 0)` -- an index line no hunk draws, so it never ties with a
+/// hunk row -- and adjacent ones are joined into one [DiffFillSegment].
 List<DiffBlock> orderedDiffBlocks(
   List<DiffSide> sides,
-  List<Map<int, List<DiffScope>>> scopesBySource,
-) {
+  List<Map<int, List<DiffScope>>> scopesBySource, {
+  List<DiffFillRow>? fill,
+}) {
   // Every drawable block of every source, decorated with where it sits on
   // the index -- the ruler the two diffs share ([indexPositionOf]).
   final List<DiffBlock> blocks = <DiffBlock>[];
@@ -84,6 +91,17 @@ List<DiffBlock> orderedDiffBlocks(
     }
   }
 
+  for (final DiffFillRow row in fill ?? const <DiffFillRow>[]) {
+    blocks.add((
+      sourceIndex: row.sourceIndex,
+      hunkIndex: -1,
+      segment: DiffFillSegment(
+        List<DiffFillRow>.unmodifiable(<DiffFillRow>[row]),
+      ),
+      position: (line: row.indexLine, offset: 0),
+    ));
+  }
+
   // Ruling U1 (docs/records/2026-10-04-merged-diff-region-order.md):
   // 「我要對齊的不是行號，是 git 判斷出的區域變更」. Ordering
   // *regions* asserts only that one region precedes another in the file,
@@ -98,9 +116,11 @@ List<DiffBlock> orderedDiffBlocks(
   // and the tie-break has to be deterministic: at equal positions the
   // unstaged side comes first ([indexRankOf] -- the same rank the scope
   // barriers order by), which is the reading order the two-column layout
-  // taught. Skipped entirely for a single source, so `2 file` mode provably
-  // cannot be reordered by this (U6).
-  if (merged) {
+  // taught. Skipped for a single source in excerpt mode, so `2 file` mode
+  // provably cannot be reordered by this (U6); with a fill it runs, and a
+  // lone side's hunk blocks are already in this order, so only the fill
+  // moves.
+  if (merged || fill != null) {
     final List<int> order = <int>[for (int i = 0; i < blocks.length; i++) i];
     order.sort((int a, int b) {
       final int byPosition = compareIndexPositions(
@@ -130,7 +150,7 @@ List<DiffBlock> orderedDiffBlocks(
 }
 
 /// Joins gap rows of one hunk that the sort left next to each other back
-/// into one block, so a merged list draws the same [DiffGapSegment] runs a
+/// into one block (and adjacent fill rows into one run), so a merged list draws the same [DiffGapSegment] runs a
 /// lone side would.
 ///
 /// No line-index contiguity check: two rows of one hunk can only be
@@ -143,6 +163,22 @@ List<DiffBlock> _joinAdjacentGaps(List<DiffBlock> blocks) {
   for (final DiffBlock block in blocks) {
     if (out.isNotEmpty) {
       final DiffBlock last = out.last;
+      // Fill rows join whoever supplied them: each row keeps its own source.
+      if (block.segment case DiffFillSegment(:final List<DiffFillRow> rows)
+          when last.segment is DiffFillSegment) {
+        out[out.length - 1] = (
+          sourceIndex: last.sourceIndex,
+          hunkIndex: last.hunkIndex,
+          segment: DiffFillSegment(
+            List<DiffFillRow>.unmodifiable(<DiffFillRow>[
+              ...(last.segment as DiffFillSegment).rows,
+              ...rows,
+            ]),
+          ),
+          position: last.position,
+        );
+        continue;
+      }
       if (block.segment is DiffGapSegment &&
           last.segment is DiffGapSegment &&
           block.sourceIndex == last.sourceIndex &&

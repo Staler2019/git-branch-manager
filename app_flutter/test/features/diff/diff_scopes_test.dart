@@ -617,6 +617,7 @@ void main() {
           (DiffSegment s) => switch (s) {
             DiffGapSegment() => 'gap${s.lineIndices}',
             DiffScopeSegment() => 'scope${s.lineIndices}',
+            DiffFillSegment() => 'fill',
           },
         )
         .toList(growable: false);

@@ -192,6 +192,33 @@ void main() {
     });
   });
 
+  // 使用者裁定: 「Auth/HostKey 失敗 → 暫停自動 fetch，直到手動 fetch 成功；
+  // status bar + log 說明」. Error, because only an error reaches the status
+  // bar's summary (P10 item 3).
+  group('auto fetch paused', () {
+    test('an Auth failure says authentication failed', () {
+      final AppLogEntry entry = AppLogEvents.autoFetchPaused(
+        'Auth',
+        atEpochMs: 5,
+      );
+      expect(
+        entry.message,
+        'Auto fetch paused: authentication failed. It resumes after a manual '
+        'Fetch succeeds.',
+      );
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 5);
+    });
+
+    test('a HostKey failure names the host key, not authentication', () {
+      expect(
+        AppLogEvents.autoFetchPaused('HostKey', atEpochMs: 0).message,
+        'Auto fetch paused: the SSH host key is not trusted. It resumes after '
+        'a manual Fetch succeeds.',
+      );
+    });
+  });
+
   // The user-triggered failures that used to be here are app actions now;
   // their wording is pinned in test/data/services/app_actions_test.dart.
 }

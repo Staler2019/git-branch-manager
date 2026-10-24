@@ -174,6 +174,9 @@ Future<SharedPreferences> _pumpRealApp(
     // Ruling ⑪: off, the commit box keeps typed text through a merge, and
     // prepared_message_flow_test.dart asserts the default overwrite.
     'appPrefs.overwriteWithPreparedMessage',
+    // Off, a cherry-pick drops its "(cherry picked from commit …)" line;
+    // cherry_pick_record_origin_flow_test.dart asserts the default.
+    'appPrefs.cherryPickAddsSourceLine',
   };
   for (final String key in prefs.getKeys().where(
     (String k) =>

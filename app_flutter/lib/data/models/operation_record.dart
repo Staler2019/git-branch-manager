@@ -199,6 +199,15 @@ class OperationRecord extends GbmLogEntry {
   bool get failed =>
       !running && ((exitCode != 0 && !benignExit) || cancelled || timedOut);
 
+  /// Whether this is the periodic background auto fetch rather than a user's
+  /// fetch. Core marks it only by argv: `RemoteOps.cpp` adds both flags when
+  /// `FetchRequest.background`, and nothing else adds either to a fetch.
+  /// Read by the status bar's task fold and the refused-Cancel path.
+  bool get isAutoFetch =>
+      argv.contains('fetch') &&
+      argv.contains('--no-auto-maintenance') &&
+      argv.contains('--no-write-fetch-head');
+
   /// The single source of truth for how severely this record should read --
   /// the drawer's filter, its row styling, and the plain-text export all go
   /// through here rather than re-deriving the conditions locally.

@@ -61,12 +61,15 @@ struct Latch {
 
 class BlockingOperation final : public Operation {
 public:
-    BlockingOperation(bool killable, Latch& gate, Latch* started, std::atomic<bool>* ran)
-        : killable_(killable), gate_(gate), started_(started), ran_(ran) {}
+    BlockingOperation(
+        bool killable, Latch& gate, Latch* started, std::atomic<bool>* ran, bool background = false)
+        : killable_(killable), gate_(gate), started_(started), ran_(ran), background_(background) {}
 
     std::string describe() const override { return "Blocking test operation"; }
 
     bool killableMidFlight() const override { return killable_; }
+
+    bool isBackground() const override { return background_; }
 
     OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken token) override {
         if (ran_ != nullptr) {
@@ -90,6 +93,7 @@ private:
     Latch& gate_;
     Latch* started_;
     std::atomic<bool>* ran_;
+    bool background_;
 };
 
 class OperationRunnerCancelTest : public ::testing::Test {
@@ -251,6 +255,111 @@ TEST_F(OperationRunnerCancelTest, AnOperationSeesItsOwnIdOnlyWhileItRuns) {
     EXPECT_EQ(first, a.id);
     EXPECT_EQ(second, b.id);
     EXPECT_EQ(currentQueuedOperationId(), 0U) << "not on the worker thread";
+}
+
+// The auto fetch is low priority (spec P11 item 9 「背景低優先度」): a
+// foreground operation submitted behind it must not wait for it -- but only
+// while it is still queued. A running one has started touching refs and is
+// left to finish (使用者裁定 2026-10-24, keeping the 2026-10-15 lock ruling).
+
+TEST_F(OperationRunnerCancelTest, AForegroundSubmitCancelsAQueuedBackgroundUnit) {
+    OperationRunner operations(fake_, paths_);
+    Latch frontGate, frontStarted, backgroundGate, foregroundGate;
+    std::atomic<bool> backgroundRan{false};
+    std::atomic<bool> foregroundRan{false};
+
+    operations.submit(std::make_unique<BlockingOperation>(false, frontGate, &frontStarted, nullptr),
+                      [](OperationOutcome) {});
+    frontStarted.wait();
+
+    std::optional<OperationOutcome> backgroundOutcome;
+    operations.submit(
+        std::make_unique<BlockingOperation>(false, backgroundGate, nullptr, &backgroundRan, true),
+        [&backgroundOutcome](OperationOutcome outcome) { backgroundOutcome = std::move(outcome); });
+    std::optional<OperationOutcome> foregroundOutcome;
+    operations.submit(
+        std::make_unique<BlockingOperation>(false, foregroundGate, nullptr, &foregroundRan),
+        [&foregroundOutcome](OperationOutcome outcome) { foregroundOutcome = std::move(outcome); });
+
+    frontGate.release();
+    backgroundGate.release();
+    foregroundGate.release();
+    operations.drain();
+
+    EXPECT_FALSE(backgroundRan.load()) << "the queued background unit must give way";
+    ASSERT_TRUE(backgroundOutcome.has_value());
+    ASSERT_TRUE(backgroundOutcome->error.has_value());
+    EXPECT_EQ(backgroundOutcome->error->code, GitError::Code::Cancelled);
+    EXPECT_TRUE(foregroundRan.load());
+    ASSERT_TRUE(foregroundOutcome.has_value());
+    EXPECT_TRUE(foregroundOutcome->succeeded);
+}
+
+TEST_F(OperationRunnerCancelTest, AForegroundSubmitLeavesARunningBackgroundUnitToFinish) {
+    OperationRunner operations(fake_, paths_);
+    Latch backgroundGate, backgroundStarted, foregroundGate;
+
+    std::optional<OperationOutcome> backgroundOutcome;
+    operations.submit(
+        std::make_unique<BlockingOperation>(
+            true, backgroundGate, &backgroundStarted, nullptr, true),
+        [&backgroundOutcome](OperationOutcome outcome) { backgroundOutcome = std::move(outcome); });
+    backgroundStarted.wait();
+
+    operations.submit(std::make_unique<BlockingOperation>(false, foregroundGate, nullptr, nullptr),
+                      [](OperationOutcome) {});
+
+    backgroundGate.release();
+    foregroundGate.release();
+    operations.drain();
+
+    ASSERT_TRUE(backgroundOutcome.has_value());
+    EXPECT_TRUE(backgroundOutcome->succeeded)
+        << "a running unit may hold ref locks; it is never cancelled by a submit";
+}
+
+TEST_F(OperationRunnerCancelTest, AForegroundSubmitLeavesAQueuedForegroundUnitAlone) {
+    OperationRunner operations(fake_, paths_);
+    Latch frontGate, frontStarted, queuedGate, laterGate;
+    std::atomic<bool> queuedRan{false};
+
+    operations.submit(std::make_unique<BlockingOperation>(false, frontGate, &frontStarted, nullptr),
+                      [](OperationOutcome) {});
+    frontStarted.wait();
+    operations.submit(std::make_unique<BlockingOperation>(false, queuedGate, nullptr, &queuedRan),
+                      [](OperationOutcome) {});
+    operations.submit(std::make_unique<BlockingOperation>(false, laterGate, nullptr, nullptr),
+                      [](OperationOutcome) {});
+
+    frontGate.release();
+    queuedGate.release();
+    laterGate.release();
+    operations.drain();
+
+    EXPECT_TRUE(queuedRan.load()) << "only background units give way";
+}
+
+TEST_F(OperationRunnerCancelTest, ABackgroundSubmitCancelsNothing) {
+    OperationRunner operations(fake_, paths_);
+    Latch frontGate, frontStarted, firstGate, secondGate;
+    std::atomic<bool> firstRan{false};
+
+    operations.submit(std::make_unique<BlockingOperation>(false, frontGate, &frontStarted, nullptr),
+                      [](OperationOutcome) {});
+    frontStarted.wait();
+    operations.submit(
+        std::make_unique<BlockingOperation>(false, firstGate, nullptr, &firstRan, true),
+        [](OperationOutcome) {});
+    operations.submit(
+        std::make_unique<BlockingOperation>(false, secondGate, nullptr, nullptr, true),
+        [](OperationOutcome) {});
+
+    frontGate.release();
+    firstGate.release();
+    secondGate.release();
+    operations.drain();
+
+    EXPECT_TRUE(firstRan.load());
 }
 
 }  // namespace

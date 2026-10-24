@@ -40,6 +40,20 @@ void wire(GitCommand& command, const std::filesystem::path& dir) {
     command.envOverrides.emplace_back(std::string(kDirEnvVar), fsutil::utf8FromPath(dir));
 }
 
+void wireRefusing(GitCommand& command) {
+    auto exe = fsutil::currentExecutablePath();
+    if (exe) {
+        const std::string exePath = exe->string();
+        command.envOverrides.emplace_back("GIT_ASKPASS", exePath);
+        command.envOverrides.emplace_back("SSH_ASKPASS", exePath);
+    }
+    command.envOverrides.emplace_back("SSH_ASKPASS_REQUIRE", "force");
+    command.envOverrides.emplace_back("DISPLAY", ":0");
+    command.envOverrides.emplace_back("GBM_ASKPASS_MODE", "1");
+    command.envOverrides.emplace_back(std::string(kDirEnvVar), "");
+    command.envOverrides.emplace_back("GCM_INTERACTIVE", "false");
+}
+
 std::filesystem::path makeRequestDir() {
     std::error_code ec;
     const auto base = std::filesystem::temp_directory_path(ec);

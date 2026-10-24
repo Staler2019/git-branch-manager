@@ -340,6 +340,31 @@ bool RefStore::refExists(const RefSnapshot& refs, const std::string& fullName) {
     });
 }
 
+bool RefStore::sameRefTips(const RefSnapshot& a, const RefSnapshot& b) {
+    if (a.refs.size() != b.refs.size()) {
+        return false;
+    }
+    auto byName = [](const RefSnapshot& snapshot) {
+        std::vector<const RefInfo*> sorted;
+        sorted.reserve(snapshot.refs.size());
+        for (const RefInfo& ref : snapshot.refs) {
+            sorted.push_back(&ref);
+        }
+        std::sort(sorted.begin(), sorted.end(), [](const RefInfo* x, const RefInfo* y) {
+            return x->fullName < y->fullName;
+        });
+        return sorted;
+    };
+    const auto left = byName(a);
+    const auto right = byName(b);
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if (left[i]->fullName != right[i]->fullName || !(left[i]->target == right[i]->target)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::vector<std::string> RefStore::historySeedRefs(const RefSnapshot& refs) {
     // Order matters: the graph builder gives lane 0 to the first tip it sees, so
     // HEAD and the trunk must come before --all. Everything after that is just

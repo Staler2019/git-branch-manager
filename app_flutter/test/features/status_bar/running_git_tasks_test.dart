@@ -186,4 +186,49 @@ void main() {
       isEmpty,
     );
   });
+
+  // 使用者裁定 2026-10-24 on spec P11 item 9 「只在 status bar 的 +N task
+  // 內顯示」: 「可折」, alone it is the main item like Prune (「單獨時當主項
+  // 目」), labelled 「Auto fetch」.
+  test('an auto fetch folds behind foreground work, labelled Auto fetch', () {
+    expect(
+      _labels(<OperationRecord>[
+        _record(
+          <String>[
+            'fetch',
+            '--progress',
+            '--no-auto-maintenance',
+            '--no-write-fetch-head',
+            '--all',
+          ],
+          id: 1,
+          queuedOperationId: 1,
+        ),
+        _record(
+          <String>['push', '--progress', 'origin'],
+          id: 2,
+          queuedOperationId: 2,
+        ),
+      ]),
+      <String>['Pushing origin', 'Auto fetch'],
+    );
+  });
+
+  test('a manual fetch stays a foreground Fetching task', () {
+    expect(
+      _labels(<OperationRecord>[
+        _record(
+          <String>['fetch', '--progress', '--all'],
+          id: 1,
+          queuedOperationId: 1,
+        ),
+        _record(
+          <String>['push', '--progress', 'origin'],
+          id: 2,
+          queuedOperationId: 2,
+        ),
+      ]),
+      <String>['Fetching', 'Pushing origin'],
+    );
+  });
 }

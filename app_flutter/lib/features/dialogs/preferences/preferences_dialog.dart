@@ -347,16 +347,15 @@ class _GeneralSection extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
         const _SectionHeading('自動 FETCH'),
-        // G1i: `[DRIFT-auto-fetch-unwired]` records that `autoFetchEnabled`/
-        // `autoFetchMinutes` are stored and drawn but read by no timer --
-        // this copy is worded to match that, not spec P11 item 9's prose
-        // (which describes the feature as if it already runs).
+        // Read by AutoFetchHost (`features/workspace/widgets/`). Spec P11
+        // item 9 for what it does, plus three user rulings the spec does not
+        // carry: 「Fetch on open 跟開關綁定」, 「開 dialog 時都不能做背景
+        // fetch」 and 「Auth/HostKey 失敗 → 暫停自動 fetch，直到手動 fetch 成
+        // 功；status bar + log 說明」. The failure wording is ERRCASES' row
+        // 「自動 fetch 失敗、網路不通 → Status bar + log … 下次排程自動重試」.
         _SettingSwitch(
           title: '在背景 fetch 目前開啟的 repository',
-          subtitle:
-              '純 fetch，不會動到 working tree，只抓目前開啟的這一個 '
-              'repository。目前這個開關只會把設定存起來——還沒有背景排程真的 '
-              '照著它去執行 fetch。',
+          subtitle: '開啟 repository 時與每隔設定的分鐘數各 fetch 一次，不會更動 working tree。',
           value: prefs.autoFetchEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoFetchEnabled: v),
@@ -375,25 +374,11 @@ class _GeneralSection extends ConsumerWidget {
         ],
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '之後接上背景排程後，fetch 失敗不會跳出對話框——結果只會反映在 '
-          'ahead/behind 數字、gone 標記和記錄裡。',
+          '失敗時不彈窗；認證失敗會暫停，直到手動 Fetch 成功。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,
             height: GbmTypography.leadingNormal,
-          ),
-        ),
-        const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('開啟 REPOSITORY'),
-        _SettingSwitch(
-          title: '記住手動開啟的 repository',
-          subtitle:
-              '用 Open repository… 開啟的 repository 會另外記在自己的清單，跟 '
-              '掃描到的基礎資料夾分開——臨時開一次的專案不需要因此更動掃描 '
-              '設定。',
-          value: prefs.recordManualOpens,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(recordManualOpens: v),
           ),
         ),
         const SizedBox(height: GbmSpacing.space4),
@@ -404,10 +389,7 @@ class _GeneralSection extends ConsumerWidget {
         const _SectionHeading('更新'),
         _SettingSwitch(
           title: '啟動時檢查更新',
-          subtitle:
-              '啟動後幾秒會問一次 GitHub，一天最多一次。沒有新版本、或檢查 '
-              '失敗都不會顯示任何東西。關閉這個開關會完全停止這個請求；'
-              'Help → Check for updates… 仍然可以用。',
+          subtitle: '啟動時檢查有沒有新版本，一天最多一次。',
           value: prefs.autoUpdateCheckEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(autoUpdateCheckEnabled: v),
@@ -465,8 +447,7 @@ class _GeneralSection extends ConsumerWidget {
             children: <Widget>[
               Expanded(
                 child: Text(
-                  '啟動檢查目前跳過版本 ${prefs.skippedVersion}。'
-                  'Help → Check for updates… 仍然會回報這個版本。',
+                  '啟動檢查會跳過 ${prefs.skippedVersion} 版。',
                   style: TextStyle(
                     fontSize: GbmTypography.textXs,
                     color: context.gbmColors.textTertiary,
@@ -531,10 +512,6 @@ class _RepositorySourcesSectionState
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final AppPreferences prefs = ref.watch(appPreferencesProvider);
-    final AppPreferencesNotifier notifier = ref.read(
-      appPreferencesProvider.notifier,
-    );
     final DiscoveryState discovery = ref.watch(discoveryProvider);
     final List<RecentRepoEntry> recents = ref
         .watch(recentsRepositoryProvider)
@@ -620,29 +597,6 @@ class _RepositorySourcesSectionState
               : () => ref.read(discoveryProvider.notifier).rescan(),
         ),
         const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('自動掃描'),
-        _SettingSwitch(
-          title: '在背景重新掃描基礎資料夾',
-          subtitle:
-              '低優先度工作——只會併入狀態列的工作數量，不會另外顯示。關閉時，'
-              '只有按 Rescan now 才會掃描。',
-          value: prefs.autoScanEnabled,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(autoScanEnabled: v),
-          ),
-        ),
-        if (prefs.autoScanEnabled) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space2),
-          _NumberField(
-            label: '每隔',
-            suffix: '分鐘',
-            value: prefs.autoScanMinutes,
-            onChanged: (int v) => notifier.update(
-              (AppPreferences p) => p.copyWith(autoScanMinutes: v),
-            ),
-          ),
-        ],
-        const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('手動加入'),
         if (recents.isEmpty)
           Text(
@@ -665,7 +619,7 @@ class _RepositorySourcesSectionState
             ),
         const SizedBox(height: GbmSpacing.space1),
         Text(
-          '清空這份清單只是忘記這些項目——磁碟上的東西不會被刪除。',
+          '清空清單不會刪除磁碟上的 repository。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
@@ -885,41 +839,6 @@ class _GitSection extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: <Widget>[
-        const _SectionHeading('全域 GITIGNORE'),
-        _SettingSwitch(
-          title: '使用全域 gitignore 檔案',
-          subtitle:
-              '會寫入 core.excludesFile，所以命令列也套用同一份規則。關閉這個 '
-              '設定只會移除設定值——檔案本身不會被刪除。',
-          value: prefs.globalGitignoreEnabled,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(globalGitignoreEnabled: v),
-          ),
-        ),
-        if (prefs.globalGitignoreEnabled) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space2),
-          _GitignorePathField(
-            initialValue: prefs.globalGitignorePath,
-            onChanged: (String v) => notifier.update(
-              (AppPreferences p) => p.copyWith(
-                globalGitignorePath: v,
-                globalGitignoreSource: 'manual',
-              ),
-            ),
-          ),
-          if (prefs.globalGitignoreSource == 'imported') ...<Widget>[
-            const SizedBox(height: GbmSpacing.space1),
-            Text(
-              '從 .gitconfig 匯入',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                fontStyle: FontStyle.italic,
-                color: context.gbmColors.textTertiary,
-              ),
-            ),
-          ],
-        ],
-        const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('COMMIT 訊息'),
         _SettingSwitch(
           title: '（預設）cherry-pick 時加上「(cherry picked from commit …)」',
@@ -935,67 +854,6 @@ class _GitSection extends ConsumerWidget {
           value: prefs.overwriteWithPreparedMessage,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(overwriteWithPreparedMessage: v),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _GitignorePathField extends StatefulWidget {
-  const _GitignorePathField({
-    required this.initialValue,
-    required this.onChanged,
-  });
-
-  final String initialValue;
-  final ValueChanged<String> onChanged;
-
-  @override
-  State<_GitignorePathField> createState() => _GitignorePathFieldState();
-}
-
-class _GitignorePathFieldState extends State<_GitignorePathField> {
-  late final TextEditingController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = TextEditingController(text: widget.initialValue);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(
-          '全域 gitignore 檔案路徑',
-          style: TextStyle(
-            fontSize: GbmTypography.textXs,
-            color: colors.textSecondary,
-          ),
-        ),
-        const SizedBox(height: GbmSpacing.space1),
-        SizedBox(
-          height: GbmSpacing.inputHeight,
-          child: TextField(
-            key: const Key('preferences-gitignore-path-field'),
-            controller: _controller,
-            onChanged: widget.onChanged,
-            style: const TextStyle(fontFamily: GbmTypography.fontMono),
-            decoration: gbmInputDecoration(
-              colors: colors,
-              hintText: '~/.config/git/ignore',
-            ),
           ),
         ),
       ],
@@ -1039,24 +897,11 @@ class _AppearanceSection extends ConsumerWidget {
             ),
           ],
         ),
-        const SizedBox(height: GbmSpacing.space2),
-        Text(
-          '三個主題都定義了完整的 token 集合，所以切換主題不會讓某個面板停留 '
-          '在不同主題的樣式上。',
-          style: TextStyle(
-            fontSize: GbmTypography.textXs,
-            color: colors.textTertiary,
-            height: GbmTypography.leadingNormal,
-          ),
-        ),
         const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('程式碼'),
         _SettingSwitch(
           title: '長行自動換行',
-          subtitle:
-              '套用在所有檔案內容畫面：diff、blame、patch 和衝突解決視窗。'
-              '預設關閉——關閉時長行會出現水平捲軸，行號欄會固定在左邊，不會 '
-              '跟著程式碼一起捲動。',
+          subtitle: '套用在 diff、blame、patch 和衝突解決畫面。',
           value: prefs.softWrapEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(softWrapEnabled: v),
@@ -1196,9 +1041,7 @@ class _ExternalAppsSectionState extends ConsumerState<_ExternalAppsSection> {
         gbmFieldError(colors: colors, error: _addRejection),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '指令會在 worktree 資料夾裡執行：macOS / Linux 透過你的 login '
-          'shell，PATH 與你的 terminal 相同；Windows 透過 cmd。{path} 會換成 '
-          'worktree 的完整路徑（Windows 換成 .）。',
+          '在 worktree 資料夾裡執行（macOS／Linux 用 login shell，Windows 用 cmd）；{path} 會換成 worktree 的完整路徑（Windows 換成 .）。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: colors.textTertiary,
@@ -1434,7 +1277,7 @@ class _AdvancedSection extends ConsumerWidget {
         const _SectionHeading('確認'),
         _SettingSwitch(
           title: 'force-push 前先確認',
-          subtitle: '執行前顯示這次 push 會覆蓋掉多少筆 remote commit。',
+          subtitle: '分支和 remote 分岔、要 force-push 時，先顯示會覆蓋多少筆 remote commit；關閉後直接 force-push。',
           value: prefs.confirmForcePush,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(confirmForcePush: v),
@@ -1461,7 +1304,7 @@ class _AdvancedSection extends ConsumerWidget {
         ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '密碼、內嵌在 remote URL 裡的 token，以及檔案內容，都不會寫進記錄。',
+          '密碼、remote URL 裡的 token 與檔案內容不會寫進記錄。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,
@@ -1478,7 +1321,7 @@ class _AdvancedSection extends ConsumerWidget {
         ),
         const SizedBox(height: GbmSpacing.space2),
         Text(
-          '電腦慢（防毒、資安掃描）、Log 常出現 TIMEOUT 時調高。改了從下一個指令開始生效。',
+          'Log 常出現 TIMEOUT 時調高，從下一個指令開始生效。',
           style: TextStyle(
             fontSize: GbmTypography.textXs,
             color: context.gbmColors.textTertiary,
@@ -1649,7 +1492,7 @@ class _DeveloperSection extends ConsumerWidget {
         const _SectionHeading('刷新分層'),
         _SettingSwitch(
           title: '刷新期間保留舊的 diff',
-          subtitle: '依每側指紋決定是否保留 diff 快取；關掉還原成每次狀態刷新都清空整份快取。',
+          subtitle: '刷新時，內容沒變的檔案保留已載入的 diff。',
           value: prefs.keepDiffDuringRefresh,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(keepDiffDuringRefresh: v),
@@ -1658,9 +1501,7 @@ class _DeveloperSection extends ConsumerWidget {
         const SizedBox(height: GbmSpacing.space2),
         _SettingSwitch(
           title: '分層刷新',
-          subtitle:
-              '切回視窗先刷目前分支與 working copy，其餘八支等 working '
-              'copy 狀態到齊後才發；關掉還原成十二支一次發出。',
+          subtitle: '切回視窗時先更新目前分支與 working copy，其餘稍後再更新。',
           value: prefs.tieredRefresh,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(tieredRefresh: v),
@@ -1672,7 +1513,7 @@ class _DeveloperSection extends ConsumerWidget {
         const _SectionHeading('狀態列'),
         _SettingSwitch(
           title: '在狀態列顯示刷新耗時',
-          subtitle: '切回視窗到目前分支、working copy 狀態、diff 各自到齊的毫秒數。',
+          subtitle: '在狀態列顯示切回視窗後 refs／status／diff／bg 各自的毫秒數。',
           value: prefs.showRefreshTimings,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(showRefreshTimings: v),
@@ -1682,7 +1523,7 @@ class _DeveloperSection extends ConsumerWidget {
         const _SectionHeading('LOG'),
         _SettingSwitch(
           title: '在 Log 顯示每個指令的時限',
-          subtitle: 'Log 多一欄，寫出這個指令實際套用的時限（已乘逾時倍率）：本地指令是總時限，網路指令是無傳輸上限。',
+          subtitle: 'Log 多一欄，顯示每個指令的時限。',
           value: prefs.showLogTimeouts,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(showLogTimeouts: v),
@@ -1691,7 +1532,7 @@ class _DeveloperSection extends ConsumerWidget {
         const SizedBox(height: GbmSpacing.space2),
         _SettingSwitch(
           title: '在 Log 顯示欄名列',
-          subtitle: 'Log 最上面多一列欄名：層級、時間、指令、耗時、exit，以及開啟時的時限。',
+          subtitle: 'Log 最上面顯示欄名。',
           value: prefs.showLogColumnHeaders,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(showLogColumnHeaders: v),

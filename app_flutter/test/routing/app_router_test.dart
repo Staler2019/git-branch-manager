@@ -8,6 +8,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
+import 'package:gbm_flutter/routing/dialog_open_observer.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -77,6 +78,23 @@ void main() {
     expect(
       router.routeInformationProvider.value.uri.toString(),
       RoutePaths.welcome,
+    );
+  });
+
+  test('the root navigator reports to dialogOpenObserverProvider, which the '
+      "auto fetch's gate reads", () async {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final ProviderContainer container = ProviderContainer(
+      overrides: <Override>[sharedPreferencesProvider.overrideWithValue(prefs)],
+    );
+    addTearDown(container.dispose);
+
+    final router = container.read(appRouterProvider);
+
+    expect(
+      router.routerDelegate.builder.observers,
+      contains(container.read(dialogOpenObserverProvider)),
     );
   });
 }

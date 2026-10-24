@@ -1160,6 +1160,14 @@ class RefreshFlags {
 /// constraint.
 const Duration kDeferredRefreshFallback = Duration(seconds: 3);
 
+/// One fetch of this session finishing, as [RepoSessionController.fetchFinished]
+/// reports it. [errorCodeName] is `GitError.codeName`, null on success.
+typedef FetchFinished = ({
+  bool background,
+  bool succeeded,
+  String? errorCodeName,
+});
+
 /// Owns one `gbm_capi` session handle end to end: opens it, subscribes to
 /// its events, and closes it on dispose. One instance per open repository
 /// (`workspaceScreen`'s route scope owns the provider lifetime -- see the
@@ -1206,6 +1214,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// already present when the listener registers
   /// ([FLU-listen-misses-the-current-value]).
   RefreshFlags refreshFlags = const RefreshFlags();
+
+  /// Whether [cherryPick] adds `-x` (spec page 07's MSGS table, Cherry-pick
+  /// row). Settable for the same reason as [refreshFlags]: Preferences has
+  /// to reach an already-open session.
+  bool cherryPickRecordsOrigin = true;
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -1245,6 +1258,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// resetTo, cherryPick*, *Rebase, pruneRemote, *Bisect, *Import, ...) is
   /// submitted in between. See [PendingOperationTracker]'s doc comment.
   final PendingOperationTracker _pending = PendingOperationTracker();
+
+  /// Synchronous, so a listener sees the outcome in the same event turn as
+  /// the state it changed.
+  final StreamController<FetchFinished> _fetchFinished =
+      StreamController<FetchFinished>.broadcast(sync: true);
+
+  /// Every fetch of this session as it finishes, attributed to its own
+  /// request -- the auto fetch scheduler's in-flight flag and Auth/HostKey
+  /// pause (`AutoFetchScheduler.onFetchFinished`) read it.
+  Stream<FetchFinished> get fetchFinished => _fetchFinished.stream;
 
   /// The most recent *failed* checkout/deleteBranch request, kept around so
   /// a recovery choice picked from [RepoSessionState.checkoutChoices] /
@@ -1355,6 +1378,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         // failing behind it.
         if (error != null && _isSuppressedAutoPrunePreviewError(error)) {
           state = state.copyWith(isRefreshing: false);
+        } else if (error != null &&
+            error.codeName == 'NotCancellable' &&
+            _autoFetchCancelRefusals > 0) {
+          _autoFetchCancelRefusals--;
+          state = state
+              .copyWith(isRefreshing: false)
+              .withOperationRecord(
+                AppLogEvents.errorOccurred(
+                  codeName: error.codeName,
+                  message: error.message,
+                  atEpochMs: _nowEpochMs(),
+                  level: OperationLogLevel.warning,
+                ),
+                maxEntries: maxOperationLogEntries,
+              );
         } else {
           state = state.copyWith(isRefreshing: false, lastError: error);
           if (error != null) {
@@ -1384,11 +1422,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           final bool succeeded = payload['succeeded'] != false;
           final Object? error = payload['error'];
           final bool isCommit = payload['kind'] == _commitOutcomeKind;
+          // Peeked before _handleWorkingCopyOutcomeKind pops it: 背景作業
+          // （自動 fetch）失敗一律不彈窗 (spec page 10), so its failure
+          // reaches only the log and the status bar's error summary, through
+          // its own operation record.
+          final bool backgroundFetch =
+              payload['kind'] == PendingOperationKind.fetch.wireName &&
+              (_pending.peekFetch()?.background ?? false);
           // One publish for the error and the commit count: a waiter on the
           // count must see the failure in the same state (see
           // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
           // re-read below, so the commit is settled before its merge ends.
-          if (!succeeded || isCommit) {
+          if ((!succeeded && !backgroundFetch) || isCommit) {
             final GitError? failure =
                 succeeded || error is! Map<String, dynamic>
                 ? null
@@ -2319,6 +2364,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void recordDraftNotSaved() =>
       _appendAppLog(AppLogEvents.draftNotSaved(atEpochMs: _nowEpochMs()));
 
+  /// Logs that the auto fetch paused itself after an Auth/HostKey failure
+  /// ([codeName]) -- `AutoFetchScheduler`'s onPaused. An error, so the status
+  /// bar's summary shows it. A no-op once disposed.
+  void recordAutoFetchPaused(String codeName) {
+    if (!mounted) return;
+    _appendAppLog(
+      AppLogEvents.autoFetchPaused(codeName, atEpochMs: _nowEpochMs()),
+    );
+  }
+
   /// Wall-clock for an app-level entry. Named so the one non-deterministic
   /// input in these four call sites is visible rather than inlined five
   /// times.
@@ -2431,7 +2486,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // outcome to the next fetch.
     final PendingFetchRequest? request = _pending.takeFetch();
     if (request == null) return;
+    final Object? error = payload['error'];
+    _fetchFinished.add((
+      background: request.background,
+      succeeded: payload['succeeded'] == true,
+      errorCodeName: error is Map<String, dynamic>
+          ? error['codeName'] as String?
+          : null,
+    ));
     if (payload['succeeded'] != true) return;
+    // A background fetch that moved nothing cannot have made a ref gone, and
+    // each preview below is a network round trip per remote, every interval.
+    if (request.background && payload['refsMoved'] == false) return;
 
     // Spec page 02 is explicit that a fetch must not silently remove a
     // remote-tracking ref, so this asks `git remote prune --dry-run` what a
@@ -2456,8 +2522,10 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// call instead of reaching this class's implementation. Same reason
   /// [debugRecordCheckout] exists.
   @visibleForTesting
-  void debugRecordFetch({String remoteName = ''}) =>
-      _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+  void debugRecordFetch({String remoteName = '', bool background = false}) =>
+      _pending.recordFetch(
+        PendingFetchRequest(remoteName: remoteName, background: background),
+      );
 
   /// Test-only: records a pending prune-remote request without going through
   /// [pruneRemote], for the same reason [debugRecordFetch] exists.
@@ -2833,10 +2901,32 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   ///
   /// 0 is never sent: to the capi it means "every operation in the session",
   /// the session-close path, and a record with no queued id names nothing.
+  ///
+  /// A refused Cancel of an auto fetch is the exception: 使用者裁定
+  /// 2026-10-24 「拒絕訊息只進 log」, so [_autoFetchCancelRefusals] marks the
+  /// NotCancellable that follows for the log alone. Counted here, where the
+  /// refused unit is known, because the error carries no argv.
   int cancelOperation(int queuedOperationId) {
     if (_session == nullptr || queuedOperationId == 0) return 0;
-    return _bindings.cancelOperation(_session, queuedOperationId);
+    final int answer = _bindings.cancelOperation(_session, queuedOperationId);
+    if (answer == -1 && _isRunningAutoFetch(queuedOperationId)) {
+      _autoFetchCancelRefusals++;
+    }
+    return answer;
   }
+
+  /// Refused Cancels of an auto fetch whose NotCancellable has not arrived
+  /// yet. The event is emitted inside gbm_cancel_operation but delivered
+  /// through the event port, so it always lands after the count goes up.
+  int _autoFetchCancelRefusals = 0;
+
+  bool _isRunningAutoFetch(int queuedOperationId) => state.operationLog.any(
+    (GbmLogEntry e) =>
+        e is OperationRecord &&
+        e.running &&
+        e.queuedOperationId == queuedOperationId &&
+        e.isAutoFetch,
+  );
 
   /// Resubmits the checkout request that produced the current
   /// [RepoSessionState.checkoutChoices] with the flag [kind] implies
@@ -3238,6 +3328,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         mainline,
         noCommit ? 1 : 0,
         stashFirst ? 1 : 0,
+        cherryPickRecordsOrigin ? 1 : 0,
       ),
     );
   }
@@ -3860,13 +3951,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     List<String> refs = const <String>[],
     bool prune = false,
     bool tags = false,
+    bool background = false,
   }) {
     if (_session == nullptr) return;
     // Recorded before the call, so the outcome that comes back on
     // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED can be attributed to *this*
     // request rather than to whichever fetch happens to be at the head of
     // the queue. See PendingOperationTracker's doc comment.
-    _pending.recordFetch(PendingFetchRequest(remoteName: remoteName));
+    _pending.recordFetch(
+      PendingFetchRequest(remoteName: remoteName, background: background),
+    );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
       _withNativeStringArray(
@@ -3878,6 +3972,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           count,
           prune ? 1 : 0,
           tags ? 1 : 0,
+          background ? 1 : 0,
         ),
       );
     } finally {
@@ -4870,6 +4965,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // whatever is still pending.
     _pending.clear();
     _autoPrunePreviewsInFlight.clear();
+    unawaited(_fetchFinished.close());
     super.dispose();
   }
 }
@@ -4925,14 +5021,15 @@ repoSessionProvider =
       // the whole life of the session (the Developer tab's point is a live
       // A/B), so the one-time read is paired with a `ref.listen` that never
       // rebuilds this provider, only pushes into the already-open controller.
-      controller.refreshFlags = RefreshFlags.fromPreferences(
-        ref.read(appPreferencesProvider),
-      );
+      final AppPreferences prefs = ref.read(appPreferencesProvider);
+      controller.refreshFlags = RefreshFlags.fromPreferences(prefs);
+      controller.cherryPickRecordsOrigin = prefs.cherryPickAddsSourceLine;
       ref.listen<AppPreferences>(appPreferencesProvider, (
         AppPreferences? previous,
         AppPreferences next,
       ) {
         controller.refreshFlags = RefreshFlags.fromPreferences(next);
+        controller.cherryPickRecordsOrigin = next.cherryPickAddsSourceLine;
       });
       return controller;
     });

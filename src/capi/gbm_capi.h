@@ -631,15 +631,18 @@ GBM_API void gbm_merge_abort(GbmSessionHandle session);
 
 /// `commitHexes`/`commitCount`: full or abbreviated hex object ids, oldest
 /// first (the order they are applied in). `mainline` is 1-based, 0 means
-/// "not a merge commit". Async: fires GBM_EVENT_OPERATION_FINISHED; stops at
-/// the first conflict exactly like `git cherry-pick`, leaving the remaining
-/// commits queued for gbm_cherry_pick_continue()/_skip()/_abort().
+/// "not a merge commit". `recordOrigin` non-zero adds `-x`, the
+/// "(cherry picked from commit …)" line. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED; stops at the first conflict exactly like
+/// `git cherry-pick`, leaving the remaining commits queued for
+/// gbm_cherry_pick_continue()/_skip()/_abort().
 GBM_API void gbm_cherry_pick(GbmSessionHandle session,
                              const char* const* commitHexes,
                              int32_t commitCount,
                              int32_t mainline,
                              int32_t noCommit,
-                             int32_t stashFirst);
+                             int32_t stashFirst,
+                             int32_t recordOrigin);
 
 GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session);
@@ -971,12 +974,19 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
 /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, and on success also triggers
 /// the same refresh gbm_history_refresh() would (a fetch can bring in new
 /// commits on remote-tracking refs).
+///
+/// `background` non-zero is the auto fetch nobody pressed a button for: no
+/// GBM_EVENT_CREDENTIAL_REQUESTED is ever raised (every prompt is refused, see
+/// askpass::wireRefusing), the session's askpass watch is left alone for a
+/// foreground operation submitted meanwhile, and git skips auto maintenance
+/// and FETCH_HEAD.
 GBM_API void gbm_remote_fetch(GbmSessionHandle session,
                               const char* remoteName,
                               const char* const* refs,
                               int32_t refCount,
                               int32_t prune,
-                              int32_t tags);
+                              int32_t tags,
+                              int32_t background);
 
 /// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
 /// empty uses the branch's configured upstream. Async: fires

@@ -109,6 +109,12 @@ public:
     /// the *entire* walk rather than just omitting that one tip.
     static bool refExists(const RefSnapshot& refs, const std::string& fullName);
 
+    /// Whether `a` and `b` name the same refs at the same targets, in any
+    /// order. Everything else a snapshot carries -- ahead/behind, upstream,
+    /// HEAD marker, worktree path -- is ignored: a fetch changes ahead/behind
+    /// without moving a tip, and only tips decide what the history walk draws.
+    static bool sameRefTips(const RefSnapshot& a, const RefSnapshot& b);
+
     /// Whether a ref name is one git will accept, checked before we try to
     /// create it so the user gets a clear message instead of raw git output.
     static bool isValidBranchName(std::string_view name);

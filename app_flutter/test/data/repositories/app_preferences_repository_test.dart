@@ -19,17 +19,12 @@ void main() {
       // Spec page 11 item 9: auto-fetch defaults to every 10 minutes.
       expect(p.autoFetchMinutes, 10);
       expect(p.autoFetchEnabled, isFalse);
-      // Spec page 11 item 6: recording manual opens is on by default.
-      expect(p.recordManualOpens, isTrue);
       // Spec page 06's Force push row: the confirmation is on until the user
       // turns it off.
       expect(p.confirmForcePush, isTrue);
       // Spec page 10's LOGRULES retention row.
       expect(p.logMemoryLimit, 2000);
       expect(p.logRetentionDays, 7);
-      // Nothing has been imported yet -- see the field's own doc comment for
-      // why detection is not wired up this round.
-      expect(p.globalGitignoreSource, '');
       // The startup update check is on until the user turns it off.
       expect(p.autoUpdateCheckEnabled, isTrue);
       // No release has been skipped. Empty rather than null: `copyWith`
@@ -64,12 +59,6 @@ void main() {
       const AppPreferences written = AppPreferences(
         autoFetchEnabled: true,
         autoFetchMinutes: 3,
-        recordManualOpens: false,
-        autoScanEnabled: true,
-        autoScanMinutes: 45,
-        globalGitignoreEnabled: true,
-        globalGitignorePath: '~/.config/git/ignore',
-        globalGitignoreSource: 'imported',
         cherryPickAddsSourceLine: false,
         confirmForcePush: false,
         logMemoryLimit: 500,
@@ -89,12 +78,6 @@ void main() {
       final AppPreferences read = repo.read();
       expect(read.autoFetchEnabled, isTrue);
       expect(read.autoFetchMinutes, 3);
-      expect(read.recordManualOpens, isFalse);
-      expect(read.autoScanEnabled, isTrue);
-      expect(read.autoScanMinutes, 45);
-      expect(read.globalGitignoreEnabled, isTrue);
-      expect(read.globalGitignorePath, '~/.config/git/ignore');
-      expect(read.globalGitignoreSource, 'imported');
       expect(read.cherryPickAddsSourceLine, isFalse);
       expect(read.confirmForcePush, isFalse);
       expect(read.logMemoryLimit, 500);
@@ -142,13 +125,50 @@ void main() {
 
       expect(next.confirmForcePush, isFalse);
       expect(next.autoFetchMinutes, base.autoFetchMinutes);
-      expect(next.recordManualOpens, base.recordManualOpens);
+      expect(next.logMemoryLimit, base.logMemoryLimit);
       expect(next.logRetentionDays, base.logRetentionDays);
     });
   });
 
   // open-with-apps-spec.html: the worktree panel's ▾ list. Ruling D4 --
   // one file-manager entry per platform until the user edits the list.
+  // Settings removed by user ruling 「移除開關」 (and the earlier
+  // 「Prune while fetching」): their stored values have no reader, so 「留著
+  // 沒有意義」 -- opening Preferences' store clears them.
+  group('AppPreferencesNotifier retired keys', () {
+    const Map<String, Object> retired = <String, Object>{
+      'appPrefs.recordManualOpens': false,
+      'appPrefs.autoScanEnabled': true,
+      'appPrefs.autoScanMinutes': 45,
+      'appPrefs.globalGitignoreEnabled': true,
+      'appPrefs.globalGitignorePath': '~/.config/git/ignore',
+      'appPrefs.globalGitignoreSource': 'imported',
+      'appPrefs.autoFetchPrune': true,
+    };
+
+    test('building the notifier removes every retired key and keeps the '
+        'live ones', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{
+        ...retired,
+        'appPrefs.confirmForcePush': false,
+        'unrelated.key': 'kept',
+      });
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+      final AppPreferencesNotifier notifier = AppPreferencesNotifier(
+        AppPreferencesRepository(prefs),
+      );
+      addTearDown(notifier.dispose);
+
+      for (final String key in retired.keys) {
+        expect(prefs.containsKey(key), isFalse, reason: key);
+      }
+      expect(prefs.getBool('appPrefs.confirmForcePush'), isFalse);
+      expect(prefs.getString('unrelated.key'), 'kept');
+      expect(notifier.state.confirmForcePush, isFalse);
+    });
+  });
+
   group('AppPreferencesRepository.externalApps', () {
     Future<AppPreferencesRepository> repoWith(
       Map<String, Object> stored, {

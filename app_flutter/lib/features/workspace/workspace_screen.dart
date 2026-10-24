@@ -53,6 +53,7 @@ import '../status_bar/clone_job_tasks.dart';
 import '../status_bar/running_git_tasks.dart';
 import '../status_bar/status_bar.dart';
 import 'widgets/action_toolbar.dart';
+import 'widgets/auto_fetch_host.dart';
 import 'widgets/menu_bar_row.dart';
 import 'widgets/platform_menu_bar_host.dart';
 import 'widgets/tab_row.dart';
@@ -799,7 +800,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         menus: gbmMenus,
         handlers: actionHandlers,
         isMacOSOverride: isMacOS,
-        child: scaffoldContent,
+        // Here, past the 「Opening repository…」 return above: auto fetch
+        // starts with an open session, not before it.
+        child: AutoFetchHost(identity: identity, child: scaffoldContent),
       ),
     );
   }

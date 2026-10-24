@@ -87,9 +87,17 @@ class PendingDeleteBranchRequest {
 /// `git fetch --all` (`FetchOperation::run`, RemoteOps.cpp), which fans out
 /// to every remote.
 class PendingFetchRequest {
-  const PendingFetchRequest({required this.remoteName});
+  const PendingFetchRequest({
+    required this.remoteName,
+    this.background = false,
+  });
 
   final String remoteName;
+
+  /// The auto fetch nobody pressed a button for: its failure never becomes
+  /// [RepoSessionState.lastError], and it previews prune candidates only when
+  /// its outcome says `refsMoved`.
+  final bool background;
 }
 
 /// The fields of a [RepoSessionController.pruneRemote] call that the
@@ -193,6 +201,11 @@ class PendingOperationTracker {
   /// this request.
   PendingFetchRequest? takeFetch() =>
       _fetchQueue.isEmpty ? null : _fetchQueue.removeFirst();
+
+  /// The fetch request the next fetch-kind outcome answers, without popping
+  /// it -- for a reader that must decide something before [takeFetch] runs.
+  PendingFetchRequest? peekFetch() =>
+      _fetchQueue.isEmpty ? null : _fetchQueue.first;
 
   /// Same contract as [takeFetch], for prune-remote: must be called for a
   /// *failed* prune too, or this request would answer for the next prune's

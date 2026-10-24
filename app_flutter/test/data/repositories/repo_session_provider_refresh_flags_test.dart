@@ -90,4 +90,42 @@ void main() {
       },
     );
   });
+
+  // Preferences → Git's 「cherry-pick 時加上 (cherry picked from commit …)」,
+  // read by gbm_cherry_pick's `recordOrigin` through the controller.
+  group('repoSessionProvider wires cherryPickAddsSourceLine into the '
+      'controller', () {
+    test('the initial value matches AppPreferences', () async {
+      final ProviderContainer container = await buildContainer(
+        initialPrefs: <String, Object>{
+          'appPrefs.cherryPickAddsSourceLine': false,
+        },
+      );
+      addTearDown(container.dispose);
+
+      expect(
+        container
+            .read(repoSessionProvider(_identity).notifier)
+            .cherryPickRecordsOrigin,
+        isFalse,
+      );
+    });
+
+    test('a later change reaches the already-open controller', () async {
+      final ProviderContainer container = await buildContainer();
+      addTearDown(container.dispose);
+      final RepoSessionController controller = container.read(
+        repoSessionProvider(_identity).notifier,
+      );
+      expect(controller.cherryPickRecordsOrigin, isTrue);
+
+      await container
+          .read(appPreferencesProvider.notifier)
+          .update(
+            (AppPreferences p) => p.copyWith(cherryPickAddsSourceLine: false),
+          );
+
+      expect(controller.cherryPickRecordsOrigin, isFalse);
+    });
+  });
 }

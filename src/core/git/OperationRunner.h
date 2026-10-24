@@ -64,6 +64,13 @@ struct OperationOutcome {
     /// the FFI boundary with nothing on the far side
     /// (CLAUDE.md's [CULT-orphan-wiring]).
     bool mutatedRefs = false;
+    /// Set only by a background fetch (FetchRequest::background): whether any
+    /// ref tip differs from the snapshot of the session's previous refresh
+    /// (RefStore::sameRefTips). Empty for every other operation, and then
+    /// JsonCodec omits the key, so their payloads stay byte-identical.
+    /// Readers: Session's background-fetch completion (skips the history
+    /// walk when false) and Dart's post-fetch prune preview gating.
+    std::optional<bool> refsMoved;
 };
 
 /// A single mutating git operation.
@@ -90,6 +97,12 @@ public:
     /// leave a repository in a state neither we nor the user expects, so "Cancel"
     /// for those means running the operation's own --abort afterwards, not a kill.
     virtual bool killableMidFlight() const { return false; }
+
+    /// Low-priority work nobody pressed a button for (the auto fetch). Read
+    /// only by OperationRunner::submit(): a foreground operation submitted
+    /// while such a unit is still queued cancels it, so the user's action never
+    /// waits behind it. A running one is left alone -- it may hold ref locks.
+    virtual bool isBackground() const { return false; }
 
     /// Runs the operation. Called on the repository's serial queue.
     virtual OperationOutcome run(IProcessRunner& runner,

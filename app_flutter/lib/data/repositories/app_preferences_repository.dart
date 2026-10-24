@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -23,16 +24,17 @@ import '../models/external_app_entry.dart';
 /// not expose yet (metered-network pausing, log file rotation on disk), the
 /// field is absent rather than present-and-ignored -- a preference that
 /// silently does nothing is worse than one that is not offered.
+///
+/// Absent by the user's ruling 「移除開關」, each once stored and drawn but
+/// read by nothing (#102): spec page 11 item 6's 「記住手動開啟的
+/// repository」 (every opened repository is recorded), item 4's
+/// 「在背景重新掃描基礎資料夾」 (scans run on Rescan now and when a folder is
+/// added), and item 8's 「使用全域 gitignore 檔案」 (`core.excludesFile` is
+/// left to git config).
 class AppPreferences {
   const AppPreferences({
     this.autoFetchEnabled = false,
     this.autoFetchMinutes = 10,
-    this.recordManualOpens = true,
-    this.autoScanEnabled = false,
-    this.autoScanMinutes = 30,
-    this.globalGitignoreEnabled = false,
-    this.globalGitignorePath = '',
-    this.globalGitignoreSource = '',
     this.cherryPickAddsSourceLine = true,
     this.overwriteWithPreparedMessage = true,
     this.confirmForcePush = true,
@@ -66,35 +68,10 @@ class AppPreferences {
   final bool autoFetchEnabled;
   final int autoFetchMinutes;
 
-  /// General. Spec page 11 item 6: manually-opened repositories are recorded
-  /// in their own list rather than mixed into the base folders.
-  final bool recordManualOpens;
-
-  /// Repository sources. Spec page 11 item 4: background rescan of the base
-  /// folders; when off, scanning only happens on an explicit Rescan now.
-  final bool autoScanEnabled;
-  final int autoScanMinutes;
-
-  /// Git. Spec page 11 item 8: writes `core.excludesFile`, shared with the
-  /// CLI. Disabling removes the setting without deleting the file.
-  final bool globalGitignoreEnabled;
-  final String globalGitignorePath;
-
-  /// Where [globalGitignorePath] came from: `''` (never set), `'imported'`
-  /// (read from the user's pre-existing `git config --global
-  /// core.excludesFile` at some point), or `'manual'` (typed into the path
-  /// field). Scoped down from the original ask: nothing in this app
-  /// currently *detects* an importable value (that would mean reading the
-  /// user's global git config, which has no capi entry point yet), so today
-  /// only the `''`/`'manual'` states are ever actually reached in
-  /// production. `'imported'` exists so a future round can wire up
-  /// detection without another field-plus-migration round trip, and so the
-  /// label-rendering logic in `_GitSection` has something real to switch on
-  /// and test now.
-  final String globalGitignoreSource;
-
   /// Git. Spec page 07's `MSGS` table, Cherry-pick row: the trailing
   /// "(cherry picked from commit …)" line "可在 Preferences 關閉".
+  /// `repoSessionProvider` pushes it into
+  /// `RepoSessionController.cherryPickRecordsOrigin`, i.e. `-x`.
   final bool cherryPickAddsSourceLine;
 
   /// Git. Ruling ⑪ (`prepared-commit-message-spec.html` section 04): when a
@@ -202,12 +179,6 @@ class AppPreferences {
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
-    bool? recordManualOpens,
-    bool? autoScanEnabled,
-    int? autoScanMinutes,
-    bool? globalGitignoreEnabled,
-    String? globalGitignorePath,
-    String? globalGitignoreSource,
     bool? cherryPickAddsSourceLine,
     bool? overwriteWithPreparedMessage,
     bool? confirmForcePush,
@@ -227,14 +198,6 @@ class AppPreferences {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
       autoFetchMinutes: autoFetchMinutes ?? this.autoFetchMinutes,
-      recordManualOpens: recordManualOpens ?? this.recordManualOpens,
-      autoScanEnabled: autoScanEnabled ?? this.autoScanEnabled,
-      autoScanMinutes: autoScanMinutes ?? this.autoScanMinutes,
-      globalGitignoreEnabled:
-          globalGitignoreEnabled ?? this.globalGitignoreEnabled,
-      globalGitignorePath: globalGitignorePath ?? this.globalGitignorePath,
-      globalGitignoreSource:
-          globalGitignoreSource ?? this.globalGitignoreSource,
       cherryPickAddsSourceLine:
           cherryPickAddsSourceLine ?? this.cherryPickAddsSourceLine,
       overwriteWithPreparedMessage:
@@ -271,6 +234,26 @@ class AppPreferencesRepository {
 
   static const String _externalAppsKey = '${_kPrefix}externalApps';
 
+  /// Keys of settings this class no longer has (see its doc comment, and
+  /// 「Prune while fetching」 before them). Nothing reads them, so a value
+  /// left on disk only takes up space.
+  static const List<String> _retiredKeys = <String>[
+    '${_kPrefix}recordManualOpens',
+    '${_kPrefix}autoScanEnabled',
+    '${_kPrefix}autoScanMinutes',
+    '${_kPrefix}globalGitignoreEnabled',
+    '${_kPrefix}globalGitignorePath',
+    '${_kPrefix}globalGitignoreSource',
+    '${_kPrefix}autoFetchPrune',
+  ];
+
+  /// Removes every [_retiredKeys] entry still stored. The in-memory cache
+  /// drops each key at once; the returned future is the disk write.
+  Future<void> removeRetiredKeys() => Future.wait(<Future<bool>>[
+    for (final String key in _retiredKeys)
+      if (_prefs.containsKey(key)) _prefs.remove(key),
+  ]);
+
   /// No key: the platform defaults. A value that is not a JSON list: the
   /// defaults again -- a damaged blob must not leave the user with nothing.
   /// A list: every entry [ExternalAppEntry.fromJson] accepts, in order; one
@@ -300,24 +283,6 @@ class AppPreferencesRepository {
       autoFetchMinutes:
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
-      recordManualOpens:
-          _prefs.getBool('${_kPrefix}recordManualOpens') ??
-          defaults.recordManualOpens,
-      autoScanEnabled:
-          _prefs.getBool('${_kPrefix}autoScanEnabled') ??
-          defaults.autoScanEnabled,
-      autoScanMinutes:
-          _prefs.getInt('${_kPrefix}autoScanMinutes') ??
-          defaults.autoScanMinutes,
-      globalGitignoreEnabled:
-          _prefs.getBool('${_kPrefix}globalGitignoreEnabled') ??
-          defaults.globalGitignoreEnabled,
-      globalGitignorePath:
-          _prefs.getString('${_kPrefix}globalGitignorePath') ??
-          defaults.globalGitignorePath,
-      globalGitignoreSource:
-          _prefs.getString('${_kPrefix}globalGitignoreSource') ??
-          defaults.globalGitignoreSource,
       cherryPickAddsSourceLine:
           _prefs.getBool('${_kPrefix}cherryPickAddsSourceLine') ??
           defaults.cherryPickAddsSourceLine,
@@ -365,21 +330,6 @@ class AppPreferencesRepository {
   Future<void> write(AppPreferences p) async {
     await _prefs.setBool('${_kPrefix}autoFetchEnabled', p.autoFetchEnabled);
     await _prefs.setInt('${_kPrefix}autoFetchMinutes', p.autoFetchMinutes);
-    await _prefs.setBool('${_kPrefix}recordManualOpens', p.recordManualOpens);
-    await _prefs.setBool('${_kPrefix}autoScanEnabled', p.autoScanEnabled);
-    await _prefs.setInt('${_kPrefix}autoScanMinutes', p.autoScanMinutes);
-    await _prefs.setBool(
-      '${_kPrefix}globalGitignoreEnabled',
-      p.globalGitignoreEnabled,
-    );
-    await _prefs.setString(
-      '${_kPrefix}globalGitignorePath',
-      p.globalGitignorePath,
-    );
-    await _prefs.setString(
-      '${_kPrefix}globalGitignoreSource',
-      p.globalGitignoreSource,
-    );
     await _prefs.setBool(
       '${_kPrefix}cherryPickAddsSourceLine',
       p.cherryPickAddsSourceLine,
@@ -427,7 +377,9 @@ final Provider<AppPreferencesRepository> appPreferencesRepositoryProvider =
     });
 
 class AppPreferencesNotifier extends StateNotifier<AppPreferences> {
-  AppPreferencesNotifier(this._repo) : super(_repo.read());
+  AppPreferencesNotifier(this._repo) : super(_repo.read()) {
+    unawaited(_repo.removeRetiredKeys());
+  }
 
   final AppPreferencesRepository _repo;
 

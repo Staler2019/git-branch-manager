@@ -375,6 +375,49 @@ TEST(RefStore, TripsTheRefCountGuardOnAHugeRefSet) {
     EXPECT_GT((*snapshot)->totalRefCount, RefStore::kRefCountGuard);
 }
 
+RefInfo refAt(const std::string& fullName, std::string_view hex) {
+    RefInfo ref;
+    ref.fullName = fullName;
+    ref.target = ObjectId::fromHex(hex);
+    return ref;
+}
+
+constexpr std::string_view kOidA = "1111111111111111111111111111111111111111";
+constexpr std::string_view kOidB = "2222222222222222222222222222222222222222";
+
+TEST(RefStore, SameRefTipsIgnoresOrderAndEverythingButNameAndTarget) {
+    RefSnapshot before;
+    before.refs = {refAt("refs/heads/main", kOidA), refAt("refs/remotes/origin/main", kOidB)};
+    RefSnapshot after;
+    after.refs = {refAt("refs/remotes/origin/main", kOidB), refAt("refs/heads/main", kOidA)};
+    after.refs[1].ahead = 3;  // a fetch moves ahead/behind without moving a tip
+    after.refs[1].behind = 1;
+
+    EXPECT_TRUE(RefStore::sameRefTips(before, after));
+}
+
+TEST(RefStore, SameRefTipsSeesAMovedADeletedAndAnAddedRef) {
+    RefSnapshot before;
+    before.refs = {refAt("refs/heads/main", kOidA), refAt("refs/remotes/origin/main", kOidA)};
+
+    RefSnapshot moved = before;
+    moved.refs[1].target = ObjectId::fromHex(kOidB);
+    EXPECT_FALSE(RefStore::sameRefTips(before, moved));
+
+    RefSnapshot deleted = before;
+    deleted.refs.pop_back();
+    EXPECT_FALSE(RefStore::sameRefTips(before, deleted));
+
+    RefSnapshot added = before;
+    added.refs.push_back(refAt("refs/remotes/origin/feature", kOidB));
+    EXPECT_FALSE(RefStore::sameRefTips(before, added));
+
+    // Same count, one name swapped for another at the same oid.
+    RefSnapshot renamed = before;
+    renamed.refs[1].fullName = "refs/remotes/origin/other";
+    EXPECT_FALSE(RefStore::sameRefTips(before, renamed));
+}
+
 TEST(RefStore, SeedsHistoryWithHeadBeforeTrunk) {
     RefSnapshot snapshot;
     snapshot.head.kind = HeadInfo::Kind::Branch;

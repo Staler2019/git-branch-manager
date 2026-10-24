@@ -116,6 +116,10 @@ Future<PumpedWorkspace> pumpWorkspace(
   /// `repoId` names, as `app_router.dart` does, so one element sees its
   /// identity change. Each gets its own [FakeRepoSessionController].
   List<RepoIdentity> otherIdentities = const <RepoIdentity>[],
+
+  /// The router's root-navigator observers, as `appRouterProvider` registers
+  /// `dialogOpenObserverProvider`'s. None by default.
+  List<NavigatorObserver> observers = const <NavigatorObserver>[],
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
@@ -149,6 +153,7 @@ Future<PumpedWorkspace> pumpWorkspace(
   final String repoId = Uri.encodeComponent(identity.workDir);
   final GoRouter router = GoRouter(
     initialLocation: RoutePaths.historyFor(repoId),
+    observers: observers,
     routes: <RouteBase>[
       GoRoute(
         path: RoutePaths.welcome,

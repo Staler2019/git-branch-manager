@@ -313,6 +313,7 @@ typedef _CherryPickNative = Void Function(
   Int32 mainline,
   Int32 noCommit,
   Int32 stashFirst,
+  Int32 recordOrigin,
 );
 typedef CherryPickDart = void Function(
   Pointer<Void> session,
@@ -321,6 +322,7 @@ typedef CherryPickDart = void Function(
   int mainline,
   int noCommit,
   int stashFirst,
+  int recordOrigin,
 );
 
 typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);
@@ -664,6 +666,7 @@ typedef _RemoteFetchNative = Void Function(
   Int32 refCount,
   Int32 prune,
   Int32 tags,
+  Int32 background,
 );
 typedef RemoteFetchDart = void Function(
   Pointer<Void> session,
@@ -672,6 +675,7 @@ typedef RemoteFetchDart = void Function(
   int refCount,
   int prune,
   int tags,
+  int background,
 );
 
 typedef _PullNative = Void Function(

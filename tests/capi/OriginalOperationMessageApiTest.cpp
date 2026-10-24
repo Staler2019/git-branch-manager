@@ -202,7 +202,8 @@ protected:
 
 TEST_F(OriginalOperationMessageApiTest, RequestReturnsGitsProposedMessageDuringConflictedCherryPick) {
     const char* commits[] = {branchACommit_.c_str()};
-    gbm_cherry_pick(session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0);
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     gbm_request_original_operation_message(session_);
@@ -222,7 +223,8 @@ TEST_F(OriginalOperationMessageApiTest, RequestReturnsGitsProposedMessageDuringC
 
 TEST_F(OriginalOperationMessageApiTest, CherryPickContinueWithMessageUsesTheEditedMessage) {
     const char* commits[] = {branchACommit_.c_str()};
-    gbm_cherry_pick(session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0);
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     resolveConflictOnDisk();
@@ -237,6 +239,80 @@ TEST_F(OriginalOperationMessageApiTest, CherryPickContinueWithMessageUsesTheEdit
     ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
 
     EXPECT_EQ(headCommitMessage(), "Custom cherry-pick message");
+}
+
+// Spec page 07's MSGS table, Cherry-pick row: with `-x` (recordOrigin) the
+// pre-filled message already carries the source line, so the user can keep
+// it or delete it before continuing -- and git never adds it back.
+TEST_F(OriginalOperationMessageApiTest,
+       RecordOriginLineIsInTheProposedMessageDuringConflictedCherryPick) {
+    const char* commits[] = {branchACommit_.c_str()};
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    gbm_request_original_operation_message(session_);
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY) return true;
+        }
+        return false;
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY);
+    EXPECT_NE(payload.find("(cherry picked from commit " + branchACommit_ + ")"), std::string::npos)
+        << payload;
+
+    runGit({"cherry-pick", "--abort"});
+}
+
+TEST_F(OriginalOperationMessageApiTest, RecordOriginContinueKeepsAKeptLineOnceAndADeletedLineGone) {
+    const std::string origin = "(cherry picked from commit " + branchACommit_ + ")";
+    const char* commits[] = {branchACommit_.c_str()};
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    resolveConflictOnDisk();
+    log_.clear();
+    const std::string kept = "A changes f.txt\n\n" + origin;
+    gbm_cherry_pick_continue_with_message(session_, kept.c_str());
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
+    EXPECT_EQ(headCommitMessage(), kept);
+
+    // Same pick again on top of a reset main, this time with the line deleted.
+    ASSERT_EQ(runGit({"reset", "--quiet", "--hard", "HEAD~1"}), 0);
+    log_.clear();
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    resolveConflictOnDisk();
+    log_.clear();
+    gbm_cherry_pick_continue_with_message(session_, "no origin");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
+    EXPECT_EQ(headCommitMessage(), "no origin");
+}
+
+TEST_F(OriginalOperationMessageApiTest, RecordOriginStillAppliesToPicksQueuedBehindAConflict) {
+    ASSERT_EQ(runGit({"checkout", "--quiet", "branchA"}), 0);
+    std::ofstream(repo_ / "g.txt") << "g\n";
+    ASSERT_EQ(runGit({"add", "g.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "A adds g.txt"}), 0);
+    const std::string second = commitHex("branchA");
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+
+    const char* commits[] = {branchACommit_.c_str(), second.c_str()};
+    gbm_cherry_pick(
+        session_, commits, 2, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    resolveConflictOnDisk();
+    log_.clear();
+    gbm_cherry_pick_continue_with_message(session_, "first, edited");
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    ASSERT_TRUE(waitForWorkingCopyStatusUpdated(log_));
+
+    EXPECT_EQ(headCommitMessage(), "A adds g.txt\n\n(cherry picked from commit " + second + ")");
 }
 
 TEST_F(OriginalOperationMessageApiTest, RebaseContinueWithMessageUsesTheEditedMessage) {

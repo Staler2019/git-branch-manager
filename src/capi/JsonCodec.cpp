@@ -152,6 +152,10 @@ std::string toJson(const OperationOutcome& outcome) {
         out += ",\"kind\":";
         jsonAppendEscaped(out, outcome.kind);
     }
+    if (outcome.refsMoved.has_value()) {
+        out += ",\"refsMoved\":";
+        jsonAppendBool(out, *outcome.refsMoved);
+    }
     out += '}';
     return out;
 }

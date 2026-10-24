@@ -45,6 +45,7 @@ import '../features/history_graph/history_page.dart';
 import '../features/welcome/welcome_screen.dart';
 import '../features/working_copy/working_copy_view.dart';
 import '../features/workspace/workspace_screen.dart';
+import 'dialog_open_observer.dart';
 import 'dialog_route.dart';
 import 'route_paths.dart';
 
@@ -109,6 +110,9 @@ final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
       : RoutePaths.workspaceFor(repoIdFor(recents.first.workDir));
   return GoRouter(
     initialLocation: initialLocation,
+    // Root navigator only, which is where every dialog lands: `dialogRoute`s
+    // are top-level and showDialog defaults to the root navigator.
+    observers: <NavigatorObserver>[ref.read(dialogOpenObserverProvider)],
     routes: <RouteBase>[
       GoRoute(
         path: RoutePaths.welcome,

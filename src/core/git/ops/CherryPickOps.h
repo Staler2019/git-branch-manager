@@ -27,6 +27,11 @@ struct CherryPickRequest {
     /// Set after the user picks "Stash and pick" in response to a
     /// DirtyWorkTree failure -- see CheckoutRequest::stashFirst, same idea.
     bool stashFirst = false;
+
+    /// `-x`: append "(cherry picked from commit <hex>)" to each message.
+    /// Spec page 07's MSGS table, Cherry-pick row; Preferences can turn it
+    /// off. With `noCommit` git still writes the line into MERGE_MSG.
+    bool recordOrigin = false;
 };
 
 /// `git cherry-pick <commits...>`. Stops at the first conflict, exactly as git

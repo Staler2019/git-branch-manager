@@ -4,6 +4,7 @@
 #include "core/base/Error.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/OperationRunner.h"
+#include "core/git/RefStore.h"
 #include "core/git/RepoPaths.h"
 
 #include <cstdint>
@@ -61,6 +62,16 @@ struct FetchRequest {
     /// empty means "no credential prompt is possible", and an auth failure is
     /// reported immediately instead.
     std::filesystem::path askpassDir;
+    /// The auto fetch nobody pressed a button for: every credential prompt is
+    /// refused (askpass::wireRefusing, `askpassDir` ignored), and git is told
+    /// not to start auto maintenance or overwrite FETCH_HEAD behind the
+    /// user's back.
+    bool background = false;
+    /// For a background fetch: the refs of the session's previous refresh,
+    /// compared against one fresh read after the fetch to fill
+    /// OperationOutcome::refsMoved. Null counts as "moved" -- the safe
+    /// direction, costing one walk.
+    RefSnapshotPtr refsBefore;
 };
 
 struct PullRequest {

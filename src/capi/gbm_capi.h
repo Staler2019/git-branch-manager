@@ -631,15 +631,18 @@ GBM_API void gbm_merge_abort(GbmSessionHandle session);
 
 /// `commitHexes`/`commitCount`: full or abbreviated hex object ids, oldest
 /// first (the order they are applied in). `mainline` is 1-based, 0 means
-/// "not a merge commit". Async: fires GBM_EVENT_OPERATION_FINISHED; stops at
-/// the first conflict exactly like `git cherry-pick`, leaving the remaining
-/// commits queued for gbm_cherry_pick_continue()/_skip()/_abort().
+/// "not a merge commit". `recordOrigin` non-zero adds `-x`, the
+/// "(cherry picked from commit …)" line. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED; stops at the first conflict exactly like
+/// `git cherry-pick`, leaving the remaining commits queued for
+/// gbm_cherry_pick_continue()/_skip()/_abort().
 GBM_API void gbm_cherry_pick(GbmSessionHandle session,
                              const char* const* commitHexes,
                              int32_t commitCount,
                              int32_t mainline,
                              int32_t noCommit,
-                             int32_t stashFirst);
+                             int32_t stashFirst,
+                             int32_t recordOrigin);
 
 GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session);
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session);

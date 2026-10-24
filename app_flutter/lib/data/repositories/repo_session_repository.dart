@@ -1214,6 +1214,11 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// already present when the listener registers
   /// ([FLU-listen-misses-the-current-value]).
   RefreshFlags refreshFlags = const RefreshFlags();
+
+  /// Whether [cherryPick] adds `-x` (spec page 07's MSGS table, Cherry-pick
+  /// row). Settable for the same reason as [refreshFlags]: Preferences has
+  /// to reach an already-open session.
+  bool cherryPickRecordsOrigin = true;
   Pointer<Void> _session = nullptr;
   GbmSessionEvents? _events;
   StreamSubscription<GbmEvent>? _subscription;
@@ -3323,6 +3328,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         mainline,
         noCommit ? 1 : 0,
         stashFirst ? 1 : 0,
+        cherryPickRecordsOrigin ? 1 : 0,
       ),
     );
   }

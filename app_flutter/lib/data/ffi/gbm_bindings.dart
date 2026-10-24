@@ -313,6 +313,7 @@ typedef _CherryPickNative = Void Function(
   Int32 mainline,
   Int32 noCommit,
   Int32 stashFirst,
+  Int32 recordOrigin,
 );
 typedef CherryPickDart = void Function(
   Pointer<Void> session,
@@ -321,6 +322,7 @@ typedef CherryPickDart = void Function(
   int mainline,
   int noCommit,
   int stashFirst,
+  int recordOrigin,
 );
 
 typedef _CherryPickContinueNative = Void Function(Pointer<Void> session);

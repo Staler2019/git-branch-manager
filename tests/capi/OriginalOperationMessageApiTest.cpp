@@ -202,7 +202,8 @@ protected:
 
 TEST_F(OriginalOperationMessageApiTest, RequestReturnsGitsProposedMessageDuringConflictedCherryPick) {
     const char* commits[] = {branchACommit_.c_str()};
-    gbm_cherry_pick(session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0);
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     gbm_request_original_operation_message(session_);
@@ -222,7 +223,8 @@ TEST_F(OriginalOperationMessageApiTest, RequestReturnsGitsProposedMessageDuringC
 
 TEST_F(OriginalOperationMessageApiTest, CherryPickContinueWithMessageUsesTheEditedMessage) {
     const char* commits[] = {branchACommit_.c_str()};
-    gbm_cherry_pick(session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0);
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     resolveConflictOnDisk();

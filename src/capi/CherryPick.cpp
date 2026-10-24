@@ -29,12 +29,14 @@ GBM_API void gbm_cherry_pick(GbmSessionHandle session,
                              int32_t commitCount,
                              int32_t mainline,
                              int32_t noCommit,
-                             int32_t stashFirst) {
+                             int32_t stashFirst,
+                             int32_t recordOrigin) {
     CherryPickRequest request;
     request.commits = toObjectIds(commitHexes, commitCount);
     request.mainline = mainline;
     request.noCommit = noCommit != 0;
     request.stashFirst = stashFirst != 0;
+    request.recordOrigin = recordOrigin != 0;
     toSession(session)->cherryPick(std::move(request));
 }
 

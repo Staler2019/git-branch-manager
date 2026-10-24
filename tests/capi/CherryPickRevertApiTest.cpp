@@ -144,7 +144,8 @@ protected:
 
 TEST_F(CherryPickRevertApiTest, CherryPickAppliesCommitOntoCurrentBranch) {
     const char* commits[] = {pickedCommit_.c_str()};
-    gbm_cherry_pick(session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0);
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/0);
     ASSERT_TRUE(waitForOperationFinished(log_));
 
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
@@ -166,6 +167,19 @@ TEST_F(CherryPickRevertApiTest, CherryPickAppliesCommitOntoCurrentBranch) {
     // cherry-picked replay.
     EXPECT_EQ(rowCount, 4);
     gbm_graph_snapshot_release(session_);
+}
+
+TEST_F(CherryPickRevertApiTest, CherryPickRecordOriginReachesTheCommitMessage) {
+    const char* commits[] = {pickedCommit_.c_str()};
+    gbm_cherry_pick(
+        session_, commits, 1, /*mainline=*/0, /*noCommit=*/0, /*stashFirst=*/0, /*recordOrigin=*/1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+
+    const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_OPERATION_FINISHED);
+    EXPECT_NE(outcome.find("\"succeeded\":true"), std::string::npos) << outcome;
+    const std::string body = GitCli::capture(repo_, {"log", "-1", "--format=%B"}).out;
+    EXPECT_NE(body.find("(cherry picked from commit " + pickedCommit_ + ")"), std::string::npos)
+        << body;
 }
 
 TEST_F(CherryPickRevertApiTest, RevertCreatesInverseCommit) {

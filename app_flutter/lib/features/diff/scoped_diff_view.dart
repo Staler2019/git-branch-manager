@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/parsed_diff.dart';
@@ -197,6 +198,27 @@ const DiffListMetrics _kListEstimate = (
 );
 const double _kLeadingEstimate = 29;
 
+/// How far a row's left edge sits inside the view: the well's 8px margin,
+/// its 8px padding and 1px border, and a gap's 1px dashed rule plus 2px
+/// (`scoped_diff_view_lazy_test.dart` records every row at x = 20).
+const double _kRowInset = 20;
+
+/// The item a pointer endpoint landed on ([_ScopedDiffViewState._endpointAt]).
+///
+/// Opaque, so every point of an item -- its padding, a card's margin, the
+/// well's frame -- names the item, not only the parts that paint.
+class _ItemHit {
+  const _ItemHit(this.index);
+
+  final int index;
+
+  static Widget wrap(int index, Widget child) => MetaData(
+    metaData: _ItemHit(index),
+    behavior: HitTestBehavior.opaque,
+    child: child,
+  );
+}
+
 class _ScopedDiffViewState extends State<ScopedDiffView> {
   final GlobalKey<SelectionAreaState> _selectionAreaKey =
       GlobalKey<SelectionAreaState>();
@@ -268,6 +290,43 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   ScrollController get _vertical =>
       widget.verticalController ?? (_ownedVertical ??= ScrollController());
 
+  /// The list as the last build laid it out: what a pointer endpoint is
+  /// resolved against, so a press and a release name rows in the order they
+  /// were painted.
+  DiffListModel? _model;
+
+  final GlobalKey _listKey = GlobalKey(debugLabel: 'gbm-diff-list');
+  final GlobalKey _hScrollKey = GlobalKey(debugLabel: 'gbm-diff-hscroll');
+
+  /// Between a pointer down and its pointer up in the well.
+  bool _pointerDown = false;
+
+  /// The list scrolled at least once since the pointer went down. **Sticky**:
+  /// a drag down and back up can leave the offset where it started -- an
+  /// autoscroll clamped at 0 -- with rows rebuilt in between, so comparing
+  /// the two ends would read it as unscrolled.
+  bool _gestureScrolled = false;
+
+  /// The diff was replaced while the pointer was down ([_dropSelection]):
+  /// whatever the pointer framed named rows of the diff that is gone.
+  bool _gestureDropped = false;
+
+  /// Where the gesture started, as an endpoint ([_endpointAt]).
+  int? _gestureStart;
+
+  ScrollController? _listenedVertical;
+
+  void _listenToVertical() {
+    final ScrollController controller = _vertical;
+    if (identical(controller, _listenedVertical)) return;
+    _listenedVertical?.removeListener(_onVerticalMoved);
+    _listenedVertical = controller..addListener(_onVerticalMoved);
+  }
+
+  void _onVerticalMoved() {
+    if (_pointerDown) _gestureScrolled = true;
+  }
+
   /// The two ends of the keyboard range, as row keys.
   ///
   /// A range, not a grow-only set: `Shift + ↑` after four `Shift + ↓`s has to
@@ -282,11 +341,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   void initState() {
     super.initState();
     _tracker = SelectionTouchTracker()..addListener(_onTouchChanged);
+    _listenToVertical();
   }
 
   @override
   void didUpdateWidget(ScopedDiffView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _listenToVertical();
     // A new diff renumbers every line, and the tracker's keys are positions
     // -- so a selection carried across the reload would point at whatever
     // now sits at those indices. This is the plan's
@@ -317,6 +378,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _tracker.removeListener(_onTouchChanged);
     _tracker.dispose();
     _wellFocus.dispose();
+    _listenedVertical?.removeListener(_onVerticalMoved);
     _ownedVertical?.dispose();
     // Leaving a submitter behind would leave the menu item live pointing at
     // a column that is no longer on screen.
@@ -368,6 +430,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// ConcurrentModificationError out of
   /// `MultiSelectableSelectionContainerDelegate.handleClearSelection`.
   void _dropSelection({required bool alsoClearHighlight}) {
+    if (_pointerDown) _gestureDropped = true;
     _tracker.clear();
     // The range ends with the selection it describes. Leaving the two row
     // keys behind would let the next arrow press extend a range whose rows
@@ -523,18 +586,29 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     );
     _reportScope(temporary);
 
+    _model = model;
     final _ItemPaint paint = _itemPaint(model, temporary, settledTouched);
     // `SelectionArea > GbmCodeHScroll > ListView.builder`, the order
     // `panel_diff_text.dart` builds: the selection stays outside everything
     // the drag meets, and only the rows near the viewport are built -- an
     // eager column of a 5k-line file took a second to open.
     final Widget list = GbmCodeHScroll(
+      key: _hScrollKey,
       contentWidth: widget.contentWidth,
       verticalController: _vertical,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
       child: ListView.builder(
+        key: _listKey,
         controller: _vertical,
         padding: EdgeInsets.zero,
+        // Off: an item scrolled out of view is released, never kept alive
+        // unlaid. A kept-alive card that is rebuilt off screen -- the one a
+        // long autoscroll drag started in, gaining its one-shot block on
+        // release -- registers selectables the framework then sorts without
+        // a size (`RenderBox was not laid out`). Nothing here reads an
+        // off-screen row anyway: a drag that scrolled is resolved from its
+        // two endpoints ([_adoptRangeFromEndpoints]).
+        addAutomaticKeepAlives: false,
         itemCount: model.items.length,
         itemBuilder: (BuildContext context, int index) =>
             _buildItem(model, index, leading, paint),
@@ -612,7 +686,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       child: Focus(
         focusNode: _wellFocus,
         child: Listener(
-          onPointerDown: (_) {
+          onPointerDown: (PointerDownEvent event) {
             // Tapping does not grant focus by itself, and without
             // focus the arrow bindings above are unreachable for a
             // user who never drags.
@@ -635,12 +709,32 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             // the selection the drag makes survives (ledger: #167).
             if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
             _tracker.beginGesture();
+            _pointerDown = true;
+            _gestureScrolled = false;
+            _gestureDropped = false;
+            // Shift extends the range there is: its start stays put.
+            final int? anchor = _anchorRow == null
+                ? null
+                : _model?.rowIndexOf(_anchorRow!);
+            _gestureStart =
+                HardwareKeyboard.instance.isShiftPressed && anchor != null
+                ? 2 * anchor + 1
+                : _endpointAt(event.position);
           },
-          onPointerUp: (_) {
+          onPointerUp: (PointerUpEvent event) {
+            _pointerDown = false;
             _tracker.endGesture();
-            _adoptRangeFromTouched();
+            if (_gestureDropped) return;
+            if (_gestureScrolled) {
+              _adoptRangeFromEndpoints(event.position);
+            } else {
+              _adoptRangeFromTouched();
+            }
           },
-          onPointerCancel: (_) => _tracker.endGesture(),
+          onPointerCancel: (_) {
+            _pointerDown = false;
+            _tracker.endGesture();
+          },
           child: SelectionArea(key: _selectionAreaKey, child: list),
         ),
       ),
@@ -810,6 +904,122 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final int lo = anchorIndex < focusIndex ? anchorIndex : focusIndex;
     final int hi = anchorIndex < focusIndex ? focusIndex : anchorIndex;
     _tracker.setTouched(rows.sublist(lo, hi + 1).toSet());
+  }
+
+  /// Where a pointer at [global] is in the painted rows, as a position on a
+  /// ruler of half steps: row `r` is `2r + 1`, and the boundary with `b`
+  /// rows above it is `2b`. Null before the first layout.
+  ///
+  /// Only the pointer's height counts. The point tested is on the row
+  /// gutter, at a fixed x measured from [GbmCodeHScroll]'s own box, which
+  /// does not scroll sideways, so a pointer off either side of the pane, on
+  /// the well's padding or on a card's side border still names the row at
+  /// its height; and the height is clamped into the list, so a pointer above
+  /// or below it names the first or last row on screen. The hit test enters
+  /// at the vertical list's viewport: below the horizontal scrollbar, whose
+  /// painter would otherwise swallow a point at the bottom edge, and below
+  /// the Scrollable's `IgnorePointer`, which ignores every hit while an
+  /// autoscroll is still animating as the pointer comes up.
+  ///
+  /// The point lands on an item ([_ItemHit]); within it, a row whose box
+  /// holds the height is that row, and anything else -- a card's head, a
+  /// one-shot block's head or margins, a card's bottom border, the space
+  /// between items -- is the boundary below the item's rows above that
+  /// height. A boundary belongs to no row.
+  int? _endpointAt(Offset global) {
+    final DiffListModel? model = _model;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    final RenderObject? anchor = _hScrollKey.currentContext?.findRenderObject();
+    if (model == null ||
+        list is! RenderBox ||
+        anchor is! RenderBox ||
+        !list.hasSize ||
+        list.size.height <= 0) {
+      return null;
+    }
+    final double y = list
+        .globalToLocal(global)
+        .dy
+        .clamp(0, list.size.height - 0.5)
+        .toDouble();
+    final Offset probe = Offset(
+      anchor
+          .localToGlobal(const Offset(_kRowInset + kDiffGutterWidth / 2, 0))
+          .dx,
+      list.localToGlobal(Offset(0, y)).dy,
+    );
+    final RenderBox target = _viewportIn(list) ?? list;
+    final BoxHitTestResult result = BoxHitTestResult();
+    target.hitTest(result, position: target.globalToLocal(probe));
+    for (final HitTestEntry entry in result.path) {
+      final Object target = entry.target;
+      if (target is RenderMetaData && target.metaData is _ItemHit) {
+        return _endpointInItem(
+          model,
+          (target.metaData as _ItemHit).index,
+          probe.dy,
+        );
+      }
+    }
+    // Below the last item: a list shorter than its viewport.
+    return 2 * model.rowKeys.length;
+  }
+
+  static RenderViewportBase? _viewportIn(RenderObject root) {
+    if (root is RenderViewportBase) return root;
+    RenderViewportBase? found;
+    root.visitChildren((RenderObject child) {
+      found ??= _viewportIn(child);
+    });
+    return found;
+  }
+
+  int _endpointInItem(DiffListModel model, int item, double globalY) {
+    final int first = model.firstRowOf(item);
+    final int count = model.rowCountOf(item);
+    int above = 0;
+    for (int r = first; r < first + count; r++) {
+      final RenderObject? row = _tracker
+          .keyFor(model.rowKeys[r])
+          .currentContext
+          ?.findRenderObject();
+      if (row is! RenderBox || !row.hasSize) continue;
+      final double top = row.localToGlobal(Offset.zero).dy;
+      if (globalY < top) break;
+      if (globalY < top + row.size.height) return 2 * r + 1;
+      above = r - first + 1;
+    }
+    return 2 * (first + above);
+  }
+
+  /// Settles a drag that scrolled the list (使用者裁定 ①「端點幾何」): the
+  /// range is every row painted between the gesture's two endpoints, both
+  /// end rows included.
+  ///
+  /// Row state cannot be read for it. A row the autoscroll passed may never
+  /// have been built, one scrolled out has been released, and the framework
+  /// orders selectables by screen position, which an off-screen row does not
+  /// have -- so this reads no row's selection, only where the pointer went
+  /// down and where it came up. An unscrolled drag keeps the live-state rule
+  /// ([_adoptRangeFromTouched]); every row it framed is on screen.
+  void _adoptRangeFromEndpoints(Offset release) {
+    final DiffListModel? model = _model;
+    final int? start = _gestureStart;
+    final int? end = _endpointAt(release);
+    if (model == null || start == null || end == null) return;
+    final int lo = start < end ? start : end;
+    final int hi = start < end ? end : start;
+    // Rows r with lo <= 2r + 1 <= hi.
+    final int firstRow = lo ~/ 2;
+    final int lastRow = (hi - 1) ~/ 2;
+    if (hi < 1 || lastRow < firstRow) {
+      _tracker.setTouched(const <String>{});
+      return;
+    }
+    _tracker.setTouched(model.rowKeys.sublist(firstRow, lastRow + 1).toSet());
+    final bool downward = start <= end;
+    _anchorRow = model.rowKeys[downward ? firstRow : lastRow];
+    _focusRow = model.rowKeys[downward ? lastRow : firstRow];
   }
 
   /// Adopts whatever a finished drag framed as the keyboard range, so the
@@ -997,8 +1207,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final DiffListItem item = model.items[index];
     // Outside the selection, as they were before they moved into the list:
     // a drag over a column head selects nothing.
-    if (item case DiffLeadingItem(:final int index)) {
-      return SelectionContainer.disabled(child: leading[index]);
+    if (item case DiffLeadingItem(index: final int leadingIndex)) {
+      return _ItemHit.wrap(
+        index,
+        SelectionContainer.disabled(child: leading[leadingIndex]),
+      );
     }
     final Widget child = switch (item) {
       DiffLeadingItem() => const SizedBox.shrink(),
@@ -1040,10 +1253,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         paint,
       ),
     };
-    return _FrameSegment(
-      first: index == leading.length,
-      last: index == model.items.length - 1,
-      child: child,
+    return _ItemHit.wrap(
+      index,
+      _FrameSegment(
+        first: index == leading.length,
+        last: index == model.items.length - 1,
+        child: child,
+      ),
     );
   }
 

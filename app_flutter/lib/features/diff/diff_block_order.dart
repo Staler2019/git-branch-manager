@@ -27,6 +27,13 @@ List<DiffBlock> orderedDiffBlocks(
     scopesBySource,
   );
 
+  // In a merged list a context run is placed row by row: placed as one block
+  // at its first row, a run straddling the other side's region would paint
+  // its later rows above that region (使用者裁定 ②'s ordering half). Cards
+  // stay whole -- [splitHunkIntoScopes]' barriers keep the other side's rows
+  // out of every card's span, so a card never needs to be cut for the sort.
+  final bool merged = sides.length > 1;
+
   for (int sourceIndex = 0; sourceIndex < sides.length; sourceIndex++) {
     final DiffSide source = sides[sourceIndex];
     final DiffFile? diffFile = source.file;
@@ -46,6 +53,17 @@ List<DiffBlock> orderedDiffBlocks(
         // `2 file` mode is untouched.
         hiddenLines: hidden[sourceIndex][hunkIndex] ?? const <int>{},
       )) {
+        if (merged && segment is DiffGapSegment) {
+          for (final int line in segment.lineIndices) {
+            blocks.add((
+              sourceIndex: sourceIndex,
+              hunkIndex: hunkIndex,
+              segment: DiffGapSegment(List<int>.unmodifiable(<int>[line])),
+              position: indexPositionOf(hunk, line, staged: source.staged),
+            ));
+          }
+          continue;
+        }
         blocks.add((
           sourceIndex: sourceIndex,
           hunkIndex: hunkIndex,
@@ -78,10 +96,11 @@ List<DiffBlock> orderedDiffBlocks(
   //
   // Decorated with the original index because [List.sort] is not stable
   // and the tie-break has to be deterministic: at equal positions the
-  // unstaged side comes first, which is the reading order the two-column
-  // layout taught. Skipped entirely for a single source, so `2 file` mode
-  // provably cannot be reordered by this (U6).
-  if (sides.length > 1) {
+  // unstaged side comes first ([indexRankOf] -- the same rank the scope
+  // barriers order by), which is the reading order the two-column layout
+  // taught. Skipped entirely for a single source, so `2 file` mode provably
+  // cannot be reordered by this (U6).
+  if (merged) {
     final List<int> order = <int>[for (int i = 0; i < blocks.length; i++) i];
     order.sort((int a, int b) {
       final int byPosition = compareIndexPositions(
@@ -89,6 +108,10 @@ List<DiffBlock> orderedDiffBlocks(
         blocks[b].position,
       );
       if (byPosition != 0) return byPosition;
+      final int byRank = indexRankOf(
+        staged: sides[blocks[a].sourceIndex].staged,
+      ).compareTo(indexRankOf(staged: sides[blocks[b].sourceIndex].staged));
+      if (byRank != 0) return byRank;
       final int bySource = blocks[a].sourceIndex.compareTo(
         blocks[b].sourceIndex,
       );
@@ -100,8 +123,45 @@ List<DiffBlock> orderedDiffBlocks(
     ];
     blocks
       ..clear()
-      ..addAll(sorted);
+      ..addAll(_joinAdjacentGaps(sorted));
   }
 
   return blocks;
+}
+
+/// Joins gap rows of one hunk that the sort left next to each other back
+/// into one block, so a merged list draws the same [DiffGapSegment] runs a
+/// lone side would.
+///
+/// No line-index contiguity check: two rows of one hunk can only be
+/// separated by a hidden row, and a hidden row's surviving copy has the same
+/// index line, so it is always painted between them -- adjacency already
+/// implies consecutive indices (a mutation removing such a check survived
+/// every fixture, which is how this was found).
+List<DiffBlock> _joinAdjacentGaps(List<DiffBlock> blocks) {
+  final List<DiffBlock> out = <DiffBlock>[];
+  for (final DiffBlock block in blocks) {
+    if (out.isNotEmpty) {
+      final DiffBlock last = out.last;
+      if (block.segment is DiffGapSegment &&
+          last.segment is DiffGapSegment &&
+          block.sourceIndex == last.sourceIndex &&
+          block.hunkIndex == last.hunkIndex) {
+        out[out.length - 1] = (
+          sourceIndex: last.sourceIndex,
+          hunkIndex: last.hunkIndex,
+          segment: DiffGapSegment(
+            List<int>.unmodifiable(<int>[
+              ...last.segment.lineIndices,
+              ...block.segment.lineIndices,
+            ]),
+          ),
+          position: last.position,
+        );
+        continue;
+      }
+    }
+    out.add(block);
+  }
+  return out;
 }

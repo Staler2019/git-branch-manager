@@ -27,11 +27,22 @@ class GbmDashedLine extends StatelessWidget {
     required this.color,
     this.axis = Axis.horizontal,
     this.thickness = 1,
+    this.segment = 0,
   });
 
   final Color color;
   final Axis axis;
   final double thickness;
+
+  /// Which segment this line is of one longer rule cut into equal-length
+  /// segments, counted from 0. Its dashes continue the rhythm the segments
+  /// before it left off at, so a rule drawn one list item at a time reads as
+  /// one rule; 0 starts on a dash.
+  ///
+  /// Equal length is the premise: the phase is `segment` times this line's
+  /// own length. Segments of different lengths (soft-wrapped rows) still
+  /// meet with a broken rhythm.
+  final int segment;
 
   @override
   Widget build(BuildContext context) {
@@ -39,17 +50,22 @@ class GbmDashedLine extends StatelessWidget {
       width: axis == Axis.vertical ? thickness : double.infinity,
       height: axis == Axis.horizontal ? thickness : double.infinity,
       child: CustomPaint(
-        painter: _DashedLinePainter(color: color, axis: axis),
+        painter: _DashedLinePainter(color: color, axis: axis, segment: segment),
       ),
     );
   }
 }
 
 class _DashedLinePainter extends CustomPainter {
-  const _DashedLinePainter({required this.color, required this.axis});
+  const _DashedLinePainter({
+    required this.color,
+    required this.axis,
+    required this.segment,
+  });
 
   final Color color;
   final Axis axis;
+  final int segment;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -63,21 +79,29 @@ class _DashedLinePainter extends CustomPainter {
         ? size.height / 2
         : size.width / 2;
 
-    double at = 0;
+    const double period = kGbmDashLength + kGbmDashGap;
+    // Where the pattern would be if every earlier segment had been drawn as
+    // part of this one: start that far back, and clip to this segment.
+    double at = -((segment * length) % period);
     while (at < length) {
-      final double end = (at + kGbmDashLength).clamp(0, length);
-      canvas.drawLine(
-        axis == Axis.horizontal ? Offset(at, centre) : Offset(centre, at),
-        axis == Axis.horizontal ? Offset(end, centre) : Offset(centre, end),
-        paint,
-      );
-      at = end + kGbmDashGap;
+      final double start = at < 0 ? 0 : at;
+      final double end = (at + kGbmDashLength).clamp(0, length).toDouble();
+      if (end > start) {
+        canvas.drawLine(
+          axis == Axis.horizontal
+              ? Offset(start, centre)
+              : Offset(centre, start),
+          axis == Axis.horizontal ? Offset(end, centre) : Offset(centre, end),
+          paint,
+        );
+      }
+      at += period;
     }
   }
 
   @override
   bool shouldRepaint(_DashedLinePainter old) =>
-      old.color != color || old.axis != axis;
+      old.color != color || old.axis != axis || old.segment != segment;
 }
 
 /// A dashed rounded-rectangle outline around [child].

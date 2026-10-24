@@ -69,6 +69,8 @@ class AppPreferences {
 
   /// Git. Spec page 07's `MSGS` table, Cherry-pick row: the trailing
   /// "(cherry picked from commit …)" line "可在 Preferences 關閉".
+  /// `repoSessionProvider` pushes it into
+  /// `RepoSessionController.cherryPickRecordsOrigin`, i.e. `-x`.
   final bool cherryPickAddsSourceLine;
 
   /// Git. Ruling ⑪ (`prepared-commit-message-spec.html` section 04): when a

@@ -5021,14 +5021,15 @@ repoSessionProvider =
       // the whole life of the session (the Developer tab's point is a live
       // A/B), so the one-time read is paired with a `ref.listen` that never
       // rebuilds this provider, only pushes into the already-open controller.
-      controller.refreshFlags = RefreshFlags.fromPreferences(
-        ref.read(appPreferencesProvider),
-      );
+      final AppPreferences prefs = ref.read(appPreferencesProvider);
+      controller.refreshFlags = RefreshFlags.fromPreferences(prefs);
+      controller.cherryPickRecordsOrigin = prefs.cherryPickAddsSourceLine;
       ref.listen<AppPreferences>(appPreferencesProvider, (
         AppPreferences? previous,
         AppPreferences next,
       ) {
         controller.refreshFlags = RefreshFlags.fromPreferences(next);
+        controller.cherryPickRecordsOrigin = next.cherryPickAddsSourceLine;
       });
       return controller;
     });

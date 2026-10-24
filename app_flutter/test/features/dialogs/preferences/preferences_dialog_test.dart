@@ -637,6 +637,16 @@ void main() {
       expect(find.text('記住手動開啟的 repository'), findsNothing);
       expect(find.text('開啟 REPOSITORY'), findsNothing);
     });
+
+    testWidgets('Repository sources has no background-rescan switch', (
+      tester,
+    ) async {
+      await _pump(tester, section: 'Repository sources');
+
+      expect(find.text('在背景重新掃描基礎資料夾'), findsNothing);
+      expect(find.text('自動掃描'), findsNothing);
+      expect(find.text('Rescan now'), findsOneWidget);
+    });
   });
 
   group('PreferencesDialogContent - General auto fetch', () {

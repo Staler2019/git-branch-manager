@@ -62,8 +62,6 @@ void main() {
       const AppPreferences written = AppPreferences(
         autoFetchEnabled: true,
         autoFetchMinutes: 3,
-        autoScanEnabled: true,
-        autoScanMinutes: 45,
         globalGitignoreEnabled: true,
         globalGitignorePath: '~/.config/git/ignore',
         globalGitignoreSource: 'imported',
@@ -86,8 +84,6 @@ void main() {
       final AppPreferences read = repo.read();
       expect(read.autoFetchEnabled, isTrue);
       expect(read.autoFetchMinutes, 3);
-      expect(read.autoScanEnabled, isTrue);
-      expect(read.autoScanMinutes, 45);
       expect(read.globalGitignoreEnabled, isTrue);
       expect(read.globalGitignorePath, '~/.config/git/ignore');
       expect(read.globalGitignoreSource, 'imported');

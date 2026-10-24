@@ -2115,7 +2115,6 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('自動掃描'), findsOneWidget);
       expect(find.text('手動加入'), findsOneWidget);
       expect(find.text('目前沒有記錄。'), findsOneWidget);
       expect(find.text('BASE FOLDERS'), findsNothing);

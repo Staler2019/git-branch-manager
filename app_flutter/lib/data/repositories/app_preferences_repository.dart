@@ -26,13 +26,13 @@ import '../models/external_app_entry.dart';
 ///
 /// Absent by the user's ruling 「移除開關」, each once stored and drawn but
 /// read by nothing (#102): spec page 11 item 6's 「記住手動開啟的
-/// repository」 (every opened repository is recorded).
+/// repository」 (every opened repository is recorded), and item 4's
+/// 「在背景重新掃描基礎資料夾」 (scans run on Rescan now and when a folder is
+/// added).
 class AppPreferences {
   const AppPreferences({
     this.autoFetchEnabled = false,
     this.autoFetchMinutes = 10,
-    this.autoScanEnabled = false,
-    this.autoScanMinutes = 30,
     this.globalGitignoreEnabled = false,
     this.globalGitignorePath = '',
     this.globalGitignoreSource = '',
@@ -68,11 +68,6 @@ class AppPreferences {
   /// the same treatment 計量網路暫停 already gets.
   final bool autoFetchEnabled;
   final int autoFetchMinutes;
-
-  /// Repository sources. Spec page 11 item 4: background rescan of the base
-  /// folders; when off, scanning only happens on an explicit Rescan now.
-  final bool autoScanEnabled;
-  final int autoScanMinutes;
 
   /// Git. Spec page 11 item 8: writes `core.excludesFile`, shared with the
   /// CLI. Disabling removes the setting without deleting the file.
@@ -201,8 +196,6 @@ class AppPreferences {
   AppPreferences copyWith({
     bool? autoFetchEnabled,
     int? autoFetchMinutes,
-    bool? autoScanEnabled,
-    int? autoScanMinutes,
     bool? globalGitignoreEnabled,
     String? globalGitignorePath,
     String? globalGitignoreSource,
@@ -225,8 +218,6 @@ class AppPreferences {
     return AppPreferences(
       autoFetchEnabled: autoFetchEnabled ?? this.autoFetchEnabled,
       autoFetchMinutes: autoFetchMinutes ?? this.autoFetchMinutes,
-      autoScanEnabled: autoScanEnabled ?? this.autoScanEnabled,
-      autoScanMinutes: autoScanMinutes ?? this.autoScanMinutes,
       globalGitignoreEnabled:
           globalGitignoreEnabled ?? this.globalGitignoreEnabled,
       globalGitignorePath: globalGitignorePath ?? this.globalGitignorePath,
@@ -297,12 +288,6 @@ class AppPreferencesRepository {
       autoFetchMinutes:
           _prefs.getInt('${_kPrefix}autoFetchMinutes') ??
           defaults.autoFetchMinutes,
-      autoScanEnabled:
-          _prefs.getBool('${_kPrefix}autoScanEnabled') ??
-          defaults.autoScanEnabled,
-      autoScanMinutes:
-          _prefs.getInt('${_kPrefix}autoScanMinutes') ??
-          defaults.autoScanMinutes,
       globalGitignoreEnabled:
           _prefs.getBool('${_kPrefix}globalGitignoreEnabled') ??
           defaults.globalGitignoreEnabled,
@@ -359,8 +344,6 @@ class AppPreferencesRepository {
   Future<void> write(AppPreferences p) async {
     await _prefs.setBool('${_kPrefix}autoFetchEnabled', p.autoFetchEnabled);
     await _prefs.setInt('${_kPrefix}autoFetchMinutes', p.autoFetchMinutes);
-    await _prefs.setBool('${_kPrefix}autoScanEnabled', p.autoScanEnabled);
-    await _prefs.setInt('${_kPrefix}autoScanMinutes', p.autoScanMinutes);
     await _prefs.setBool(
       '${_kPrefix}globalGitignoreEnabled',
       p.globalGitignoreEnabled,

@@ -512,10 +512,6 @@ class _RepositorySourcesSectionState
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
-    final AppPreferences prefs = ref.watch(appPreferencesProvider);
-    final AppPreferencesNotifier notifier = ref.read(
-      appPreferencesProvider.notifier,
-    );
     final DiscoveryState discovery = ref.watch(discoveryProvider);
     final List<RecentRepoEntry> recents = ref
         .watch(recentsRepositoryProvider)
@@ -600,29 +596,6 @@ class _RepositorySourcesSectionState
               ? null
               : () => ref.read(discoveryProvider.notifier).rescan(),
         ),
-        const SizedBox(height: GbmSpacing.space4),
-        const _SectionHeading('自動掃描'),
-        _SettingSwitch(
-          title: '在背景重新掃描基礎資料夾',
-          subtitle:
-              '低優先度工作——只會併入狀態列的工作數量，不會另外顯示。關閉時，'
-              '只有按 Rescan now 才會掃描。',
-          value: prefs.autoScanEnabled,
-          onChanged: (bool v) => notifier.update(
-            (AppPreferences p) => p.copyWith(autoScanEnabled: v),
-          ),
-        ),
-        if (prefs.autoScanEnabled) ...<Widget>[
-          const SizedBox(height: GbmSpacing.space2),
-          _NumberField(
-            label: '每隔',
-            suffix: '分鐘',
-            value: prefs.autoScanMinutes,
-            onChanged: (int v) => notifier.update(
-              (AppPreferences p) => p.copyWith(autoScanMinutes: v),
-            ),
-          ),
-        ],
         const SizedBox(height: GbmSpacing.space4),
         const _SectionHeading('手動加入'),
         if (recents.isEmpty)

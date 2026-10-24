@@ -152,6 +152,13 @@ void main() {
     // fill row draws it, and it is near enough the top to be built.
     Finder filled() => find.text('L9', findRichText: true);
 
+    // The real `refetchDisagreeingDiffs` runs on the fake: it is seen by the
+    // pair of requests it sends.
+    int unstagedFullRequests(FakeRepoSessionController fake) => requests(
+      fake,
+      'requestFullDiff',
+    ).where((String r) => r == 'false:lib/a.dart').length;
+
     Future<FakeRepoSessionController> show(
       WidgetTester tester, {
       required Set<int> fullEdits,
@@ -185,7 +192,7 @@ void main() {
         fullEdits: const <int>{5, 30},
       );
       expect(filled(), findsOneWidget);
-      expect(requests(fake, 'refetchDisagreeingDiffs'), isEmpty);
+      expect(unstagedFullRequests(fake), 1, reason: 'the click only');
     });
 
     testWidgets('a disagreeing one asks for both diffs again, once per side '
@@ -195,9 +202,23 @@ void main() {
         fullEdits: const <int>{5, 31},
       );
       expect(filled(), findsNothing);
-      expect(requests(fake, 'refetchDisagreeingDiffs'), <String>[
-        'false:lib/a.dart',
-      ]);
+      // The click's request, then the refetch's -- which asks for the -U3
+      // diff of that side again too, and for nothing on the staged side.
+      expect(unstagedFullRequests(fake), 2);
+      expect(
+        requests(
+          fake,
+          'requestDiff',
+        ).where((String r) => r == 'false:lib/a.dart'),
+        hasLength(2),
+      );
+      expect(
+        requests(
+          fake,
+          'requestFullDiff',
+        ).where((String r) => r == 'true:lib/a.dart'),
+        hasLength(1),
+      );
     });
 
     // A full diff left in the session from before the view was switched off
@@ -211,7 +232,7 @@ void main() {
         fullEdits: const <int>{5, 31},
         on: false,
       );
-      expect(requests(fake, 'refetchDisagreeingDiffs'), isEmpty);
+      expect(unstagedFullRequests(fake), 0);
     });
   });
 }

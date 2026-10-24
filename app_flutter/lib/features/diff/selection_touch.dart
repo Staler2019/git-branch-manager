@@ -224,6 +224,17 @@ class SelectionTouchRow extends StatelessWidget {
 String selectionRowKey(int sourceIndex, int hunkIndex, int lineIndex) =>
     '$sourceIndex:$hunkIndex:$lineIndex';
 
+/// The row key of a full-file fill row ([DiffFillSegment]): index line
+/// [indexLine], drawn from source [sourceIndex].
+///
+/// Its own namespace, so it can never parse as a [selectionRowKey]: the
+/// leading `f` is not an integer, and every reader that turns a key back
+/// into a hunk line ([resolveTemporaryScope], [touchedChangedLines]) skips a
+/// key that does not parse. A fill row can widen what a drag framed, but it
+/// cannot reach anything git is sent.
+String selectionFillRowKey(int sourceIndex, int indexLine) =>
+    'f:$sourceIndex:$indexLine';
+
 /// A one-shot selection, resolved to exactly one source.
 ///
 /// One, because git has no action that stages and unstages at the same time

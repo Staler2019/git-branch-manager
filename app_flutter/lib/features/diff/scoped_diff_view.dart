@@ -11,6 +11,7 @@ import '../../widgets/gbm_outlined_pill.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
 import 'diff_block_order.dart';
+import 'diff_full_file_fill.dart';
 import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';
@@ -113,6 +114,7 @@ class ScopedDiffView extends StatefulWidget {
     this.showColumnHeads = true,
     this.onTemporaryScopeChanged,
     required this.softWrap,
+    this.fill,
   });
 
   /// The diffs to draw, in painted order. One element is `2 file` mode's
@@ -137,6 +139,12 @@ class ScopedDiffView extends StatefulWidget {
   /// this widget holds no other Riverpod dependency, and every one of its
   /// tests pumps it with plain values.
   final bool softWrap;
+
+  /// The full-file view's unchanged rows ([fullFileFillRows]) for these
+  /// [sources], in their order, or null for excerpt mode. Non-null is what
+  /// full-file mode *is* here: the rows are drawn between the cards, and no
+  /// `@@` heading is drawn (G1 ruling: 全檔模式不要有 `@@ -18,6 +18,6 @@`).
+  final List<DiffFillRow>? fill;
 
   @override
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
@@ -719,8 +727,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// with and order their own.
   static List<String> _rowsFrom(List<_Block> blocks) => <String>[
     for (final _Block block in blocks)
-      for (final int lineIndex in block.segment.lineIndices)
-        selectionRowKey(block.sourceIndex, block.hunkIndex, lineIndex),
+      if (block.segment case DiffFillSegment(:final List<DiffFillRow> rows))
+        for (final DiffFillRow row in rows)
+          selectionFillRowKey(row.sourceIndex, row.indexLine)
+      else
+        for (final int lineIndex in block.segment.lineIndices)
+          selectionRowKey(block.sourceIndex, block.hunkIndex, lineIndex),
   ];
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
@@ -831,10 +843,14 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// unstaged, against U5, and a Shift-range spanned rows in an order
   /// nothing on screen was in ([SPEC-range-follows-paint-order]).
   List<_Block> _orderedBlocks(List<Map<int, List<DiffScope>>> scopesBySource) =>
-      orderedDiffBlocks(<DiffSide>[
-        for (final ScopedDiffSource source in widget.sources)
-          (file: source.file, staged: source.staged),
-      ], scopesBySource);
+      orderedDiffBlocks(
+        <DiffSide>[
+          for (final ScopedDiffSource source in widget.sources)
+            (file: source.file, staged: source.staged),
+        ],
+        scopesBySource,
+        fill: widget.fill,
+      );
 
   /// Built imperatively rather than as one nested collection-for, because
   /// the loop carries a running scope ordinal across hunks -- and now across
@@ -880,11 +896,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // How many rows the drag framed *within the winning source*: the label's
     // primary number is 匡選行數, and counting rows the scope excluded would
     // promise to move lines the button will not touch.
+    //
+    // Fill rows count whichever source supplied them: a fill row is an index
+    // line *neither* side changes, so it is context in the winning source's
+    // file too, and leaving it out would understate a drag that crossed it.
     final int temporarySpanned = temporary == null
         ? 0
         : settledTouched
               .where(
-                (String row) => row.startsWith('${temporary.sourceIndex}:'),
+                (String row) =>
+                    row.startsWith('${temporary.sourceIndex}:') ||
+                    row.startsWith('f:'),
               )
               .length;
     final String temporaryLabel = temporary == null
@@ -912,14 +934,36 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     int? lastHunkIndex;
 
     for (final _Block block in blocks) {
+      if (block.segment case DiffFillSegment(:final List<DiffFillRow> rows)) {
+        children.add(
+          _GapBlock(
+            rows: <_GapRow>[
+              for (final DiffFillRow row in rows)
+                (
+                  key: selectionFillRowKey(row.sourceIndex, row.indexLine),
+                  line: row.line,
+                  staged: widget.sources[row.sourceIndex].staged,
+                ),
+            ],
+            tracker: _tracker,
+            touched: settledTouched,
+            softWrap: widget.softWrap,
+          ),
+        );
+        continue;
+      }
       final ScopedDiffSource source = widget.sources[block.sourceIndex];
       final DiffFile diffFile = source.file!;
       final DiffHunk hunk = diffFile.hunks[block.hunkIndex];
       final bool isTemporarySource =
           temporary != null && temporary.sourceIndex == block.sourceIndex;
 
-      if (block.sourceIndex != lastSourceIndex ||
-          block.hunkIndex != lastHunkIndex) {
+      // None in full-file mode (G1 ruling: 全檔模式不要有 `@@ -18,6 +18,6 @@`):
+      // with the whole file on screen the rows' own line numbers already say
+      // where they are.
+      if (widget.fill == null &&
+          (block.sourceIndex != lastSourceIndex ||
+              block.hunkIndex != lastHunkIndex)) {
         lastSourceIndex = block.sourceIndex;
         lastHunkIndex = block.hunkIndex;
         children.add(
@@ -933,17 +977,24 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       }
 
       switch (block.segment) {
-        // Unreachable until this view passes a fill to [orderedDiffBlocks].
+        // Drawn above, before the hunk lookup a fill row has no hunk for.
         case DiffFillSegment():
           break;
         case DiffGapSegment():
           children.add(
             _GapBlock(
-              sourceIndex: block.sourceIndex,
-              hunk: hunk,
-              hunkIndex: block.hunkIndex,
-              lineIndices: block.segment.lineIndices,
-              staged: source.staged,
+              rows: <_GapRow>[
+                for (final int index in block.segment.lineIndices)
+                  (
+                    key: selectionRowKey(
+                      block.sourceIndex,
+                      block.hunkIndex,
+                      index,
+                    ),
+                    line: hunk.lines[index],
+                    staged: source.staged,
+                  ),
+              ],
               tracker: _tracker,
               touched: settledTouched,
               softWrap: widget.softWrap,
@@ -1229,16 +1280,16 @@ class _HunkHeading extends StatelessWidget {
   }
 }
 
+/// One row of a [_GapBlock]: its selection key, the line, and the direction
+/// of the diff it was taken from.
+typedef _GapRow = ({String key, DiffLine line, bool staged});
+
 /// `.variant-B-gap`: the code a change sits in. Dimmed and marked with a
 /// rule down its left so the eye can tell at a glance which lines a button
 /// would move and which are only there for context.
 class _GapBlock extends StatelessWidget {
   const _GapBlock({
-    required this.sourceIndex,
-    required this.hunk,
-    required this.hunkIndex,
-    required this.lineIndices,
-    required this.staged,
+    required this.rows,
     required this.tracker,
     required this.touched,
     required this.softWrap,
@@ -1246,14 +1297,12 @@ class _GapBlock extends StatelessWidget {
 
   final bool softWrap;
 
-  /// Which of the view's sources these rows came from -- the first component
-  /// of every row key, so two sources' identically-numbered rows stay
-  /// distinct ([selectionRowKey]).
-  final int sourceIndex;
-  final DiffHunk hunk;
-  final int hunkIndex;
-  final List<int> lineIndices;
-  final bool staged;
+  /// The rows, each with its selection key: a hunk's context rows
+  /// ([selectionRowKey], whose source component keeps two sources'
+  /// identically-numbered rows distinct) or the full-file view's fill rows
+  /// ([selectionFillRowKey]). One widget for both, so a fill row is drawn the
+  /// way a gap is by construction rather than by a second copy of it.
+  final List<_GapRow> rows;
   final SelectionTouchTracker tracker;
 
   /// Row keys currently in the one-shot scope. Passed down rather than read
@@ -1295,17 +1344,15 @@ class _GapBlock extends StatelessWidget {
                   // can move: the button's primary number is how many lines
                   // the drag framed, and counting only the changed ones
                   // would understate what the user actually selected.
-                  for (final int index in lineIndices)
+                  for (final _GapRow row in rows)
                     SelectionTouchRow(
                       tracker: tracker,
-                      rowKey: selectionRowKey(sourceIndex, hunkIndex, index),
+                      rowKey: row.key,
                       child: DiffLineView(
                         softWrap: softWrap,
-                        line: hunk.lines[index],
-                        staged: staged,
-                        touched: touched.contains(
-                          selectionRowKey(sourceIndex, hunkIndex, index),
-                        ),
+                        line: row.line,
+                        staged: row.staged,
+                        touched: touched.contains(row.key),
                       ),
                     ),
                 ],

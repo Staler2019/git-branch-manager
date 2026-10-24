@@ -168,7 +168,7 @@ G1 的 spec-auditor 同時找出四個存得下、畫得出、沒有任何讀取
 | 11acf007 | `repoSessionProvider` 把 `cherryPickAddsSourceLine` 推進 `cherryPickRecordsOrigin`（開啟時 + `ref.listen`） | 2 / 2 |
 
 - `git cherry-pick -n -x` 一樣會把來源行寫進 MERGE_MSG（shell probe 確認），所以 `--no-commit` 搭 `-x` 不衝突。
-- 已存在使用者 SharedPreferences 裡的三組舊 key 沒有清掉：沒有讀取端，留著不影響行為。
+- ~~已存在使用者 SharedPreferences 裡的三組舊 key 沒有清掉：沒有讀取端，留著不影響行為。~~ 使用者裁定「留著沒有意義」，58d72c0c 會清掉（見下方〈補測試與清舊值〉）。
 
 ### Result
 
@@ -181,5 +181,21 @@ G1 的 spec-auditor 同時找出四個存得下、畫得出、沒有任何讀取
 
 逐 commit 檢查 C/Dart arity（0fbd5e09 6 個、b94cf6ec 起 7 個，parity test 都綠），ctest 942/942、flutter
 `+4072 ~8`。真 git 2.56.0 probe：`--no-commit -x` 與衝突時的 MERGE_MSG 都帶來源行；編輯後 continue 不會重複加，
-刪掉後也不會被補回；多 commit 序列裡衝突之後的 commit 仍帶 `-x`。兩個 P4 advisory，不修：b94cf6ec 單獨出貨時
+刪掉後也不會被補回；多 commit 序列裡衝突之後的 commit 仍帶 `-x`。兩個 P4 advisory，~~不修~~（第二個已由 3e1d5da1 補測試）：b94cf6ec 單獨出貨時
 開關還沒接上（預設值相同）；「`-x` + 衝突 + 編輯後 continue」只有手動 probe，沒有自動測試。
+
+### 補測試與清舊值（使用者要求）
+
+使用者：「cherry pick 以及 開關測試補上」、「-x 那個要測試」、「移除開關的舊值要移除，留著沒有意義」、「issue更新掉」。
+上面 verifier 的兩個 P4 因此不再是「不修」（第二個由 3e1d5da1 補上；第一個是 commit 單獨出貨的情況，不需要測試）：
+
+| commit | 內容 | mutation（跑 / 變紅） |
+|---|---|---|
+| 3e1d5da1 | capi：`-x` + 衝突的預填訊息、編輯後 continue（保留只出現一次、刪掉不補回）、衝突後排隊的 commit 仍帶 `-x` | 2 / 2，三個新測試都至少紅一次 |
+| 58d72c0c | `removeRetiredKeys`：Preferences 載入時刪掉六個已移除設定的 key，加上更早的 `autoFetchPrune` | 3 / 3 |
+| 4bd7690b | device：History 右鍵 Cherry-pick，預設帶來源行；Preferences → Git 關掉後不帶；harness 清 `appPrefs.cherryPickAddsSourceLine` | 2 / 2 |
+
+- 第一版 `removeRetiredKeys` 在迴圈裡 `await`，只有第一個 key 會在建構當下從 cache 拿掉；改成 `Future.wait`。
+- device 測試第一版用 `git rev-parse` 輪詢 HEAD，違反 [TEST-no-dart-process-while-core-runs-git]；改讀
+  `.git/refs/heads/main`。
+- #102 已留言更新。

@@ -6601,5 +6601,109 @@ TEST_F(RealRepoTest, ALowerCaseTraceVariableIsStrippedOnWindows) {
 }
 #endif
 
+// --- Full-file working-copy diff (feat/wc-full-file-view) -------------------
+//
+// The full-file view fills the rows between the -U3 cards from a second diff
+// of the same path with unlimited context. That second diff must come back as
+// one hunk holding every line of the file, however far apart its changes are.
+
+namespace {
+
+std::string numberedLines(int from, int to) {
+    std::string text;
+    for (int i = from; i <= to; ++i) {
+        text += std::to_string(i) + "\n";
+    }
+    return text;
+}
+
+/// Lines 1..50 with lines 5 and 45 rewritten: 40 unchanged lines apart, so
+/// -U3 gives two hunks and only an unlimited context joins them.
+std::string twoDistantEdits() {
+    std::string text;
+    for (int i = 1; i <= 50; ++i) {
+        text +=
+            (i == 5 || i == 45) ? "edited " + std::to_string(i) + "\n" : std::to_string(i) + "\n";
+    }
+    return text;
+}
+
+void expectOneHunkOfTheWholeFile(const DiffService::ParsedDiffPtr& parsed) {
+    ASSERT_EQ(parsed->files.size(), 1u);
+    ASSERT_EQ(parsed->files.front().hunks.size(), 1u);
+    const DiffHunk& hunk = parsed->files.front().hunks.front();
+    EXPECT_EQ(hunk.oldStart, 1u);
+    EXPECT_EQ(hunk.oldCount, 50u);
+    EXPECT_EQ(hunk.newCount, 50u);
+    int context = 0, added = 0, removed = 0;
+    for (const DiffLine& line : hunk.lines) {
+        if (line.kind == DiffLineKind::Context) ++context;
+        if (line.kind == DiffLineKind::Added) ++added;
+        if (line.kind == DiffLineKind::Removed) ++removed;
+    }
+    EXPECT_EQ(context, 48);
+    EXPECT_EQ(added, 2);
+    EXPECT_EQ(removed, 2);
+}
+
+}  // namespace
+
+TEST_F(RealRepoTest, AFullFileWorkTreeDiffIsOneHunkHoldingEveryLine) {
+    commitFile("f.txt", numberedLines(1, 50), "c1");
+    writeFile("f.txt", twoDistantEdits());
+
+    DiffService diffs(*runner_, paths_);
+    auto excerpt =
+        diffs.workingTreeDiff(/*staged=*/false, {"f.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(excerpt) << excerpt.error().message;
+    // The control: at the default -U3 these really are two hunks.
+    ASSERT_EQ((*excerpt)->files.front().hunks.size(), 2u);
+
+    auto full = diffs.workingTreeDiff(
+        /*staged=*/false, {"f.txt"}, DiffOptions::fullFile(), CancellationToken{});
+    ASSERT_TRUE(full) << full.error().message;
+    expectOneHunkOfTheWholeFile(*full);
+}
+
+TEST_F(RealRepoTest, AFullFileIndexDiffIsOneHunkHoldingEveryLine) {
+    commitFile("f.txt", numberedLines(1, 50), "c1");
+    writeFile("f.txt", twoDistantEdits());
+    ASSERT_TRUE(run({"add", "f.txt"}));
+
+    DiffService diffs(*runner_, paths_);
+    auto full = diffs.workingTreeDiff(
+        /*staged=*/true, {"f.txt"}, DiffOptions::fullFile(), CancellationToken{});
+    ASSERT_TRUE(full) << full.error().message;
+    expectOneHunkOfTheWholeFile(*full);
+}
+
+// 「如果有執行期超時門檻記得套用倍率」: the full-file diff declares no deadline
+// of its own. It runs under workingTreeDiff's, through effectiveDeadlines(),
+// so the user's multiplier stretches it like every other read. Read off the
+// operation record, which carries the deadline the runner actually armed.
+TEST_F(RealRepoTest, AFullFileDiffRunsUnderTheMultipliedDeadline) {
+    commitFile("f.txt", numberedLines(1, 50), "c1");
+    writeFile("f.txt", twoDistantEdits());
+
+    const TimeoutMultiplierReset reset;
+    setTimeoutMultiplier(3);
+    std::vector<std::int64_t> armed;
+    const std::string flag = "-U" + std::to_string(DiffOptions::fullFile().contextLines);
+    Log::instance().setOperationSink([&armed, &flag](const OperationRecord& record) {
+        if (!record.running &&
+            std::find(record.argv.begin(), record.argv.end(), flag) != record.argv.end()) {
+            armed.push_back(record.timeoutMs);
+        }
+    });
+    DiffService diffs(*runner_, paths_);
+    auto full = diffs.workingTreeDiff(
+        /*staged=*/false, {"f.txt"}, DiffOptions::fullFile(), CancellationToken{});
+    Log::instance().setOperationSink(nullptr);
+
+    ASSERT_TRUE(full) << full.error().message;
+    ASSERT_EQ(armed.size(), 1u) << "exactly one git diff carried " << flag;
+    EXPECT_EQ(armed.front(), 3 * 180 * 1000);
+}
+
 }  // namespace
 }  // namespace gbm

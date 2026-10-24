@@ -1436,6 +1436,26 @@ void main() {
       expect(find.text('ctx 13'), findsOneWidget);
     });
 
+    testWidgets('Shift+down steps through the staged card\'s own context row '
+        'and unstages only its changes', (tester) async {
+      await pump(tester);
+
+      // Nothing selected: the first press seeds on the first *painted*
+      // changed row, the staged `+` at index 10. Two more rows -- the card's
+      // context 11 (the copy that survived) and the `+` at 12.
+      await clickThen(tester, 'ctx 13');
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+      await tester.tap(temporaryLabel('Unstage 3 lines (2 changed)'));
+      await tester.pump();
+
+      expect(pressed, hasLength(1));
+      expect(pressed.single.staged, isTrue);
+      expect(pressed.single.lines, <int>[0, 2]);
+    });
+
     testWidgets('a drag across the surviving context stages only the framed '
         'change', (tester) async {
       await pump(tester);

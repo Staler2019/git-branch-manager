@@ -4,6 +4,7 @@
 // screen. The rects below were recorded from the eager version at commit
 // 8a01713e and are the oracle; they are not derived from the code under
 // test.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -508,5 +509,35 @@ void main() {
       ],
     );
     expect(find.byType(DiffLineView).evaluate().length, lessThan(200));
+  });
+
+  // Discarding a line refetches the diff, and while it is in flight the view
+  // has nothing to draw. Its list carries GlobalKeys (the drag geometry finds
+  // it by them), so if the empty state drew that same list outside the
+  // SelectionArea the keyed subtree would be *moved* out and back, and a
+  // SelectionListener would be sorted while inactive -- device tier,
+  // `context_menu_flows_test.dart` 05-G.
+  testWidgets('content -> nothing to draw -> content, with a selection, '
+      'throws nothing', (WidgetTester tester) async {
+    await _pump(tester, <ScopedDiffSource>[_source(_excerpt, staged: false)]);
+    await tester.tap(
+      find.text('h0 l3', findRichText: true),
+      buttons: kSecondaryMouseButton,
+    );
+    await tester.pump();
+    await _pump(tester, <ScopedDiffSource>[
+      ScopedDiffSource(
+        title: 'Unstaged',
+        file: null,
+        staged: false,
+        loading: true,
+        onStageScope: (int h, List<int> l) {},
+      ),
+    ]);
+    await tester.pump();
+    await _pump(tester, <ScopedDiffSource>[_source(_excerpt, staged: false)]);
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
   });
 }

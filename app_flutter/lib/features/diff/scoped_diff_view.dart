@@ -629,7 +629,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       verticalController: _vertical,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
       child: ListView.builder(
-        key: _listKey,
+        // Keyed only when there is content. With nothing to draw the list is
+        // returned bare, outside the SelectionArea below; a GlobalKey would
+        // *move* the rows out of it and back across one refetch, and a moved
+        // SelectionListener is sorted by the region while inactive
+        // (framework asserts; device tier, `context_menu_flows_test.dart`
+        // 05-G). Unkeyed, the empty state builds a new list, so do the rows.
+        key: anyContent ? _listKey : null,
         controller: _vertical,
         padding: EdgeInsets.zero,
         // Off: an item scrolled out of view is released, never kept alive

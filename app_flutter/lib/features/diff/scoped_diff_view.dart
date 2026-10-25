@@ -364,6 +364,25 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
   /// Whether the pinned copy of the head is drawn ([_stickyWanted]).
   bool _showSticky = false;
+
+  /// How far the code is scrolled sideways, read off the horizontal
+  /// scroller's notifications as they bubble past ([GbmCodeHScroll] keeps
+  /// its controller to itself). A notifier, so a sideways scroll rebuilds
+  /// the pinned head alone and not the list.
+  final ValueNotifier<double> _sideways = ValueNotifier<double>(0);
+
+  bool _onScrollNotification(Notification notification) {
+    final ScrollMetrics? metrics = switch (notification) {
+      ScrollNotification(:final ScrollMetrics metrics) => metrics,
+      ScrollMetricsNotification(:final ScrollMetrics metrics) => metrics,
+      _ => null,
+    };
+    if (metrics != null && metrics.axis == Axis.horizontal) {
+      _sideways.value = metrics.pixels;
+    }
+    return false;
+  }
+
   bool _stickyUpdateScheduled = false;
 
   /// Re-reads [_stickyWanted] after the next layout: a scroll notification
@@ -466,6 +485,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _wellFocus.dispose();
     _listenedVertical?.removeListener(_onVerticalMoved);
     _ownedVertical?.dispose();
+    _sideways.dispose();
     // Leaving a submitter behind would leave the menu item live pointing at
     // a column that is no longer on screen.
     if (_reportedScope) {
@@ -859,7 +879,24 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // stage, never the start of a drag -- and outside the SelectionArea.
     return Stack(
       children: <Widget>[
-        well,
+        NotificationListener<Notification>(
+          onNotification: _onScrollNotification,
+          child: well,
+        ),
+        // Under the ruler, as the real head is: running to the view's
+        // edge, the copy can reach beneath it.
+        if (_showSticky && temporary != null)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _stickyHead(
+              staged: widget.sources[temporary.sourceIndex].staged,
+              label: paint.label,
+              onStage: () => _submitTemporary(temporary),
+              rightInset: _kStickyRight + (ruler ? _kRulerGutter : 0),
+            ),
+          ),
         if (ruler)
           Positioned(
             key: const ValueKey<String>('diff-overview-ruler'),
@@ -872,21 +909,48 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
               onMark: _jumpToCard,
             ),
           ),
-        if (_showSticky && temporary != null)
-          Positioned(
-            key: const ValueKey<String>('temporary-scope-sticky'),
-            top: 0,
-            left: _kStickyLeft,
-            right: _kStickyRight + (ruler ? _kRulerGutter : 0),
-            child: _StickyTemporaryHead(
-              staged: widget.sources[temporary.sourceIndex].staged,
-              label: paint.label,
-              onStage: () => _submitTemporary(temporary),
-            ),
-          ),
       ],
     );
   }
+
+  /// The pinned head over the block as it lies on screen (使用者裁定
+  /// 「對齊 block 實際位置」): the block spans content x [_kStickyLeft] ..
+  /// width - [rightInset], and code wider than the view scrolls it
+  /// sideways, so the copy follows it there, cut to the view. A side whose
+  /// block edge is off screen gets no dashed line.
+  Widget _stickyHead({
+    required bool staged,
+    required String label,
+    required VoidCallback onStage,
+    required double rightInset,
+  }) => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints box) =>
+        ValueListenableBuilder<double>(
+          valueListenable: _sideways,
+          builder: (BuildContext context, double sideways, Widget? _) {
+            final double view = box.maxWidth;
+            final bool scrolls = widget.contentWidth > view;
+            final double width = scrolls ? widget.contentWidth : view;
+            final double dx = scrolls ? sideways : 0;
+            final double left = _kStickyLeft - dx;
+            final double right = width - rightInset - dx;
+            return Padding(
+              padding: EdgeInsets.only(
+                left: left > 0 ? left : 0,
+                right: right < view ? view - right : 0,
+              ),
+              child: _StickyTemporaryHead(
+                key: const ValueKey<String>('temporary-scope-sticky'),
+                staged: staged,
+                label: label,
+                onStage: onStage,
+                leftEdge: left >= 0,
+                rightEdge: right <= view,
+              ),
+            );
+          },
+        ),
+  );
 
   /// [_temporaryExtent] for this build.
   static ({int headItem, int lastRow})? _extentOf(
@@ -2714,21 +2778,32 @@ class _TemporaryHead extends StatelessWidget {
 /// open (INF-4), and no shadow (INF-5,「不加」).
 class _StickyTemporaryHead extends StatelessWidget {
   const _StickyTemporaryHead({
+    super.key,
     required this.staged,
     required this.label,
     required this.onStage,
+    required this.leftEdge,
+    required this.rightEdge,
   });
 
   final bool staged;
   final String label;
   final VoidCallback onStage;
 
+  /// The block's own left / right edge is on screen, so this side draws
+  /// its dashed line and rounded corner; off screen, the copy runs to the
+  /// view's edge as the block does.
+  final bool leftEdge;
+  final bool rightEdge;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    const Radius corner = Radius.circular(GbmSpacing.radiusSm);
     return ClipRRect(
-      borderRadius: const BorderRadius.vertical(
-        bottom: Radius.circular(GbmSpacing.radiusSm),
+      borderRadius: BorderRadius.only(
+        bottomLeft: leftEdge ? corner : Radius.zero,
+        bottomRight: rightEdge ? corner : Radius.zero,
       ),
       child: Stack(
         children: <Widget>[
@@ -2740,7 +2815,10 @@ class _StickyTemporaryHead extends StatelessWidget {
               GbmDashedLine(color: colors.accent),
             ],
           ),
-          for (final bool left in const <bool>[true, false])
+          for (final bool left in <bool>[
+            if (leftEdge) true,
+            if (rightEdge) false,
+          ])
             Positioned(
               top: 0,
               bottom: 0,

@@ -17,6 +17,7 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/diff_full_file_fill.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
+import 'package:gbm_flutter/widgets/gbm_dashed.dart';
 
 import '../../support/pump_app.dart';
 
@@ -150,12 +151,13 @@ void main() {
     List<ScopedDiffSource>? sources,
     double contentWidth = 0,
     List<DiffFillRow>? fill,
+    double width = 500,
   }) => pumpGbmWidget(
     tester,
     child: Align(
       alignment: Alignment.topLeft,
       child: SizedBox(
-        width: 500,
+        width: width,
         height: 300,
         child: ScopedDiffView(
           softWrap: false,
@@ -965,6 +967,159 @@ void main() {
         await release(tester, gesture);
       });
     }
+
+    // 使用者裁定（2026-10-25）「對齊 block 實際位置」: with code wider than
+    // the view the real head runs to the content's edge and scrolls
+    // sideways, so a copy fixed at 20 / 18 left a strip of it showing on
+    // either side. The copy now spans the block as it lies on screen,
+    // clipped to the view, and draws a dashed side only where the block's
+    // own edge is on screen.
+    group('code wider than the view', () {
+      Future<void> pinAfterScrollingSideways(
+        WidgetTester tester,
+        double dx, {
+        DiffFile? file,
+      }) async {
+        await pump(tester, file: file, contentWidth: 1200);
+        final TestGesture gesture = await press(tester, textOf(tester, 3));
+        await gesture.moveTo(textOf(tester, 5));
+        await tester.pump();
+        await release(tester, gesture);
+        final double headTop =
+            tester
+                .getRect(
+                  find.descendant(
+                    of: find.byKey(
+                      const ValueKey<String>('temporary-scope-card'),
+                    ),
+                    matching: find.text('臨時選取'),
+                  ),
+                )
+                .top -
+            viewport(tester).top;
+        vertical.jumpTo(vertical.offset + headTop + 1);
+        await tester.pump();
+        await tester.pump();
+        tester
+            .state<ScrollableState>(
+              find
+                  .byWidgetPredicate(
+                    (Widget w) =>
+                        w is Scrollable &&
+                        w.axisDirection == AxisDirection.right,
+                  )
+                  .first,
+            )
+            .position
+            .jumpTo(dx);
+        await tester.pump();
+        await tester.pump();
+        expect(sticky, findsOneWidget);
+      }
+
+      int dashedSides(WidgetTester tester) => tester
+          .widgetList<GbmDashedLine>(
+            find.descendant(of: sticky, matching: find.byType(GbmDashedLine)),
+          )
+          .where((GbmDashedLine l) => l.axis == Axis.vertical)
+          .length;
+
+      // (sideways offset, left inset, right inset, dashed sides drawn): the
+      // content is 1200 wide in a 500 view, so the block spans content x
+      // 20..1182 and is on screen at 20 - dx .. 1182 - dx.
+      for (final (double, double, double, int) c
+          in const <(double, double, double, int)>[
+            (0, 20, 0, 1),
+            (60, 0, 0, 0),
+            (700, 0, 18, 1),
+          ]) {
+        testWidgets('scrolled ${c.$1}: insets ${c.$2} / ${c.$3}, '
+            '${c.$4} dashed side(s)', (WidgetTester tester) async {
+          await pinAfterScrollingSideways(tester, c.$1);
+          final Rect view = viewport(tester);
+          final Rect head = tester.getRect(sticky);
+          expect(head.left - view.left, c.$2);
+          expect(view.right - head.right, c.$3);
+          expect(dashedSides(tester), c.$4);
+          // The real block's own box, cut to the view, is what it covers.
+          final Rect block = tester
+              .getRect(
+                find.byKey(const ValueKey<String>('temporary-scope-card')),
+              )
+              .intersect(view);
+          expect(head.left, block.left);
+          expect(head.right, block.right);
+        });
+      }
+
+      // Running to the view's edge, the copy reaches under the ruler; the
+      // real head lies under it too, so the ruler stays on top and
+      // pressable.
+      testWidgets('the ruler stays above it', (WidgetTester tester) async {
+        await pump(
+          tester,
+          contentWidth: 1200,
+          fill: <DiffFillRow>[
+            for (int l = 121; l <= 130; l++)
+              (
+                sourceIndex: 0,
+                indexLine: l,
+                line: DiffLine(
+                  kind: DiffLineKind.context,
+                  oldLine: l,
+                  newLine: l,
+                  text: 'fill $l',
+                ),
+              ),
+          ],
+        );
+        await overdragDown(tester, 3, frames: 60);
+        await tester.pump();
+        expect(sticky, findsOneWidget);
+        final Finder ruler = find.byKey(
+          const ValueKey<String>('diff-overview-ruler'),
+        );
+        final Rect r = tester.getRect(ruler);
+        expect(
+          tester.getRect(sticky).overlaps(r),
+          isTrue,
+          reason: 'the premise: the copy reaches under the ruler',
+        );
+        final HitTestResult hit = tester.hitTestOnBinding(
+          Offset(r.center.dx, tester.getRect(sticky).bottom - 2),
+        );
+        final RenderObject rulerBox = tester.renderObject(ruler);
+        expect(hit.path.any((HitTestEntry e) => e.target == rulerBox), isTrue);
+      });
+
+      // A wider view lowers the sideways maximum, and the offset is clamped
+      // to it without a scroll notification -- only a metrics one.
+      testWidgets('a resize that clamps the sideways offset is followed', (
+        WidgetTester tester,
+      ) async {
+        // One file: a new DiffFile is a new diff, and drops the selection.
+        final DiffFile file = _file();
+        await pinAfterScrollingSideways(tester, 700, file: file);
+        await pump(tester, file: file, contentWidth: 1200, width: 800);
+        await tester.pump();
+        final Rect view = viewport(tester);
+        final Rect block = tester
+            .getRect(find.byKey(const ValueKey<String>('temporary-scope-card')))
+            .intersect(view);
+        expect(tester.getRect(sticky).left, block.left);
+        expect(tester.getRect(sticky).right, block.right);
+        expect(view.right - block.right, 18, reason: 'the premise: clamped');
+      });
+
+      testWidgets('code that fits keeps both dashed sides', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester);
+        await overdragDown(tester, 3, frames: 60);
+        await tester.pump();
+        expect(dashedSides(tester), 2);
+      });
+    });
 
     testWidgets('gone once the real head is back on screen', (
       WidgetTester tester,

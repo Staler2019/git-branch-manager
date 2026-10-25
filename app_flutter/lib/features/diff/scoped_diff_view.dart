@@ -228,6 +228,12 @@ const double _kRulerGutter = 22 - GbmSpacing.space2;
 const double _kStickyLeft = GbmSpacing.space2 * 2 + 1 + 3;
 const double _kStickyRight = GbmSpacing.space2 * 2 + 1 + 1;
 
+/// What a pinned head running past the view's right edge leaves clear for
+/// the vertical scrollbar (使用者裁定「右緣留出捲軸的寬度」): the desktop
+/// Material `Scrollbar`'s default 8 thickness and 2 cross-axis margin,
+/// which `GbmCodeHScroll` takes unthemed.
+const double _kStickyScrollbarGutter = 8 + 2;
+
 /// The item a pointer endpoint landed on ([_ScopedDiffViewState._endpointAt]).
 ///
 /// Opaque, so every point of an item -- its padding, a card's margin, the
@@ -916,8 +922,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// The pinned head over the block as it lies on screen (使用者裁定
   /// 「對齊 block 實際位置」): the block spans content x [_kStickyLeft] ..
   /// width - [rightInset], and code wider than the view scrolls it
-  /// sideways, so the copy follows it there, cut to the view. A side whose
-  /// block edge is off screen gets no dashed line.
+  /// sideways, so the copy follows it there, cut to the view and, on the
+  /// right, to [_kStickyScrollbarGutter] short of it. A side whose block
+  /// edge is cut off gets no dashed line.
   Widget _stickyHead({
     required bool staged,
     required String label,
@@ -934,10 +941,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             final double dx = scrolls ? sideways : 0;
             final double left = _kStickyLeft - dx;
             final double right = width - rightInset - dx;
+            final double clear = view - _kStickyScrollbarGutter;
             return Padding(
               padding: EdgeInsets.only(
                 left: left > 0 ? left : 0,
-                right: right < view ? view - right : 0,
+                right: right < clear ? view - right : _kStickyScrollbarGutter,
               ),
               child: _StickyTemporaryHead(
                 key: const ValueKey<String>('temporary-scope-sticky'),
@@ -945,7 +953,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
                 label: label,
                 onStage: onStage,
                 leftEdge: left >= 0,
-                rightEdge: right <= view,
+                rightEdge: right <= clear,
               ),
             );
           },

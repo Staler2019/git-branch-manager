@@ -8,6 +8,8 @@
 // the boundary there and belongs to neither. Each test writes out the
 // payload that rule gives for its gesture, by hand, from the fixture's own
 // line layout.
+import 'dart:math' as math;
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1026,11 +1028,15 @@ void main() {
 
       // (sideways offset, left inset, right inset, dashed sides drawn): the
       // content is 1200 wide in a 500 view, so the block spans content x
-      // 20..1182 and is on screen at 20 - dx .. 1182 - dx.
+      // 20..1182 and is on screen at 20 - dx .. 1182 - dx. A block running
+      // past the right edge stops 10 short of it, clear of the vertical
+      // scrollbar (使用者裁定「右緣留出捲軸的寬度」).
       for (final (double, double, double, int) c
           in const <(double, double, double, int)>[
-            (0, 20, 0, 1),
-            (60, 0, 0, 0),
+            (0, 20, 10, 1),
+            (60, 0, 10, 0),
+            // The block's edge at 496 lies under the scrollbar: cut there.
+            (686, 0, 10, 0),
             (700, 0, 18, 1),
           ]) {
         testWidgets('scrolled ${c.$1}: insets ${c.$2} / ${c.$3}, '
@@ -1048,7 +1054,16 @@ void main() {
               )
               .intersect(view);
           expect(head.left, block.left);
-          expect(head.right, block.right);
+          expect(head.right, math.min(block.right, view.right - 10));
+          // The scrollbar's strip is not the copy's to take.
+          final RenderObject copy = tester.renderObject(sticky);
+          expect(
+            tester
+                .hitTestOnBinding(Offset(view.right - 4, head.center.dy))
+                .path
+                .any((HitTestEntry e) => e.target == copy),
+            isFalse,
+          );
         });
       }
 

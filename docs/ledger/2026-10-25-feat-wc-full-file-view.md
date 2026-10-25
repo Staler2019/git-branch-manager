@@ -268,3 +268,24 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 - 第一版設計稿的出處註解有 15 處與 app 不符（見上），是只看 widget 名稱、沒逐一讀數字造成的。
 - 這一段中途，auto mode 的 Bash 安全檢查服務連續 6 次沒有回應判定，工作暫停一次；服務恢復後照原步驟繼續，沒有略過任何步驟。
 
+
+## 使用者回報：2 file 的 unstaged 側與 unified 捲動卡頓（2026-10-25）
+
+- **Situation**：使用者回報「2 file下，unstage頁面會卡卡的，但stage側卻不會；unified頁面也是卡卡的」。
+- **Task**：找出根因並量測，再修正。
+- **Action**：
+  - 根因：`WorkingCopyView` 把 diff 的捲動位置在每次捲動時寫進 `workingCopyDraftProvider`（`_onDiffScroll`），而兩處 `ref.watch` 又看整個 draft。結果是每捲一幀，整個畫面連同 diff pane 都重建一次。
+  - 為什麼只有部分畫面卡：unstaged 側與 unified 用的是這個 controller；staged 側有自己的 controller，不寫 draft，所以不卡。
+  - 為什麼之前沒抓到：先前的量測檔 `full_file_view_perf_test.dart` 直接 pump `ScopedDiffView`，沒有經過 `WorkingCopyView`，所以量不到這個路徑。
+  - 修正（c4776a15）：兩處都只讀 `amending`，改成 `select(d => d.amending)`。
+  - 新增量測檔 `integration_test/perf/wc_scroll_perf_test.dart`，經由真實 app 量測（profile 模式、macOS、5,000 行、全檔模式）每幀的 build 時間：
+
+    | 捲動位置 | p50 修正前 → 後 | p90 修正前 → 後 |
+    |---|---|---|
+    | unified | 67.6 → 10.3 ms | 73.6 → 16.7 ms |
+    | 2 file unstaged | 153.7 → 8.3 ms | 162.0 → 14.6 ms |
+    | 2 file staged | 8.0 → 7.8 ms | 15.5 → 14.1 ms |
+
+  - 測試：新增 widget 測試，斷言捲動後 offset 仍然存進 draft，而且 pane 的 widget 沒有被換掉。mutation 2 個（兩處各自改回 watch 整個 draft），mutations-run 2、tests-reddened 2。全套 4243 綠，analyzer 0。
+- **Result**：三種捲動都回到 staged 側原本的水準。
+- 同一則回報的第二點（2 file 左右沒有同步捲動）已取得裁定，將以 Plan 送審，見下一節。

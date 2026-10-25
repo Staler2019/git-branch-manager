@@ -38,6 +38,9 @@ void main() {
       // Full-file view (wc-full-file-view-spec.html): off, so the diff opens
       // on the -U3 cards it always showed until the user asks for the file.
       expect(p.fullFileViewEnabled, isFalse);
+      // 「最長200字中文」「是上限」: every code view shows at most 200 CJK
+      // character widths per column before it cuts the line off.
+      expect(p.maxCodeLineChars, 200);
       // Developer flags (fix/refresh-ui-first-tiering): the two behaviour
       // flags default to the new behaviour so a fresh profile gets it
       // without visiting Preferences; the timing readout defaults off since
@@ -70,6 +73,7 @@ void main() {
         skippedVersion: '9.9.9',
         softWrapEnabled: true,
         fullFileViewEnabled: true,
+        maxCodeLineChars: 80,
         showRefreshTimings: true,
         keepDiffDuringRefresh: false,
         tieredRefresh: false,
@@ -90,6 +94,7 @@ void main() {
       expect(read.skippedVersion, '9.9.9');
       expect(read.softWrapEnabled, isTrue);
       expect(read.fullFileViewEnabled, isTrue);
+      expect(read.maxCodeLineChars, 80);
       expect(read.showRefreshTimings, isTrue);
       expect(read.keepDiffDuringRefresh, isFalse);
       expect(read.tieredRefresh, isFalse);
@@ -138,6 +143,28 @@ void main() {
       );
       expect(repo.read().showLogTimeouts, isFalse);
       expect(repo.read().showLogColumnHeaders, isTrue);
+    });
+
+    // Its neighbour in the store is the timeout multiplier, the other int:
+    // set to different values so a key read from the other's slot shows.
+    test('the line width cap is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(
+        const AppPreferences(maxCodeLineChars: 50, gitTimeoutMultiplier: 3),
+      );
+      expect(repo.read().maxCodeLineChars, 50);
+      expect(repo.read().gitTimeoutMultiplier, 3);
+      expect(prefs.getInt('appPrefs.maxCodeLineChars'), 50);
+    });
+
+    test('copyWith carries the line width cap', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences next = base.copyWith(maxCodeLineChars: 50);
+      expect(next.maxCodeLineChars, 50);
+      expect(next.copyWith(softWrapEnabled: true).maxCodeLineChars, 50);
     });
 
     // The toggle writes through copyWith, so a field copyWith forgets is a

@@ -265,9 +265,11 @@ class _NumberField extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.suffix = '',
+    this.fieldKey,
   });
 
   final String label;
+  final Key? fieldKey;
   final int value;
   final String suffix;
   final ValueChanged<int> onChanged;
@@ -310,6 +312,7 @@ class _NumberFieldState extends State<_NumberField> {
           width: 200,
           height: GbmSpacing.inputHeight,
           child: TextField(
+            key: widget.fieldKey,
             controller: _controller,
             keyboardType: TextInputType.number,
             decoration: gbmInputDecoration(
@@ -905,6 +908,26 @@ class _AppearanceSection extends ConsumerWidget {
           value: prefs.softWrapEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(softWrapEnabled: v),
+          ),
+        ),
+        // code-line-width-cap-spec.html screen 1.
+        const SizedBox(height: GbmSpacing.space2),
+        _NumberField(
+          fieldKey: const Key('maxCodeLineCharsField'),
+          label: '每行最多顯示',
+          suffix: '字',
+          value: prefs.maxCodeLineChars,
+          onChanged: (int v) => notifier.update(
+            (AppPreferences p) => p.copyWith(maxCodeLineChars: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+            height: GbmTypography.leadingNormal,
           ),
         ),
       ],

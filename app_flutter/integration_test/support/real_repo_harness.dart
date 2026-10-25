@@ -163,6 +163,8 @@ Future<SharedPreferences> _pumpRealApp(
     'appPrefs.softWrapEnabled',
     // Same reason: on, every Working Copy diff draws the whole file.
     'appPrefs.fullFileViewEnabled',
+    // And this one decides where every unwrapped code line is cut off.
+    'appPrefs.maxCodeLineChars',
     // fix/refresh-ui-first-tiering, C1/C4: a developer who has flipped one
     // of these three in their own real app would otherwise have every
     // later device test in the session silently measuring the other

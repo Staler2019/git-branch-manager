@@ -251,6 +251,11 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
     測試：期望值 0 → 10；新增 dx 686（block 右緣落在捲軸區內）；新增 thumb 區的 hit test。
     mutations-run 3、tests-reddened 3／1／1。另外把 inset 斷言拿掉、只留 hit test，在 gutter 改成 0 的情況下 dx 0 與 dx 60 都變紅，證實修正前置頂版確實會攔下拖曳 thumb 的手勢。
     全套 4242 綠，analyzer 0；device `full_file_stage_flow_test.dart` 7/7（HEAD 05d09b68）。設計稿 INF-3 已補上（05d09b68）。
+- G3（HEAD 11a1529e）：device `stage_lines_flow_test.dart` 9/9、`context_menu_flows_test.dart` 5/5；本輪沒有新增執行期 timeout；orphan wiring 兩個方向都查過；hover sweep 只抓到 ruler 標記的 click 游標。
+- **Verifier（HEAD 11a1529e，fresh）：CONFIRMED**，四點全部成立，沒有 P0–P2。
+  scratchpad probe 的掃描範圍：excerpt 的 dx 0..700 共 18 個點，包含右緣落在 (490, 500] 的整段；ruler 加上寬 code 的 11 個點；`2 file` 右側 view 的 7 個點。
+  每個點都比對了 head 的左右緣、真實 block 的 rect、虛線的側數，以及捲軸區的 hit test。橫向捲動之後，SelectionArea 的 State 仍是同一個物件。
+  P4（推測）：widget test 的 DPR 是 1，桌面上非整數 DPR 的情況沒有驗證。
 - 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
 
 這一段自己的失誤：

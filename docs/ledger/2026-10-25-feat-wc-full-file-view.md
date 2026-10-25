@@ -224,6 +224,19 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 - **device 層逐檔重跑（G3）**：`full_file_stage_flow_test.dart` 7/7、`stage_lines_flow_test.dart` 9/9、`context_menu_flows_test.dart` 5/5（上一輪改了 view 的樹結構後紅過，這次 view 一律包 `Stack`，所以也跑）。
   `integration_test/perf/` 的兩個量測檔沒有重跑；它們量的是列的成本，不驗證正確性。
 
+- **Verifier（HEAD 7ab5e32d）：REFUTED**，F1（P2）：已有一次性 scope、置頂 head 正在畫面上時開始新的拖曳，
+  置頂 head 和綁著舊 scope 的按鈕會留到放開才消失。原因是 `_onTouchChanged` 在拖曳中不 rebuild。主張的其餘 4 點都確認無誤
+  （payload、幾何、不重建 well、拿掉 hunk 文字）。
+- **F1 修正（137556fa）**：pointer down 時收起置頂 head。先寫的兩個測試（原地拖曳、向上自動捲動）先紅後綠；mutation（拿掉收起）→ 兩個都紅。
+  另外在 `_stickyWanted` 加過一個 pointer-down guard，mutation 證明它多餘（放開前的 rebuild 沒有 settled scope，本來就不會畫出來），已拿掉。
+  mutations-run 2、tests-reddened 2。全套 4235 綠；device `full_file_stage_flow_test.dart` 7/7。
+- **Verifier（HEAD 137556fa，fresh）：CONFIRMED**，五點全部成立。原本讓 F1 成立的探測在兩個方向都通過；新拖曳放開後，置頂 head 綁的是新 scope。
+  兩個 hunk 時，按置頂 head 與走鍵盤路徑送出的呼叫相同（最後一個 hunk 先送）；staged 側只送 Unstage；SelectionArea 的 State 從頭到尾是同一個物件。
+  全套 4235 綠；device 7/7。
+- 待查（P4，低信心，沒有修）：verifier 沒有驗證 diff 橫向捲動時的情況。真正的 head 會隨內容橫向移動，當它被頂端切掉一部分時，
+  在置頂版左 20／右 18（或 32）的範圍外是否還會露出一條，沒有驗證。重查方法：`contentWidth: 1200`，橫向捲動後讓 head 一像素一像素地掃過頂端。
+- 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
+
 這一段自己的失誤：
 - 兩個 widget 測試的 fixture 寫錯，都在實作前就紅了，原因不在程式碼：row 9 在 300px 的 viewport 外沒被建出；`temporary-scope-card` 的 box 比 head 高出 4px 的 margin。改測試，不改程式碼。
 - 第一版設計稿的出處註解有 15 處與 app 不符（見上），是只看 widget 名稱、沒逐一讀數字造成的。

@@ -668,8 +668,12 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
         _summaryController.text.trim().isNotEmpty &&
         isActionEnabled(GbmActionId.repositoryCommit, session);
 
-    final WorkingCopyDraft draft = ref.watch(
-      workingCopyDraftProvider(widget.identity),
+    // `amending` only: the draft also holds the diff's scroll offset, written
+    // on every scroll event, and watching all of it rebuilt this screen and
+    // the diff pane under it once per scrolled frame.
+    final bool amending = ref.watch(
+      workingCopyDraftProvider(widget.identity)
+          .select((WorkingCopyDraft d) => d.amending),
     );
 
     return Padding(
@@ -705,7 +709,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                if (draft.amending) ...<Widget>[
+                if (amending) ...<Widget>[
                   GbmButton(
                     label: 'Amend',
                     kind: GbmButtonKind.primary,
@@ -753,10 +757,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
 
   /// Pulls HEAD's message into the box once it arrives, exactly once per oid.
   void _watchAmendPrefill(RepoSessionState session) {
-    final WorkingCopyDraft draft = ref.watch(
-      workingCopyDraftProvider(widget.identity),
+    final bool amending = ref.watch(
+      workingCopyDraftProvider(widget.identity)
+          .select((WorkingCopyDraft d) => d.amending),
     );
-    if (!draft.amending) {
+    if (!amending) {
       _amendPrefilledFor = null;
       return;
     }

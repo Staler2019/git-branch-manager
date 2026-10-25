@@ -131,18 +131,8 @@ Future<void> _drag(WidgetTester tester, String from, String to) async {
 }
 
 /// Submits the one-shot scope by its keyboard path.
-///
-/// [headOnScreen] is false after a drag that scrolled: the block's head --
-/// its label and its button -- sits at the top of the range, which by then
-/// is scrolled out and unbuilt, so only the staged diff can say whether a
-/// range was made.
-Future<void> _stageSelection(
-  WidgetTester tester, {
-  bool headOnScreen = true,
-}) async {
-  if (headOnScreen) {
-    expect(find.text('一次性'), findsOneWidget, reason: 'no one-shot scope');
-  }
+Future<void> _stageSelection(WidgetTester tester) async {
+  expect(find.text('一次性'), findsOneWidget, reason: 'no one-shot scope');
   await tester.pumpAndSettle();
   await pressActionShortcut(tester, GbmActionId.repositoryStageSelectedLines);
   await tester.pumpAndSettle(const Duration(seconds: 2));
@@ -337,7 +327,19 @@ void main() {
     await tester.pump();
     await tester.pump();
     await gesture.removePointer();
-    await _stageSelection(tester, headOnScreen: false);
+    // The block's own head is at the top of the range, scrolled out and
+    // unbuilt by now; its copy is pinned to the top of the view instead
+    // (使用者裁定「長距離拖曳後 => 改」), one frame after the block.
+    await tester.pump();
+    final Finder pinned = find.byKey(
+      const ValueKey<String>('temporary-scope-sticky'),
+    );
+    expect(pinned, findsOneWidget, reason: 'no pinned one-shot head');
+    expect(tester.getRect(pinned).top, view.top);
+    await tester.tap(
+      find.descendant(of: pinned, matching: find.textContaining('Stage ')),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
 
     final String staged = await _stagedAfterApp(tester, repo);
     expect(staged, contains('+INSERTED_ONE'), reason: staged);

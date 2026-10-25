@@ -233,6 +233,36 @@ void main() {
     });
   });
 
+  // The unstage direction of the same order: a separate capi entry point
+  // (`gbm_unstage_lines`, `git apply --cached --reverse`) reading the staged
+  // diff, whose hunks the core renumbers after every call just the same.
+  testWidgets('a drag across two staged cards unstages both, and not the '
+      'third', (tester) async {
+    _commit(repo, _lines(26));
+    File('$repo/fixture.txt').writeAsStringSync(_lines(26, _three));
+    runGit(repo, <String>['add', 'fixture.txt']);
+
+    await _openFullFile(tester, repo);
+    await _drag(tester, 'L1', 'INSERTED_TWO');
+    expect(find.text('一次性'), findsOneWidget, reason: 'no one-shot scope');
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.textContaining('Unstage'),
+      ),
+    );
+    await tester.pumpAndSettle(const Duration(seconds: 2));
+
+    final String staged = await _stagedAfterApp(tester, repo);
+    expect(staged, isNot(contains('+INSERTED_ONE')), reason: staged);
+    expect(staged, isNot(contains('+INSERTED_TWO')), reason: staged);
+    expect(
+      staged,
+      contains('+INSERTED_THREE'),
+      reason: 'the third card was not framed and must stay staged\n$staged',
+    );
+  });
+
   // Both directions in one unified list: each side's full diff carries every
   // line of the file, and each must be drawn once.
   testWidgets('unified with a staged and an unstaged side draws each line '

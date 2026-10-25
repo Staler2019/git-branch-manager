@@ -66,6 +66,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.onDiscardScope,
     required this.onTemporaryScopeChanged,
     required this.softWrap,
+    this.maxCodeLineChars = 200,
     this.scrollController,
     this.unstagedFullFile,
     this.stagedFullFile,
@@ -118,6 +119,10 @@ class WorkingCopyDiffPane extends StatefulWidget {
   /// `AppPreferences.softWrapEnabled`, passed straight through to both
   /// sides' [ScopedDiffView].
   final bool softWrap;
+
+  /// `AppPreferences.maxCodeLineChars`: each side's code is cut at this many
+  /// CJK character widths ([capCodeWidth]).
+  final int maxCodeLineChars;
 
   /// Attached to the unstaged pane in `2 file` mode and to the single scroll
   /// view in `unified` mode.
@@ -202,6 +207,19 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   double _widthOf(DiffFile? file, CodeWidthMemo memo) =>
       diffFileContentWidth(file, softWrap: widget.softWrap, memo: memo);
 
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
+
+  /// A side's (or `unified`'s) natural width, capped. Null with soft wrap
+  /// on, where nothing scrolls sideways and nothing is cut.
+  CappedCodeWidth? _capped(double natural) => widget.softWrap
+      ? null
+      : capCodeWidth(
+          naturalWidth: natural,
+          maxChars: widget.maxCodeLineChars,
+          charWidth: _cjkMemo.widthOf(kDiffCodeTextStyle),
+          gutterWidth: kDiffGutterWidth + kDiffLinePaddingX,
+        );
+
   /// What a side is measured for width from: its full diff while that side
   /// is filled, since the fill rows widen it; its -U3 diff otherwise.
   DiffFile? _widthSource({required bool staged}) {
@@ -253,6 +271,15 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
+    // One width for `unified`'s single view, the wider of the two sides.
+    final CappedCodeWidth? unifiedCap = _mode == WorkingCopyDiffMode.unified
+        ? _capped(
+            math.max(
+              _widthOf(_widthSource(staged: false), _unstagedMemo),
+              _widthOf(_widthSource(staged: true), _stagedMemo),
+            ),
+          )
+        : null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -301,10 +328,8 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               onTemporaryScopeChanged: widget.onTemporaryScopeChanged,
               softWrap: widget.softWrap,
               verticalController: _unstagedScroll,
-              contentWidth: math.max(
-                _widthOf(_widthSource(staged: false), _unstagedMemo),
-                _widthOf(_widthSource(staged: true), _stagedMemo),
-              ),
+              contentWidth: unifiedCap?.totalWidth ?? 0,
+              codeClipWidth: unifiedCap?.clipWidth,
               backdrop: colors.surfaceSunken,
               fill: _fillFor(const <bool>[false, true]),
             ),
@@ -335,17 +360,23 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   );
 
   /// One `2 file` column: its own scroll position and its own width.
-  Widget _side({required bool staged}) => ScopedDiffView(
-    sources: <ScopedDiffSource>[_source(staged: staged)],
-    onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
-    softWrap: widget.softWrap,
-    verticalController: staged ? _stagedScroll : _unstagedScroll,
-    contentWidth: staged
-        ? _widthOf(_widthSource(staged: true), _stagedMemo)
-        : _widthOf(_widthSource(staged: false), _unstagedMemo),
-    backdrop: context.gbmColors.surfaceSunken,
-    fill: _fillFor(<bool>[staged]),
-  );
+  Widget _side({required bool staged}) {
+    final CappedCodeWidth? cap = _capped(
+      staged
+          ? _widthOf(_widthSource(staged: true), _stagedMemo)
+          : _widthOf(_widthSource(staged: false), _unstagedMemo),
+    );
+    return ScopedDiffView(
+      sources: <ScopedDiffSource>[_source(staged: staged)],
+      onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
+      softWrap: widget.softWrap,
+      verticalController: staged ? _stagedScroll : _unstagedScroll,
+      contentWidth: cap?.totalWidth ?? 0,
+      codeClipWidth: cap?.clipWidth,
+      backdrop: context.gbmColors.surfaceSunken,
+      fill: _fillFor(<bool>[staged]),
+    );
+  }
 }
 
 class _TitleBar extends StatelessWidget {

@@ -7,6 +7,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import '../../widgets/gbm_code_text.dart';
 import 'diff_truncation.dart';
 import 'widgets/diff_line.dart';
 
@@ -51,6 +52,7 @@ class _DiffPageState extends ConsumerState<DiffPage> {
   /// [CodeWidthMemo] for what the key distinguishes and what going stale
   /// would look like.
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
 
   /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
   /// pane's box instead of on the content's; the same instance drives the
@@ -98,7 +100,7 @@ class _DiffPageState extends ConsumerState<DiffPage> {
     // One scroll extent for the whole page, not one per file: the files are
     // in a single list and a per-file extent would make the content jump
     // sideways as the user scrolled past a file boundary.
-    final double contentWidth = softWrap
+    final double naturalWidth = softWrap
         ? 0
         : kDiffGutterWidth +
               _widthMemo.widthOf(
@@ -111,11 +113,19 @@ class _DiffPageState extends ConsumerState<DiffPage> {
                 style: kDiffCodeTextStyle,
               ) +
               kDiffLinePaddingX;
+    final CappedCodeWidth? cap = softWrap
+        ? null
+        : capCodeWidth(
+            naturalWidth: naturalWidth,
+            maxChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+            charWidth: _cjkMemo.widthOf(kDiffCodeTextStyle),
+            gutterWidth: kDiffGutterWidth + kDiffLinePaddingX,
+          );
 
     return SelectionArea(
       child: GbmCodeHScroll(
-        contentWidth: contentWidth,
-        codeClipWidth: null,
+        contentWidth: cap?.totalWidth ?? 0,
+        codeClipWidth: cap?.clipWidth,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView(
@@ -195,11 +205,10 @@ class _DiffHunkSection extends StatelessWidget {
             horizontal: GbmSpacing.space3,
             vertical: 2,
           ),
-          child: Text(
+          child: GbmCodeText(
             '@@ -${hunk.oldStart},${hunk.oldCount} '
             '+${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}',
             softWrap: softWrap,
-            overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
             style: TextStyle(
               fontFamily: GbmTypography.fontMono,
               fontSize: GbmTypography.textXs,

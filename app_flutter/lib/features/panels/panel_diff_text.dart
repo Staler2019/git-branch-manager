@@ -6,6 +6,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import '../../widgets/gbm_code_text.dart';
 
 /// The style this panel's lines are drawn in, colour aside. Single-sourced
 /// for the same reason `kDiffCodeTextStyle` is: the scroll extent is measured
@@ -42,6 +43,7 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
   /// the string *is* the content's identity. See [CodeWidthMemo] for the key,
   /// the invalidation and the symptom.
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
 
   /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
   /// pane's box instead of on the content's; the same instance drives the
@@ -64,19 +66,25 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
     // Nothing to pin here: a raw unified diff carries its own `+`/`-` in the
     // line text and this surface draws no line-number gutter, so with soft
     // wrap off the whole line simply scrolls.
-    final double contentWidth = softWrap
-        ? 0
-        : GbmSpacing.space3 * 2 +
-              _widthMemo.widthOf(
-                key: text,
-                text: () => text,
-                style: kPanelDiffTextStyle,
-              );
+    final CappedCodeWidth? cap = softWrap
+        ? null
+        : capCodeWidth(
+            naturalWidth:
+                GbmSpacing.space3 * 2 +
+                _widthMemo.widthOf(
+                  key: text,
+                  text: () => text,
+                  style: kPanelDiffTextStyle,
+                ),
+            maxChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+            charWidth: _cjkMemo.widthOf(kPanelDiffTextStyle),
+            gutterWidth: GbmSpacing.space3 * 2,
+          );
 
     return SelectionArea(
       child: GbmCodeHScroll(
-        contentWidth: contentWidth,
-        codeClipWidth: null,
+        contentWidth: cap?.totalWidth ?? 0,
+        codeClipWidth: cap?.clipWidth,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView.builder(
@@ -96,10 +104,9 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
                 horizontal: GbmSpacing.space3,
                 vertical: 1,
               ),
-              child: Text(
+              child: GbmCodeText(
                 line.isEmpty ? ' ' : line,
                 softWrap: softWrap,
-                overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
                 style: kPanelDiffTextStyle.copyWith(color: foreground),
               ),
             );

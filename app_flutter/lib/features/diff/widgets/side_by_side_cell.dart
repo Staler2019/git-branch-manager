@@ -6,6 +6,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'diff_line_menu_items.dart';
+import '../../../widgets/gbm_code_text.dart';
 
 /// Which column of a side-by-side diff a cell is in — and therefore, since
 /// [DiffLine] carries both numbers, **which of them the cell may show**.
@@ -140,14 +141,15 @@ class SideBySideCell extends StatelessWidget {
               ),
               const SizedBox(width: GbmSpacing.space2),
               Expanded(
-                child: Text(
+                // This used to overflow visibly, on the grounds that the cell
+                // is sized to the widest line so nothing spills into the
+                // neighbouring column. `AppPreferences.maxCodeLineChars`
+                // overrules that premise: the column is capped (「每一欄各 N
+                // 字」), so [GbmCodeText] ends a longer line in an ellipsis at
+                // the cell's own edge instead.
+                child: GbmCodeText(
                   line.text,
                   softWrap: softWrap,
-                  // `clip` would cut the line off at the cell's edge, which
-                  // is exactly what the horizontal scroller exists to avoid;
-                  // the cell is already sized to the widest line, so nothing
-                  // actually spills into the neighbouring column.
-                  overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
                   style: kSideBySideCodeTextStyle.copyWith(color: textColor),
                 ),
               ),

@@ -6,6 +6,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
+import '../../../widgets/gbm_code_text.dart';
 import '../../../widgets/gbm_menu.dart';
 import 'diff_line_menu_items.dart';
 
@@ -199,10 +200,9 @@ class DiffLineView extends StatelessWidget {
   }
 
   Widget _codeText(Color textColor) {
-    return Text(
+    return GbmCodeText(
       line.text,
       softWrap: softWrap,
-      overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
       style: kDiffCodeTextStyle.copyWith(color: textColor),
     );
   }

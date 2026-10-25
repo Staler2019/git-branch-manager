@@ -10,6 +10,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
     show RepoSessionState, WorkingCopyDiffReply, repoSessionProvider;
@@ -989,6 +990,42 @@ void main() {
         isTrue,
         reason: 'a new pane widget means the screen above it rebuilt',
       );
+    });
+
+    // Slice W: the line-width cap reaches the pane per build, not once per
+    // mount ([FLU-listen-misses-the-current-value]).
+    testWidgets('flipping the line-width cap reaches the diff pane', (
+      tester,
+    ) async {
+      final ProviderContainer container = await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(WorkingCopyStatus(entries: [unstagedEntry])),
+        ],
+      );
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+      int cap() => tester
+          .widget<WorkingCopyDiffPane>(find.byType(WorkingCopyDiffPane))
+          .maxCodeLineChars;
+      expect(cap(), 200);
+
+      await container
+          .read(appPreferencesProvider.notifier)
+          .update((AppPreferences p) => p.copyWith(maxCodeLineChars: 10));
+      await tester.pump();
+      expect(cap(), 10);
     });
 
     testWidgets('leaving the view with a framed selection clears the '

@@ -23,6 +23,7 @@ import '../../widgets/gbm_button.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import '../../widgets/gbm_code_text.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/gbm_row.dart';
 import '../../widgets/lucide_icon.dart';
@@ -131,6 +132,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   /// The editable result box measures its own text, which changes on every
   /// keystroke rather than when a new file is parsed.
   final CodeWidthMemo _resultWidthMemo = CodeWidthMemo();
+
+  /// The unit of `AppPreferences.maxCodeLineChars` in this window's code
+  /// style. The editable result box below is not capped (使用者裁定
+  /// 「輸入欄位不套用」).
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
 
   double _paneContentWidth(ParsedConflictFile parsed, bool softWrap) {
     if (softWrap) return 0;
@@ -906,7 +912,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       );
     }
 
-    final double paneWidth = _paneContentWidth(parsed, softWrap);
+    final CappedCodeWidth? cap = softWrap
+        ? null
+        : capCodeWidth(
+            naturalWidth: _paneContentWidth(parsed, softWrap),
+            maxChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+            charWidth: _cjkMemo.widthOf(kConflictCodeTextStyle),
+            gutterWidth: kConflictBadgeGutterWidth + GbmSpacing.space4,
+          );
+    final double paneWidth = cap?.totalWidth ?? 0;
     final bool anyHasBase = parsed.regions.any((r) => r.hasBase);
 
     return Column(
@@ -955,7 +969,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // LEFT: Ours column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
-                codeClipWidth: null,
+                codeClipWidth: cap?.clipWidth,
                 verticalController: _oursScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
@@ -969,7 +983,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // MIDDLE: Result column with badges
               GbmCodeHScroll(
                 contentWidth: paneWidth,
-                codeClipWidth: null,
+                codeClipWidth: cap?.clipWidth,
                 verticalController: _resultScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
@@ -983,7 +997,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // RIGHT: Theirs column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
-                codeClipWidth: null,
+                codeClipWidth: cap?.clipWidth,
                 verticalController: _theirsScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
@@ -1794,10 +1808,9 @@ class _ResultLine extends StatelessWidget {
     ),
   );
 
-  Widget _content(GbmColors colors) => Text(
+  Widget _content(GbmColors colors) => GbmCodeText(
     entry.lineContent,
     softWrap: softWrap,
-    overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
     style: kConflictCodeTextStyle.copyWith(color: colors.textPrimary),
   );
 
@@ -1822,10 +1835,9 @@ class _ContextBlock extends StatelessWidget {
     if (text.trim().isEmpty) return const SizedBox(height: GbmSpacing.space1);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Text(
+      child: GbmCodeText(
         text,
         softWrap: softWrap,
-        overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
         style: kConflictCodeTextStyle.copyWith(color: colors.textTertiary),
       ),
     );
@@ -2150,12 +2162,9 @@ class _SidePaneState extends State<_SidePane> {
                           padding: const EdgeInsets.symmetric(
                             vertical: GbmSpacing.space1,
                           ),
-                          child: Text(
+                          child: GbmCodeText(
                             line,
                             softWrap: widget.softWrap,
-                            overflow: widget.softWrap
-                                ? TextOverflow.clip
-                                : TextOverflow.visible,
                             style: kConflictCodeTextStyle.copyWith(
                               color: colors.textPrimary,
                             ),

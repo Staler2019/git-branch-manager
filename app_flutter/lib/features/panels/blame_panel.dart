@@ -17,6 +17,7 @@ import '../../data/repositories/app_preferences_repository.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import '../../widgets/gbm_code_text.dart';
 import '../../widgets/gbm_row.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -87,6 +88,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
   /// Keyed by the `List<BlameLine>` currently shown -- a new blame result is
   /// a new list, so the key is the invalidation. See [CodeWidthMemo].
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
 
   /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
   /// pane's box instead of on the content's; the same instance drives the
@@ -134,6 +136,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
+    final int maxChars = ref.watch(appPreferencesProvider).maxCodeLineChars;
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
@@ -228,31 +231,44 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                     revision: 'Truncated — not every line is shown',
                   ),
                 Expanded(
-                  child: GbmCodeHScroll(
-                    contentWidth: softWrap
-                        ? 0
-                        : kBlameGutterWidth +
-                              _widthMemo.widthOf(
-                                key: lines,
-                                text: () => <String>[
-                                  for (final BlameLine l in lines) l.content,
-                                ].join('\n'),
-                                style: kBlameCodeTextStyle,
-                              ) +
-                              GbmSpacing.space2,
-                    codeClipWidth: null,
-                    verticalController: _vertical,
-                    backdrop: colors.surfacePanel,
-                    child: ListView.builder(
-                      controller: _vertical,
-                      itemCount: lines.length,
-                      itemBuilder: (context, i) => _BlameLineRow(
-                        line: lines[i],
-                        selected: lines[i].finalLine == _selectedLine,
-                        onTap: () => _select(lines[i]),
-                        softWrap: softWrap,
-                      ),
-                    ),
+                  child: Builder(
+                    builder: (BuildContext context) {
+                      final CappedCodeWidth? cap = softWrap
+                          ? null
+                          : capCodeWidth(
+                              naturalWidth:
+                                  kBlameGutterWidth +
+                                  _widthMemo.widthOf(
+                                    key: lines,
+                                    text: () => <String>[
+                                      for (final BlameLine l in lines)
+                                        l.content,
+                                    ].join('\n'),
+                                    style: kBlameCodeTextStyle,
+                                  ) +
+                                  GbmSpacing.space2,
+                              maxChars: maxChars,
+                              charWidth: _cjkMemo.widthOf(kBlameCodeTextStyle),
+                              gutterWidth:
+                                  kBlameGutterWidth + GbmSpacing.space2,
+                            );
+                      return GbmCodeHScroll(
+                        contentWidth: cap?.totalWidth ?? 0,
+                        codeClipWidth: cap?.clipWidth,
+                        verticalController: _vertical,
+                        backdrop: colors.surfacePanel,
+                        child: ListView.builder(
+                          controller: _vertical,
+                          itemCount: lines.length,
+                          itemBuilder: (context, i) => _BlameLineRow(
+                            line: lines[i],
+                            selected: lines[i].finalLine == _selectedLine,
+                            onTap: () => _select(lines[i]),
+                            softWrap: softWrap,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -349,10 +365,9 @@ class _BlameLineRow extends StatelessWidget {
         gutterWidth: kBlameGutterWidth,
         child: Padding(
           padding: const EdgeInsets.only(left: kBlameGutterWidth),
-          child: Text(
+          child: GbmCodeText(
             line.content,
             softWrap: false,
-            overflow: TextOverflow.visible,
             style: kBlameCodeTextStyle.copyWith(color: colors.textPrimary),
           ),
         ),

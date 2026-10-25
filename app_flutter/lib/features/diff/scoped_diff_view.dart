@@ -122,6 +122,7 @@ class ScopedDiffView extends StatefulWidget {
     this.fill,
     this.verticalController,
     this.contentWidth = 0,
+    this.codeClipWidth,
     this.backdrop,
   });
 
@@ -163,6 +164,12 @@ class ScopedDiffView extends StatefulWidget {
   /// The widest row, gutter included ([diffFileContentWidth]); wider than
   /// the view, the rows scroll sideways together under one scrollbar.
   final double contentWidth;
+
+  /// Where each row's code is cut (`AppPreferences.maxCodeLineChars`,
+  /// [capCodeWidth]), or null for no cut. [contentWidth] is already capped
+  /// by the caller, which is what keeps the pinned one-shot head
+  /// ([_stickyHead]) on the same width the rows are drawn at.
+  final double? codeClipWidth;
 
   /// What a pinned gutter paints under itself; null is the well's own
   /// `surfaceSunken`.
@@ -723,7 +730,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final Widget list = GbmCodeHScroll(
       key: _hScrollKey,
       contentWidth: widget.contentWidth,
-      codeClipWidth: null,
+      codeClipWidth: widget.codeClipWidth,
       verticalController: _vertical,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
       child: ListView.builder(

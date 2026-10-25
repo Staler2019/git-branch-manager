@@ -255,7 +255,12 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 - **Verifier（HEAD 11a1529e，fresh）：CONFIRMED**，四點全部成立，沒有 P0–P2。
   scratchpad probe 的掃描範圍：excerpt 的 dx 0..700 共 18 個點，包含右緣落在 (490, 500] 的整段；ruler 加上寬 code 的 11 個點；`2 file` 右側 view 的 7 個點。
   每個點都比對了 head 的左右緣、真實 block 的 rect、虛線的側數，以及捲軸區的 hit test。橫向捲動之後，SelectionArea 的 State 仍是同一個物件。
-  P4（推測）：widget test 的 DPR 是 1，桌面上非整數 DPR 的情況沒有驗證。
+  ~~P4（推測）：widget test 的 DPR 是 1，桌面上非整數 DPR 的情況沒有驗證。~~
+  **已驗證（使用者要求「驗證一下」）：非整數 DPR 下沒有露出。** 測試的 DPR 分別設為 1.25、1.5、1.75、2.25、2.5，片段模式與 ruler 模式各跑一次，每次掃過 16 個帶小數的 dx，例如 0.3、19.6、333.33、671.7、686.4、691.9。
+  - 每個 dx 都檢查兩件事。邏輯座標：置頂版與 block 的 rect 相同（容差 1e-6），虛線側數、捲軸區的 hit test 都正確。像素：用 `RenderRepaintBoundary.toImage(pixelRatio: dpr)` 取圖，在 head 的色帶上，置頂版左右外側超過 1 個 anti-aliasing physical pixel、捲軸區以外的地方，沒有任何一個 physical column 帶有 head 的底色。10 組全部通過。
+  - oracle 的有效性：把置頂版改回不跟著橫向捲動（`scrolls = false`），拿掉邏輯座標的斷言，只留像素檢查。結果在 dpr 1.5 下，每個 dx 都抓到 11–40 個露出的 column。
+  - 限制：小於 1 個 physical pixel 的露出，和 anti-aliasing 分不出來，這個 oracle 看不到。不過置頂版與 block 的邏輯座標完全相同，兩者的光柵化結果也相同。
+  - probe 只放在 scratchpad，沒有進 repo，因為它檢查的事已經由邏輯座標的測試鎖住。
 - 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
 
 這一段自己的失誤：

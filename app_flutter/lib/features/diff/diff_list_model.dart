@@ -33,6 +33,20 @@ typedef DiffListSync = ({
   double Function(int segment) spacerExtentOf,
 });
 
+/// Estimated item heights, read off the eager layout at the test font
+/// (row 22, heading 22, a card's head and margins 49, a gap's margins 4,
+/// a column head 29). A jump reads them and corrects itself once the target is
+/// built, and a synced column starts its slot heights from them until each
+/// item is measured; nothing is laid out from them.
+const DiffListMetrics kDiffListEstimate = (
+  rowExtent: 22,
+  headingExtent: 22,
+  cardChromeExtent: 49,
+  gapChromeExtent: 4,
+  charsPerLine: 0,
+);
+const double kDiffLeadingEstimate = 29;
+
 /// One item of the lazily built diff list.
 sealed class DiffListItem {
   const DiffListItem();

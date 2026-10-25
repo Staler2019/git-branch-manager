@@ -9,9 +9,14 @@ import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_icon_button.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
+import '../../diff/diff_block_order.dart';
 import '../../diff/diff_full_file_fill.dart';
+import '../../diff/diff_list_model.dart';
 import '../../diff/diff_scopes.dart';
 import '../../diff/scoped_diff_view.dart';
+import '../../diff/sync_scroll/sync_segments.dart';
+import '../../diff/sync_scroll/sync_slot_heights.dart';
+import '../../diff/sync_scroll/sync_spans.dart';
 import '../../diff/widgets/diff_line.dart';
 import '../../diff/temporary_scope_provider.dart';
 
@@ -261,8 +266,112 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     return fullFileFillRows(sources);
   }
 
+  /// `2 file`'s shared segments and slot heights (plan: Slice S), and what
+  /// they were built from. Rebuilt only when a diff, the fill or the wrap
+  /// changes: a new [SyncSlotHeights] forgets every measured height, so a
+  /// rebuild per pane build would leave the spacers on estimates.
+  ({List<List<int>> segmentOf, SyncSlotHeights heights})? _sync;
+  List<Object?> _syncKey = const <Object?>[];
+
+  /// Scope splits for the sync layout. A cache each, apart from the title
+  /// bar's: those split with the other side's barriers, these as a lone
+  /// `2 file` column does, which is what its view draws.
+  final List<DiffScopeCache> _columnScopes = <DiffScopeCache>[
+    DiffScopeCache(),
+    DiffScopeCache(),
+  ];
+
+  ({List<List<int>> segmentOf, SyncSlotHeights heights}) _syncLayout(
+    List<List<DiffFillRow>?> fills,
+  ) {
+    final List<Object?> key = <Object?>[
+      widget.unstagedFile,
+      widget.stagedFile,
+      widget.fullFile ? widget.unstagedFullFile : null,
+      widget.fullFile ? widget.stagedFullFile : null,
+      fills[0] == null,
+      fills[1] == null,
+      widget.softWrap,
+    ];
+    final current = _sync;
+    if (current != null &&
+        key.length == _syncKey.length &&
+        <int>[for (int i = 0; i < key.length; i++) i].every(
+          (int i) => identical(key[i], _syncKey[i]) || key[i] == _syncKey[i],
+        )) {
+      return current;
+    }
+    _syncKey = key;
+    current?.heights.dispose();
+
+    // The blocks each column's view will draw: one source, so no barriers
+    // ([DiffBarrierMemo] gives a lone side [IndexBarriers.none]) -- the same
+    // function the view calls, with the same inputs.
+    final List<ScopedDiffSource> sources = <ScopedDiffSource>[
+      _source(staged: false),
+      _source(staged: true),
+    ];
+    final List<List<DiffBlock>> blocks = <List<DiffBlock>>[];
+    final List<DiffSide> sides = <DiffSide>[];
+    for (int c = 0; c < 2; c++) {
+      final DiffSide side = (file: sources[c].file, staged: sources[c].staged);
+      sides.add(side);
+      blocks.add(
+        sources[c].hasContent
+            ? orderedDiffBlocks(
+                <DiffSide>[side],
+                <Map<int, List<DiffScope>>>[
+                  _columnScopes[c].scopesOf(side.file, staged: side.staged),
+                ],
+                fill: fills[c],
+              )
+            : const <DiffBlock>[],
+      );
+    }
+    final SyncSegments segments = partitionSyncSegments<IndexPosition>(
+      <List<SyncSpan<IndexPosition>?>>[
+        for (int c = 0; c < 2; c++)
+          syncUnitSpans(blocks[c], <DiffSide>[sides[c]]),
+      ],
+      compareIndexPositions,
+    );
+    // Each column's own height per segment, estimated the way its view's
+    // model estimates its items, until the view measures them.
+    final List<List<double>> estimate = <List<double>>[
+      for (int c = 0; c < 2; c++)
+        () {
+          final DiffListModel model = DiffListModel.fromBlocks(
+            blocks[c],
+            sides: <DiffSide>[sides[c]],
+            headings: fills[c] == null,
+            metrics: kDiffListEstimate,
+            leadingExtents: const <double>[kDiffLeadingEstimate],
+            sync: (
+              segmentOfUnit: segments.segmentOf[c],
+              segmentCount: segments.count,
+              spacerExtentOf: (_) => 0,
+            ),
+          );
+          final List<double> run = List<double>.filled(segments.count, 0);
+          for (int i = 0; i < model.items.length; i++) {
+            run[model.segmentOfItem(i)] += model.extentOf(i);
+          }
+          return run;
+        }(),
+    ];
+    return _sync = (
+      segmentOf: segments.segmentOf,
+      heights: SyncSlotHeights.forSegments(
+        columns: 2,
+        segments: segments.count,
+        estimate: (int c, int k) => estimate[c][k],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    _sync?.heights.dispose();
     _stagedScroll.dispose();
     _ownedUnstagedScroll.dispose();
     super.dispose();
@@ -305,7 +414,25 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               axis: Axis.horizontal,
               spec: GbmLayout.splitterWcDiffSides,
               storageId: 'wc.diffSides',
-              children: <Widget>[_side(staged: false), _side(staged: true)],
+              children: () {
+                final List<List<DiffFillRow>?> fills = <List<DiffFillRow>?>[
+                  _fillFor(const <bool>[false]),
+                  _fillFor(const <bool>[true]),
+                ];
+                final sync = _syncLayout(fills);
+                return <Widget>[
+                  for (int c = 0; c < 2; c++)
+                    _side(
+                      staged: c == 1,
+                      fill: fills[c],
+                      sync: (
+                        column: c,
+                        segmentOfUnit: sync.segmentOf[c],
+                        heights: sync.heights,
+                      ),
+                    ),
+                ];
+              }(),
             ),
             // **One view holding both directions**, not two stacked.
             // 「應該是單一 view 檢視 stage/unstage scope and button，而非
@@ -360,7 +487,11 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   );
 
   /// One `2 file` column: its own scroll position and its own width.
-  Widget _side({required bool staged}) {
+  Widget _side({
+    required bool staged,
+    required List<DiffFillRow>? fill,
+    required ScopedDiffSync sync,
+  }) {
     final CappedCodeWidth? cap = _capped(
       staged
           ? _widthOf(_widthSource(staged: true), _stagedMemo)
@@ -374,7 +505,8 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       contentWidth: cap?.totalWidth ?? 0,
       codeClipWidth: cap?.clipWidth,
       backdrop: context.gbmColors.surfaceSunken,
-      fill: _fillFor(<bool>[staged]),
+      fill: fill,
+      sync: sync,
     );
   }
 }

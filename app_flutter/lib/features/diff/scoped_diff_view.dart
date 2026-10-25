@@ -20,6 +20,9 @@ import 'diff_row_keys.dart';
 import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';
+import 'sync_scroll/sync_height_reporter.dart';
+import 'sync_scroll/sync_slot_heights.dart';
+import 'sync_scroll/sync_slot_spacer.dart';
 import 'widgets/diff_line.dart';
 
 /// One side of the Working Copy diff, drawn as spec P03's 變體 B: every run
@@ -124,6 +127,7 @@ class ScopedDiffView extends StatefulWidget {
     this.contentWidth = 0,
     this.codeClipWidth,
     this.backdrop,
+    this.sync,
   });
 
   /// The diffs to draw, in painted order. One element is `2 file` mode's
@@ -175,6 +179,11 @@ class ScopedDiffView extends StatefulWidget {
   /// `surfaceSunken`.
   final Color? backdrop;
 
+  /// This view as one synced `2 file` column, or null. Synced, each
+  /// segment's run ends in a spacer that pads it to the tallest column's,
+  /// and every item reports its laid-out height into [ScopedDiffSync.heights].
+  final ScopedDiffSync? sync;
+
   @override
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
 }
@@ -194,18 +203,15 @@ typedef _ItemPaint = ({
   Map<int, int> ordinalOf,
 });
 
-/// Estimated item heights, read off the eager layout at the test font
-/// (row 22, heading 22, a card's head and margins 49, a gap's margins 4,
-/// a column head 29). Only a jump to a card reads them, and it corrects
-/// itself once the card is built; nothing is laid out from them.
-const DiffListMetrics _kListEstimate = (
-  rowExtent: 22,
-  headingExtent: 22,
-  cardChromeExtent: 49,
-  gapChromeExtent: 4,
-  charsPerLine: 0,
-);
-const double _kLeadingEstimate = 29;
+/// What a synced `2 file` column hands the view (plan: Slice S): which
+/// segment each of its sync units is in (`syncUnitSpans`'s order, computed
+/// by the pane from the same blocks this view draws) and the slot heights
+/// both columns share.
+typedef ScopedDiffSync = ({
+  int column,
+  List<int> segmentOfUnit,
+  SyncSlotHeights heights,
+});
 
 /// How far a row's left edge sits inside the view: the well's 8px margin,
 /// its 8px padding and 1px border, and a gap's 1px dashed rule plus 2px
@@ -474,6 +480,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     if (_diffsChanged(oldWidget.sources, widget.sources)) {
       _dropSelection(alsoClearHighlight: false);
     }
+    if (!identical(oldWidget.sync?.heights, widget.sync?.heights)) {
+      _measured.clear();
+    }
   }
 
   /// True when any source's diff was replaced, or the list changed length.
@@ -685,9 +694,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
           if (_noticeFor(source) case final Widget notice) notice,
       if (!anyContent) _emptyBody(colors),
     ];
+    final List<_Block> drawn = anyContent ? blocks : const <_Block>[];
+    _leadingCount = leading.length;
     final DiffListModel model = _listModel(
-      anyContent ? blocks : const <_Block>[],
+      drawn,
       leadingCount: leading.length,
+      sync: _syncFor(drawn),
     );
 
     // One read of the touched set, gated once: everything derived from it --
@@ -918,10 +930,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             bottom: _kRulerVertical,
             right: _kRulerRight,
             width: _kRulerWidth,
-            child: _OverviewRuler(
-              marks: _rulerMarks(model),
-              onMark: _jumpToCard,
-            ),
+            // Synced, the marks move as the slot heights are measured.
+            child: widget.sync == null
+                ? _OverviewRuler(marks: _rulerMarks(model), onMark: _jumpToCard)
+                : ListenableBuilder(
+                    listenable: widget.sync!.heights,
+                    builder: (BuildContext context, Widget? _) =>
+                        _OverviewRuler(
+                          marks: _rulerMarks(model),
+                          onMark: _jumpToCard,
+                        ),
+                  ),
           ),
       ],
     );
@@ -994,7 +1013,38 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
   /// One mark per card, placed by the card's share of the painted rows; a
   /// card head counts as one row, so a card's share is its rows plus one.
+  ///
+  /// A synced column places them by the slot heights instead (F2): its
+  /// rows alone would not line up with the other column's, whose rows sit
+  /// at different heights, while every segment's top is the same in both.
   List<_RulerMark> _rulerMarks(DiffListModel model) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync != null && sync.heights.totalHeight > 0) {
+      final double total = sync.heights.totalHeight;
+      double heightOf(int i) => _ownHeightOf(model, i);
+      return <_RulerMark>[
+        for (int c = 0; c < model.cardItems.length; c++)
+          () {
+            final int item = model.cardItems[c];
+            final int segment = model.segmentOfItem(item);
+            double within = 0;
+            for (
+              int i = item - 1;
+              i >= 0 && model.segmentOfItem(i) == segment;
+              i--
+            ) {
+              within += heightOf(i);
+            }
+            return _RulerMark(
+              item: item,
+              number: c + 1,
+              start: (sync.heights.offsetOf(segment) + within) / total,
+              extent: heightOf(item) / total,
+              staged: widget.sources.first.staged,
+            );
+          }(),
+      ];
+    }
     final int heads = model.cardItems.length;
     final int units = model.rowKeys.length + heads;
     return <_RulerMark>[
@@ -1118,23 +1168,98 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
   /// The list [blocks] are laid out as: the one place items, row keys and
   /// their order are derived, for the builder and the keyboard alike.
-  DiffListModel _listModel(List<_Block> blocks, {int leadingCount = 0}) =>
-      DiffListModel.fromBlocks(
-        blocks,
-        sides: <DiffSide>[
-          for (final ScopedDiffSource source in widget.sources)
-            (file: source.file, staged: source.staged),
-        ],
-        headings: widget.fill == null,
-        metrics: (
-          rowExtent: _kListEstimate.rowExtent,
-          headingExtent: _kListEstimate.headingExtent,
-          cardChromeExtent: _kListEstimate.cardChromeExtent,
-          gapChromeExtent: _kListEstimate.gapChromeExtent,
-          charsPerLine: widget.softWrap ? _charsPerLine : 0,
-        ),
-        leadingExtents: List<double>.filled(leadingCount, _kLeadingEstimate),
+  DiffListModel _listModel(
+    List<_Block> blocks, {
+    int leadingCount = 0,
+    DiffListSync? sync,
+  }) => DiffListModel.fromBlocks(
+    blocks,
+    sides: <DiffSide>[
+      for (final ScopedDiffSource source in widget.sources)
+        (file: source.file, staged: source.staged),
+    ],
+    headings: widget.fill == null,
+    metrics: (
+      rowExtent: kDiffListEstimate.rowExtent,
+      headingExtent: kDiffListEstimate.headingExtent,
+      cardChromeExtent: kDiffListEstimate.cardChromeExtent,
+      gapChromeExtent: kDiffListEstimate.gapChromeExtent,
+      charsPerLine: widget.softWrap ? _charsPerLine : 0,
+    ),
+    leadingExtents: List<double>.filled(leadingCount, kDiffLeadingEstimate),
+    sync: sync,
+  );
+
+  /// [ScopedDiffView.sync] for [blocks], or null when unsynced. The pane
+  /// derived its units from the same blocks; a count that disagrees is a
+  /// bug, and drawing the column unsynced beats padding it wrong.
+  DiffListSync? _syncFor(List<_Block> blocks) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null) return null;
+    int units = 0;
+    for (final _Block block in blocks) {
+      units += switch (block.segment) {
+        DiffFillSegment(:final List<DiffFillRow> rows) => rows.length,
+        _ => 1,
+      };
+    }
+    assert(
+      units == sync.segmentOfUnit.length,
+      'sync units $units != ${sync.segmentOfUnit.length}',
+    );
+    if (units != sync.segmentOfUnit.length) return null;
+    return (
+      segmentOfUnit: sync.segmentOfUnit,
+      segmentCount: sync.heights.segmentCount,
+      spacerExtentOf: (int segment) =>
+          sync.heights.spacerHeight(sync.column, segment),
+    );
+  }
+
+  /// What item [i] adds to its column's own run: its height, measured or
+  /// else estimated -- except a spacer, which adds only the well's edge it
+  /// draws when it is the first or last framed item. Its padding is what
+  /// the run is subtracted from, so counting it would feed it back.
+  double _ownHeightOf(DiffListModel model, int i) {
+    if (model.items[i] is DiffSpacerItem) {
+      return _FrameSegment.edges(
+        first: i == _leadingCount,
+        last: i == model.items.length - 1,
       );
+    }
+    return _measured[i] ?? model.extentOf(i);
+  }
+
+  /// How many leading items the last build drew: the first framed item
+  /// comes after them.
+  int _leadingCount = 0;
+
+  /// Each synced item's measured height, by item index; cleared with the
+  /// sync it was measured for, since a new one numbers its items afresh.
+  final Map<int, double> _measured = <int, double>{};
+
+  /// [item] laid out [height] tall: its segment's run in this column is
+  /// the sum of its items, measured or else estimated, spacer excluded.
+  void _onItemHeight(int item, double height) {
+    final ScopedDiffSync? sync = widget.sync;
+    final DiffListModel? model = _model;
+    if (sync == null || model == null || item >= model.items.length) return;
+    if (model.items[item] is! DiffSpacerItem) _measured[item] = height;
+    final int segment = model.segmentOfItem(item);
+    int first = item;
+    while (first > 0 && model.segmentOfItem(first - 1) == segment) {
+      first--;
+    }
+    double run = 0;
+    for (
+      int i = first;
+      i < model.items.length && model.segmentOfItem(i) == segment;
+      i++
+    ) {
+      run += _ownHeightOf(model, i);
+    }
+    sync.heights.report(sync.column, segment, run);
+  }
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
   ///
@@ -1332,7 +1457,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   ///
   /// The card may never have been built, and the model's offsets are
   /// estimates that drift over thousands of rows (a real row is not exactly
-  /// [_kListEstimate]'s height). So each pass measures one item that is on
+  /// [kDiffListEstimate]'s height). So each pass measures one item that is on
   /// screen -- the one at the top -- and jumps by the *estimated distance*
   /// from it to the card, which is only as wrong as the rows in between;
   /// the pass after that is closer, and once the card is built its own box
@@ -1613,6 +1738,23 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     List<Widget> leading,
     _ItemPaint paint,
   ) {
+    final Widget built = _buildUnreportedItem(model, index, leading, paint);
+    if (widget.sync == null) return built;
+    // A spacer reports too, though its height is not what it adds
+    // ([_ownHeightOf]): a segment holding nothing of this column's but its
+    // spacer would otherwise never leave the pane's estimate.
+    return SyncHeightReporter(
+      onHeight: (double height) => _onItemHeight(index, height),
+      child: built,
+    );
+  }
+
+  Widget _buildUnreportedItem(
+    DiffListModel model,
+    int index,
+    List<Widget> leading,
+    _ItemPaint paint,
+  ) {
     final DiffListItem item = model.items[index];
     // Outside the selection, as they were before they moved into the list:
     // a drag over a column head selects nothing.
@@ -1624,8 +1766,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     }
     final Widget child = switch (item) {
       DiffLeadingItem() => const SizedBox.shrink(),
-      // Only a synced `2 file` column has spacers, and none is synced yet.
-      DiffSpacerItem() => const SizedBox.shrink(),
+      DiffSpacerItem(:final int segment) => SyncSlotSpacer(
+        heights: widget.sync!.heights,
+        column: widget.sync!.column,
+        segment: segment,
+      ),
       DiffHeadingItem(:final DiffBlock block) => _HunkHeading(
         hunk: widget.sources[block.sourceIndex].file!.hunks[block.hunkIndex],
         hunkIndex: block.hunkIndex,
@@ -1652,9 +1797,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         touched: paint.touched,
         softWrap: widget.softWrap,
         marginTop: model.fillRunOffsetOf(index) == 0,
-        marginBottom:
-            index + 1 >= model.items.length ||
-            model.fillRunOffsetOf(index + 1) == 0,
+        marginBottom: _endsFillRun(model, index),
         ruleSegment: model.fillRunOffsetOf(index),
       ),
       DiffBlockItem(:final DiffBlock block) => _blockItem(
@@ -1678,6 +1821,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             : child,
       ),
     );
+  }
+
+  /// Whether fill item [index] is the last row of its run: the next row
+  /// that is not a sync spacer starts a run of its own, or there is none. A
+  /// spacer between two rows of a run leaves the run whole.
+  static bool _endsFillRun(DiffListModel model, int index) {
+    int next = index + 1;
+    while (next < model.items.length && model.items[next] is DiffSpacerItem) {
+      next++;
+    }
+    return next >= model.items.length || model.fillRunOffsetOf(next) == 0;
   }
 
   Widget _blockItem(
@@ -1870,15 +2024,23 @@ class _FrameSegment extends StatelessWidget {
   /// Extra right padding, the room the overview ruler takes.
   final double rightGutter;
 
+  /// How much taller the frame makes an item than its child: the well's
+  /// margin, border and padding above the first and below the last.
+  static double edges({required bool first, required bool last}) =>
+      (first ? GbmSpacing.space2 + _inset : 0) +
+      (last ? GbmSpacing.space2 + _inset : 0);
+
+  /// The well's own padding plus its 1px border, which a Container adds to
+  /// its padding when it draws one.
+  static const double _inset = GbmSpacing.space2 + 1;
+
   @override
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     // Far enough past a cut edge that its rounded corner and border fall
     // outside the slice.
     const double overhang = GbmSpacing.radiusMd + 2;
-    // The well's own padding plus its 1px border, which a Container adds to
-    // its padding when it draws one.
-    const double inset = GbmSpacing.space2 + 1;
+    const double inset = _inset;
     return Padding(
       padding: EdgeInsets.fromLTRB(
         GbmSpacing.space2,

@@ -1624,6 +1624,8 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     }
     final Widget child = switch (item) {
       DiffLeadingItem() => const SizedBox.shrink(),
+      // Only a synced `2 file` column has spacers, and none is synced yet.
+      DiffSpacerItem() => const SizedBox.shrink(),
       DiffHeadingItem(:final DiffBlock block) => _HunkHeading(
         hunk: widget.sources[block.sourceIndex].file!.hunks[block.hunkIndex],
         hunkIndex: block.hunkIndex,

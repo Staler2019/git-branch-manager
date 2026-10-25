@@ -467,6 +467,11 @@ IndexPosition indexPositionOf(
   return _positionsOf(hunk, staged: staged)[last];
 }
 
+/// [indexPositionOf] for every line of [hunk] in one pass, for a caller
+/// that reads many of them (`sync_spans.dart`).
+List<IndexPosition> indexPositionsOf(DiffHunk hunk, {required bool staged}) =>
+    _positionsOf(hunk, staged: staged);
+
 /// [indexPositionOf] for every line of [hunk] in one pass -- the one place
 /// the walk is written, so a whole-hunk caller is linear rather than
 /// quadratic.

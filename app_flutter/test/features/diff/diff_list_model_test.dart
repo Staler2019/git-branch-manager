@@ -109,6 +109,7 @@ String _shape(DiffListItem item) => switch (item) {
   },
   DiffFillItem(:final DiffFillRow row) =>
     'fill ${row.sourceIndex}:${row.indexLine}',
+  DiffSpacerItem(:final int segment) => 'spacer $segment',
 };
 
 /// The painted row keys of [blocks], walked independently of the model:
@@ -465,5 +466,126 @@ void main() {
       }
       _expectConsistent(model);
     }
+  });
+
+  // Slice S3: a synced `2 file` column pads every segment at its end with a
+  // spacer item (plan: Slice S, B1/E3). Rows, cards and keys are untouched.
+  group('DiffListModel -- sync spacers', () {
+    test('full-file: a spacer closes every segment, absent ones included, '
+        'and the rows are what they were', () {
+      final DiffFile file = _file(<DiffHunk>[_numbered('.+.', start: 3)]);
+      final List<DiffSide> sides = <DiffSide>[(file: file, staged: false)];
+      final List<DiffBlock> blocks = orderedDiffBlocks(
+        sides,
+        _scopes(sides),
+        fill: <DiffFillRow>[
+          ..._fill(<int>[1, 2]),
+          ..._fill(<int>[5, 6]),
+        ],
+      );
+      DiffListModel build({DiffListSync? sync}) => DiffListModel.fromBlocks(
+        blocks,
+        sides: sides,
+        headings: false,
+        metrics: _metrics,
+        leadingExtents: const <double>[22],
+        sync: sync,
+      );
+      final DiffListModel plain = build();
+      // Units: fill 1, fill 2, gap 3, card (3,1), gap 4, fill 5, fill 6.
+      // Segment 5 has nothing of this column's.
+      final DiffListModel model = build(
+        sync: (
+          segmentOfUnit: const <int>[1, 1, 2, 2, 2, 3, 4],
+          segmentCount: 6,
+          spacerExtentOf: (int segment) => 100.0 + segment,
+        ),
+      );
+
+      expect(model.items.map(_shape).toList(), <String>[
+        'leading 0',
+        'spacer 0',
+        'fill 0:1',
+        'fill 0:2',
+        'spacer 1',
+        'gap 0:0:0',
+        'card 0:0:1',
+        'gap 0:0:2',
+        'spacer 2',
+        'fill 0:5',
+        'spacer 3',
+        'fill 0:6',
+        'spacer 4',
+        'spacer 5',
+      ]);
+      expect(model.rowKeys, plain.rowKeys);
+      expect(model.changedRows, plain.changedRows);
+      expect(model.cardItems, <int>[6]);
+      expect(model.items[6], isA<DiffBlockItem>());
+      expect(
+        <int>[
+          for (int i = 0; i < model.items.length; i++) model.segmentOfItem(i),
+        ],
+        <int>[0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 5],
+      );
+      for (final int spacer in <int>[1, 4, 8, 10, 12, 13]) {
+        expect(model.rowCountOf(spacer), 0, reason: 'item $spacer');
+      }
+      expect(model.firstRowOf(4), 2, reason: 'after fill 1 and 2');
+      expect(model.firstRowOf(13), model.rowKeys.length);
+      expect(model.extentOf(1), 100);
+      expect(model.extentOf(13), 105);
+      // A fill run's dashed rule carries across a spacer it is cut by.
+      expect(model.fillRunOffsetOf(11), 1);
+      _expectConsistent(model);
+    });
+
+    test('excerpt: a hunk heading goes with the segment of the block it '
+        'heads, after the previous segment\'s spacer', () {
+      final DiffFile file = _file(<DiffHunk>[
+        _numbered('...+...', start: 5),
+        _numbered('..-.', start: 30),
+      ]);
+      final List<DiffSide> sides = <DiffSide>[(file: file, staged: false)];
+      final DiffListModel model = DiffListModel.fromBlocks(
+        orderedDiffBlocks(sides, _scopes(sides)),
+        sides: sides,
+        headings: true,
+        metrics: _metrics,
+        sync: (
+          segmentOfUnit: const <int>[1, 1, 1, 2, 2, 2],
+          segmentCount: 3,
+          spacerExtentOf: (_) => 0,
+        ),
+      );
+      expect(model.items.map(_shape).toList(), <String>[
+        'spacer 0',
+        'heading 0:0',
+        'gap 0:0:0,1,2',
+        'card 0:0:3',
+        'gap 0:0:4,5,6',
+        'spacer 1',
+        'heading 0:1',
+        'gap 0:1:0,1',
+        'card 0:1:2',
+        'gap 0:1:3',
+        'spacer 2',
+      ]);
+      expect(model.segmentOfItem(6), 2);
+      _expectConsistent(model);
+    });
+
+    test('unsynced, every item is in segment 0 and there are no spacers', () {
+      final DiffFile file = _file(<DiffHunk>[_numbered('.+.', start: 3)]);
+      final List<DiffSide> sides = <DiffSide>[(file: file, staged: false)];
+      final DiffListModel model = DiffListModel.fromBlocks(
+        orderedDiffBlocks(sides, _scopes(sides)),
+        sides: sides,
+        headings: true,
+        metrics: _metrics,
+      );
+      expect(model.items.whereType<DiffSpacerItem>(), isEmpty);
+      expect(model.segmentOfItem(1), 0);
+    });
   });
 }

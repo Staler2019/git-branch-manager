@@ -21,6 +21,18 @@ typedef DiffListMetrics = ({
   int charsPerLine,
 });
 
+/// What a synced `2 file` column needs to pad its segments (plan: Slice S).
+///
+/// [segmentOfUnit] is the segment of every sync unit of the column's blocks,
+/// in order: a card or gap block is one unit, a fill run one per row
+/// (`syncUnitSpans`). [spacerExtentOf] is what the column pads at the end of
+/// a segment; only the estimates read it.
+typedef DiffListSync = ({
+  List<int> segmentOfUnit,
+  int segmentCount,
+  double Function(int segment) spacerExtentOf,
+});
+
 /// One item of the lazily built diff list.
 sealed class DiffListItem {
   const DiffListItem();
@@ -57,11 +69,20 @@ final class DiffFillItem extends DiffListItem {
   final DiffFillRow row;
 }
 
+/// The end of a synced column's run in [segment]: as tall as the tallest
+/// column's run there less this column's own, so every column's next
+/// segment starts at the same height (「短側尾部插高度」). Draws no row.
+final class DiffSpacerItem extends DiffListItem {
+  const DiffSpacerItem(this.segment);
+
+  final int segment;
+}
+
 /// The painted diff list as something a lazy list can index: its items, the
 /// row keys in painted order, and an estimated vertical position for each
 /// item.
 ///
-/// Built once per diff (and per metrics change) from the blocks
+/// Built per build of the view from the blocks
 /// [orderedDiffBlocks] orders, so the order the rows are keyed in is the
 /// order they are painted in ([SPEC-range-follows-paint-order]). Positions
 /// are estimates -- a card's real height depends on its width and on the
@@ -72,12 +93,18 @@ class DiffListModel {
   /// or hunk, which is excerpt mode; full-file mode draws none. Fill blocks
   /// neither draw a heading nor reset which hunk was last headed, the same
   /// rule the view's own loop follows.
+  ///
+  /// With [sync], every segment of the column ends in a [DiffSpacerItem],
+  /// a segment this column has nothing in included, and segment 0 is the
+  /// leading items'. A heading goes with the block it heads. Rows, cards
+  /// and keys are exactly what they are without it.
   factory DiffListModel.fromBlocks(
     List<DiffBlock> blocks, {
     required List<DiffSide> sides,
     required bool headings,
     required DiffListMetrics metrics,
     List<double> leadingExtents = const <double>[],
+    DiffListSync? sync,
   }) {
     final List<DiffListItem> items = <DiffListItem>[];
     final List<double> extents = <double>[];
@@ -86,6 +113,9 @@ class DiffListModel {
     final List<int> cardItems = <int>[];
     final List<int> changedRows = <int>[];
     final List<int> fillRunOffsets = <int>[];
+    final List<int> segmentOfItem = <int>[];
+    int segment = 0;
+    int unit = 0;
 
     double rowExtentOf(DiffLine line) {
       final int chars = metrics.charsPerLine;
@@ -99,7 +129,19 @@ class DiffListModel {
       items.add(item);
       extents.add(extent);
       fillRunOffsets.add(0);
+      segmentOfItem.add(segment);
     }
+
+    // Closes every segment before [next] with its spacer.
+    void padTo(int next) {
+      if (sync == null) return;
+      while (segment < next) {
+        add(DiffSpacerItem(segment), sync.spacerExtentOf(segment));
+        segment++;
+      }
+    }
+
+    int segmentOfNextUnit() => sync == null ? 0 : sync.segmentOfUnit[unit++];
 
     for (int i = 0; i < leadingExtents.length; i++) {
       add(DiffLeadingItem(i), leadingExtents[i]);
@@ -113,12 +155,14 @@ class DiffListModel {
         // rows whatever their source.
         for (int k = 0; k < rows.length; k++) {
           final DiffFillRow row = rows[k];
+          padTo(segmentOfNextUnit());
           add(DiffFillItem(row), rowExtentOf(row.line));
           fillRunOffsets[items.length - 1] = k;
           rowKeys.add(selectionFillRowKey(row.sourceIndex, row.indexLine));
         }
         continue;
       }
+      padTo(segmentOfNextUnit());
       if (headings &&
           (block.sourceIndex != lastSourceIndex ||
               block.hunkIndex != lastHunkIndex)) {
@@ -146,6 +190,7 @@ class DiffListModel {
       }
       extents[item] = extent;
     }
+    padTo(sync?.segmentCount ?? 0);
     itemRowStart.add(rowKeys.length);
 
     final Float64List offsets = Float64List(items.length + 1);
@@ -171,6 +216,7 @@ class DiffListModel {
       List<int>.unmodifiable(changedRows),
       offsets,
       Int32List.fromList(fillRunOffsets),
+      Int32List.fromList(segmentOfItem),
     );
   }
 
@@ -184,6 +230,7 @@ class DiffListModel {
     this.changedRows,
     this._offsets,
     this._fillRunOffsets,
+    this._segmentOfItem,
   );
 
   /// Every item, in painted order: the leading items, then the diff.
@@ -209,6 +256,10 @@ class DiffListModel {
   final Float64List _offsets;
 
   final Int32List _fillRunOffsets;
+  final Int32List _segmentOfItem;
+
+  /// The sync segment item [item] is in; 0 for every item when unsynced.
+  int segmentOfItem(int item) => _segmentOfItem[item];
 
   /// How many fill rows of the same run come before fill item [item]: the
   /// segment of the run's dashed rule it draws. 0 for any other item.

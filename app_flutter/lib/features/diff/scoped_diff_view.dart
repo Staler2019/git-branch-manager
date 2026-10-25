@@ -527,8 +527,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // would have no single dispatch (U5).
     if (scope.sourceIndex >= widget.sources.length) return;
     final ScopedDiffSource source = widget.sources[scope.sourceIndex];
-    for (final MapEntry<int, List<int>> entry in scope.byHunk.entries) {
-      source.onStageScope(entry.key, entry.value);
+    // **Last hunk first.** Each call is resolved by the core against a
+    // fresh -U3 diff (`StageOps.cpp` re-reads it), so once hunk 0 is staged
+    // the old hunk 1 *is* hunk 0, and an ascending second call moved the
+    // card after the one framed -- found by the device tier
+    // (`full_file_stage_flow_test.dart`), in excerpt mode as much as full.
+    // Staging a later hunk leaves every earlier one's index and line
+    // indices as they were.
+    final List<int> hunks = scope.byHunk.keys.toList()
+      ..sort((int a, int b) => b.compareTo(a));
+    for (final int hunk in hunks) {
+      source.onStageScope(hunk, scope.byHunk[hunk]!);
     }
     _dropSelection(alsoClearHighlight: false);
   }

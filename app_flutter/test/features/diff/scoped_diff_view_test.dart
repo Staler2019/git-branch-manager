@@ -451,8 +451,10 @@ void main() {
         2,
         reason: 'a range spanning two hunks is one stageLines call per hunk',
       );
-      expect(staged[0].hunkIndex, 0);
-      expect(staged[1].hunkIndex, 1);
+      // Last hunk first: see 「… one stageLines call per hunk, last hunk
+      // first」 below for why.
+      expect(staged[0].hunkIndex, 1);
+      expect(staged[1].hunkIndex, 0);
     });
 
     testWidgets('the head counts the cards below it', (
@@ -899,9 +901,15 @@ void main() {
     });
 
     testWidgets('a selection crossing two hunks makes one stageLines call per '
-        'hunk, in file order', (WidgetTester tester) async {
+        'hunk, last hunk first', (WidgetTester tester) async {
       // gbm_stage_lines takes one hunk index. Counting, not `any`: a single
       // merged call and a double dispatch both look like "it fired".
+      //
+      // **Last hunk first**, and this fake cannot show why: it never
+      // restages, so its diff never changes. The core re-reads the -U3 diff
+      // for every call, so after hunk 0 is staged the old hunk 1 is hunk 0
+      // and file order staged the *next* card's line instead
+      // (`full_file_stage_flow_test.dart` caught it on the device tier).
       await pump(tester, _file(<String>['.+', '+.']));
 
       await dragSelect(tester, 'h0 l1', 'h1 l0');
@@ -921,10 +929,10 @@ void main() {
       );
 
       expect(staged.length, 2);
-      expect(staged[0].hunkIndex, 0);
-      expect(staged[0].lines, <int>[1]);
-      expect(staged[1].hunkIndex, 1);
-      expect(staged[1].lines, <int>[0]);
+      expect(staged[0].hunkIndex, 1);
+      expect(staged[0].lines, <int>[0]);
+      expect(staged[1].hunkIndex, 0);
+      expect(staged[1].lines, <int>[1]);
     });
 
     testWidgets('Ctrl+Shift+Enter stages the selection without touching the '

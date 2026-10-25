@@ -306,7 +306,10 @@ void main() {
           await tester.pump();
         },
       );
-      expect(_calls(excerpt), <String>['0:3', '1:3']);
+      // Last hunk first: the core re-reads the -U3 diff for every call, so
+      // staging hunk 0 first would renumber hunk 1 out from under the
+      // second call (device tier: it staged the *next* card's line).
+      expect(_calls(excerpt), <String>['1:3', '0:3']);
       expect(_calls(full), _calls(excerpt));
     });
 
@@ -335,7 +338,10 @@ void main() {
         submitters.last!();
         await tester.pump();
       });
-      expect(_calls(excerpt), <String>['0:3', '1:3']);
+      // Last hunk first: the core re-reads the -U3 diff for every call, so
+      // staging hunk 0 first would renumber hunk 1 out from under the
+      // second call (device tier: it staged the *next* card's line).
+      expect(_calls(excerpt), <String>['1:3', '0:3']);
       expect(_calls(full), _calls(excerpt));
     });
 

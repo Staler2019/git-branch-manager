@@ -115,6 +115,7 @@ class _DiffPageState extends ConsumerState<DiffPage> {
     return SelectionArea(
       child: GbmCodeHScroll(
         contentWidth: contentWidth,
+        codeClipWidth: null,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView(

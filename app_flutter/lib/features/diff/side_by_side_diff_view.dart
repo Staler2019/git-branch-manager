@@ -124,6 +124,7 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
     return SelectionArea(
       child: GbmCodeHScroll(
         contentWidth: _contentWidth(softWrap),
+        codeClipWidth: null,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView(

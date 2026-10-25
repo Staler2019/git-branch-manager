@@ -240,6 +240,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                                 style: kBlameCodeTextStyle,
                               ) +
                               GbmSpacing.space2,
+                    codeClipWidth: null,
                     verticalController: _vertical,
                     backdrop: colors.surfacePanel,
                     child: ListView.builder(

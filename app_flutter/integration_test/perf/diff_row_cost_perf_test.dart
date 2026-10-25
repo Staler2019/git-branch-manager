@@ -56,6 +56,7 @@ void main() {
     if (v == _Variant.e) {
       return GbmCodeHScroll(
         contentWidth: 1400,
+        codeClipWidth: null,
         verticalController: vertical,
         backdrop: backdrop,
         child: SelectionArea(
@@ -205,6 +206,7 @@ class _EagerScrollWellState extends State<_EagerScrollWell> {
           child: GbmCodeHScrollScope(
             controller: needsHorizontal ? _horizontal : null,
             backdrop: widget.backdrop,
+            codeClipWidth: null,
             child: widget.child,
           ),
         );

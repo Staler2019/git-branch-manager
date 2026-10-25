@@ -955,6 +955,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // LEFT: Ours column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                codeClipWidth: null,
                 verticalController: _oursScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
@@ -968,6 +969,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // MIDDLE: Result column with badges
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                codeClipWidth: null,
                 verticalController: _resultScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(
@@ -981,6 +983,7 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               // RIGHT: Theirs column
               GbmCodeHScroll(
                 contentWidth: paneWidth,
+                codeClipWidth: null,
                 verticalController: _theirsScroll,
                 backdrop: colors.surfacePanel,
                 child: ListView(

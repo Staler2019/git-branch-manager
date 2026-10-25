@@ -44,8 +44,15 @@ class GbmCodeHScroll extends StatefulWidget {
     required this.contentWidth,
     required this.verticalController,
     required this.backdrop,
+    required this.codeClipWidth,
     required this.child,
   });
+
+  /// The width each row's code text is cut at, gutter not included, or null
+  /// for no cut (soft wrap on). Rows read it with [maybeCodeClipWidthOf].
+  /// Required so every caller decides: a missed one would draw uncut lines
+  /// past `AppPreferences.maxCodeLineChars`.
+  final double? codeClipWidth;
 
   /// Total width of the widest row, gutter included -- not just the text.
   /// Below the viewport width no scroller is built at all, so short files keep
@@ -79,6 +86,10 @@ class GbmCodeHScroll extends StatefulWidget {
       .dependOnInheritedWidgetOfExactType<GbmCodeHScrollScope>()
       ?.backdrop;
 
+  static double? maybeCodeClipWidthOf(BuildContext context) => context
+      .dependOnInheritedWidgetOfExactType<GbmCodeHScrollScope>()
+      ?.codeClipWidth;
+
   @override
   State<GbmCodeHScroll> createState() => _GbmCodeHScrollState();
 }
@@ -96,15 +107,19 @@ class GbmCodeHScrollScope extends InheritedWidget {
     super.key,
     required this.controller,
     required this.backdrop,
+    required this.codeClipWidth,
     required super.child,
   });
 
   final ScrollController? controller;
   final Color backdrop;
+  final double? codeClipWidth;
 
   @override
   bool updateShouldNotify(GbmCodeHScrollScope oldWidget) =>
-      oldWidget.controller != controller || oldWidget.backdrop != backdrop;
+      oldWidget.controller != controller ||
+      oldWidget.backdrop != backdrop ||
+      oldWidget.codeClipWidth != codeClipWidth;
 }
 
 class _GbmCodeHScrollState extends State<GbmCodeHScroll> {
@@ -130,6 +145,7 @@ class _GbmCodeHScrollState extends State<GbmCodeHScroll> {
         Widget inner = GbmCodeHScrollScope(
           controller: needsHorizontal ? _horizontal : null,
           backdrop: widget.backdrop,
+          codeClipWidth: widget.codeClipWidth,
           child: widget.child,
         );
 
@@ -182,6 +198,7 @@ class GbmPinnedGutterBackdrop extends StatelessWidget {
     return GbmCodeHScrollScope(
       controller: GbmCodeHScroll.maybeControllerOf(context),
       backdrop: color,
+      codeClipWidth: GbmCodeHScroll.maybeCodeClipWidthOf(context),
       child: child,
     );
   }

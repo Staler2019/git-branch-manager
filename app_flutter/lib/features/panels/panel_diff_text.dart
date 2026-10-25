@@ -76,6 +76,7 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
     return SelectionArea(
       child: GbmCodeHScroll(
         contentWidth: contentWidth,
+        codeClipWidth: null,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView.builder(

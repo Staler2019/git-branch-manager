@@ -723,6 +723,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final Widget list = GbmCodeHScroll(
       key: _hScrollKey,
       contentWidth: widget.contentWidth,
+      codeClipWidth: null,
       verticalController: _vertical,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
       child: ListView.builder(

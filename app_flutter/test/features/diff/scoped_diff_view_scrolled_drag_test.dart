@@ -936,6 +936,36 @@ void main() {
       expect(view.right - tester.getRect(sticky).right, 32);
     });
 
+    // verifier F1: a new drag begun while an older scope's copy is up left
+    // the copy -- and its button, bound to the old scope -- on screen until
+    // the release.
+    for (final bool autoscroll in const <bool>[false, true]) {
+      testWidgets('gone while a new drag runs '
+          '(${autoscroll ? 'autoscrolling' : 'in place'})', (
+        WidgetTester tester,
+      ) async {
+        await pump(tester);
+        await overdragDown(tester, 3, frames: 60);
+        await tester.pump();
+        expect(sticky, findsOneWidget);
+
+        final int row = visibleRows(tester)[3];
+        final TestGesture gesture = await press(tester, textOf(tester, row));
+        await gesture.moveTo(
+          autoscroll
+              // Upward: the view walks back through the old block with its
+              // head still above, where the old scope would pin it again.
+              ? above(tester, textOf(tester, row).dx)
+              : textOf(tester, visibleRows(tester)[5]),
+        );
+        for (int i = 0; i < 20; i++) {
+          await tester.pump(const Duration(milliseconds: 50));
+          expect(sticky, findsNothing, reason: 'frame $i of the new drag');
+        }
+        await release(tester, gesture);
+      });
+    }
+
     testWidgets('gone once the real head is back on screen', (
       WidgetTester tester,
     ) async {

@@ -818,6 +818,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
             _tracker.beginGesture();
             _pointerDown = true;
+            // A new drag replaces the scope the pinned head belongs to, and
+            // the build that would drop it waits for the release
+            // ([_onTouchChanged] skips mid-drag). Off now; any rebuild
+            // before the release has no settled scope, and draws none.
+            if (_showSticky) setState(() => _showSticky = false);
             _gestureScrolled = false;
             _gestureDropped = false;
             // Shift extends the range there is: its start stays put.

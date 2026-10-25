@@ -1538,7 +1538,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
               : const <int>{},
           showTemporaryHead: paint.headItem == index,
           temporaryLabel: paint.label,
-          temporaryHunkCount: temporaryByHunk.length,
           onSubmitTemporary: temporary == null
               ? _noTemporaryScope
               : () => _submitTemporary(temporary),
@@ -2061,7 +2060,6 @@ class _ScopeCard extends StatefulWidget {
     required this.temporaryLines,
     required this.showTemporaryHead,
     required this.temporaryLabel,
-    required this.temporaryHunkCount,
     required this.onSubmitTemporary,
     required this.superseded,
     required this.onStage,
@@ -2102,7 +2100,6 @@ class _ScopeCard extends StatefulWidget {
   final bool showTemporaryHead;
 
   final String temporaryLabel;
-  final int temporaryHunkCount;
   final VoidCallback onSubmitTemporary;
 
   /// A live text selection covers some of this card's changed lines, so the
@@ -2249,7 +2246,6 @@ class _ScopeCardState extends State<_ScopeCard> {
           showHead: !headPlaced,
           staged: widget.staged,
           label: widget.temporaryLabel,
-          hunkCount: widget.temporaryHunkCount,
           onStage: widget.onSubmitTemporary,
           children: rows,
         ),
@@ -2448,7 +2444,6 @@ class _TemporaryBlock extends StatelessWidget {
     required this.showHead,
     required this.staged,
     required this.label,
-    required this.hunkCount,
     required this.onStage,
     required this.children,
   });
@@ -2463,10 +2458,6 @@ class _TemporaryBlock extends StatelessWidget {
   /// Already composed by the caller, because the counts are the *whole*
   /// selection's and not this block's -- one press moves all of it.
   final String label;
-
-  /// How many hunks the selection spans, and so how many `stageLines` calls
-  /// one press makes.
-  final int hunkCount;
 
   final VoidCallback onStage;
   final List<Widget> children;
@@ -2519,9 +2510,9 @@ class _TemporaryBlock extends StatelessWidget {
                       children: <Widget>[
                         Flexible(
                           child: Text(
-                            hunkCount > 1
-                                ? '臨時選取 · 跨 $hunkCount 個 hunk'
-                                : '臨時選取',
+                            // No hunk count: 「跨 2 個 hunk 這文字不需要顯示
+                            // 出來」 (使用者裁定 2026-10-25).
+                            '臨時選取',
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: GbmTypography.textXs,

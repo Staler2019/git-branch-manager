@@ -935,6 +935,23 @@ void main() {
       expect(staged[1].lines, <int>[1]);
     });
 
+    // 使用者裁定（2026-10-25）：「跨 2 個 hunk 這文字不需要顯示出來」，追問後
+    // 「兩處都拿掉」 -- the head and its sticky copy say the same thing.
+    testWidgets('a selection crossing two hunks is labelled 臨時選取 alone', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, _file(<String>['.+', '+.']));
+      await dragSelect(tester, 'h0 l1', 'h1 l0');
+      final Finder head = find.byKey(
+        const ValueKey<String>('temporary-scope-card'),
+      );
+      expect(
+        find.descendant(of: head, matching: find.text('臨時選取')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('hunk'), findsNothing);
+    });
+
     testWidgets('Ctrl+Shift+Enter stages the selection without touching the '
         'card', (WidgetTester tester) async {
       // #75 kept both readings of this key: `Ctrl/Cmd+Alt+S` globally (P16's

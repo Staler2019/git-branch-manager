@@ -463,6 +463,8 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       unstagedFullFile: unstagedFull,
       stagedFullFile: stagedFull,
       fullFile: fullFile,
+      onToggleFullFile: () =>
+          ref.read(appPreferencesProvider.notifier).toggleFullFileView(),
       // Read here rather than inside ScopedDiffView: this is the nearest
       // container that already holds a Riverpod dependency, and keeping the
       // diff widgets on plain values is what lets their tests pump them

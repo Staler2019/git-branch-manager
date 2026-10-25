@@ -7,6 +7,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/code_line_metrics.dart';
 import '../../../widgets/gbm_code_hscroll.dart';
+import '../../../widgets/gbm_icon_button.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
 import '../../diff/diff_full_file_fill.dart';
@@ -70,6 +71,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
     this.unstagedFullFile,
     this.stagedFullFile,
     this.fullFile = false,
+    this.onToggleFullFile,
   });
 
   /// What the titlebar names. A staged rename is two different paths, so the
@@ -87,6 +89,9 @@ class WorkingCopyDiffPane extends StatefulWidget {
 
   /// `AppPreferences.fullFileViewEnabled`.
   final bool fullFile;
+
+  /// The titlebar's `Full file` button; the same toggle as View → Full file.
+  final VoidCallback? onToggleFullFile;
   final bool unstagedLoading;
   final bool stagedLoading;
 
@@ -209,6 +214,14 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         : (staged ? widget.stagedFile : widget.unstagedFile);
   }
 
+  /// Whether either side's full diff is longer than
+  /// [kFullFileViewMaxLines].
+  bool _overCap() =>
+      <DiffFile?>[widget.unstagedFullFile, widget.stagedFullFile].any(
+        (DiffFile? f) =>
+            f != null && diffFileLineCount(f) > kFullFileViewMaxLines,
+      );
+
   /// The fill rows for a view showing [sides] (`false` unstaged, `true`
   /// staged), or null for excerpt mode: the full-file view is off, a full
   /// diff has not landed or disagrees with its -U3 one
@@ -227,12 +240,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
           staged: staged,
         ),
     ];
-    for (final DiffFillSource source in sources) {
-      final DiffFile? full = source.full;
-      if (full != null && diffFileLineCount(full) > kFullFileViewMaxLines) {
-        return null;
-      }
-    }
+    if (_overCap()) return null;
     return fullFileFillRows(sources);
   }
 
@@ -261,6 +269,9 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               : null,
           onModeChanged: (WorkingCopyDiffMode mode) =>
               setState(() => _mode = mode),
+          fullFile: widget.fullFile,
+          tooLarge: widget.fullFile && _overCap(),
+          onToggleFullFile: widget.onToggleFullFile,
         ),
         Expanded(
           child: switch (_mode) {
@@ -344,9 +355,18 @@ class _TitleBar extends StatelessWidget {
     required this.mode,
     required this.scopeCounts,
     required this.onModeChanged,
+    required this.fullFile,
+    required this.tooLarge,
+    required this.onToggleFullFile,
   });
 
   final String displayPath;
+
+  /// Whether this file is drawn whole; [tooLarge] when the view is on but
+  /// the file is over [kFullFileViewMaxLines] and drawn in excerpts.
+  final bool fullFile;
+  final bool tooLarge;
+  final VoidCallback? onToggleFullFile;
   final WorkingCopyDiffMode mode;
 
   /// How many cards each direction has, or null when the two column heads
@@ -396,6 +416,16 @@ class _TitleBar extends StatelessWidget {
               ),
             ),
           ],
+          const SizedBox(width: GbmSpacing.space2),
+          // Disabled with its reason rather than hidden over the cap
+          // ([FLU-menu-enabled-is-visual-only]), and not pressed then: this
+          // file is drawn in excerpts whatever the preference says.
+          GbmIconButton(
+            icon: const Icon(Icons.expand, size: 16),
+            tooltip: tooLarge ? 'File too large for full view' : 'Full file',
+            active: fullFile && !tooLarge,
+            onPressed: tooLarge ? null : onToggleFullFile,
+          ),
           const SizedBox(width: GbmSpacing.space2),
           GbmSegmentedControl<WorkingCopyDiffMode>(
             value: mode,

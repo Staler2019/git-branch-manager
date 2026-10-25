@@ -12,6 +12,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/working_copy_repository.dart'
     as wc;
 import 'package:gbm_flutter/features/working_copy/working_copy_view.dart';
+import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
 
 import '../../support/fake_repo_session.dart';
 import '../../support/full_file_diffs.dart';
@@ -234,5 +235,23 @@ void main() {
       );
       expect(unstagedFullRequests(fake), 0);
     });
+  });
+
+  testWidgets('the titlebar button flips the preference', (
+    WidgetTester tester,
+  ) async {
+    final (_, ProviderContainer container) = await pump(tester);
+    await tester.tap(find.text('lib/a.dart').first);
+    await tester.pump();
+    await tester.tap(
+      find.byWidgetPredicate(
+        (Widget w) =>
+            w is GbmIconButton &&
+            w.icon is Icon &&
+            (w.icon as Icon).icon == Icons.expand,
+      ),
+    );
+    await tester.pump();
+    expect(container.read(appPreferencesProvider).fullFileViewEnabled, isTrue);
   });
 }

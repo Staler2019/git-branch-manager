@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 
+import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
+
 import '../../../support/full_file_diffs.dart';
 import '../../../support/pump_app.dart';
 
@@ -15,6 +17,7 @@ void main() {
     int total = 40,
     Set<int> fullEdits = const <int>{5, 30},
     Set<int> long = const <int>{},
+    VoidCallback? onToggleFullFile,
   }) => pumpGbmWidget(
     tester,
     child: WorkingCopyDiffPane(
@@ -35,6 +38,7 @@ void main() {
       onStageScope: (_, _, _) {},
       onDiscardScope: (_, _) {},
       onTemporaryScopeChanged: (_) {},
+      onToggleFullFile: onToggleFullFile ?? () {},
     ),
   );
 
@@ -97,5 +101,58 @@ void main() {
       ),
     );
     expect(sideways.position.maxScrollExtent, greaterThan(1000));
+  });
+
+  group('the titlebar button', () {
+    Finder button() => find.byWidgetPredicate(
+      (Widget w) =>
+          w is GbmIconButton &&
+          w.icon is Icon &&
+          (w.icon as Icon).icon == Icons.expand,
+    );
+    GbmIconButton widgetOf(WidgetTester tester) =>
+        tester.widget<GbmIconButton>(button());
+
+    testWidgets('is `Full file`, pressed while the view is on', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, fullFile: true);
+      expect(widgetOf(tester).tooltip, 'Full file');
+      expect(widgetOf(tester).active, isTrue);
+    });
+
+    testWidgets('is not pressed while the view is off', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, fullFile: false);
+      expect(widgetOf(tester).active, isFalse);
+    });
+
+    testWidgets('a press toggles the view, once', (WidgetTester tester) async {
+      int toggles = 0;
+      await pump(tester, fullFile: false, onToggleFullFile: () => toggles++);
+      await tester.tap(button());
+      await tester.pump();
+      expect(toggles, 1);
+    });
+
+    // Disabled, not hidden: 隱藏會讓人以為功能不存在 ([FLU-menu-enabled-is-
+    // visual-only]); and not pressed, since this file is in excerpt mode.
+    testWidgets('over the line cap it is disabled and says why', (
+      WidgetTester tester,
+    ) async {
+      int toggles = 0;
+      await pump(
+        tester,
+        fullFile: true,
+        total: kFullFileViewMaxLines + 1,
+        onToggleFullFile: () => toggles++,
+      );
+      expect(widgetOf(tester).tooltip, 'File too large for full view');
+      expect(widgetOf(tester).onPressed, isNull);
+      expect(widgetOf(tester).active, isFalse);
+      await tester.tap(button(), warnIfMissed: false);
+      expect(toggles, 0);
+    });
   });
 }

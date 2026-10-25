@@ -408,6 +408,13 @@ class AppPreferencesNotifier extends StateNotifier<AppPreferences> {
     state = mutate(state);
     await _repo.write(state);
   }
+
+  /// Flips [AppPreferences.fullFileViewEnabled]: the one toggle View → Full
+  /// file and the diff pane's titlebar button both call.
+  Future<void> toggleFullFileView() => update(
+    (AppPreferences p) =>
+        p.copyWith(fullFileViewEnabled: !p.fullFileViewEnabled),
+  );
 }
 
 final StateNotifierProvider<AppPreferencesNotifier, AppPreferences>

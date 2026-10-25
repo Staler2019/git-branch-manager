@@ -289,3 +289,30 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
   - 測試：新增 widget 測試，斷言捲動後 offset 仍然存進 draft，而且 pane 的 widget 沒有被換掉。mutation 2 個（兩處各自改回 watch 整個 draft），mutations-run 2、tests-reddened 2。全套 4243 綠，analyzer 0。
 - **Result**：三種捲動都回到 staged 側原本的水準。
 - 同一則回報的第二點（2 file 左右沒有同步捲動）已取得裁定，將以 Plan 送審，見下一節。
+
+## Slice W：所有程式碼檢視的每行字寬上限（334901d4 … 7780da53）
+
+- **Situation**：同步捲動的討論中，使用者裁定橫向寬度「最長200字中文」是上限，並擴大到「所有file顯示最寬都是這個數值」，數值做成偏好設定。
+- **Task**：一個全域偏好 `maxCodeLineChars`（預設 200），套用到 8 個 `GbmCodeHScroll` 建構點；超過的行截斷。
+- **Action**：
+  - G1（334901d4，`docs/claude-design-demo/code-line-width-cap-spec.html`）：spec-auditor 找出我草稿的 5 處錯誤，已就地更正。使用者裁定「c, ok」：截斷用 ellipsis，spec 的截斷一律是 `text-overflow:ellipsis`；淡出提示（原 W3）刪除。
+  - 其他裁定：上限比 pane 窄時「在上限處裁掉」；side-by-side「每一欄各 N 字」；conflict 的輸入欄位「輸入欄位不套用」。
+  - W1（5697dff0）：偏好、Preferences 欄位、`flatKeysToClear`。mutations-run 6、tests-reddened 6。
+  - W2a（f51ccf42）：`capCodeWidth` / `CjkCharWidthMemo`（量 '中'，measurer 可注入）；scope 的 `codeClipWidth` 是 required，backdrop 轉傳它。mutations-run 7、tests-reddened 7。
+  - W2b（7780da53）：`GbmCodeText`，加上 8 個建構點的接線。mutations-run 14、tests-reddened 14。第一輪 12/14：2 file 單側的 clip 與 `WorkingCopyView` 讀偏好兩個 mutation 沒被抓到，補測試後才全紅。
+  - 實作中量到的四件事：
+    1. **Flutter 對多行段落套 ellipsis 只留第一行**：3 行的 `Text` 量出高度 14。所以改成逐行各自一個段落。
+    2. **複製被截斷的行仍得全文**：stop ② 不成立，已以測試確認。
+    3. **letterSpacing 漂移（既有缺陷）**：各 view 用裸 `TextPainter` 量捲動範圍，但 `Text` 會先合併 Material body style 的 `letterSpacing: 0.25`，畫出來每字寬 0.25 px。預設 200 時最長那一行因此被誤截。KIT `.gbm-diffline` 沒有 letter-spacing，所以在 `GbmCodeText` 固定為 0。這觸發 stop ①，使用者裁定接受：lazy 快照 63.8→62.5、76.5→75.0，位置不變；blame「never truncated」改成驗證繪製結果。
+    4. **緊的父約束會蓋掉 `ConstrainedBox`**：`Expanded` 的 cell 會如此。改用 `Align` 之後，side-by-side 的 cell 反而縮窄。再改用 `LayoutBuilder`，又因為放在 `IntrinsicHeight` 底下而 crash（"LayoutBuilder does not support returning intrinsic dimensions"）。最後換成一個支援 intrinsic 的 `RenderProxyBox`（`_HoldToWidth`）。
+  - 查過、但不是問題：well 與卡片的邊框沒有算進 `contentWidth`。量測結果：剛好 N 字的行在 300 和 800 寬下都完整顯示（寬 125 = clip）；cap 200 捲到最右時，行尾在 x=772，viewport 右緣 800。
+- **Result**：
+  - 全套 4272 綠、8 skip，analyzer 0。
+  - `wc_scroll_perf_test`（profile，macOS）build p90：unified 16.7→14.7 ms、2 file unstaged 14.6→14.1 ms、staged 14.1→13.5 ms；stop ③ 沒有觸發。2 file unstaged 有一幀 buildMax 290 ms 的離群值，p50/p90 不受影響，沒有再追。
+- **Verifier（HEAD 7780da53）：CONFIRMED**
+  - 全套 4274 綠、8 skip。比上面多 2 個，是補了 2 file 與 `WorkingCopyView` 的測試之後才跑的。
+  - 另以 6 個臨時 probe 實測：conflict 多行 context block、`GbmPinnedGutterBackdrop` 下的卡片列、hunk header、side-by-side 在 300/2400 寬與 `IntrinsicHeight` 中、複製得全文、TextField 不受上限影響、偏好值 200→10→200 即時切換。
+  - 兩項 P4 依規則 defer：
+    - A1：`appPrefs.maxCodeLineChars` 讀取時沒有下限 clamp。UI 只寫正整數，但 storage 被手改成負數時，`_HoldToWidth` 會建出負的 maxWidth（未實測）。
+    - A2：DiffPage 的 hunk header 不在寬度量測之內（既有）。超過的部分以前是 visible overflow，捲不到；現在改成 ellipsis。
+  - 限制：test 字型每個字元一樣寬，所以「中文字寬」的換算只由 `CjkCharWidthMemo` 的注入 measurer 單元測試驗證。

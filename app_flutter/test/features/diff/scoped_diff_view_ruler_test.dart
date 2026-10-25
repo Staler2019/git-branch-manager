@@ -172,6 +172,18 @@ void main() {
     expect(d.color, tester.element(mark(1)).gbmColors.success);
   });
 
+  // A mark is pressable, so it says so on hover the way the app's buttons do.
+  testWidgets('a mark shows the click cursor', (WidgetTester tester) async {
+    await pump(tester);
+    final Iterable<MouseRegion> regions = tester.widgetList<MouseRegion>(
+      find.descendant(of: mark(1), matching: find.byType(MouseRegion)),
+    );
+    expect(
+      regions.map((MouseRegion r) => r.cursor),
+      contains(SystemMouseCursors.click),
+    );
+  });
+
   testWidgets('a card too small for its share still gets a 4px mark', (
     WidgetTester tester,
   ) async {

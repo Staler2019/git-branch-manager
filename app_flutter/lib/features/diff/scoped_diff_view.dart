@@ -1626,13 +1626,16 @@ class _OverviewRuler extends StatelessWidget {
                   height: (height * mark.extent).clamp(_minHeight, height),
                   left: _inset,
                   right: _inset,
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => onMark(mark.item),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: mark.staged ? colors.success : colors.accent,
-                        borderRadius: BorderRadius.circular(2),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onMark(mark.item),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: mark.staged ? colors.success : colors.accent,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
                   ),

@@ -1,0 +1,245 @@
+<title>程式碼行寬上限</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet — each screen is a framed mock in the app tokens, with its value-source table below it. */
+/* App tokens: app_flutter/lib/theme/tokens.dart — light = _lightIde, dark = _darkTechnical (the app default). */
+:root {
+  --surface-app: #FFFFFF; --surface-panel: #FFFFFF; --surface-raised: #FFFFFF;
+  --surface-sunken: #F5F6F8; --surface-hover: #F0F2F5; --surface-selected: #E4EDFD; --surface-overlay: #FFFFFF;
+  --border-subtle: #EAECEF; --border-default: #DCDFE4; --border-strong: #C6CAD1;
+  --text-primary: #1C2128; --text-secondary: #57606A; --text-tertiary: #8B949E; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #EAF1FE;
+  --success: #1A7F37; --danger: #CF222E; --warning: #9A6700;
+  --diff-add-bg: #E9FBEE; --diff-add-text: #116329; --diff-del-bg: #FFEBE9; --diff-del-text: #82241F;
+  /* page chrome (not app tokens): everything outside the .mock frames, plus the frames' own width/radius, is page layout, not a drawn value */
+  --page-bg: #F3F5F8; --page-ink: #1C2128; --page-muted: #57606A; --page-rule: #DCDFE4;
+  --tag-new-bg: #FFF4DB; --tag-new-ink: #7A5200; --tag-code-bg: #E4EDFD; --tag-code-ink: #1857B8; --tag-rule-bg: #E6F6EC; --tag-rule-ink: #136C37;
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-page: -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page-bg); color: var(--page-ink); font-family: var(--font-page); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--page-muted); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--page-muted); font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--page-muted); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--page-rule); padding-top: 18px; }
+.rulings { display: flex; flex-wrap: wrap; gap: 8px; }
+.ruling { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--page-muted); align-items: center; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--tag-code-bg); color: var(--tag-code-ink); }
+.tag.new { background: var(--tag-new-bg); color: var(--tag-new-ink); }
+.tag.rule { background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+
+.stage { overflow-x: auto; padding: 20px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 8px; }
+.mock { font-family: var(--font-ui); color: var(--text-primary); background: var(--surface-app); }
+.mono { font-family: var(--font-mono); }
+/* ---------- Preferences dialog ---------- */
+.dlg { width: 720px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.dlg-title { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; font-weight: 600; }
+.dlg-body { display: flex; height: 420px; padding: 0 16px; } /* gbm_dialog_shell.dart:125 horizontal only — margin-block 16px removed 2026-10-18, the code has none */
+.nav { width: 168px; display: flex; flex-direction: column; }
+.nav div { padding: 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.nav div.on { background: var(--surface-selected); color: var(--text-primary); font-weight: 600; }
+.vdiv { width: 1px; background: var(--border-subtle); }
+.pane { flex: 1; padding-left: 16px; display: flex; flex-direction: column; }
+.sh { font-size: 11px; font-weight: 600; color: var(--text-tertiary); letter-spacing: .5px; padding-bottom: 8px; }
+.gap4 { height: 16px; } .gap2 { height: 8px; } .gap1 { height: 4px; }
+.chk { display: flex; gap: 10px; align-items: flex-start; }
+.chk .box { width: 18px; height: 18px; margin-top: 1px; border-radius: 2px; background: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+.t-sm { font-size: 12.5px; } .t-xs { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+.fl { font-size: 11px; color: var(--text-secondary); }
+.inp { height: 30px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-panel); display: flex; align-items: center; padding: 0 12px; font-size: 12.5px; gap: 6px; }
+.inp .sfx { color: var(--text-tertiary); margin-left: auto; }
+.slider .thumb { position: absolute; top: 7px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-overlay); box-shadow: 0 0 0 1px var(--accent); transform: translateX(-8px); cursor: grab; }
+.slider .lbls { position: absolute; top: 30px; left: 0; right: 0; height: 14px; }
+button.sim:hover { border-color: var(--accent); }
+button.sim:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ctl .state { font-size: 12.5px; color: var(--page-muted); }
+pre.export { margin: 0; padding: 12px 14px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; overflow-x: auto; color: var(--page-ink); }
+
+/* ---------- tables ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+th { font-weight: 600; color: var(--page-muted); font-size: 12px; }
+td code, p code, li code { font-family: var(--font-mono); font-size: 11.5px; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } h1 { font-size: 22px; } }
+
+/* ---------- diff pane ---------- */
+.pane-box { width: 640px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; background: var(--surface-sunken); padding: 8px; }
+.row { position: relative; display: flex; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; padding: 1px 10px 1px 0; white-space: pre; color: var(--text-secondary); }
+.row.add { background: var(--diff-add-bg); color: var(--diff-add-text); }
+.row.del { background: var(--diff-del-bg); color: var(--diff-del-text); }
+.gut { width: 96px; flex-shrink: 0; display: flex; padding-left: 10px; color: var(--text-tertiary); }
+.gut span { width: 36px; font-size: 11px; text-align: right; } /* diff_line.dart:216-246 textXs, TextAlign.right */
+.gut span.mk { width: 14px; font-size: 12.5px; text-align: left; color: var(--row-fg); } /* diff_line.dart:227-231 marker = row text colour */
+.code { position: relative; overflow: hidden; flex: none; }
+.v-fade .code.capped::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 24px; background: linear-gradient(to right, transparent, var(--row-bg)); }
+.row { --row-bg: var(--surface-sunken); --row-fg: var(--text-secondary); } .row.add { --row-bg: var(--diff-add-bg); --row-fg: var(--diff-add-text); } .row.del { --row-bg: var(--diff-del-bg); --row-fg: var(--diff-del-text); }
+.dlg-foot { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border-subtle); } /* gbm_dialog_shell.dart:132-141 */
+.btn-primary { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); font-size: 11px; display: inline-flex; align-items: center; font-weight: 500; } /* KIT .gbm-btn-sm, gbm_dialog_shell.dart:145-146 */
+.variants { display: grid; gap: 20px; }
+.variants figure { margin: 0; display: grid; gap: 8px; }
+.variants figcaption { font-size: 12.5px; color: var(--page-muted); }
+.ctl input[type=range] { width: 200px; accent-color: var(--accent); }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">feat/wc-full-file-view · Slice W · G1 設計稿 · 2026-10-25</div>
+    <h1>程式碼行寬上限</h1>
+    <p class="lede">所有檔案顯示（Working Copy、History diff、side-by-side、patch、blame、衝突解決三欄）在不換行時，每一欄最多只畫 N 個中文字寬，N 在 Preferences 設定，預設 200。底色仍畫滿整列，只有文字被裁掉。開啟自動換行時不套用。衝突解決下方的輸入欄位也不套用。</p>
+    <div class="legend">
+      <span><span class="tag code">code</span> 沿用現有程式（檔名:行）</span>
+      <span><span class="tag rule">裁定</span> 你的裁定</span>
+      <span><span class="tag new">新增</span> 沒有出處，等你裁定</span>
+    </div>
+  </header>
+
+  <section class="screen" id="prefs">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · Preferences → Appearance</div>
+      <h2>「程式碼」區塊多一個數字欄</h2>
+      <div class="rulings">
+        <span class="ruling">「這格200再preference裡面設定好了」</span>
+        <span class="ruling">「所有file顯示最寬都是這個數值」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="mock dlg">
+        <div class="dlg-title">Preferences</div>
+        <div class="dlg-body">
+          <div class="nav"><div>General</div><div>Repository sources</div><div>Git</div><div class="on">Appearance</div><div>External apps</div><div>Shortcuts</div><div>Advanced</div><div>Developer</div></div>
+          <div class="vdiv"></div>
+          <div class="pane" style="padding-top:0">
+            <div class="sh">主題</div>
+            <div class="t-sm" style="color:var(--text-secondary);height:30px;display:flex;align-items:center">（主題切換按鈕，不變）</div>
+            <div class="gap4"></div>
+            <div class="sh">程式碼</div>
+            <div class="chk"><div class="box" style="background:transparent;border:2px solid var(--border-strong)"></div><div><div class="t-sm">長行自動換行</div><div class="t-xs">套用在 diff、blame、patch 和衝突解決畫面。</div></div></div>
+            <div class="gap2"></div>
+            <div class="new-block">
+              <div class="fl">每行最多顯示</div><div class="gap1"></div>
+              <label class="inp" style="width:200px" for="cap-input"><input id="cap-input" type="text" inputmode="numeric" value="200" aria-label="每行最多顯示幾個中文字寬" style="width:100%;border:0;background:transparent;color:var(--text-primary);font:inherit;outline:none"><span class="sfx">字</span></label>
+              <div class="gap2"></div>
+              <div class="t-xs">以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。</div>
+            </div>
+          </div>
+        </div>
+        <div class="dlg-foot"><span class="btn-primary">Close</span></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>沿用的外框</td><td>對話框外框、標題列、420 高 body、168 寬 nav 與選中樣式、分隔線、區塊標題、勾選列文字、Close 鈕：全部照現況畫，本輪不改</td><td><span class="tag code">gbm_dialog_shell.dart:70-146</span> <span class="tag code">preferences_dialog.dart:86-216,236-254,879-909</span></td></tr>
+        <tr><td>示意，不是畫值</td><td>主題列的佔位文字；勾選框（實作是 Material <code>CheckboxListTile</code>，這裡只示意未勾選，預設 <code>softWrapEnabled = false</code>）；輸入框內字級與後綴位置（實作由 <code>gbmInputDecoration</code> 決定）</td><td><span class="tag code">preferences_dialog.dart:236-240,880-899</span> <span class="tag code">gbm_input_decoration.dart:46-81</span> <span class="tag code">app_preferences_repository.dart:46</span></td></tr>
+        <tr><td>位置</td><td>Appearance 的「程式碼」區塊，「長行自動換行」之下</td><td>兩者都是程式碼的顯示方式 <span class="tag code">preferences_dialog.dart:902</span> · 位置 <span class="tag new">新增</span></td></tr>
+        <tr><td>元件</td><td><code>_NumberField</code>：標籤 11 px textSecondary，間距 4 px，輸入框寬 200、高 30，後綴文字</td><td><span class="tag code">preferences_dialog.dart:262-330</span></td></tr>
+        <tr><td>勾選框與數字欄的間距</td><td>8 px（space2）</td><td>對話框內兩個欄位之間（Advanced 分頁）<span class="tag code">preferences_dialog.dart:1296</span>；數字欄與說明之間同為 8 <span class="tag code">:1305</span></td></tr>
+        <tr><td>只接受正整數</td><td>打到一半的值不寫入</td><td><span class="tag code">_NumberField.onChanged</span></td></tr>
+        <tr><td>說明文字</td><td>11 px、textTertiary、行高 1.5</td><td>樣式 <span class="tag code">preferences_dialog.dart:1306-1312</span> · 文案 <span class="tag new">新增</span></td></tr>
+        <tr><td>標籤、後綴</td><td>「每行最多顯示」、「字」</td><td><span class="tag new">新增</span>（對話框既有數字欄用中文：Advanced 分頁的「記憶體中保留」「筆」<span class="tag code">preferences_dialog.dart:1289-1290</span>）</td></tr>
+        <tr><td>預設</td><td>200</td><td><span class="tag rule">裁定</span> 「最長200字中文」「是上限」；「預設 200」是主 session 對「這格200再preference裡面設定好了」的解讀，你沒有提出異議</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="cut">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · 所有檔案顯示（以 Working Copy 的 diff 列為例）</div>
+      <h2>裁切處要不要提示</h2>
+      <div class="rulings">
+        <span class="ruling">「截斷，上限之後看不到」</span>
+        <span class="ruling">「在上限處裁掉」</span>
+        <span class="ruling">side-by-side「每一欄各 N 字」</span>
+      </div>
+    </div>
+    <div class="callout" style="border-left-color:var(--success);background:var(--tag-rule-bg);color:var(--tag-rule-ink)"><b>使用者裁定 2026-10-25：「c, ok」</b>：採用 C（ellipsis）；畫面 1 的位置、標籤「每行最多顯示」、後綴「字」與說明文案照稿。超過上限的行，在 N 個字寬內以「…」收尾。</div>
+    <div class="callout">原本的問題：Q1 的選項文字寫的是「最右邊畫一個淡出提示」，但 spec 沒有任何文字或程式碼的淡出畫法（<code>linear-gradient</code>、<code>fade</code>、<code>mask-image</code> 都是 0 筆；全文唯一的「淡出」是 status bar 作業結果「停留 3 秒顯示結果再淡出」，講的是消失動畫，不是截斷）。spec 截斷文字一律用 ellipsis（42 處 <code>text-overflow:ellipsis</code>），不過那些都是 UI 標籤，沒有程式碼。下面三種都畫出來，請選一種。</div>
+    <div class="ctl"><label class="state" for="cap-range">示範用上限：<b id="cap-val">24</b> 字（真實預設是 200，這裡調小才看得到裁切）</label><input id="cap-range" type="range" min="6" max="40" value="24"></div>
+    <div class="variants">
+      <figure><figcaption><b>A. 直接裁掉，不提示</b>：第 N 個字完整可見，之後什麼都沒有。<span class="tag new">新增</span></figcaption><div class="stage"><div class="mock pane-box" data-v="a"></div></div></figure>
+      <figure><figcaption><b>B. 淡出</b>：裁切處 24 px 漸層，從透明到該列底色。第 N 個字的右半會被淡化。（出自你選的 Q1 選項文字） · 寬度 24（space6）<span class="tag new">新增</span></figcaption><div class="stage"><div class="mock pane-box v-fade" data-v="b"></div></div></figure>
+      <figure><figcaption><b>C. Ellipsis</b>：第 N 個字換成「…」。spec 的截斷詞彙，但第 N 個字本身看不到。（spec 的 text-overflow:ellipsis ×42）</figcaption><div class="stage"><div class="mock pane-box" data-v="c"></div></div></figure>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>N 的單位</td><td>N × 該畫面程式碼字型下「中」的寬度，不含行號欄</td><td><span class="tag rule">裁定</span>「最長200字中文」 · 各畫面字型 <span class="tag code">kDiffCodeTextStyle / kBlameCodeTextStyle / kConflictCodeTextStyle / kPanelDiffTextStyle / kSideBySideCodeTextStyle</span></td></tr>
+        <tr><td>列的幾何</td><td>行號欄 96（10 + 36 + 36 + 14），行號 11 px textTertiary 靠右，+/- 標記 12.5 px 用列字色；程式碼 12.5 px mono、行高 1.6，不換行，右 padding 10，上下 1</td><td><span class="tag code">diff_line.dart:23,29,37-41,109-112,135-140,204,216-246</span></td></tr>
+        <tr><td>well</td><td>surfaceSunken 底，padding 8</td><td>底色 <span class="tag code">diff_line.dart:128-131</span> · 外框與 padding 為示意</td></tr>
+        <tr><td>列底色</td><td>畫滿整列，不受上限影響</td><td><span class="tag rule">裁定</span> 你選的「在上限處裁掉」選項附圖寫「底色畫滿，文字停在 N 字」</td></tr><tr><td>示範資料</td><td>四行程式碼、行號 41–43、上限滑桿 6–40（預設 24）只是示範，不是畫進 app 的值</td><td>頁面示範</td></tr>
+        <tr><td>橫向捲動</td><td>捲動範圍到上限為止；上限比 pane 窄時不出現橫向捲軸</td><td>Slice W 的 WB1；不出現捲軸是因為只有 contentWidth 大於 pane 才建 scroller <span class="tag code">gbm_code_hscroll.dart:122-124</span></td></tr>
+        <tr><td>複製與選取</td><td>被裁掉的字仍然存在，複製得到全文</td><td>Slice W stop ②</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var lines = [
+    ['ctx', '41', '41', ' ', '  final String message = "這是一段很長的提交說明，用來示範超過上限之後的文字會怎麼被裁掉，不會一直延伸到畫面外";'],
+    ['del', '42', '', '-', '  log.info("short");'],
+    ['add', '', '42', '+', '  log.info("Fetched remote refs: origin/main origin/feat/wc-full-file-view origin/fix/slow-machine-log-and-timeouts");'],
+    ['ctx', '43', '43', ' ', '  return result;']
+  ];
+  var probe = document.createElement('canvas').getContext('2d');
+  function cjk() { probe.font = '12.5px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-mono'); return probe.measureText('中').width; }
+  function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function render(n) {
+    document.getElementById('cap-val').textContent = n;
+    var cap = n * cjk();
+    probe.font = '12.5px ' + getComputedStyle(document.documentElement).getPropertyValue('--font-mono');
+    document.querySelectorAll('.pane-box').forEach(function (box) {
+      var v = box.getAttribute('data-v');
+      box.innerHTML = lines.map(function (l) {
+        var text = l[4], over = probe.measureText(text).width > cap, shown = text;
+        if (v === 'c' && over) { var k = text.length; while (k > 0 && probe.measureText(text.slice(0, k) + '…').width > cap) k--; shown = text.slice(0, k) + '…'; }
+        return '<div class="row ' + l[0] + '"><span class="gut"><span>' + l[1] + '</span><span>' + l[2] + '</span><span class="mk">' + l[3] + '</span></span>' +
+          '<span class="code' + (over ? ' capped' : '') + '" style="max-width:' + cap.toFixed(1) + 'px">' + esc(shown) + '</span></div>';
+      }).join('');
+    });
+  }
+  var range = document.getElementById('cap-range');
+  range.addEventListener('input', function () { render(+range.value); });
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { render(+range.value); });
+  render(+range.value);
+})();
+</script>

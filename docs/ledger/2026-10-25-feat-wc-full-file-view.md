@@ -244,7 +244,13 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
     哪一個沒有變紅，當時沒有記下來，這裡不補猜測。全套 4241 綠，analyzer 0。
     device `full_file_stage_flow_test.dart` 7/7（HEAD 313bb4cc）。`stage_lines_flow`、`context_menu_flows` 在這次修正之後沒有重跑。
   - 設計稿 INF-3 就地更正（f2e1b73f）。
-  - 觀察，交給使用者決定：內容比畫面寬時，置頂版延伸到右緣，會蓋住垂直捲軸 thumb 最上面約 31px。
+  - ~~觀察，交給使用者決定：內容比畫面寬時，置頂版延伸到右緣，會蓋住垂直捲軸 thumb 最上面約 31px。~~
+    **使用者裁定：「右緣留出捲軸的寬度」。** 修正（2f34808e）：置頂版的右側最多延伸到 view 右緣往內 10。
+    10 = Material 桌面版 `Scrollbar` 的預設 thickness 8 + crossAxisMargin 2；`GbmCodeHScroll` 沒有設 theme。這個值出自 SDK，不出自 spec。
+    block 右緣落在這 10 以內時，視同在畫面外，不畫虛線。
+    測試：期望值 0 → 10；新增 dx 686（block 右緣落在捲軸區內）；新增 thumb 區的 hit test。
+    mutations-run 3、tests-reddened 3／1／1。另外把 inset 斷言拿掉、只留 hit test，在 gutter 改成 0 的情況下 dx 0 與 dx 60 都變紅，證實修正前置頂版確實會攔下拖曳 thumb 的手勢。
+    全套 4242 綠，analyzer 0；device `full_file_stage_flow_test.dart` 7/7（HEAD 05d09b68）。設計稿 INF-3 已補上（05d09b68）。
 - 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
 
 這一段自己的失誤：

@@ -14,6 +14,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/features/diff/diff_full_file_fill.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 
@@ -148,6 +149,7 @@ void main() {
     DiffFile? file,
     List<ScopedDiffSource>? sources,
     double contentWidth = 0,
+    List<DiffFillRow>? fill,
   }) => pumpGbmWidget(
     tester,
     child: Align(
@@ -159,6 +161,7 @@ void main() {
           softWrap: false,
           verticalController: vertical,
           contentWidth: contentWidth,
+          fill: fill,
           onTemporaryScopeChanged: (void Function()? s) => submit = s,
           sources:
               sources ?? <ScopedDiffSource>[unstagedSource(file ?? _file())],
@@ -860,5 +863,130 @@ void main() {
       findsNothing,
     );
     expect(submit, isNull, reason: 'no submitter for Ctrl/Cmd+Alt+S either');
+  });
+
+  // 使用者裁定（2026-10-25）「長距離拖曳後 => 改」→ sticky head; design:
+  // docs/claude-design-demo/wc-sticky-temp-head-spec.html. While the
+  // one-shot block runs past the top of the view with its head above it,
+  // a copy of the head is pinned there; it is the same press.
+  group('the one-shot head pinned to the top', () {
+    final Finder sticky = find.byKey(
+      const ValueKey<String>('temporary-scope-sticky'),
+    );
+    Finder stickyButton() => find.descendant(
+      of: sticky,
+      matching: find.textContaining(RegExp('^Stage ')),
+    );
+
+    testWidgets('after a long drag it sits at the top, between the block '
+        'edges, and stages the same range', (WidgetTester tester) async {
+      await pump(tester);
+      final Offset start = textOf(tester, 3);
+      final TestGesture gesture = await press(tester, start);
+      await hold(tester, gesture, below(tester, start.dx), frames: 60);
+      expect(sticky, findsNothing, reason: 'no block while the drag runs');
+      final int end = visibleRows(tester).last;
+      await gesture.moveTo(textOf(tester, end));
+      await tester.pump();
+      await release(tester, gesture);
+      // One frame after the block: the head is measured once laid out.
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+
+      expect(sticky, findsOneWidget);
+      final Rect view = viewport(tester);
+      final Rect head = tester.getRect(sticky);
+      expect(head.top, view.top);
+      // 8 margin + 8 padding + 1 border + the card's 3px left edge; on the
+      // right the same 17 and the card's 1px ring (no ruler: excerpt mode).
+      expect(head.left - view.left, 20);
+      expect(view.right - head.right, 18);
+      expect(oneShotButton('Stage'), findsNothing, reason: 'one button only');
+
+      await tester.tap(stickyButton());
+      await tester.pump();
+      expectOneCall(stageCalls, _changedBetween(3, end));
+    });
+
+    testWidgets('with the ruler, it stops short of it', (
+      WidgetTester tester,
+    ) async {
+      final List<DiffFillRow> fill = <DiffFillRow>[
+        for (int l = 121; l <= 130; l++)
+          (
+            sourceIndex: 0,
+            indexLine: l,
+            line: DiffLine(
+              kind: DiffLineKind.context,
+              oldLine: l,
+              newLine: l,
+              text: 'fill $l',
+            ),
+          ),
+      ];
+      await pump(tester, fill: fill);
+      expect(
+        find.byKey(const ValueKey<String>('diff-overview-ruler')),
+        findsOneWidget,
+      );
+      await overdragDown(tester, 3, frames: 60);
+      await tester.pump();
+      final Rect view = viewport(tester);
+      // 17 + the ruler's 14 + the card's 1px ring.
+      expect(view.right - tester.getRect(sticky).right, 32);
+    });
+
+    testWidgets('gone once the real head is back on screen', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      await overdragDown(tester, 3, frames: 60);
+      await tester.pump();
+      expect(sticky, findsOneWidget);
+
+      vertical.jumpTo(0);
+      await tester.pump();
+      await tester.pump();
+      expect(sticky, findsNothing);
+      expect(oneShotButton('Stage'), findsOneWidget);
+    });
+
+    testWidgets('gone once the whole block is above the top', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      final TestGesture gesture = await press(tester, textOf(tester, 3));
+      await gesture.moveTo(textOf(tester, 5));
+      await tester.pump();
+      await release(tester, gesture);
+      expect(oneShotButton('Stage'), findsOneWidget);
+
+      vertical.jumpTo(vertical.position.maxScrollExtent / 2);
+      await tester.pump();
+      await tester.pump();
+      expect(sticky, findsNothing);
+    });
+
+    testWidgets('a scroll that puts the head just above the top pins it', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester);
+      final TestGesture gesture = await press(tester, textOf(tester, 3));
+      await gesture.moveTo(textOf(tester, 5));
+      await tester.pump();
+      await release(tester, gesture);
+      // The label, not the block: the block's box starts 4px above its
+      // head (its margin sits inside the dashed outline).
+      final Finder label = find.descendant(
+        of: find.byKey(const ValueKey<String>('temporary-scope-card')),
+        matching: find.text('臨時選取'),
+      );
+      final double headTop = tester.getRect(label).top - viewport(tester).top;
+
+      vertical.jumpTo(vertical.offset + headTop + 1);
+      await tester.pump();
+      await tester.pump();
+      expect(sticky, findsOneWidget);
+    });
   });
 }

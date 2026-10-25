@@ -220,6 +220,14 @@ const double _kRulerVertical = GbmSpacing.space2 + 1 + GbmSpacing.space2;
 /// goes from 8 to 22 (§04 #4: 8 + ruler 10 + inset 4).
 const double _kRulerGutter = 22 - GbmSpacing.space2;
 
+/// Where the pinned one-shot head ([_StickyTemporaryHead]) sits: inside
+/// the block's own edges, so it reads as the block cut by the top of the
+/// view (design `wc-sticky-temp-head-spec.html` INF-3). Left: the well's 8
+/// margin, 8 padding and 1 border, and the card's 3px left edge. Right: the
+/// same 17, the ruler's gutter when there is one, and the card's 1px ring.
+const double _kStickyLeft = GbmSpacing.space2 * 2 + 1 + 3;
+const double _kStickyRight = GbmSpacing.space2 * 2 + 1 + 1;
+
 /// The item a pointer endpoint landed on ([_ScopedDiffViewState._endpointAt]).
 ///
 /// Opaque, so every point of an item -- its padding, a card's margin, the
@@ -342,6 +350,67 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
 
   void _onVerticalMoved() {
     if (_pointerDown) _gestureScrolled = true;
+    _scheduleStickyUpdate();
+  }
+
+  /// The real one-shot head, so [_stickyWanted] can tell whether it has
+  /// scrolled above the top. There is at most one ([_ItemPaint.headItem]).
+  final GlobalKey _temporaryHeadKey = GlobalKey(debugLabel: 'gbm-temp-head');
+
+  /// The card item holding the one-shot head and the last row of the block
+  /// in painted order, as the last build laid them out; null without a
+  /// one-shot scope.
+  ({int headItem, int lastRow})? _temporaryExtent;
+
+  /// Whether the pinned copy of the head is drawn ([_stickyWanted]).
+  bool _showSticky = false;
+  bool _stickyUpdateScheduled = false;
+
+  /// Re-reads [_stickyWanted] after the next layout: a scroll notification
+  /// arrives before the list has laid out at its new offset, so reading the
+  /// rows then would measure the old frame.
+  void _scheduleStickyUpdate() {
+    if (_stickyUpdateScheduled) return;
+    if (_temporaryExtent == null && !_showSticky) return;
+    _stickyUpdateScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _stickyUpdateScheduled = false;
+      if (!mounted) return;
+      final bool wanted = _stickyWanted();
+      if (wanted != _showSticky) setState(() => _showSticky = wanted);
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// The block's head is above the top of the view while some of its rows
+  /// are still at or below it (使用者裁定「長距離拖曳後 => 改」, sticky
+  /// head). A head still on screen keeps the one button where it is.
+  bool _stickyWanted() {
+    final ({int headItem, int lastRow})? extent = _temporaryExtent;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    final RenderObject? anchor = _hScrollKey.currentContext?.findRenderObject();
+    if (extent == null ||
+        list is! RenderBox ||
+        anchor is! RenderBox ||
+        !list.hasSize) {
+      return false;
+    }
+    final RenderObject? head = _temporaryHeadKey.currentContext
+        ?.findRenderObject();
+    final bool headAbove;
+    if (head is RenderBox && head.attached && head.hasSize) {
+      headAbove = list.globalToLocal(head.localToGlobal(Offset.zero)).dy < 0;
+    } else {
+      // Not built: above the top exactly when its card is above the item
+      // at the top.
+      final RenderMetaData? top = _itemHitAt(list, _probe(list, anchor, 0.5));
+      if (top == null) return false;
+      headAbove = extent.headItem < (top.metaData as _ItemHit).index;
+    }
+    if (!headAbove) return false;
+    final int? atTop = _endpointAt(list.localToGlobal(Offset.zero));
+    // Row r is endpoint 2r + 1; a boundary before it is 2r.
+    return atTop != null && atTop <= 2 * extent.lastRow + 1;
   }
 
   /// The two ends of the keyboard range, as row keys.
@@ -619,6 +688,8 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       );
     }
     final _ItemPaint paint = _itemPaint(model, temporary, settledTouched);
+    _temporaryExtent = _extentOf(model, temporary, paint.headItem);
+    _scheduleStickyUpdate();
     // `SelectionArea > GbmCodeHScroll > ListView.builder`, the order
     // `panel_diff_text.dart` builds: the selection stays outside everything
     // the drag meets, and only the rows near the viewport are built -- an
@@ -776,22 +847,59 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         ),
       ),
     );
-    if (!_showsRuler(model)) return well;
-    // Beside the well's [Listener], not inside it: a press on a mark is a
-    // jump, never the start of a drag.
+    final bool ruler = _showsRuler(model);
+    // Always a Stack, so the well keeps its place in the tree when the
+    // pinned head comes and goes. The ruler and the head sit beside the
+    // well's [Listener], not inside it: a press on either is a jump or a
+    // stage, never the start of a drag -- and outside the SelectionArea.
     return Stack(
       children: <Widget>[
         well,
-        Positioned(
-          key: const ValueKey<String>('diff-overview-ruler'),
-          top: _kRulerVertical,
-          bottom: _kRulerVertical,
-          right: _kRulerRight,
-          width: _kRulerWidth,
-          child: _OverviewRuler(marks: _rulerMarks(model), onMark: _jumpToCard),
-        ),
+        if (ruler)
+          Positioned(
+            key: const ValueKey<String>('diff-overview-ruler'),
+            top: _kRulerVertical,
+            bottom: _kRulerVertical,
+            right: _kRulerRight,
+            width: _kRulerWidth,
+            child: _OverviewRuler(
+              marks: _rulerMarks(model),
+              onMark: _jumpToCard,
+            ),
+          ),
+        if (_showSticky && temporary != null)
+          Positioned(
+            key: const ValueKey<String>('temporary-scope-sticky'),
+            top: 0,
+            left: _kStickyLeft,
+            right: _kStickyRight + (ruler ? _kRulerGutter : 0),
+            child: _StickyTemporaryHead(
+              staged: widget.sources[temporary.sourceIndex].staged,
+              label: paint.label,
+              onStage: () => _submitTemporary(temporary),
+            ),
+          ),
       ],
     );
+  }
+
+  /// [_temporaryExtent] for this build.
+  static ({int headItem, int lastRow})? _extentOf(
+    DiffListModel model,
+    TemporaryScope? temporary,
+    int? headItem,
+  ) {
+    if (temporary == null || headItem == null) return null;
+    int lastRow = -1;
+    for (final MapEntry<int, List<int>> hunk in temporary.byHunk.entries) {
+      for (final int line in hunk.value) {
+        final int? row = model.rowIndexOf(
+          selectionRowKey(temporary.sourceIndex, hunk.key, line),
+        );
+        if (row != null && row > lastRow) lastRow = row;
+      }
+    }
+    return lastRow < 0 ? null : (headItem: headItem, lastRow: lastRow);
   }
 
   /// The ruler is full-file mode's: in excerpt mode a position on it would
@@ -1537,6 +1645,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
               ? (temporaryByHunk[block.hunkIndex] ?? const <int>[]).toSet()
               : const <int>{},
           showTemporaryHead: paint.headItem == index,
+          temporaryHeadKey: _temporaryHeadKey,
           temporaryLabel: paint.label,
           onSubmitTemporary: temporary == null
               ? _noTemporaryScope
@@ -2059,6 +2168,7 @@ class _ScopeCard extends StatefulWidget {
     required this.softWrap,
     required this.temporaryLines,
     required this.showTemporaryHead,
+    required this.temporaryHeadKey,
     required this.temporaryLabel,
     required this.onSubmitTemporary,
     required this.superseded,
@@ -2098,6 +2208,9 @@ class _ScopeCard extends StatefulWidget {
   /// it carries the one-shot head and its button. One scope, one press,
   /// however many cards it spans.
   final bool showTemporaryHead;
+
+  /// Goes on the one-shot head when this card draws it.
+  final GlobalKey temporaryHeadKey;
 
   final String temporaryLabel;
   final VoidCallback onSubmitTemporary;
@@ -2244,6 +2357,7 @@ class _ScopeCardState extends State<_ScopeCard> {
       out.add(
         _TemporaryBlock(
           showHead: !headPlaced,
+          headKey: widget.temporaryHeadKey,
           staged: widget.staged,
           label: widget.temporaryLabel,
           onStage: widget.onSubmitTemporary,
@@ -2442,6 +2556,7 @@ class _CardHead extends StatelessWidget {
 class _TemporaryBlock extends StatelessWidget {
   const _TemporaryBlock({
     required this.showHead,
+    required this.headKey,
     required this.staged,
     required this.label,
     required this.onStage,
@@ -2452,6 +2567,9 @@ class _TemporaryBlock extends StatelessWidget {
   /// later cards a selection spanning more than one reaches: the dashed body
   /// still shows how far it got, but one scope gets one button.
   final bool showHead;
+
+  /// The state's [_ScopedDiffViewState._temporaryHeadKey].
+  final GlobalKey headKey;
 
   final bool staged;
 
@@ -2490,69 +2608,142 @@ class _TemporaryBlock extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (showHead)
-              Container(
-                color: colors.accentSubtle,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
-                  vertical: 3,
-                ),
-                // A Wrap for the same reason [_CardHead] is one: in `2 file`
-                // mode this sits inside a card inside half a diff pane, and a
-                // Row there does not shrink, it overflows.
-                child: Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: GbmSpacing.space2,
-                  runSpacing: 4,
-                  children: <Widget>[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Flexible(
-                          child: Text(
-                            // No hunk count: 「跨 2 個 hunk 這文字不需要顯示
-                            // 出來」 (使用者裁定 2026-10-25).
-                            '臨時選取',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              fontWeight: FontWeight.bold,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: GbmSpacing.space2),
-                        // `.variant-B-once`: outlined and lettered in
-                        // --warning over a transparent ground. It shipped as
-                        // a GbmBadge at its default neutral kind, which is
-                        // the same shape as the +N/-N tallies in the card
-                        // head a few pixels above -- and this is the one
-                        // thing on screen that says 「這個按下去就沒了」.
-                        GbmOutlinedPill(
-                          label: '一次性',
-                          color: colors.warning,
-                          fontWeight: GbmTypography.weightSemibold,
-                        ),
-                      ],
-                    ),
-                    GbmButton(
-                      label: label,
-                      onPressed: onStage,
-                      size: GbmButtonSize.sm,
-                      kind: staged
-                          ? GbmButtonKind.secondary
-                          : GbmButtonKind.primary,
-                      // Same control, same treatment: this block acts in the
-                      // same direction as the card it sits in.
-                      borderColor: staged ? colors.borderStrong : null,
-                    ),
-                  ],
-                ),
+              _TemporaryHead(
+                key: headKey,
+                staged: staged,
+                label: label,
+                onStage: onStage,
               ),
             if (showHead) GbmDashedLine(color: colors.accent),
             ...children,
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The one-shot block's head: 臨時選取, the 一次性 pill and the button.
+/// One widget for both places it is drawn -- at the top of the block, and
+/// pinned to the top of the view ([_StickyTemporaryHead]) -- so the two
+/// cannot drift apart.
+class _TemporaryHead extends StatelessWidget {
+  const _TemporaryHead({
+    super.key,
+    required this.staged,
+    required this.label,
+    required this.onStage,
+  });
+
+  final bool staged;
+  final String label;
+  final VoidCallback onStage;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      color: colors.accentSubtle,
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space2,
+        vertical: 3,
+      ),
+      // A Wrap for the same reason [_CardHead] is one: in `2 file`
+      // mode this sits inside a card inside half a diff pane, and a
+      // Row there does not shrink, it overflows.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: GbmSpacing.space2,
+        runSpacing: 4,
+        children: <Widget>[
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Flexible(
+                child: Text(
+                  // No hunk count: 「跨 2 個 hunk 這文字不需要顯示
+                  // 出來」 (使用者裁定 2026-10-25).
+                  '臨時選取',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              // `.variant-B-once`: outlined and lettered in
+              // --warning over a transparent ground. It shipped as
+              // a GbmBadge at its default neutral kind, which is
+              // the same shape as the +N/-N tallies in the card
+              // head a few pixels above -- and this is the one
+              // thing on screen that says 「這個按下去就沒了」.
+              GbmOutlinedPill(
+                label: '一次性',
+                color: colors.warning,
+                fontWeight: GbmTypography.weightSemibold,
+              ),
+            ],
+          ),
+          GbmButton(
+            label: label,
+            onPressed: onStage,
+            size: GbmButtonSize.sm,
+            kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary,
+            // Same control, same treatment: this block acts in the
+            // same direction as the card it sits in.
+            borderColor: staged ? colors.borderStrong : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// [_TemporaryHead] pinned to the top of the view while its block runs on
+/// below (使用者裁定「長距離拖曳後 => 改」; `wc-sticky-temp-head-spec.html`).
+/// It reads as the block cut by the top edge: the block's dashed sides, the
+/// head's own dashed rule under it, the bottom corners rounded and the top
+/// open (INF-4), and no shadow (INF-5,「不加」).
+class _StickyTemporaryHead extends StatelessWidget {
+  const _StickyTemporaryHead({
+    required this.staged,
+    required this.label,
+    required this.onStage,
+  });
+
+  final bool staged;
+  final String label;
+  final VoidCallback onStage;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(
+        bottom: Radius.circular(GbmSpacing.radiusSm),
+      ),
+      child: Stack(
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _TemporaryHead(staged: staged, label: label, onStage: onStage),
+              GbmDashedLine(color: colors.accent),
+            ],
+          ),
+          for (final bool left in const <bool>[true, false])
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: left ? 0 : null,
+              right: left ? null : 0,
+              child: GbmDashedLine(color: colors.accent, axis: Axis.vertical),
+            ),
+        ],
       ),
     );
   }

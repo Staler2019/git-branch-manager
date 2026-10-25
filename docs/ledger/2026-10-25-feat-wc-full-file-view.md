@@ -182,8 +182,20 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 
 - `algorithm-chooser` 在 ruler 的比例換算與跳轉修正前沒有派出（換算是單純比例，修正是逐次逼近，判斷不需要）。
 - 一次性 block 的 head 在長距離拖曳後不在畫面上（上方 UX 觀察），沒有改，待使用者決定。
-- 規則提煉：新增 `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 與 `[TEST-mutation-check-every-test]`
+- ~~規則提煉：新增 `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 與 `[TEST-mutation-check-every-test]`
   的一條 Do，使兩個 L1 檔超過 6,000 字元報告門檻（`fn-flutter-input.md` 7,532、`arch-testing.md` 6,218）。
   `memory-steward` 建議：兩條 FLU 已由 site comment 與測試承載，移除；TEST 那條縮短；另列既有條目的 trim 候選。
-  依 CLAUDE.md，待使用者裁定後套用，裁定前不提交規則檔。
+  依 CLAUDE.md，待使用者裁定後套用，裁定前不提交規則檔。~~ **使用者裁定（2026-10-25）「照 memory agent 做」**，已套用，見下節。
 - 二分用的 worktree（scratchpad 內，detached `f53626b3`）未刪除（AUTO 模式不做刪除）。
+
+### 規則精簡（使用者裁定「照 memory agent 做」）
+
+- `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 不新增：`scoped_diff_view.dart` 的 site comment 與
+  測試已承載；`fn-flutter-input.md` 開頭「site comment 與測試已承載的規則」清單補上這兩項。
+- `[TEST-mutation-check-every-test]` 新的 Do 縮短；第一條 Do 拿掉 `JsonCodec.cpp` 的例子。
+- `[FLU-clear-selection-before-dispatch]` 的 Note 縮成一行（site comment 已有完整歷史）。
+- `[TEST-no-pumpandsettle-with-spinner]` 的 Do 拿掉刪除線歷史。依 standing rule 4 不默默刪掉，原文保存在此：
+
+  > - **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, ~~`welcome_screen.dart` while scanning~~ (no indicator, 2026-10-23)); ~~`StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.~~ `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`, `status_bar.dart`), so they too never settle while one runs — a static empty track was the reported 「不知道有沒有在跑」 (2026-10-15).
+
+- 結果：`arch-testing.md` 5,801、`fn-flutter-input.md` 5,616，皆在 6,000 以內；L0 24,456 不變。

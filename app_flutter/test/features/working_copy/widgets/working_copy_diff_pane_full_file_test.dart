@@ -84,6 +84,25 @@ void main() {
     expect(filled(), findsNothing);
   });
 
+  // 「自動暫停這個檔案的全檔檢視，但不影響全局設定」: the pause is this file's,
+  // so the next file under the cap is filled again by the same pane, the
+  // preference untouched in between.
+  testWidgets('the pause ends with the file: a smaller one is filled again', (
+    WidgetTester tester,
+  ) async {
+    int toggles = 0;
+    await pump(
+      tester,
+      fullFile: true,
+      total: kFullFileViewMaxLines + 1,
+      onToggleFullFile: () => toggles++,
+    );
+    expect(filled(), findsNothing);
+    await pump(tester, fullFile: true, onToggleFullFile: () => toggles++);
+    expect(filled(), findsOneWidget);
+    expect(toggles, 0);
+  });
+
   testWidgets('a file at the line cap is filled', (WidgetTester tester) async {
     await pump(tester, fullFile: true, total: kFullFileViewMaxLines);
     expect(filled(), findsOneWidget);

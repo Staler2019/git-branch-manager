@@ -124,6 +124,23 @@ List<String> _layout(WidgetTester tester) {
   ];
 }
 
+/// [eager] as full-file mode draws it once the overview ruler is beside the
+/// rows: the well's right padding is 22, not 8 (G1 design §04 #4), so every
+/// row is 14 narrower and what a card head right-aligns sits 14 further
+/// left. Nothing else moves -- the eager baselines above were measured
+/// before the ruler existed, and they stay as measured.
+List<String> _withRulerGutter(List<String> eager) => <String>[
+  for (final String entry in eager)
+    if (RegExp(r'^(row .*@[\d.]+,[\d.]+,)([\d.]+)(x.*)$').firstMatch(entry)
+        case final RegExpMatch m)
+      '${m[1]}${(double.parse(m[2]!) - 14).toStringAsFixed(1)}${m[3]}'
+    else if (RegExp(r'^(text Stage .*@)([\d.]+)(,.*)$').firstMatch(entry)
+        case final RegExpMatch m)
+      '${m[1]}${(double.parse(m[2]!) - 14).toStringAsFixed(1)}${m[3]}'
+    else
+      entry,
+];
+
 final DiffFile _excerpt = _file(<DiffHunk>[
   _numbered('...+...', start: 3, hunk: 0),
   _numbered('...-...', start: 15, hunk: 1),
@@ -445,7 +462,7 @@ void main() {
     await _pump(tester, <ScopedDiffSource>[
       _source(_excerpt, staged: false),
     ], fill: _fill(<int>[1, 2, 9]));
-    expect(_layout(tester), _eagerFull);
+    expect(_layout(tester), _withRulerGutter(_eagerFull));
   });
 
   testWidgets('a merged list paints every row and text where the eager '

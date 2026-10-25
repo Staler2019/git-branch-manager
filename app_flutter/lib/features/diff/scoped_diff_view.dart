@@ -12,6 +12,7 @@ import '../../widgets/gbm_dashed.dart';
 import '../../widgets/gbm_outlined_pill.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
+import '../../widgets/code_line_metrics.dart';
 import 'diff_block_order.dart';
 import 'diff_full_file_fill.dart';
 import 'diff_list_model.dart';
@@ -203,6 +204,21 @@ const double _kLeadingEstimate = 29;
 /// its 8px padding and 1px border, and a gap's 1px dashed rule plus 2px
 /// (`scoped_diff_view_lazy_test.dart` records every row at x = 20).
 const double _kRowInset = 20;
+
+/// How many measure-and-jump passes [_ScopedDiffViewState._jumpToCard]
+/// takes before giving up on a card it still has not built.
+const int _kJumpPasses = 6;
+
+/// The overview ruler, pinned to the view (G1 design §04 #4): 10 wide, the
+/// well's 8 margin + 1 border + the ruler's own 4 from the right, and its
+/// 8 + 1 + 8 from the top and bottom.
+const double _kRulerWidth = 10;
+const double _kRulerRight = GbmSpacing.space2 + 1 + 4;
+const double _kRulerVertical = GbmSpacing.space2 + 1 + GbmSpacing.space2;
+
+/// What the rows give up on the right for the ruler: the well's padding
+/// goes from 8 to 22 (§04 #4: 8 + ruler 10 + inset 4).
+const double _kRulerGutter = 22 - GbmSpacing.space2;
 
 /// The item a pointer endpoint landed on ([_ScopedDiffViewState._endpointAt]).
 ///
@@ -588,6 +604,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _reportScope(temporary);
 
     _model = model;
+    if (widget.softWrap) {
+      SchedulerBinding.instance.addPostFrameCallback(
+        (_) => _measureCharsPerLine(),
+      );
+    }
     final _ItemPaint paint = _itemPaint(model, temporary, settledTouched);
     // `SelectionArea > GbmCodeHScroll > ListView.builder`, the order
     // `panel_diff_text.dart` builds: the selection stays outside everything
@@ -641,7 +662,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // the same reason `Ctrl/Cmd+A` is (CLAUDE.md): a binding
     // closer to a focused editor than `DefaultTextEditingShortcuts`
     // would steal that editor's own Enter.
-    return CallbackShortcuts(
+    final Widget well = CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         for (final bool meta in const <bool>[false, true])
           SingleActivator(
@@ -740,6 +761,48 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         ),
       ),
     );
+    if (!_showsRuler(model)) return well;
+    // Beside the well's [Listener], not inside it: a press on a mark is a
+    // jump, never the start of a drag.
+    return Stack(
+      children: <Widget>[
+        well,
+        Positioned(
+          key: const ValueKey<String>('diff-overview-ruler'),
+          top: _kRulerVertical,
+          bottom: _kRulerVertical,
+          right: _kRulerRight,
+          width: _kRulerWidth,
+          child: _OverviewRuler(marks: _rulerMarks(model), onMark: _jumpToCard),
+        ),
+      ],
+    );
+  }
+
+  /// The ruler is full-file mode's: in excerpt mode a position on it would
+  /// not be a position in the file.
+  bool _showsRuler(DiffListModel model) =>
+      widget.fill != null && model.cardItems.isNotEmpty;
+
+  /// One mark per card, placed by the card's share of the painted rows; a
+  /// card head counts as one row, so a card's share is its rows plus one.
+  List<_RulerMark> _rulerMarks(DiffListModel model) {
+    final int heads = model.cardItems.length;
+    final int units = model.rowKeys.length + heads;
+    return <_RulerMark>[
+      for (int c = 0; c < heads; c++)
+        _RulerMark(
+          item: model.cardItems[c],
+          number: c + 1,
+          start: (model.firstRowOf(model.cardItems[c]) + c) / units,
+          extent: (model.rowCountOf(model.cardItems[c]) + 1) / units,
+          staged: switch (model.items[model.cardItems[c]]) {
+            DiffBlockItem(:final DiffBlock block) =>
+              widget.sources[block.sourceIndex].staged,
+            _ => false,
+          },
+        ),
+    ];
   }
 
   /// What to draw when no source has a single row to show.
@@ -855,7 +918,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             (file: source.file, staged: source.staged),
         ],
         headings: widget.fill == null,
-        metrics: _kListEstimate,
+        metrics: (
+          rowExtent: _kListEstimate.rowExtent,
+          headingExtent: _kListEstimate.headingExtent,
+          cardChromeExtent: _kListEstimate.cardChromeExtent,
+          gapChromeExtent: _kListEstimate.gapChromeExtent,
+          charsPerLine: widget.softWrap ? _charsPerLine : 0,
+        ),
         leadingExtents: List<double>.filled(leadingCount, _kLeadingEstimate),
       );
 
@@ -994,27 +1063,107 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         .dy
         .clamp(0, list.size.height - 0.5)
         .toDouble();
-    final Offset probe = Offset(
-      anchor
-          .localToGlobal(const Offset(_kRowInset + kDiffGutterWidth / 2, 0))
-          .dx,
-      list.localToGlobal(Offset(0, y)).dy,
-    );
+    final Offset probe = _probe(list, anchor, y);
+    final RenderMetaData? hit = _itemHitAt(list, probe);
+    if (hit != null) {
+      return _endpointInItem(model, (hit.metaData as _ItemHit).index, probe.dy);
+    }
+    // Below the last item: a list shorter than its viewport.
+    return 2 * model.rowKeys.length;
+  }
+
+  /// The global point on the row gutter at height [y] of [list] -- the
+  /// fixed x [_endpointAt] explains, measured from [anchor], the
+  /// [GbmCodeHScroll] box that does not scroll sideways.
+  static Offset _probe(RenderBox list, RenderBox anchor, double y) => Offset(
+    anchor.localToGlobal(const Offset(_kRowInset + kDiffGutterWidth / 2, 0)).dx,
+    list.localToGlobal(Offset(0, y)).dy,
+  );
+
+  /// The item ([_ItemHit]) whose box holds the global point [probe],
+  /// hit-tested from [list]'s viewport ([_endpointAt] says why there).
+  static RenderMetaData? _itemHitAt(RenderBox list, Offset probe) {
     final RenderBox target = _viewportIn(list) ?? list;
     final BoxHitTestResult result = BoxHitTestResult();
     target.hitTest(result, position: target.globalToLocal(probe));
     for (final HitTestEntry entry in result.path) {
-      final Object target = entry.target;
-      if (target is RenderMetaData && target.metaData is _ItemHit) {
-        return _endpointInItem(
-          model,
-          (target.metaData as _ItemHit).index,
-          probe.dy,
-        );
-      }
+      final Object hit = entry.target;
+      if (hit is RenderMetaData && hit.metaData is _ItemHit) return hit;
     }
-    // Below the last item: a list shorter than its viewport.
-    return 2 * model.rowKeys.length;
+    return null;
+  }
+
+  /// How many code characters one wrapped line holds at the list's current
+  /// width, for the soft-wrap height estimate (使用者裁定 ②: 字數 ÷ 每行容納
+  /// 字數); 0 until the list has been laid out once.
+  int _charsPerLine = 0;
+
+  /// Re-reads [_charsPerLine] once the list has a width, and rebuilds only
+  /// when it changed -- so a resize re-estimates, and a steady frame costs a
+  /// division.
+  void _measureCharsPerLine() {
+    if (!mounted || !widget.softWrap) return;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    if (list is! RenderBox || !list.hasSize) return;
+    final double code =
+        list.size.width -
+        _kRowInset -
+        kDiffGutterWidth -
+        (GbmSpacing.space2 * 2 + 1) -
+        (widget.fill != null ? _kRulerGutter : 0);
+    final double glyph = widestLineWidth('0', kDiffCodeTextStyle);
+    final int chars = glyph <= 0 ? 0 : (code / glyph).floor().clamp(1, 1 << 20);
+    if (chars != _charsPerLine) setState(() => _charsPerLine = chars);
+  }
+
+  /// One [GlobalKey] per card item, so a ruler press can find the card once
+  /// the list has built it.
+  final Map<int, GlobalKey> _cardKeys = <int, GlobalKey>{};
+
+  /// Scrolls card item [item]'s top to the top of the view.
+  ///
+  /// The card may never have been built, and the model's offsets are
+  /// estimates that drift over thousands of rows (a real row is not exactly
+  /// [_kListEstimate]'s height). So each pass measures one item that is on
+  /// screen -- the one at the top -- and jumps by the *estimated distance*
+  /// from it to the card, which is only as wrong as the rows in between;
+  /// the pass after that is closer, and once the card is built its own box
+  /// is revealed exactly. At most [_kJumpPasses] passes.
+  void _jumpToCard(int item) {
+    int passes = 0;
+    void pass() {
+      final DiffListModel? model = _model;
+      if (!mounted || model == null || !_vertical.hasClients) return;
+      final ScrollPosition position = _vertical.position;
+      final RenderObject? card = _cardKeys[item]?.currentContext
+          ?.findRenderObject();
+      if (card != null) {
+        position.ensureVisible(card);
+        return;
+      }
+      if (passes++ >= _kJumpPasses) return;
+      final RenderObject? list = _listKey.currentContext?.findRenderObject();
+      final RenderObject? anchor = _hScrollKey.currentContext
+          ?.findRenderObject();
+      double target = model.offsetOf(item);
+      if (list is RenderBox && anchor is RenderBox && list.hasSize) {
+        final RenderMetaData? top = _itemHitAt(list, _probe(list, anchor, 0.5));
+        if (top != null) {
+          final int topItem = (top.metaData as _ItemHit).index;
+          final double topReal =
+              position.pixels +
+              list.globalToLocal(top.localToGlobal(Offset.zero)).dy;
+          target = topReal + model.offsetOf(item) - model.offsetOf(topItem);
+        }
+      }
+      position.jumpTo(
+        target.clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
+      SchedulerBinding.instance.addPostFrameCallback((_) => pass());
+      SchedulerBinding.instance.ensureVisualUpdate();
+    }
+
+    pass();
   }
 
   static RenderViewportBase? _viewportIn(RenderObject root) {
@@ -1310,7 +1459,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       _FrameSegment(
         first: index == leading.length,
         last: index == model.items.length - 1,
-        child: child,
+        rightGutter: _showsRuler(model) ? _kRulerGutter : 0,
+        child: model.cardItems.contains(index)
+            ? KeyedSubtree(
+                key: _cardKeys.putIfAbsent(index, GlobalKey.new),
+                child: child,
+              )
+            : child,
       ),
     );
   }
@@ -1406,6 +1561,75 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   );
 }
 
+/// One card's mark on the overview ruler: its item, its 1-based number, and
+/// its [start] and [extent] as fractions of the ruler's height.
+class _RulerMark {
+  const _RulerMark({
+    required this.item,
+    required this.number,
+    required this.start,
+    required this.extent,
+    required this.staged,
+  });
+
+  final int item;
+  final int number;
+  final double start;
+  final double extent;
+  final bool staged;
+}
+
+/// The full-file view's overview ruler (G1 design §04 #4): a sunken pill
+/// track, one direction-coloured mark per card, inset 1 on either side and
+/// never shorter than 4. A press on a mark calls [onMark] with its card.
+class _OverviewRuler extends StatelessWidget {
+  const _OverviewRuler({required this.marks, required this.onMark});
+
+  final List<_RulerMark> marks;
+  final ValueChanged<int> onMark;
+
+  static const double _inset = 1;
+  static const double _minHeight = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double height = constraints.maxHeight;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceSunken,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Stack(
+            children: <Widget>[
+              for (final _RulerMark mark in marks)
+                Positioned(
+                  key: ValueKey<String>('ruler-mark-${mark.number}'),
+                  top: (height * mark.start).clamp(0, height - _minHeight),
+                  height: (height * mark.extent).clamp(_minHeight, height),
+                  left: _inset,
+                  right: _inset,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => onMark(mark.item),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: mark.staged ? colors.success : colors.accent,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
 /// One item's share of the sunken well the diff sits in
 /// (`surfaceSunken` + `borderSubtle` + r6, 8px outside and 8px inside).
 ///
@@ -1423,11 +1647,15 @@ class _FrameSegment extends StatelessWidget {
     required this.first,
     required this.last,
     required this.child,
+    this.rightGutter = 0,
   });
 
   final bool first;
   final bool last;
   final Widget child;
+
+  /// Extra right padding, the room the overview ruler takes.
+  final double rightGutter;
 
   @override
   Widget build(BuildContext context) {
@@ -1476,7 +1704,7 @@ class _FrameSegment extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(
               inset,
               first ? inset : 0,
-              inset,
+              inset + rightGutter,
               last ? inset : 0,
             ),
             child: child,

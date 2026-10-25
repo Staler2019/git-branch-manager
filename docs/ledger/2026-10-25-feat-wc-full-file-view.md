@@ -233,8 +233,18 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 - **Verifier（HEAD 137556fa，fresh）：CONFIRMED**，五點全部成立。原本讓 F1 成立的探測在兩個方向都通過；新拖曳放開後，置頂 head 綁的是新 scope。
   兩個 hunk 時，按置頂 head 與走鍵盤路徑送出的呼叫相同（最後一個 hunk 先送）；staged 側只送 Unstage；SelectionArea 的 State 從頭到尾是同一個物件。
   全套 4235 綠；device 7/7。
-- 待查（P4，低信心，沒有修）：verifier 沒有驗證 diff 橫向捲動時的情況。真正的 head 會隨內容橫向移動，當它被頂端切掉一部分時，
-  在置頂版左 20／右 18（或 32）的範圍外是否還會露出一條，沒有驗證。重查方法：`contentWidth: 1200`，橫向捲動後讓 head 一像素一像素地掃過頂端。
+- ~~待查（P4，低信心，沒有修）：verifier 沒有驗證 diff 橫向捲動時的情況。真正的 head 會隨內容橫向移動，當它被頂端切掉一部分時，
+  在置頂版左 20／右 18（或 32）的範圍外是否還會露出一條，沒有驗證。~~
+  **已查（2026-10-25，使用者要求「橫向捲動時是否露出一條真正的 head查一下」）：會露出。** 內容比畫面寬時，block 隨內容延伸並橫向捲動；
+  固定 20／18 的置頂版兩側，像素取樣在 x 0..20 與 482..500 取到真正 head 的底色 #0d2a4d。
+  - 使用者裁定（AskUserQuestion）：「對齊 block 實際位置」。左右範圍取 block 與 view 的交集；block 邊緣在畫面外的那一側，不畫虛線，也不畫圓角。
+  - 修正（313bb4cc）：橫向位移取自冒泡上來的 `ScrollNotification`／`ScrollMetricsNotification`，存在 `ValueNotifier`，所以橫向捲動只重建置頂版。
+    置頂版移到 ruler 之下，否則延伸到右緣時會蓋住 ruler 的上段（hit test 證實）。
+  - 新增 5 個測試：橫捲 0／60／700、ruler 在上、resize 夾住位移、不寬時兩側虛線都在。mutations-run 6、tests-reddened 5。
+    哪一個沒有變紅，當時沒有記下來，這裡不補猜測。全套 4241 綠，analyzer 0。
+    device `full_file_stage_flow_test.dart` 7/7（HEAD 313bb4cc）。`stage_lines_flow`、`context_menu_flows` 在這次修正之後沒有重跑。
+  - 設計稿 INF-3 就地更正（f2e1b73f）。
+  - 觀察，交給使用者決定：內容比畫面寬時，置頂版延伸到右緣，會蓋住垂直捲軸 thumb 最上面約 31px。
 - 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
 
 這一段自己的失誤：

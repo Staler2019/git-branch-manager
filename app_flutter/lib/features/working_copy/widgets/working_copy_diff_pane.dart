@@ -6,7 +6,6 @@ import '../../../data/models/parsed_diff.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/code_line_metrics.dart';
-import '../../../widgets/gbm_code_hscroll.dart';
 import '../../../widgets/gbm_icon_button.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
@@ -142,7 +141,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
 
   /// Stands in when the caller passed no [WorkingCopyDiffPane.scrollController].
   ///
-  /// [GbmCodeScrollWell] needs a real one either way: it is what the vertical
+  /// [ScopedDiffView] needs a real one either way: it is what the vertical
   /// `Scrollbar` tracks, and a `Scrollbar` given none falls back to the
   /// `PrimaryScrollController`, which on this pane is nothing at all.
   final ScrollController _ownedUnstagedScroll = ScrollController();

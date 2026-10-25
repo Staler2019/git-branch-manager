@@ -40,7 +40,7 @@ import 'widgets/side_by_side_cell.dart';
 /// true the moment `DiffPage` gained the preference: the two branches were
 /// developed in parallel and met at a merge.
 ///
-/// Both columns scroll on **one** [GbmCodeScrollWell]-style shared
+/// Both columns scroll on **one** shared vertical
 /// controller, so a pair stays aligned while the content moves. With
 /// wrapping off, alignment is in fact easier than with it on — every cell is
 /// exactly one line tall, so the [IntrinsicHeight] below has nothing to

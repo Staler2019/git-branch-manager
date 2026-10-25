@@ -104,9 +104,9 @@ Future<void> _pump(
   );
 }
 
-/// The horizontal one specifically: [GbmCodeScrollWell] always builds a
-/// vertical scroll view, so `findsOneWidget` over every
-/// `SingleChildScrollView` would now be counting the wrong thing.
+/// The horizontal one specifically, matched on its direction: the eager
+/// well once built a vertical `SingleChildScrollView` beside it, and
+/// `findsOneWidget` over every one would have counted the wrong thing.
 Finder _horizontalScroller() => find.byWidgetPredicate(
   (Widget w) =>
       w is SingleChildScrollView && w.scrollDirection == Axis.horizontal,

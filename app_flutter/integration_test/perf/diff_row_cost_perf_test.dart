@@ -72,7 +72,7 @@ void main() {
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[for (int i = 0; i < lines.length; i++) row(i)],
     );
-    return GbmCodeScrollWell(
+    return _EagerScrollWell(
       contentWidth: 1400,
       verticalController: vertical,
       backdrop: backdrop,
@@ -143,5 +143,100 @@ void main() {
         'scrollBuildMax=${_percentile(build, 1).toStringAsFixed(1)}',
       );
     });
+  }
+}
+
+/// The eager diff's old well, kept here as this profile's baseline after
+/// `ScopedDiffView` moved to `SelectionArea > GbmCodeHScroll >
+/// ListView.builder` and nothing under `lib/` read it any more.
+///
+/// Both axes are owned by the well so both scrollbars paint on the pane: a
+/// `Scrollbar` paints along its own box, and inside a vertical
+/// `SingleChildScrollView` that box is the whole (unbounded) column, which
+/// put the horizontal thumb at the bottom of the diff instead of the
+/// viewport. Its shape is unchanged from the widget the measured numbers in
+/// the ledger came from.
+class _EagerScrollWell extends StatefulWidget {
+  const _EagerScrollWell({
+    required this.contentWidth,
+    required this.verticalController,
+    required this.backdrop,
+    required this.child,
+  });
+
+  /// Total width the content needs, gutter included. `0` (or anything not
+  /// wider than the viewport) means no horizontal axis is built at all, and
+  /// [GbmPinnedGutter] below sees a null controller and stays put.
+  final double contentWidth;
+
+  /// Owned by the caller, because the pane decides which sides share one
+  /// vertical position: `unified` mode scrolls both halves of the file
+  /// together and `2 file` mode gives each side its own.
+  final ScrollController verticalController;
+
+  /// Painted behind an opaque [GbmPinnedGutter]. See [GbmCodeHScroll.backdrop].
+  final Color backdrop;
+
+  final Widget child;
+
+  @override
+  State<_EagerScrollWell> createState() => _EagerScrollWellState();
+}
+
+class _EagerScrollWellState extends State<_EagerScrollWell> {
+  final ScrollController _horizontal = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double width = widget.contentWidth;
+        final bool needsHorizontal =
+            width.isFinite && width > constraints.maxWidth;
+
+        Widget inner = SingleChildScrollView(
+          controller: widget.verticalController,
+          child: GbmCodeHScrollScope(
+            controller: needsHorizontal ? _horizontal : null,
+            backdrop: widget.backdrop,
+            child: widget.child,
+          ),
+        );
+
+        if (needsHorizontal) {
+          inner = SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            controller: _horizontal,
+            child: SizedBox(width: width, child: inner),
+          );
+        }
+
+        inner = ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+          child: inner,
+        );
+
+        if (needsHorizontal) {
+          inner = Scrollbar(
+            controller: _horizontal,
+            thumbVisibility: true,
+            notificationPredicate: isHorizontalScroll,
+            child: inner,
+          );
+        }
+
+        return Scrollbar(
+          controller: widget.verticalController,
+          notificationPredicate: isVerticalScroll,
+          child: inner,
+        );
+      },
+    );
   }
 }

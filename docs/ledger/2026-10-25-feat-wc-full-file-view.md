@@ -181,7 +181,7 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 ### 未做／待決
 
 - `algorithm-chooser` 在 ruler 的比例換算與跳轉修正前沒有派出（換算是單純比例，修正是逐次逼近，判斷不需要）。
-- 一次性 block 的 head 在長距離拖曳後不在畫面上（上方 UX 觀察），沒有改，待使用者決定。
+- ~~一次性 block 的 head 在長距離拖曳後不在畫面上（上方 UX 觀察），沒有改，待使用者決定。~~ **使用者裁定「長距離拖曳後 => 改」**，選 sticky head，已實作，見最後一節。
 - ~~規則提煉：新增 `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 與 `[TEST-mutation-check-every-test]`
   的一條 Do，使兩個 L1 檔超過 6,000 字元報告門檻（`fn-flutter-input.md` 7,532、`arch-testing.md` 6,218）。
   `memory-steward` 建議：兩條 FLU 已由 site comment 與測試承載，移除；TEST 那條縮短；另列既有條目的 trim 候選。
@@ -199,3 +199,33 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
   > - **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, ~~`welcome_screen.dart` while scanning~~ (no indicator, 2026-10-23)); ~~`StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.~~ `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`, `status_bar.dart`), so they too never settle while one runs — a static empty track was the reported 「不知道有沒有在跑」 (2026-10-15).
 
 - 結果：`arch-testing.md` 5,801、`fn-flutter-input.md` 5,616，皆在 6,000 以內；L0 24,456 不變。
+
+### 使用者四項裁定之後（7ad8ad05 … ）
+
+裁定原文：「照memory agent做」「長距離拖曳後 => 改」「P4,跨多個 staged hunk測試=>加」「P4,案超過 5,000 行時 titlebar 按鈕是 disabled => 自動暫停這個檔案的全檔檢視，但不影響全局設定」。
+
+- **跨 staged hunk 的 unstage（100e5896）**：device 測試，三段插入全部 stage、拖曳框住前兩張 staged 卡片後 Unstage，第三段仍在 staged。
+  綠；mutation（`_submitTemporary` 改為由前往後）→ 紅。mutations-run 1、tests-reddened 1。
+- **超過上限（7a2ebc59）**：讀碼後確認既有行為已符合裁定（按鈕 disabled、tooltip、片段模式、`onToggleFullFile` 不被呼叫，判斷每次 build 依檔案重算）。
+  追問後使用者選「Disabled + 說明」。補一個守衛測試：同一個 pane 先大檔後小檔，小檔重新填空、偏好未被切換。
+  這個測試一開始就是綠的，沒有先紅；mutation（`_overCap` 觸發後保持 true）→ 紅。mutations-run 1、tests-reddened 1。
+- **sticky head 設計（0c31ee24）**：`docs/claude-design-demo/wc-sticky-temp-head-spec.html`。
+  spec-auditor 第一輪 15 不符／5 無出處，最嚴重的是我把置頂 head 的位置算成左 12／右 24，少算 well 外側 8px（正確 20／32，片段模式右 18）。
+  第二輪 150 個值中 2 不符／2 無出處，另有 2 處文字與 CSS 矛盾，都在發佈前改正。
+  使用者裁定：「可以照著實作，但是 跨 2 個 hunk 這文字不需要顯示出來」，追問後「兩處都拿掉」；陰影「不加」；對比度「開issue,說明影響範圍」→ **#200**。
+- **拿掉「跨 N 個 hunk」（84514066）**：`hunkCount`／`temporaryHunkCount` 只供這段文字使用，一併移除（[CULT-orphan-wiring]）。
+- **sticky head（c335eeb8）**：條件是「head 上緣在 viewport 之上，而且 block 最後一列仍在 viewport 上緣之下」。
+  head 已建出時量它的 GlobalKey；沒建出時比較它所在的 card item 與頂端的 item。block 尾端用既有的 `_endpointAt` 編碼判斷。
+  head 內容抽成 `_TemporaryHead`，兩處共用。`ScopedDiffView` 改成一律回傳 `Stack`，避免 head 出現或消失時 well 跟著重建。
+  判斷在 layout 之後做，所以置頂版比 block 晚一個 frame。
+  5 個 widget 測試、7 個 mutation，每個 mutation 都有指名的測試變紅：mutations-run 7、tests-reddened 5。
+  device 測試（自動捲動拖曳）改按置頂版的按鈕：7/7 綠；mutation（按鈕無作用）→ 紅。
+- **全套**：`flutter test` 4233 通過、8 skipped；analyzer 0；format 乾淨。
+- **device 層逐檔重跑（G3）**：`full_file_stage_flow_test.dart` 7/7、`stage_lines_flow_test.dart` 9/9、`context_menu_flows_test.dart` 5/5（上一輪改了 view 的樹結構後紅過，這次 view 一律包 `Stack`，所以也跑）。
+  `integration_test/perf/` 的兩個量測檔沒有重跑；它們量的是列的成本，不驗證正確性。
+
+這一段自己的失誤：
+- 兩個 widget 測試的 fixture 寫錯，都在實作前就紅了，原因不在程式碼：row 9 在 300px 的 viewport 外沒被建出；`temporary-scope-card` 的 box 比 head 高出 4px 的 margin。改測試，不改程式碼。
+- 第一版設計稿的出處註解有 15 處與 app 不符（見上），是只看 widget 名稱、沒逐一讀數字造成的。
+- 這一段中途，auto mode 的 Bash 安全檢查服務連續 6 次沒有回應判定，工作暫停一次；服務恢復後照原步驟繼續，沒有略過任何步驟。
+

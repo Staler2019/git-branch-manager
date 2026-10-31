@@ -114,9 +114,15 @@ class SyncScrollController {
   }
 
   /// Jumps follower [column] to [target], clamped to its own extent.
+  ///
+  /// A follower without an extent yet is left alone: it has not laid out
+  /// (or its layout failed), and reading its extent throws -- every frame
+  /// of a leader's fling did, on the mac (2026-10-31). Its first layout
+  /// reports heights, which earns it a correction.
   void _jumpTo(int column, double target) {
     if (!_columns[column].hasClients) return;
     final ScrollPosition position = _columns[column].position;
+    if (!position.hasContentDimensions) return;
     final double clamped = target.clamp(
       position.minScrollExtent,
       position.maxScrollExtent,

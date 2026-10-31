@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_scroll_controller.dart';
@@ -31,7 +33,83 @@ class _SpacerState extends State<_Spacer> {
   Widget build(BuildContext context) => const SizedBox(height: 0);
 }
 
+/// A sliver whose layout fails, so its viewport never gets content
+/// dimensions -- what an asserting sliver left behind on the mac.
+class _FailingSliver extends LeafRenderObjectWidget {
+  const _FailingSliver();
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderFailing();
+}
+
+class _RenderFailing extends RenderSliver {
+  @override
+  void performLayout() => throw StateError('layout failed');
+}
+
 void main() {
+  testWidgets('a leader moving while a follower has never laid out does '
+      'not throw', (tester) async {
+    // mac, 2026-10-31: a follower whose sliver asserted had no content
+    // dimensions, and every frame of the leader's fling threw from
+    // `ScrollPosition.minScrollExtent` in the mirror.
+    final List<ScrollController> columns = <ScrollController>[
+      ScrollController(),
+      ScrollController(),
+    ];
+    final SyncScrollController sync = SyncScrollController(columns);
+    addTearDown(() {
+      sync.dispose();
+      for (final ScrollController c in columns) {
+        c.dispose();
+      }
+    });
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 200,
+              height: 300,
+              child: ListView(
+                controller: columns[0],
+                children: const <Widget>[SizedBox(height: 2000)],
+              ),
+            ),
+            SizedBox(
+              width: 200,
+              height: 300,
+              child: CustomScrollView(
+                controller: columns[1],
+                slivers: const <Widget>[_FailingSliver()],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    // The follower's own layout failure, not what this test is about.
+    while (tester.takeException() != null) {}
+    expect(columns[1].position.hasContentDimensions, isFalse);
+
+    // The failing sliver keeps asserting as it relayouts; only an error
+    // thrown from the mirror is this test's.
+    final List<FlutterErrorDetails> mirrorErrors = <FlutterErrorDetails>[];
+    final FlutterExceptionHandler? previous = FlutterError.onError;
+    FlutterError.onError = (FlutterErrorDetails details) {
+      if (details.stack.toString().contains('sync_scroll_controller.dart')) {
+        mirrorErrors.add(details);
+      }
+    };
+    sync.lead(0);
+    columns[0].jumpTo(400);
+    await tester.pump();
+    FlutterError.onError = previous;
+    expect(mirrorErrors, isEmpty);
+    expect(sync.jumpCount(1), 0);
+  });
+
   testWidgets('the follower is corrected against the spacer nearest the '
       "leader's top, not any other one both have built", (tester) async {
     // Segment k ends at the sum of the first k+1 item heights. Column 1's

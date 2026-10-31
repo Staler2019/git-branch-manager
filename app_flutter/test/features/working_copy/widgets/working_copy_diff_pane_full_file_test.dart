@@ -3,6 +3,7 @@
 // only when the full diff can be trusted and is small enough to draw.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
 
 import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
@@ -105,6 +106,12 @@ void main() {
     await pump(tester, fullFile: true, onToggleFullFile: () => toggles++);
     expect(filled(), findsOneWidget);
     expect(toggles, 0);
+  });
+
+  // Two literals, one number: a pane built without the preference must
+  // refuse exactly what the preference's default refuses.
+  test('the default cap is the preference\'s default', () {
+    expect(kFullFileViewMaxLines, const AppPreferences().fullFileViewMaxLines);
   });
 
   testWidgets('a file at the line cap is filled', (WidgetTester tester) async {

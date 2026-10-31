@@ -222,6 +222,48 @@ void main() {
       );
     });
 
+    // `AppPreferences.fullFileViewMaxLines` (wc-full-file-line-cap-spec.html)
+    // reaches the pane, and is read per build: flipped with the pane on
+    // screen ([FLU-listen-misses-the-current-value]).
+    testWidgets('the line cap preference decides, live, whether a file is '
+        'drawn whole', (WidgetTester tester) async {
+      final (
+        FakeRepoSessionController _,
+        ProviderContainer container,
+      ) = await pump(
+        tester,
+        diffs: <String, WorkingCopyDiffReply>{
+          key: reply(replacementsDiff(600, const <int>{5, 30}, context: 3)),
+        },
+        fullDiffs: <String, WorkingCopyDiffReply>{
+          key: reply(
+            replacementsDiff(600, const <int>{5, 30}, context: kAllContext),
+          ),
+        },
+      );
+      await setFullFile(container, true);
+      await tester.pump();
+      await tester.tap(find.text('lib/a.dart').first);
+      await tester.pump();
+      await tester.pump();
+      expect(filled(), findsOneWidget, reason: '600 lines, cap 5000');
+
+      Future<void> setCap(int lines) async {
+        await container
+            .read(appPreferencesProvider.notifier)
+            .update(
+              (AppPreferences p) => p.copyWith(fullFileViewMaxLines: lines),
+            );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      await setCap(500);
+      expect(filled(), findsNothing, reason: '600 lines, cap 500');
+      await setCap(600);
+      expect(filled(), findsOneWidget, reason: '600 lines, cap 600');
+    });
+
     // A full diff left in the session from before the view was switched off
     // is not the view's business any more: refetching it would spend git
     // invocations on a view nobody is looking at.

@@ -53,10 +53,11 @@ enum WorkingCopyDiffMode {
 /// user last clicked and a single `lastDiff` slot held one reply, so staging
 /// part of a file left the other side stale and invisible -- the half-staged
 /// state the redesign exists to make legible had nowhere to be seen.
-/// The longest file the full-file view draws, in lines. Measured, not
-/// chosen: on macOS (profile build) 5,000 lines open in 72-77 ms with a
-/// scroll p90 of 15-16 ms per frame, inside the 100 ms / 16 ms budget,
-/// and 20,000 lines take 530 ms to open and 47-57 ms per frame.
+/// The longest file the full-file view draws, in lines, when the caller
+/// passes no `AppPreferences.fullFileViewMaxLines` -- that preference's
+/// default. Measured, not chosen: on macOS (profile build) 5,000 lines open
+/// in 72-77 ms with a scroll p90 of 15-16 ms per frame, inside the 100 ms /
+/// 16 ms budget, and 20,000 lines take 530 ms to open and 47-57 ms per frame.
 const int kFullFileViewMaxLines = 5000;
 
 class WorkingCopyDiffPane extends StatefulWidget {
@@ -74,6 +75,7 @@ class WorkingCopyDiffPane extends StatefulWidget {
     required this.onTemporaryScopeChanged,
     required this.softWrap,
     this.maxCodeLineChars = 200,
+    this.fullFileMaxLines = kFullFileViewMaxLines,
     this.scrollController,
     this.unstagedFullFile,
     this.stagedFullFile,
@@ -130,6 +132,10 @@ class WorkingCopyDiffPane extends StatefulWidget {
   /// `AppPreferences.maxCodeLineChars`: each side's code is cut at this many
   /// CJK character widths ([capCodeWidth]).
   final int maxCodeLineChars;
+
+  /// `AppPreferences.fullFileViewMaxLines`: a file with a side longer than
+  /// this stays in excerpts and its full-file button is disabled.
+  final int fullFileMaxLines;
 
   /// Attached to the unstaged pane in `2 file` mode and to the single scroll
   /// view in `unified` mode.
@@ -239,18 +245,18 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   }
 
   /// Whether either side's full diff is longer than
-  /// [kFullFileViewMaxLines].
+  /// [WorkingCopyDiffPane.fullFileMaxLines].
   bool _overCap() =>
       <DiffFile?>[widget.unstagedFullFile, widget.stagedFullFile].any(
         (DiffFile? f) =>
-            f != null && diffFileLineCount(f) > kFullFileViewMaxLines,
+            f != null && diffFileLineCount(f) > widget.fullFileMaxLines,
       );
 
   /// The fill rows for a view showing [sides] (`false` unstaged, `true`
   /// staged), or null for excerpt mode: the full-file view is off, a full
   /// diff has not landed or disagrees with its -U3 one
   /// ([fullFileFillRows]), or the file is longer than
-  /// [kFullFileViewMaxLines].
+  /// [WorkingCopyDiffPane.fullFileMaxLines].
   ///
   /// Not cached: the pane rebuilds when its inputs change, not per scroll
   /// frame, and [fullFileFillRows] is O(lines) -- 3 ms at 5,000.
@@ -656,7 +662,7 @@ class _TitleBar extends StatelessWidget {
   final String displayPath;
 
   /// Whether this file is drawn whole; [tooLarge] when the view is on but
-  /// the file is over [kFullFileViewMaxLines] and drawn in excerpts.
+  /// the file is over the line cap and drawn in excerpts.
   final bool fullFile;
   final bool tooLarge;
   final VoidCallback? onToggleFullFile;

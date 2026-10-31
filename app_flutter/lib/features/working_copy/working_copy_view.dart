@@ -471,6 +471,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       // without a ProviderScope.
       softWrap: ref.watch(appPreferencesProvider).softWrapEnabled,
       maxCodeLineChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+      fullFileMaxLines: ref.watch(appPreferencesProvider).fullFileViewMaxLines,
       // Two paths when a rename is half-staged: the work tree still calls it
       // the old name while the index already calls it the new one, and
       // showing only one of them would make the pane look like it is

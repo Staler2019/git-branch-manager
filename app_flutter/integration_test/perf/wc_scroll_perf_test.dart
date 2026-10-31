@@ -10,6 +10,7 @@
 //     --target=integration_test/perf/wc_scroll_perf_test.dart
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -82,22 +83,49 @@ void main() {
     SchedulerBinding.instance.addTimingsCallback(collect);
     addTearDown(() => SchedulerBinding.instance.removeTimingsCallback(collect));
 
-    Future<void> measure(String label, Finder view) async {
-      final ScrollPosition position = tester
-          .state<ScrollableState>(
-            find
-                .descendant(
-                  of: view,
-                  matching: find.byWidgetPredicate(
-                    (Widget w) =>
-                        w is Scrollable &&
-                        w.axisDirection == AxisDirection.down,
-                  ),
-                )
-                .first,
-          )
-          .position;
-      position.jumpTo(0);
+    ScrollPosition positionOf(Finder view) => tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: view,
+                matching: find.byWidgetPredicate(
+                  (Widget w) =>
+                      w is Scrollable && w.axisDirection == AxisDirection.down,
+                ),
+              )
+              .first,
+        )
+        .position;
+
+    // In `2 file`, [follower] is the other column: one wheel tick makes
+    // [view] the synced leader first, so every jump below is mirrored and
+    // the numbers include the sync (plan: Slice S, S7).
+    //
+    // With no [step], each frame jumps 1/120 of the extent (about 930 px):
+    // every frame builds a whole new viewport, a stress test. With [step],
+    // each frame moves that many pixels from a third of the way down, about
+    // a fast fling; the sync budget is read off this one (使用者裁定
+    // 2026-10-31: p90 at most 2 ms above the same run without the sync).
+    Future<void> measure(
+      String label,
+      Finder view, {
+      Finder? follower,
+      double? step,
+    }) async {
+      final ScrollPosition position = positionOf(view);
+      if (follower != null) {
+        // A tick that can move it, or [view] does not become the leader:
+        // the previous run left both columns at the end, and a jump on a
+        // column that is not the leader is pulled back to the leader's
+        // offset the next frame.
+        final TestPointer pointer = TestPointer(9, PointerDeviceKind.mouse);
+        await tester.sendEventToBinding(pointer.hover(tester.getCenter(view)));
+        await tester.sendEventToBinding(
+          pointer.scroll(Offset(0, position.pixels > 0 ? -1 : 1)),
+        );
+        await tester.pumpAndSettle();
+      }
+      position.jumpTo(step == null ? 0 : position.maxScrollExtent / 3);
       await tester.pumpAndSettle();
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 600)),
@@ -105,10 +133,21 @@ void main() {
       timings.clear();
       final double extent = position.maxScrollExtent;
       const int frames = 120;
+      int followed = 0;
       for (int i = 1; i <= frames; i++) {
-        position.jumpTo(extent * i / frames);
+        final double before = follower == null
+            ? 0
+            : positionOf(follower).pixels;
+        position.jumpTo(
+          step == null ? extent * i / frames : extent / 3 + step * i,
+        );
         await tester.pump();
+        if (follower != null && positionOf(follower).pixels != before) {
+          followed++;
+        }
       }
+      // Every jump mirrored, or the numbers are not the sync's.
+      if (follower != null) expect(followed, greaterThan(frames * 0.9));
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 600)),
       );
@@ -124,18 +163,32 @@ void main() {
         'buildP90=${_percentile(build, .9).toStringAsFixed(1)} '
         'buildMax=${_percentile(build, 1).toStringAsFixed(1)} '
         'rasterP90=${_percentile(raster, .9).toStringAsFixed(1)} '
-        'extent=${extent.toStringAsFixed(0)}',
+        'extent=${extent.toStringAsFixed(0)}'
+        '${follower == null ? '' : ' followerAt=${positionOf(follower).pixels.toStringAsFixed(0)} leaderAt=${position.pixels.toStringAsFixed(0)}'}',
       );
     }
 
     final Finder views = find.byType(ScopedDiffView);
     expect(views, findsOneWidget, reason: 'unified is the default');
     await measure('unified', views);
+    await measure('unified-80px', views, step: 80);
 
     await tester.tap(find.text('2 file'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(views, findsNWidgets(2));
-    await measure('2file-unstaged', views.first);
-    await measure('2file-staged', views.last);
+    await measure('2file-unstaged', views.first, follower: views.last);
+    await measure('2file-staged', views.last, follower: views.first);
+    await measure(
+      '2file-unstaged-80px',
+      views.first,
+      follower: views.last,
+      step: 80,
+    );
+    await measure(
+      '2file-staged-80px',
+      views.last,
+      follower: views.first,
+      step: 80,
+    );
   });
 }

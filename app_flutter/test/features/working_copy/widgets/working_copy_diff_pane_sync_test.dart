@@ -15,13 +15,18 @@ import '../../../support/pump_app.dart';
 // card segment is twice as tall on the unstaged side. Both replace 30, a
 // hunk of its own, so excerpt mode has two segments past the leading one.
 const Set<int> _unstagedEdits = <int>{10, 11, 12, 30};
-const Set<int> _stagedEdits = <int>{11, 30};
+// Each staged edit is on the line just after an unstaged run: its removed
+// row sits at that run's last position, after all of its changes, so the
+// two cards share a segment and neither is cut (plan Slice B).
+const Set<int> _stagedEdits = <int>{13, 31};
 
 Future<void> _pump(
   WidgetTester tester, {
   required bool fullFile,
   required bool softWrap,
   double width = 900,
+  Set<int> unstagedEdits = _unstagedEdits,
+  Set<int> stagedEdits = _stagedEdits,
 }) async {
   tester.view.physicalSize = Size(width, 4000);
   tester.view.devicePixelRatio = 1;
@@ -31,14 +36,14 @@ Future<void> _pump(
     child: WorkingCopyDiffPane(
       softWrap: softWrap,
       displayPath: 'lib/a.dart',
-      unstagedFile: replacementsDiff(40, _unstagedEdits, context: 3),
-      stagedFile: replacementsDiff(40, _stagedEdits, context: 3),
+      unstagedFile: replacementsDiff(40, unstagedEdits, context: 3),
+      stagedFile: replacementsDiff(40, stagedEdits, context: 3),
       unstagedFullFile: replacementsDiff(
         40,
-        _unstagedEdits,
+        unstagedEdits,
         context: kAllContext,
       ),
-      stagedFullFile: replacementsDiff(40, _stagedEdits, context: kAllContext),
+      stagedFullFile: replacementsDiff(40, stagedEdits, context: kAllContext),
       fullFile: fullFile,
       unstagedLoading: false,
       stagedLoading: false,
@@ -105,31 +110,37 @@ void main() {
 
   testWidgets('the shorter column pads at the end of the segment, not its '
       'start', (WidgetTester tester) async {
-    await _pump(tester, fullFile: false, softWrap: false);
-    // The staged card's last row is `edited L11`; the unstaged card ends at
-    // `edited L12`, two rows later, so the staged spacer of that segment
-    // comes after its card.
+    // Eleven lines replaced unstaged, and the one line after them staged:
+    // the staged card shares the long unstaged card's segment without
+    // cutting it (plan Slice B), so the staged spacer of that segment is
+    // tall, and it comes after the staged card.
+    await _pump(
+      tester,
+      fullFile: false,
+      softWrap: false,
+      unstagedEdits: <int>{for (int l = 10; l <= 20; l++) l},
+      stagedEdits: const <int>{21},
+    );
     final Rect stagedCardEnd = tester.getRect(
       find
           .descendant(
             of: find.byType(ScopedDiffView).last,
-            matching: _rowText('edited L11'),
+            matching: _rowText('edited L21'),
           )
           .first,
     );
-    final Iterable<SyncSlotSpacer> padding = tester
-        .widgetList<SyncSlotSpacer>(find.byType(SyncSlotSpacer))
-        .where(
-          (SyncSlotSpacer s) =>
-              s.column == 1 && tester.getRect(find.byWidget(s)).height > 10,
-        );
-    expect(padding, isNotEmpty);
-    for (final SyncSlotSpacer s in padding) {
-      expect(
-        tester.getRect(find.byWidget(s)).top,
-        greaterThanOrEqualTo(stagedCardEnd.bottom),
-      );
-    }
+    // The tallest staged spacer is that segment's: the staged column has
+    // nothing beside the unstaged hunk's leading context either, but that
+    // is three rows, not eleven.
+    final List<Rect> padding =
+        tester
+            .widgetList<SyncSlotSpacer>(find.byType(SyncSlotSpacer))
+            .where((SyncSlotSpacer s) => s.column == 1)
+            .map((SyncSlotSpacer s) => tester.getRect(find.byWidget(s)))
+            .toList()
+          ..sort((Rect a, Rect b) => b.height.compareTo(a.height));
+    expect(padding.first.height, greaterThan(100));
+    expect(padding.first.top, greaterThanOrEqualTo(stagedCardEnd.bottom));
   });
 
   // F2: a mark sits where its card sits in the column, as a share of the

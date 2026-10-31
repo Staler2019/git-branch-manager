@@ -133,6 +133,7 @@ class ScopedDiffView extends StatefulWidget {
     this.codeClipWidth,
     this.backdrop,
     this.sync,
+    this.barriers,
   });
 
   /// The diffs to draw, in painted order. One element is `2 file` mode's
@@ -188,6 +189,12 @@ class ScopedDiffView extends StatefulWidget {
   /// segment's run ends in a spacer that pads it to the tallest column's,
   /// and every item reports its laid-out height into [ScopedDiffSync.heights].
   final ScopedDiffSync? sync;
+
+  /// Each source's barriers, when they come from outside [sources]: a
+  /// `2 file` column is one source, and its cards are still cut where the
+  /// *other* column changes the file (plan: Slice B, 使用者裁定「所有檔案都
+  /// 套用」). Null: derived from [sources] themselves, as `unified` does.
+  final List<IndexBarriers>? barriers;
 
   @override
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
@@ -310,10 +317,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// say 「1 未暫存」 over two Stage cards ([CULT-single-source-of-truth]).
   final DiffBarrierMemo _barriers = DiffBarrierMemo();
 
-  List<IndexBarriers> _barriersBySource() => _barriers.barriersFor(<DiffSide>[
-    for (final ScopedDiffSource source in widget.sources)
-      (file: source.file, staged: source.staged),
-  ]);
+  List<IndexBarriers> _barriersBySource() =>
+      widget.barriers ??
+      _barriers.barriersFor(<DiffSide>[
+        for (final ScopedDiffSource source in widget.sources)
+          (file: source.file, staged: source.staged),
+      ]);
 
   /// The scopes of every source, by source index.
   List<Map<int, List<DiffScope>>> _scopesBySource() {

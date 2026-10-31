@@ -197,16 +197,24 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       .values
       .fold<int>(0, (int sum, List<DiffScope> scopes) => sum + scopes.length);
 
+  List<DiffSide> _sides() => <DiffSide>[
+    (file: widget.unstagedFile, staged: false),
+    (file: widget.stagedFile, staged: true),
+  ];
+
+  /// Each side's cards cut where the other side changes the file -- in
+  /// `unified`, and in `2 file` too (plan: Slice B): one memo for the title
+  /// bar, both columns and their sync segments, so none can split a scope
+  /// another does not.
+  List<IndexBarriers> _sideBarriers() => _barriers.barriersFor(_sides());
+
   /// U3's two numbers, split exactly the way the merged list is.
   ///
   /// Only `unified` draws them, so the barriers are unconditional here: in
   /// `2 file` the two column heads still say it and this record is never
   /// built at all.
   ({int unstaged, int staged}) _scopeCounts() {
-    final List<DiffSide> sides = <DiffSide>[
-      (file: widget.unstagedFile, staged: false),
-      (file: widget.stagedFile, staged: true),
-    ];
+    final List<DiffSide> sides = _sides();
     final List<IndexBarriers> barriers = _barriers.barriersFor(sides);
     return (
       unstaged: _countScopes(sides[0], _unstagedScopes, barriers[0]),
@@ -351,15 +359,16 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     _syncKey = key;
     current?.heights.dispose();
 
-    // The blocks each column's view will draw: one source, so no barriers
-    // ([DiffBarrierMemo] gives a lone side [IndexBarriers.none]) -- the same
-    // function the view calls, with the same inputs.
+    // The blocks each column's view will draw, cut by the other side's
+    // changes as the view's are ([_sideBarriers]) -- the same function the
+    // view calls, with the same inputs.
     final List<ScopedDiffSource> sources = <ScopedDiffSource>[
       _source(staged: false),
       _source(staged: true),
     ];
     final List<List<DiffBlock>> blocks = <List<DiffBlock>>[];
     final List<DiffSide> sides = <DiffSide>[];
+    final List<IndexBarriers> barriers = _sideBarriers();
     for (int c = 0; c < 2; c++) {
       final DiffSide side = (file: sources[c].file, staged: sources[c].staged);
       sides.add(side);
@@ -368,7 +377,11 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
             ? orderedDiffBlocks(
                 <DiffSide>[side],
                 <Map<int, List<DiffScope>>>[
-                  _columnScopes[c].scopesOf(side.file, staged: side.staged),
+                  _columnScopes[c].scopesOf(
+                    side.file,
+                    staged: side.staged,
+                    barriers: barriers[c],
+                  ),
                 ],
                 fill: fills[c],
               )
@@ -644,6 +657,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       backdrop: context.gbmColors.surfaceSunken,
       fill: fill,
       sync: sync,
+      barriers: <IndexBarriers>[_sideBarriers()[staged ? 1 : 0]],
     );
   }
 }

@@ -18,7 +18,9 @@ import '../../../support/pump_app.dart';
 
 const int _lines = 300;
 const Set<int> _unstagedEdits = <int>{10, 11, 12, 150, 151, 152, 153, 280};
-const Set<int> _stagedEdits = <int>{11, 151, 280};
+// Each staged edit is on the line just after an unstaged run, so the two
+// cards share a segment and neither is cut (plan Slice B).
+const Set<int> _stagedEdits = <int>{13, 154, 281};
 
 Future<void> _pump(
   WidgetTester tester, {
@@ -389,16 +391,17 @@ void main() {
       tester,
       fullFile: false,
       unstagedEdits: <int>{for (int l = 100; l <= 140; l++) l, 200},
-      stagedEdits: const <int>{120, 200},
+      stagedEdits: const <int>{141, 201},
     );
-    final Finder target = find.text('edited L200', findRichText: true);
+    // Unedited in both columns, and just below each one's last card.
+    final Finder target = find.text('L202', findRichText: true);
     expect(_onScreen(tester, 1, target), isFalse, reason: 'the premise');
     await tester.tapAt(
       tester.getCenter(
         find
             .descendant(
               of: _view(1),
-              matching: find.text('edited L120', findRichText: true),
+              matching: find.text('edited L141', findRichText: true),
             )
             .first,
       ),
@@ -604,11 +607,12 @@ void main() {
     await pump(landed: true);
     await _settle(tester);
 
-    // Line 17 is just below both columns' first card (unstaged 7-15,
-    // staged 8-14), a fill row in each: the cards' heights above it differ.
+    // Line 18 is just below both columns' first card (unstaged 7-15,
+    // staged 10-16) with a fill row above it in each, so it opens its
+    // segment in both: the cards' heights above it differ.
     Finder row(int c) => find.descendant(
       of: _view(c),
-      matching: find.text('L17', findRichText: true),
+      matching: find.text('L18', findRichText: true),
     );
     expect(
       tester.getRect(row(1)).top,

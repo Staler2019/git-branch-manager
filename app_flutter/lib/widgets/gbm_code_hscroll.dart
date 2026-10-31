@@ -46,7 +46,13 @@ class GbmCodeHScroll extends StatefulWidget {
     required this.backdrop,
     required this.codeClipWidth,
     required this.child,
+    this.horizontalController,
   });
+
+  /// The sideways scroller's controller, for a caller that scrolls several
+  /// of these together (`2 file`'s columns); null for one this widget owns.
+  /// It has clients only while the content is wider than the viewport.
+  final ScrollController? horizontalController;
 
   /// The width each row's code text is cut at, gutter not included, or null
   /// for no cut (soft wrap on). Rows read it with [maybeCodeClipWidthOf].
@@ -123,11 +129,13 @@ class GbmCodeHScrollScope extends InheritedWidget {
 }
 
 class _GbmCodeHScrollState extends State<GbmCodeHScroll> {
-  final ScrollController _horizontal = ScrollController();
+  final ScrollController _owned = ScrollController();
+
+  ScrollController get _horizontal => widget.horizontalController ?? _owned;
 
   @override
   void dispose() {
-    _horizontal.dispose();
+    _owned.dispose();
     super.dispose();
   }
 

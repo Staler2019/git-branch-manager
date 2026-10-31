@@ -207,12 +207,15 @@ typedef _ItemPaint = ({
 /// What a synced `2 file` column hands the view (plan: Slice S): which
 /// segment each of its sync units is in (`syncUnitSpans`'s order, computed
 /// by the pane from the same blocks this view draws) and the slot heights
-/// both columns share.
+/// both columns share; [scroll] mirrors the vertical offset (S4), and
+/// [sideways] the [horizontal] controller's (S5a).
 typedef ScopedDiffSync = ({
   int column,
   List<int> segmentOfUnit,
   SyncSlotHeights heights,
   SyncScrollController? scroll,
+  ScrollController? horizontal,
+  SyncScrollController? sideways,
 });
 
 /// How far a row's left edge sits inside the view: the well's 8px margin,
@@ -399,6 +402,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     sync?.scroll?.lead(sync.column);
   }
 
+  /// [_leadSync] for the sideways axis ([ScopedDiffSync.sideways]).
+  void _leadSideways() {
+    final ScopedDiffSync? sync = widget.sync;
+    sync?.sideways?.lead(sync.column);
+  }
+
   bool _onScrollNotification(Notification notification) {
     // Only a user's own scroll: a follower's guarded `jumpTo` goes idle,
     // which reports an idle direction from the column that did not lead.
@@ -409,9 +418,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         dragDetails != null,
       _ => false,
     };
-    if (user &&
-        (notification as ScrollNotification).metrics.axis == Axis.vertical) {
-      _leadSync();
+    if (user) {
+      switch ((notification as ScrollNotification).metrics.axis) {
+        case Axis.vertical:
+          _leadSync();
+        case Axis.horizontal:
+          _leadSideways();
+      }
     }
     final ScrollMetrics? metrics = switch (notification) {
       ScrollNotification(:final ScrollMetrics metrics) => metrics,
@@ -766,6 +779,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       contentWidth: widget.contentWidth,
       codeClipWidth: widget.codeClipWidth,
       verticalController: _vertical,
+      horizontalController: widget.sync?.horizontal,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
       child: ListView.builder(
         // Keyed only when there is content. With nothing to draw the list is

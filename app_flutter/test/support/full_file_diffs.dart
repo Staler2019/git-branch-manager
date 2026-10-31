@@ -6,12 +6,13 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 /// A [total]-line file whose lines in [edited] are each replaced, diffed at
 /// [context] lines of context the way git builds hunks. Line `n` reads
 /// `L$n` (`edited L$n` once replaced), so a row's text never collides with a
-/// gutter number. A line in [long] runs on for 300 more characters.
+/// gutter number. A line in [long] runs on for [longBy] more characters.
 DiffFile replacementsDiff(
   int total,
   Set<int> edited, {
   required int context,
   Set<int> long = const <int>{},
+  int longBy = 300,
 }) {
   final List<(int, int)> windows = <(int, int)>[];
   for (final int e in edited.toList()..sort()) {
@@ -51,7 +52,7 @@ DiffFile replacementsDiff(
                   kind: DiffLineKind.removed,
                   oldLine: n,
                   newLine: 0,
-                  text: long.contains(n) ? 'L$n${'x' * 300}' : 'L$n',
+                  text: long.contains(n) ? 'L$n${'x' * longBy}' : 'L$n',
                 ),
                 DiffLine(
                   kind: DiffLineKind.added,
@@ -64,7 +65,7 @@ DiffFile replacementsDiff(
                   kind: DiffLineKind.context,
                   oldLine: n,
                   newLine: n,
-                  text: long.contains(n) ? 'L$n${'x' * 300}' : 'L$n',
+                  text: long.contains(n) ? 'L$n${'x' * longBy}' : 'L$n',
                 ),
           ],
         ),

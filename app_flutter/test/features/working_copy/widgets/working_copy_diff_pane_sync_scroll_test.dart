@@ -26,6 +26,8 @@ Future<void> _pump(
   ScrollController? scrollController,
   Set<int> unstagedEdits = _unstagedEdits,
   Set<int> stagedEdits = _stagedEdits,
+  Set<int> unstagedLong = const <int>{},
+  int longBy = 300,
 }) async {
   tester.view.physicalSize = const Size(900, 500);
   tester.view.devicePixelRatio = 1;
@@ -35,12 +37,20 @@ Future<void> _pump(
     child: WorkingCopyDiffPane(
       softWrap: softWrap,
       displayPath: 'lib/a.dart',
-      unstagedFile: replacementsDiff(_lines, unstagedEdits, context: 3),
+      unstagedFile: replacementsDiff(
+        _lines,
+        unstagedEdits,
+        context: 3,
+        long: unstagedLong,
+        longBy: longBy,
+      ),
       stagedFile: replacementsDiff(_lines, stagedEdits, context: 3),
       unstagedFullFile: replacementsDiff(
         _lines,
         unstagedEdits,
         context: kAllContext,
+        long: unstagedLong,
+        longBy: longBy,
       ),
       stagedFullFile: replacementsDiff(
         _lines,
@@ -80,6 +90,29 @@ Finder _vertical(int column) => find
 
 ScrollPosition _position(WidgetTester tester, int column) =>
     tester.state<ScrollableState>(_vertical(column)).position;
+
+Finder _sidewaysOf(int column) => find.descendant(
+  of: _view(column),
+  matching: find.byWidgetPredicate(
+    (Widget w) => w is Scrollable && w.axisDirection == AxisDirection.right,
+  ),
+);
+
+ScrollPosition _sideways(WidgetTester tester, int column) =>
+    tester.state<ScrollableState>(_sidewaysOf(column).first).position;
+
+SyncScrollController _sideSync(WidgetTester tester) =>
+    tester.widget<ScopedDiffView>(_view(0)).sync!.sideways!;
+
+Future<void> _wheelSideways(WidgetTester tester, int column, double dx) async {
+  // The view's centre: the vertical list is as wide as the content, so its
+  // own centre can lie off the pane.
+  final Offset at = tester.getCenter(_view(column));
+  final TestPointer pointer = TestPointer(1, PointerDeviceKind.mouse);
+  await tester.sendEventToBinding(pointer.hover(at));
+  await tester.sendEventToBinding(pointer.scroll(Offset(dx, 0)));
+  await _settle(tester);
+}
 
 SyncScrollController _sync(WidgetTester tester) =>
     tester.widget<ScopedDiffView>(_view(0)).sync!.scroll!;
@@ -459,5 +492,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(sync.jumpCount(0), before);
     _expectAligned(tester);
+  });
+
+  // S5a: one width for both columns, the wider one's, and one sideways
+  // offset (plan: Slice S, E1, 「以兩側最大寬度等像素位移」).
+  testWidgets('both columns scroll as far sideways as the wider one', (
+    WidgetTester tester,
+  ) async {
+    // Only the unstaged side's line 150 runs on; the staged excerpt holds a
+    // short line 150 of its own.
+    await _pump(tester, fullFile: false, unstagedLong: const <int>{150});
+    expect(_sideways(tester, 0).maxScrollExtent, greaterThan(0));
+    expect(
+      _sideways(tester, 1).maxScrollExtent,
+      _sideways(tester, 0).maxScrollExtent,
+    );
+  });
+
+  testWidgets('a sideways wheel on the unstaged column moves the staged one '
+      'by the same pixels, and never back', (WidgetTester tester) async {
+    await _pump(tester, fullFile: false, unstagedLong: const <int>{150});
+    final SyncScrollController sync = _sideSync(tester);
+    final int before = sync.jumpCount(0);
+    await _wheelSideways(tester, 0, 300);
+
+    expect(_sideways(tester, 0).pixels, greaterThan(100));
+    expect(_sideways(tester, 1).pixels, _sideways(tester, 0).pixels);
+    expect(sync.jumpCount(0), before);
+    // The vertical sync is a separate axis and stays where it was.
+    expect(_position(tester, 0).pixels, 0);
+  });
+
+  testWidgets('a sideways wheel on the staged column leads the other way', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, fullFile: false, unstagedLong: const <int>{150});
+    await _wheelSideways(tester, 1, 250);
+    expect(_sideways(tester, 1).pixels, greaterThan(100));
+    expect(_sideways(tester, 0).pixels, _sideways(tester, 1).pixels);
+  });
+
+  testWidgets('a column whose rows fit has no sideways scroller, and the '
+      'other one still scrolls without it', (WidgetTester tester) async {
+    await _pump(
+      tester,
+      fullFile: false,
+      unstagedLong: const <int>{150},
+      longBy: 30,
+    );
+    await tester.drag(
+      find.byKey(const Key('gbm-split-divider-0')),
+      const Offset(-250, 0),
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    // Premise: the narrow column scrolls sideways, the wide one fits.
+    expect(_sidewaysOf(0), findsOneWidget);
+    expect(_sidewaysOf(1), findsNothing);
+
+    await _wheelSideways(tester, 0, 200);
+    expect(tester.takeException(), isNull);
+    expect(_sideways(tester, 0).pixels, greaterThan(50));
   });
 }

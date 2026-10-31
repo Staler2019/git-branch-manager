@@ -390,9 +390,23 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     _syncScroll = null;
   }
 
+  /// `2 file`'s sideways offset, one for both columns (S5a): each column's
+  /// own [GbmCodeHScroll] scroller, mirrored like the vertical one.
+  final List<ScrollController> _sidewaysScroll = <ScrollController>[
+    ScrollController(),
+    ScrollController(),
+  ];
+  late final SyncScrollController _sidewaysSync = SyncScrollController(
+    _sidewaysScroll,
+  );
+
   @override
   void dispose() {
     _dropSyncScroll();
+    _sidewaysSync.dispose();
+    for (final ScrollController c in _sidewaysScroll) {
+      c.dispose();
+    }
     _sync?.heights.dispose();
     _stagedScroll.dispose();
     _ownedUnstagedScroll.dispose();
@@ -447,16 +461,27 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
                 final SyncScrollController scroll = _syncScrollFor(
                   sync.heights,
                 );
+                // One width for both, the wider side's, so the two scroll
+                // the same distance sideways.
+                final CappedCodeWidth? cap = _capped(
+                  math.max(
+                    _widthOf(_widthSource(staged: false), _unstagedMemo),
+                    _widthOf(_widthSource(staged: true), _stagedMemo),
+                  ),
+                );
                 return <Widget>[
                   for (int c = 0; c < 2; c++)
                     _side(
                       staged: c == 1,
                       fill: fills[c],
+                      cap: cap,
                       sync: (
                         column: c,
                         segmentOfUnit: sync.segmentOf[c],
                         heights: sync.heights,
                         scroll: scroll,
+                        horizontal: _sidewaysScroll[c],
+                        sideways: _sidewaysSync,
                       ),
                     ),
                 ];
@@ -514,17 +539,13 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     onDiscardScope: staged ? null : widget.onDiscardScope,
   );
 
-  /// One `2 file` column: its own scroll position and its own width.
+  /// One `2 file` column, its scroll positions synced through [sync].
   Widget _side({
     required bool staged,
     required List<DiffFillRow>? fill,
+    required CappedCodeWidth? cap,
     required ScopedDiffSync sync,
   }) {
-    final CappedCodeWidth? cap = _capped(
-      staged
-          ? _widthOf(_widthSource(staged: true), _stagedMemo)
-          : _widthOf(_widthSource(staged: false), _unstagedMemo),
-    );
     return ScopedDiffView(
       sources: <ScopedDiffSource>[_source(staged: staged)],
       onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,

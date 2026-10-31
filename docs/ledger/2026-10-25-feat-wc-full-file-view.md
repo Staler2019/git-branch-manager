@@ -316,3 +316,110 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
     - A1：`appPrefs.maxCodeLineChars` 讀取時沒有下限 clamp。UI 只寫正整數，但 storage 被手改成負數時，`_HoldToWidth` 會建出負的 maxWidth（未實測）。
     - A2：DiffPage 的 hunk header 不在寬度量測之內（既有）。超過的部分以前是 visible overflow，捲不到；現在改成 ellipsis。
   - 限制：test 字型每個字元一樣寬，所以「中文字寬」的換算只由 `CjkCharWidthMemo` 的注入 measurer 單元測試驗證。
+
+## Slice S：2 file 與 conflict resolve 的同步捲動（f5de1776 … 82e2e97e）
+
+- **Situation**：使用者回報 2 file 左右不同步。裁定原文：「同步沒改的行段，如果有改就各自留高度，向詫異處最上行對齊。這段也是需要套用的conflict resolve的規則」；追問後裁定「短側尾部插高度，一起卷」，範圍是「三欄互跟，都放進 PR #201」。spec 與 records 都沒有同步捲動的條目，所以這是新裁定。
+- **Task**：各欄依共用分段補齊高度，捲任一欄，其他欄顯示同一段的同一位置；leader 的捲動不被中斷、沒有回授；2 file 的 staging payload 不變。
+- **Action**：
+  - 純層：`partitionSyncSegments`（k-way sweep，`lo > curHi` 才切開，O(N·C)）、`SyncSlotHeights`（各欄段高取最大，短側段尾 spacer，共用 prefix）。
+  - **prefix 與 Fenwick 的量測**（使用者要求「不做fenwick那你必須要實際量測」）：AOT、本機 macOS、3 次。prefix 每幀重建最差 19.21 µs/幀（K = 20k），約佔 16 ms 幀預算的 0.12%；Fenwick 快 10–90 倍，但兩者都遠低於 1 ms 的同步預算。決定用 prefix；K 超過 200k，或同步工作超過 1 ms/幀時，重新評估。
+  - `DiffListModel` 新增段尾 `DiffSpacerItem`；不帶 sync 時 item 序列與先前完全相同。
+  - `SyncScrollController`：leader 只由 `lead()` 設定，來源有 pointer down、`userScrollAxis`、ruler、Shift+↑↓ 與初始值；follower 夾在自己的 extent 內，leader 從不被 jump。
+  - 橫向：`GbmCodeHScroll` 新增 `horizontalController`；寬度取兩欄較寬者，上限交給 Slice W。
+  - conflict resolve：三欄的每個 segment 都包一層 `SyncHeightReporter` 加 `SyncSlotSpacer`；`conflictSegmentEstimate` 估高；`_scrollToRegion` 只捲 result 欄，目標還沒建出時先跳到估計位置。
+  - **與 plan 不同處**（皆因 mutation 紅不起來而刪除，見各 commit message）：不做 bias／idle 補償，因為 sliver 自己會保留可見內容；不做「最多重試 3 次」的迴圈；conflict 的 soft wrap 不估換行數；result region 的估高不讀已 take 的行數；不做 pointer down 的 lead。
+- **Result**：
+  - mutations-run / tests-reddened 照 commit 分列：S1 5/5、S2 7/7、model 6/6、S3 7/7、S4 共四輪 13/3 → 14/8 → 13/11 → 3/2（沒抓到的直接刪掉，不補假測試）、S5a 6/6、userScrollAxis 2/2、S6 11/6 → 6/4 → 2/2、L3-s 3/3、device 2/3。
+  - perf（使用者裁定：以每幀 80 px 的捲動判，p90 不超過不同步時 + 2 ms）：成對量測 +1.6–1.8 ms，PASS。
+  - 量測檔本身的缺陷：staged 帶頭那一組原本沒有被同步。staged 已在底端，往下滾一格捲不動，所以不會成為 leader。修正後，量測先斷言 90% 以上的幀有鏡射，數字才算數。
+- **Verifier（HEAD 93df262d）：REFUTED，一項 P2（F1）**
+  - 重現條件：2 file、soft wrap 開啟、5,000 行加長行。把 staged 欄的捲軸 thumb 拖到底，或依序遠跳到 .7、.2、.5、1.0。停下之後，兩欄畫面上顯示的段完全不重疊，相差 39 段，而且一直維持到下一次使用者捲動。
+  - 在 82e2e97e 也會發生，那時還沒有 SeededSliverList，相差約 1,100 段。所以這是 S 本身的缺陷，J 只是把差距縮小。
+  - 根因：SeededSliverList 用 `scrollOffsetCorrection` 把 leader 留在結尾時，不會通知任何 listener，follower 因此漏掉這次鏡射。之後兩欄沒有共同建出的 spacer，`_correct` 沒有東西可比，就什麼都不做；它的 doc 原本寫的就是 "left where the mirror put it"。
+  - 修法（7b89960d）：沒有共同 spacer 時，follower 重新取 leader 目前的 offset。
+  - 中途寫的 fallback 是依共用段頂跳到 leader 最近的 spacer。它的三個細節 mutation 都存活，連「直接鏡射 leader 的 pixels」也存活，最後就簡化成這個寫法。
+  - 測試前提修正：第一版斷言「leader 有 spacer 時 follower 必須共用一個」，在沒有 mutation 的程式上也會紅。原因是 leader 的 spacer 在畫面下方的 cache 裡，follower 同一段的實際內容比估計高，段尾超出 cache，還沒建出來；這是段內、畫面外的估計誤差，plan 本來就接受。最後改成只比畫面上看得到的段尾。
+  - mutation 1 run / 2 red；修正前 4 個測試裡有 2 個紅。
+  - 同一次驗證，JC（9c31883c）：CONFIRMED。
+  - P4（defer）：拖 thumb 的途中，偶爾有單幀錯位（2 px，有一幀 340 px），下一幀就修正。
+- **Verifier（HEAD 7b89960d，F1 recheck）：CONFIRMED**
+  - 原探針全部通過：兩欄顯示同一批段，段尾等高，`mis=[]`，leader 的 jump 次數是 0。
+  - 停下之後再 pump 2 秒，follower 的 jumpCount 不再增加，`hasScheduledFrame=false`，所以沒有回饋迴圈。
+  - 全套 4376 綠。
+  - P4（defer）：`working_copy_diff_pane_sync_far_test` 只比 leader 畫面上看得到的段尾。leader 是最高那一欄而且沒有 spacer 時（.7 那一步），這一步比了 0 個。verifier 另外量過段頂，差 0.1 px，對齊沒有問題，但目前沒有測試斷言這種情況。
+
+## Slice J：遠跳只建落點附近的列（b193cd78 … 6f3cec79）
+
+- **Situation**：S7 的 perf 量到遠跳那一幀的 build：unified 577–1081 ms、2 file 1324–2602 ms。根因是 `RenderSliverList` 沒有 extent，只能從現有的 child 一列一列走到目標；往回跳到 10% 那一幀，兩欄合計建了 8,289 列。使用者裁定「也要修遠跳」。
+- **Task**：遠跳時從估計的 item 開始 layout；捲回頂端要對齊 0；既有測試的期望值不改；捲動過的拖曳 payload 不變。
+- **Action**：
+  - `SeededSliverList`（`lib/widgets/`），它不 import `DiffListModel`，只接收 `indexAt`／`offsetOf` 兩個 callback。
+  - 2 file 同步模式下，播種的 offset = P(段) + 同一欄、同一段中排在它之前的 item 高度（JC1）。
+  - J0：量 conflict resolve 遠跳那一幀，392–582 ms，約超過門檻 10 倍。使用者裁定「做，接在 Slice J 之後」，也就是 Slice JC。
+  - JD2 使用者裁定「維持現狀：只還原 pixels」，所以錨點還原不做。
+  - **偏離 Non-goal「不改 `maxScrollExtent` 估計」**：J2 的對照組紅出三個缺陷，都在 sliver 裡修掉（6f4811e9）：
+    1. framework 用平均高度估捲動範圍，播種用的是模型估計，兩者不一致。1.3 倍字高跳到 50% 時，會落在估計的結尾之後再彈回。改法：`estimateMaxScrollOffset` 改用 `offsetOf(count)`。
+    2. 開在 offset 400 也會播種，offset 因此被修正 21。改法：沒有 child 時，目標在一個 cache extent 之內就從 item 0 走過去。
+    3. 跳到結尾時停在真正的結尾之前 21。改法：碰到上次回報的結尾時，用 `scrollOffsetCorrection` 留在結尾。第一版比對的是 `offsetOf(count)`，反而推過結尾 17。
+  - **JD1 的 stop**：mutation「同步模式也用 `DiffListModel.offsetOf`」在 JS 與第一個非對稱 fixture 上都紅不起來。原因是 model 只在 rebuild 時更新：量測之前建的 model，兩欄加總都是同一個估計 H。量過非對稱的段並 rebuild 之後，兩欄的 `maxScrollExtent` 差 1,221（114265 vs 115486），JC1 版兩欄都是 116823。新增「兩欄結尾相同」的斷言之後，兩個 mutation 都變紅，stop 解除。**plan 原本寫的對齊與 jump 數斷言，都分不出這兩種做法。**
+  - J4 第一次量：回 0 仍要 612 / 1494 ms。原因是「`scrollOffset > 0` 才播種」的條件讓回頂端時不播種，一路往回走；add5e304 修掉這個條件。
+  - **verifier 第一次 REFUTED（兩項 P2），6f3cec79 修正**：
+    1. 每一列都比估計高時，從遠跳逐步捲回頂端會耗盡 viewport 的 10 次 layout。`RenderSliverList` 的「假設前面沒有 child」以及 so=0 那一支，每次 layout 只修正一列。改法：`_roomShortfall` 一次補足 `offsetOf(index)` 與實際頂端的差，所有 child 同步平移；第 0 個 item 固定在 0，消除平移後的 -3.4e-11 誤差。
+    2. 2 file soft wrap 跳到結尾後，最後幾列量到更高，結尾就跑出畫面。改法：`_holdEnd`／`_endAfter` 讓列表留在結尾，直到 offset 被其他來源改動或 count 改變；`_keepAtEnd` 也不再要求 last child 已建出。
+    - 修正中的一個 mutation「rebase 時的 ratio 一律取 1」存活，tests-reddened 0。這代表 ratio 是多餘的：剩下的空間由下一次 layout 補足。所以拿掉 ratio，直接簡化程式，沒有替它補測試。
+- **Result**：
+  - 遠跳建出的 `DiffLineView`：unified 2,686 → < 200；2 file 3,888 → < 200；開在 60000 時 2,733 → < 200。
+  - J4（使用者裁定：預算改以「同一 run 閒置後的對照幀 × 1.5」為準）：
+
+    | 模式 | 遠跳那一幀（ms） | 對照幀 | 預算 | 結果 |
+    |---|---|---|---|---|
+    | unified | 25.3–28.6 | 24.2 | 36.3 | PASS |
+    | 2 file | 38.2–50.0 | 43.3 | 64.9 | PASS |
+
+    修正前同一組：unified 1081 / 949 / 577 / 732 ms；2 file 2602 / 2269 / 1324 / 1618 ms。原本的預算「壓力 p90 × 1.5」連對照幀本身都通不過，因為停頓之後的第一幀本來就比連續捲動中的幀貴。
+  - mutation（有效的）：
+    - J1 5/5。
+    - J2 與 sliver 共 10 個，seed+300 為等價（payload 由端點幾何決定，與座標無關）。
+    - 6f3cec79 共 5 個：no-rebase 2、no-snap-zero 1、no-hold 2、keep-needs-last 1、rebase-ratio-1 0（判為等價，已移除 ratio）。
+    - 另外 2 個 mutation 寫錯：`if (true)` 讓 `sync` 失去 type promotion，編譯失敗，不計入。
+  - 全套 4370 綠、8 skip，analyzer 0。
+- **Verifier（HEAD 6f3cec79）：CONFIRMED**（recheck）
+  - 原 P2 之一，往回捲時 layout 次數用完：測了 12 組（unified 與 2 file × soft wrap／字高組合 × 滾輪／拖曳，每步 300 px），每組都先 jumpTo(9000) 再捲回頂端。全部沒有 exception，pixels 都回到 0，第 0 個 item 的 layoutOffset 都是 0，seedCount 1→1。
+  - 原 P2 之二，soft wrap 跳到結尾時沒到底：4 組的 short 都是 0.000，pixels 等於 maxScrollExtent；在結尾滾輪 -300 之後，hold 有放開。
+  - 全套 4370 綠、8 skip，analyzer 0。從 b193cd78 起，test 目錄的 diff 只有新增行，沒有刪除或改動。
+
+## Slice JC：conflict resolve 三欄接上播種（9c31883c、本節之後的 perf commit）
+
+- **Situation**：J0 量到 conflict resolve 遠跳那一幀 392–582 ms。原因是 `ListView(children:)` 一段 text 就是一個 item，遠跳時會把中間經過的每一段都完整 layout 一次。使用者裁定「做，接在 Slice J 之後」。
+- **Task**：三欄改用 `SeededSliverList`，`offsetOf` 取共用段頂 P(k)；既有 conflict 測試的期望值不改。
+- **Action**：
+  - `_seededColumn` 包成 `CustomScrollView`、`SliverPadding`、`SeededSliverList`，`SliverChildListDelegate` 的預設值（keep-alive、repaint boundary）都沒改。stop ②（keep-alive 的 item 被 collectGarbage 丟掉時出例外）沒有發生。
+  - 計數方式依 plan-verifier 第一輪的更正，數的是 `SyncSlotSpacer` 的首次 build。`SyncHeightReporter` 是 render-object widget，`debugOnRebuildDirtyWidget` 看不到它。
+- **Result**：
+  - widget 測試：5,000 行、20 個 region，遠跳到 75% / 10% / 50% / 0 時，三欄合計建出的段數修正前是 120 / 108 / 96 / 108（先紅），修正後每次都是 3。三欄對齊，捲動範圍在四次遠跳之間只差 2 px。
+  - mutation 3 run / 3 red：
+    - offsetOf 回傳 0：既有的對齊測試有 4 個紅。
+    - indexAt 回傳 0：新測試紅。
+    - offsetOf(段數) 不回傳 totalHeight：一開始存活，補上「捲動範圍不變」的斷言後紅。
+    - 第一版 offset-zero 寫錯了（`0 * k >= 1` 恆為 false，等於沒改程式），不計入。
+  - perf（macOS profile）：
+
+    | 量測 | build ms |
+    |---|---|
+    | 遠跳那一幀（JC 之前） | 392–582 |
+    | 遠跳那一幀（JC 之後） | 75% 54.8 · 10% 53.8 · 50% 54.6 · 0 25.6 |
+    | 壓力量測 p50 / p90 | 0.1 / 27.0 |
+    | 對照幀（閒置後跳 1/120） | 1.1 |
+
+  - **J4 的預算定義（對照 × 1.5）在 conflict 不成立**，觸發 stop ③。原因是一段 text 是一個 item、高好幾個 viewport：一步多半落在同一段裡，什麼都不建；跨進新的一段時，每欄建一段（p90）；遠跳要建落點那一段加上 cache 內的鄰段，所以約是跨段步的兩倍。使用者裁定「接受現況，記錄數字」。perf 檔只量測、不判定。要再降低，就得拆小 text segment 的粒度，這違反本 slice 的 Non-goal，而且要另外寫 plan。
+  - 全套 4372 綠、8 skip，analyzer 0。
+
+## G3（S／J／JC 之後，HEAD 4afda79b）
+
+- 全套：4376 綠、8 skip，analyzer 0，format 乾淨。
+- device 層 10 個檔逐一跑（macOS）：conflict_flow 1、full_file_stage_flow 7、merge_squash_flow 2、prepared_message_flow 5、stage_lines_flow 9、commit_flow 1、context_menu_flows 5、untracked_unstage_flow 1、working_copy_line_counts 1、sync_scroll_flow 3，全部綠。
+- sync_scroll_flow 第一次跑紅了 1 個，原因在斷言本身：`lead` 是 unstaged 欄的 live position，staged 成為 leader 之後它會跟著鏡射，等於拿 staged 和自己的鏡像比。之前會綠，靠的是 correction 留下的 drift；7b89960d 改成精確鏡射後兩者相等（1500 對 1500）。4afda79b 改成先記下滾輪之前的值。屬 [TEST-fixture-cannot-disagree] 第 8 型：斷言太弱。
+- 新增的 `Duration(` 只有 `_scrollToRegion` 的 200 ms 動畫時長，不是執行期門檻。
+- orphan wiring 雙向 grep：新符號在 `lib/` 都有呼叫端和讀取端。`seedCount` 只有測試會讀，是計數用的 seam（作法同 `jumpCount`）。
+- hover sweep：S、J、JC 都沒有新增 `InkWell`／`GestureDetector`。

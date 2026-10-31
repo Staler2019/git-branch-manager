@@ -59,7 +59,11 @@ void main() {
     await pump(tester, fullFile: true);
     await tester.tap(find.text('2 file'));
     await tester.pump();
-    expect(filled(), findsOneWidget);
+    // Two: the unstaged column's fill row, and the empty staged column's
+    // copy of the index (使用者裁定 2026-10-31「畫該狀態下的整份檔案」,
+    // plan: Slice E; this expectation was one while that column stood
+    // blank).
+    expect(filled(), findsNWidgets(2));
   });
 
   testWidgets('off: excerpt mode, whatever full diff it holds', (

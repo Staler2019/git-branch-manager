@@ -268,6 +268,36 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     return fullFileFillRows(sources);
   }
 
+  /// What `2 file` column [c] (0 unstaged, 1 staged) draws given its own
+  /// [fill]: the index, when the column has no change of its own and the
+  /// other column draws its full file -- both of this column's ends are
+  /// the index, which the other side's full diff holds (plan: Slice E).
+  ///
+  /// Gated on the other column's own fill being drawn ([_fillFor]'s gates:
+  /// the view on, the full diff landed and agreeing, the file under the
+  /// cap), so the two columns are always both excerpt or both whole. A
+  /// column still loading or refused is not empty. An untracked file needs
+  /// no gate: its diff has no old side, and [_side] draws `Not in Git`.
+  List<DiffFillRow>? _columnFill(int c, List<List<DiffFillRow>?> fills) {
+    final bool staged = c == 1;
+    final DiffFile? own = staged ? widget.stagedFile : widget.unstagedFile;
+    final bool pending = staged
+        ? widget.stagedLoading || widget.stagedTruncated
+        : widget.unstagedLoading || widget.unstagedTruncated;
+    final DiffFile? other = staged ? widget.unstagedFile : widget.stagedFile;
+    final DiffFile? otherFull = staged
+        ? widget.unstagedFullFile
+        : widget.stagedFullFile;
+    if (own != null ||
+        pending ||
+        other == null ||
+        otherFull == null ||
+        fills[1 - c] == null) {
+      return fills[c];
+    }
+    return indexRowsOfFullDiff(otherFull, staged: !staged);
+  }
+
   /// `2 file`'s shared segments and slot heights (plan: Slice S), and what
   /// they were built from. Rebuilt only when a diff, the fill or the wrap
   /// changes: a new [SyncSlotHeights] forgets every measured height, so a
@@ -291,6 +321,15 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       widget.stagedFile,
       widget.fullFile ? widget.unstagedFullFile : null,
       widget.fullFile ? widget.stagedFullFile : null,
+      // What [_columnFill] reads besides the diffs above: a side landing
+      // empty after the other changes none of those, only these (Slice E,
+      // F1).
+      widget.unstagedLoading,
+      widget.stagedLoading,
+      widget.unstagedTruncated,
+      widget.stagedTruncated,
+      fills[0]?.isEmpty,
+      fills[1]?.isEmpty,
       fills[0] == null,
       fills[1] == null,
       widget.softWrap,
@@ -319,7 +358,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       final DiffSide side = (file: sources[c].file, staged: sources[c].staged);
       sides.add(side);
       blocks.add(
-        sources[c].hasContent
+        sources[c].hasContent || (fills[c]?.isNotEmpty ?? false)
             ? orderedDiffBlocks(
                 <DiffSide>[side],
                 <Map<int, List<DiffScope>>>[
@@ -454,9 +493,12 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               spec: GbmLayout.splitterWcDiffSides,
               storageId: 'wc.diffSides',
               children: () {
-                final List<List<DiffFillRow>?> fills = <List<DiffFillRow>?>[
+                final List<List<DiffFillRow>?> own = <List<DiffFillRow>?>[
                   _fillFor(const <bool>[false]),
                   _fillFor(const <bool>[true]),
+                ];
+                final List<List<DiffFillRow>?> fills = <List<DiffFillRow>?>[
+                  for (int c = 0; c < 2; c++) _columnFill(c, own),
                 ];
                 final sync = _syncLayout(fills);
                 final SyncScrollController scroll = _syncScrollFor(

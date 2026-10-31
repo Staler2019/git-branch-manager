@@ -1,8 +1,10 @@
 // Measures scrolling the Working Copy diff inside the real app, per side of
 // `2 file` and in `unified`, on a 5,000-line file in full-file view. A
 // measurement, not a gate: it prints numbers and asserts nothing about time.
-// The far jumps are held against the stress p90 x 1.5 of the same mode in
-// the same run, by hand (plan: Slice J, J4).
+// A far jump is held against 1.5x a control frame of the same mode in the
+// same run: a stress step's distance after the same idle. Both are the first
+// frame after a pause, which the warm stress p90 is not (使用者裁定
+// 2026-10-31; plan: Slice J, J4).
 //
 // full_file_view_perf_test.dart pumps a bare ScopedDiffView, so it cannot see
 // what the screen around the view does on a scroll; this one goes through
@@ -108,7 +110,7 @@ void main() {
     // each frame moves that many pixels from a third of the way down, about
     // a fast fling; the sync budget is read off this one (使用者裁定
     // 2026-10-31: p90 at most 2 ms above the same run without the sync).
-    Future<double> measure(
+    Future<void> measure(
       String label,
       Finder view, {
       Finder? follower,
@@ -168,19 +170,19 @@ void main() {
         'extent=${extent.toStringAsFixed(0)}'
         '${follower == null ? '' : ' followerAt=${positionOf(follower).pixels.toStringAsFixed(0)} leaderAt=${position.pixels.toStringAsFixed(0)}'}',
       );
-      return _percentile(build, .9);
     }
 
     // Single jumps far from where the list is, each in a quiet frame of its
     // own: the frame that lands is the one a seeded layout keeps small
     // (plan: Slice J). [view] is already the leader when [follower] is
     // given: the stress run before this one made it so.
-    Future<void> far(String label, Finder view, double stressP90) async {
+    Future<void> far(String label, Finder view) async {
       final ScrollPosition position = positionOf(view);
       position.jumpTo(0);
       await tester.pumpAndSettle();
       final List<String> worst = <String>[];
       double max = 0;
+      double control = 0;
       // The last one is a control: a stress step's distance, after the
       // same idle, to tell the jump's cost from a cold frame's.
       for (final double f in <double>[.75, .1, .5, 0, 1 / 120]) {
@@ -198,14 +200,18 @@ void main() {
             : timings
                   .map((FrameTiming t) => _ms(t.buildDuration))
                   .reduce((double a, double b) => a > b ? a : b);
-        if (f != 1 / 120 && frame > max) max = frame;
+        if (f == 1 / 120) {
+          control = frame;
+        } else if (frame > max) {
+          max = frame;
+        }
         worst.add(
           f == 1 / 120
               ? 'control=${frame.toStringAsFixed(1)}'
               : 'to$f=${frame.toStringAsFixed(1)}',
         );
       }
-      final double budget = stressP90 * 1.5;
+      final double budget = control * 1.5;
       // ignore: avoid_print
       print(
         'PERF $label-far ${worst.join(' ')} '
@@ -216,19 +222,15 @@ void main() {
 
     final Finder views = find.byType(ScopedDiffView);
     expect(views, findsOneWidget, reason: 'unified is the default');
-    final double unified = await measure('unified', views);
-    await far('unified', views, unified);
+    await measure('unified', views);
+    await far('unified', views);
     await measure('unified-80px', views, step: 80);
 
     await tester.tap(find.text('2 file'));
     await tester.pumpAndSettle(const Duration(seconds: 2));
     expect(views, findsNWidgets(2));
-    final double twoFile = await measure(
-      '2file-unstaged',
-      views.first,
-      follower: views.last,
-    );
-    await far('2file-unstaged', views.first, twoFile);
+    await measure('2file-unstaged', views.first, follower: views.last);
+    await far('2file-unstaged', views.first);
     await measure('2file-staged', views.last, follower: views.first);
     await measure(
       '2file-unstaged-80px',

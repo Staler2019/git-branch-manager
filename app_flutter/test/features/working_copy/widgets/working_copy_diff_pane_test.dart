@@ -368,6 +368,37 @@ void main() {
 
       expect(find.text('Not in Git'), findsOneWidget);
       expect(find.text('brand new'), findsOneWidget);
+      // 「Text only, no head or well」: the staged column is no diff view.
+      expect(find.text('Staged'), findsNothing);
+      expect(find.byType(ScopedDiffView), findsOneWidget);
+    });
+
+    testWidgets('2 file: an untracked unstaged side with a staged side that '
+        'exists, is loading or was refused is not Not in Git', (
+      WidgetTester tester,
+    ) async {
+      final DiffFile untracked = _file(
+        'brand new',
+        added: true,
+        kind: FileChangeKind.added,
+      );
+      Future<void> check(String what) async {
+        await tester.tap(find.text('2 file'));
+        await tester.pump();
+        expect(find.text('Not in Git'), findsNothing, reason: what);
+        expect(find.text('Staged'), findsOneWidget, reason: what);
+      }
+
+      await pump(
+        tester,
+        unstaged: untracked,
+        staged: _file('half staged', added: true, kind: FileChangeKind.added),
+      );
+      await check('staged exists');
+      await pump(tester, unstaged: untracked, stagedLoading: true);
+      await check('staged loading');
+      await pump(tester, unstaged: untracked, stagedTruncated: true);
+      await check('staged refused');
     });
 
     testWidgets('2 file with a tracked file all unstaged, or a staged side '

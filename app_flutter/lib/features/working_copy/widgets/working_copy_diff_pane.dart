@@ -538,9 +538,11 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         staged: staged,
         loading: staged ? widget.stagedLoading : widget.unstagedLoading,
         truncated: staged ? widget.stagedTruncated : widget.unstagedTruncated,
-        emptyLabel: labelEmpty
-            ? (staged ? 'Nothing staged' : 'Nothing unstaged')
-            : (staged && _untracked ? 'Not in Git' : null),
+        emptyLabel: !labelEmpty
+            ? null
+            : staged
+            ? 'Nothing staged'
+            : 'Nothing unstaged',
         onStageScope: (int hunkIndex, List<int> lineIndices) =>
             widget.onStageScope(staged, hunkIndex, lineIndices),
         // Discard is a work-tree rewrite, so it exists on the unstaged side
@@ -548,11 +550,14 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         onDiscardScope: staged ? null : widget.onDiscardScope,
       );
 
-  /// The unstaged side adds the whole file. An empty staged column then
-  /// means the index holds no copy of it, and a `2 file` one says so
-  /// instead of standing blank (使用者裁定 2026-10-31, 「Not in Git」); a
-  /// column with content or still loading never draws its empty label.
-  bool get _untracked => widget.unstagedFile?.kind == FileChangeKind.added;
+  /// The index holds no copy of the file: the unstaged side adds all of it
+  /// and there is no staged side at all -- none drawn, none in flight, none
+  /// refused for size.
+  bool get _untracked =>
+      widget.unstagedFile?.kind == FileChangeKind.added &&
+      widget.stagedFile == null &&
+      !widget.stagedLoading &&
+      !widget.stagedTruncated;
 
   /// One `2 file` column, its scroll positions synced through [sync].
   Widget _side({
@@ -561,6 +566,26 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     required CappedCodeWidth? cap,
     required ScopedDiffSync sync,
   }) {
+    // 使用者裁定 2026-10-31: a file not in Git has no staged column to draw
+    // -- 「Text only, no head or well」 -- only this, in the style
+    // ScopedDiffView's own placeholders use.
+    if (staged && _untracked) {
+      final GbmColors colors = context.gbmColors;
+      return Align(
+        alignment: Alignment.topCenter,
+        child: Padding(
+          padding: const EdgeInsets.all(GbmSpacing.space4),
+          child: Text(
+            'Not in Git',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colors.textTertiary,
+              fontSize: GbmTypography.textSm,
+            ),
+          ),
+        ),
+      );
+    }
     return ScopedDiffView(
       sources: <ScopedDiffSource>[_source(staged: staged, labelEmpty: false)],
       onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,

@@ -525,19 +525,29 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   /// it, which is what lets `unified` hand *both* directions to one
   /// [ScopedDiffView] without either side's callbacks having to know how
   /// many neighbours it has.
-  ScopedDiffSource _source({required bool staged}) => ScopedDiffSource(
-    title: staged ? 'Staged' : 'Unstaged',
-    file: staged ? widget.stagedFile : widget.unstagedFile,
-    staged: staged,
-    loading: staged ? widget.stagedLoading : widget.unstagedLoading,
-    truncated: staged ? widget.stagedTruncated : widget.unstagedTruncated,
-    emptyLabel: staged ? 'Nothing staged' : 'Nothing unstaged',
-    onStageScope: (int hunkIndex, List<int> lineIndices) =>
-        widget.onStageScope(staged, hunkIndex, lineIndices),
-    // Discard is a work-tree rewrite, so it exists on the unstaged side
-    // only -- there is nothing about a staged line to throw away.
-    onDiscardScope: staged ? null : widget.onDiscardScope,
-  );
+  ///
+  /// A `2 file` column ([labelEmpty] false) says nothing when its side is
+  /// empty: its head and the pane's 「N 未暫存 · M 已暫存」 already do
+  /// (使用者裁定 2026-10-31「2 file 下，如果一邊是全空，不需要顯示nothing to
+  /// stage/ unstage」).
+  ScopedDiffSource _source({required bool staged, bool labelEmpty = true}) =>
+      ScopedDiffSource(
+        title: staged ? 'Staged' : 'Unstaged',
+        file: staged ? widget.stagedFile : widget.unstagedFile,
+        staged: staged,
+        loading: staged ? widget.stagedLoading : widget.unstagedLoading,
+        truncated: staged ? widget.stagedTruncated : widget.unstagedTruncated,
+        emptyLabel: !labelEmpty
+            ? null
+            : staged
+            ? 'Nothing staged'
+            : 'Nothing unstaged',
+        onStageScope: (int hunkIndex, List<int> lineIndices) =>
+            widget.onStageScope(staged, hunkIndex, lineIndices),
+        // Discard is a work-tree rewrite, so it exists on the unstaged side
+        // only -- there is nothing about a staged line to throw away.
+        onDiscardScope: staged ? null : widget.onDiscardScope,
+      );
 
   /// One `2 file` column, its scroll positions synced through [sync].
   Widget _side({
@@ -547,7 +557,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     required ScopedDiffSync sync,
   }) {
     return ScopedDiffView(
-      sources: <ScopedDiffSource>[_source(staged: staged)],
+      sources: <ScopedDiffSource>[_source(staged: staged, labelEmpty: false)],
       onTemporaryScopeChanged: staged ? null : widget.onTemporaryScopeChanged,
       softWrap: widget.softWrap,
       verticalController: staged ? _stagedScroll : _unstagedScroll,

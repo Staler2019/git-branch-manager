@@ -323,6 +323,32 @@ void main() {
       expect(find.text('Staged'), findsOneWidget);
     });
 
+    // 使用者裁定 2026-10-31：「2 file 下，如果一邊是全空，不需要顯示nothing
+    // to stage/ unstage」. The column head and the pane's own counts already
+    // say the side is empty.
+    for (final bool stagedEmpty in <bool>[true, false]) {
+      final String side = stagedEmpty ? 'staged' : 'unstaged';
+      testWidgets('2 file with nothing $side: that column draws no '
+          'placeholder, only its head', (WidgetTester tester) async {
+        await pump(
+          tester,
+          unstaged: stagedEmpty ? _file('still editing', added: true) : null,
+          staged: stagedEmpty ? null : _file('already staged', added: true),
+        );
+        await tester.tap(find.text('2 file'));
+        await tester.pump();
+
+        expect(find.text('Nothing staged'), findsNothing);
+        expect(find.text('Nothing unstaged'), findsNothing);
+        expect(find.text('Unstaged'), findsOneWidget);
+        expect(find.text('Staged'), findsOneWidget);
+        expect(
+          find.text(stagedEmpty ? 'still editing' : 'already staged'),
+          findsOneWidget,
+        );
+      });
+    }
+
     testWidgets('the left side is the unstaged one', (
       WidgetTester tester,
     ) async {

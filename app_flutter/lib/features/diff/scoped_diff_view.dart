@@ -99,7 +99,9 @@ class ScopedDiffSource {
   final void Function(int hunkIndex, List<int> changedLineIndices)?
   onDiscardScope;
 
-  final String emptyLabel;
+  /// What an empty side says; null says nothing, the column's head and the
+  /// pane's counts already do (`2 file`, 使用者裁定 2026-10-31).
+  final String? emptyLabel;
 
   /// A diff request for this side is in flight.
   final bool loading;
@@ -1172,7 +1174,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     if (binary != null) {
       return _placeholder(colors, '${binary.file!.displayPath} (binary file)');
     }
-    return _placeholder(colors, sources.first.emptyLabel);
+    final String? label = sources.first.emptyLabel;
+    return label == null
+        ? const SizedBox.shrink()
+        : _placeholder(colors, label);
   }
 
   /// Every row of every source, in the order they are painted.

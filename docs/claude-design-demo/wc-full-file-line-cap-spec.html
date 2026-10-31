@@ -1,0 +1,219 @@
+<title>全檔檢視行數上限</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet — each screen is a framed mock in the app tokens, with its value-source table below it. */
+/* App tokens: app_flutter/lib/theme/tokens.dart — light = _lightIde, dark = _darkTechnical (the app default). */
+:root {
+  --surface-app: #FFFFFF; --surface-panel: #FFFFFF; --surface-raised: #FFFFFF;
+  --surface-sunken: #F5F6F8; --surface-hover: #F0F2F5; --surface-selected: #E4EDFD; --surface-overlay: #FFFFFF;
+  --border-subtle: #EAECEF; --border-default: #DCDFE4; --border-strong: #C6CAD1;
+  --text-primary: #1C2128; --text-secondary: #57606A; --text-tertiary: #8B949E; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #EAF1FE;
+  --success: #1A7F37; --danger: #CF222E; --warning: #9A6700;
+  --diff-add-bg: #E9FBEE; --diff-add-text: #116329; --diff-del-bg: #FFEBE9; --diff-del-text: #82241F;
+  /* page chrome (not app tokens): everything outside the .mock frames, plus the frames' own width/radius, is page layout, not a drawn value */
+  --page-bg: #F3F5F8; --page-ink: #1C2128; --page-muted: #57606A; --page-rule: #DCDFE4;
+  --tag-new-bg: #FFF4DB; --tag-new-ink: #7A5200; --tag-code-bg: #E4EDFD; --tag-code-ink: #1857B8; --tag-rule-bg: #E6F6EC; --tag-rule-ink: #136C37;
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-page: -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --surface-app: #0D1117; --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409; --surface-hover: #161B22; --surface-selected: #0D2A4D; --surface-overlay: #1C2128;
+  --border-subtle: #21262D; --border-default: #30363D; --border-strong: #3D444D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681; --text-on-accent: #FFFFFF;
+  --accent: #2F81F7; --accent-subtle: #0D2A4D;
+  --success: #3FB950; --danger: #F85149; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--page-bg); color: var(--page-ink); font-family: var(--font-page); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--page-muted); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+h3 { font-size: 14px; margin: 0; color: var(--page-muted); font-weight: 600; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--page-muted); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--page-rule); padding-top: 18px; }
+.rulings { display: flex; flex-wrap: wrap; gap: 8px; }
+.ruling { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--page-muted); align-items: center; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--tag-code-bg); color: var(--tag-code-ink); }
+.tag.new { background: var(--tag-new-bg); color: var(--tag-new-ink); }
+.tag.rule { background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+
+.stage { overflow-x: auto; padding: 20px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 8px; }
+.mock { font-family: var(--font-ui); color: var(--text-primary); background: var(--surface-app); }
+.mono { font-family: var(--font-mono); }
+/* ---------- Preferences dialog ---------- */
+.dlg { width: 720px; border: 1px solid var(--border-default); border-radius: 10px; background: var(--surface-raised); box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.dlg-title { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); font-size: 13px; font-weight: 600; }
+.dlg-body { display: flex; height: 420px; padding: 0 16px; } /* gbm_dialog_shell.dart:125 horizontal only — margin-block 16px removed 2026-10-18, the code has none */
+.nav { width: 168px; display: flex; flex-direction: column; }
+.nav div { padding: 8px; border-radius: 4px; font-size: 12.5px; color: var(--text-secondary); }
+.nav div.on { background: var(--surface-selected); color: var(--text-primary); font-weight: 600; }
+.vdiv { width: 1px; background: var(--border-subtle); }
+.pane { flex: 1; padding-left: 16px; display: flex; flex-direction: column; }
+.sh { font-size: 11px; font-weight: 600; color: var(--text-tertiary); letter-spacing: .5px; padding-bottom: 8px; }
+.gap4 { height: 16px; } .gap2 { height: 8px; } .gap1 { height: 4px; }
+.chk { display: flex; gap: 10px; align-items: flex-start; }
+.chk .box { width: 18px; height: 18px; margin-top: 1px; border-radius: 2px; background: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+.t-sm { font-size: 12.5px; } .t-xs { font-size: 11px; color: var(--text-tertiary); line-height: 1.5; }
+.fl { font-size: 11px; color: var(--text-secondary); }
+.inp { height: 30px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-panel); display: flex; align-items: center; padding: 0 12px; font-size: 12.5px; gap: 6px; }
+.inp .sfx { color: var(--text-tertiary); margin-left: auto; }
+.slider .thumb { position: absolute; top: 7px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface-overlay); box-shadow: 0 0 0 1px var(--accent); transform: translateX(-8px); cursor: grab; }
+.slider .lbls { position: absolute; top: 30px; left: 0; right: 0; height: 14px; }
+button.sim:hover { border-color: var(--accent); }
+button.sim:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ctl .state { font-size: 12.5px; color: var(--page-muted); }
+pre.export { margin: 0; padding: 12px 14px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 6px; font-family: var(--font-mono); font-size: 12px; line-height: 1.7; overflow-x: auto; color: var(--page-ink); }
+
+/* ---------- tables ---------- */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+th { font-weight: 600; color: var(--page-muted); font-size: 12px; }
+td code, p code, li code { font-family: var(--font-mono); font-size: 11.5px; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } h1 { font-size: 22px; } }
+
+/* ---------- diff pane ---------- */
+.pane-box { width: 640px; border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; background: var(--surface-sunken); padding: 8px; }
+.row { position: relative; display: flex; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; padding: 1px 10px 1px 0; white-space: pre; color: var(--text-secondary); }
+.row.add { background: var(--diff-add-bg); color: var(--diff-add-text); }
+.row.del { background: var(--diff-del-bg); color: var(--diff-del-text); }
+.gut { width: 96px; flex-shrink: 0; display: flex; padding-left: 10px; color: var(--text-tertiary); }
+.gut span { width: 36px; font-size: 11px; text-align: right; } /* diff_line.dart:216-246 textXs, TextAlign.right */
+.gut span.mk { width: 14px; font-size: 12.5px; text-align: left; color: var(--row-fg); } /* diff_line.dart:227-231 marker = row text colour */
+.code { position: relative; overflow: hidden; flex: none; }
+.v-fade .code.capped::after { content: ""; position: absolute; top: 0; right: 0; bottom: 0; width: 24px; background: linear-gradient(to right, transparent, var(--row-bg)); }
+.row { --row-bg: var(--surface-sunken); --row-fg: var(--text-secondary); } .row.add { --row-bg: var(--diff-add-bg); --row-fg: var(--diff-add-text); } .row.del { --row-bg: var(--diff-del-bg); --row-fg: var(--diff-del-text); }
+.dlg-foot { display: flex; justify-content: flex-end; padding: 12px 16px; border-top: 1px solid var(--border-subtle); } /* gbm_dialog_shell.dart:132-141 */
+.btn-primary { height: 24px; padding: 0 8px; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); font-size: 11px; display: inline-flex; align-items: center; font-weight: 500; } /* KIT .gbm-btn-sm, gbm_dialog_shell.dart:145-146 */
+.variants { display: grid; gap: 20px; }
+.variants figure { margin: 0; display: grid; gap: 8px; }
+.variants figcaption { font-size: 12.5px; color: var(--page-muted); }
+.ctl input[type=range] { width: 200px; accent-color: var(--accent); }
+.inp.err { border-color: var(--danger); }
+.ferr { font-size: 11px; color: var(--danger); padding-top: 4px; }
+.variants2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.variants2 .stage { padding: 16px; }
+/* .mini is page chrome (a demo card), not an app widget */
+.mini { width: 300px; padding: 12px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-raised); }
+</style>
+<div class="wrap" style="padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))">
+  <header class="top">
+    <div class="eyebrow">feat/wc-full-file-view · Slice P · G1 設計稿 · 2026-10-31</div>
+    <h1>全檔檢視行數上限</h1>
+    <p class="lede">Working Copy 的全檔檢視原本寫死 5,000 行（<code>kFullFileViewMaxLines</code>，<code>working_copy_diff_pane.dart:60</code>）。改成 Preferences 裡的數字欄，預設 5,000。超過上限的檔案照舊：只顯示片段，全檔按鈕停用，tooltip「File too large for full view」不變。</p>
+    <div class="legend">
+      <span><span class="tag code">code</span> 沿用現有程式（檔名:行）</span>
+      <span><span class="tag rule">裁定</span> 你的裁定</span>
+      <span><span class="tag new">新增</span> 沒有出處，等你裁定</span>
+    </div>
+  </header>
+
+  <section class="screen" id="prefs">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · Preferences → Appearance</div>
+      <h2>「程式碼」區塊最後多一個數字欄</h2>
+      <div class="rulings">
+        <span class="ruling">「lines limit was set in preference settings」</span>
+        <span class="ruling">「Make it a preference」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div class="mock dlg">
+        <div class="dlg-title">Preferences</div>
+        <div class="dlg-body">
+          <div class="nav"><div>General</div><div>Repository sources</div><div>Git</div><div class="on">Appearance</div><div>External apps</div><div>Shortcuts</div><div>Advanced</div><div>Developer</div></div>
+          <div class="vdiv"></div>
+          <div class="pane" style="padding-top:0;overflow-y:auto">
+            <div class="sh">主題</div>
+            <div class="t-sm" style="color:var(--text-secondary);height:30px;display:flex;align-items:center">（主題切換按鈕，不變）</div>
+            <div class="gap4"></div>
+            <div class="sh">程式碼</div>
+            <div class="chk"><div class="box" style="background:transparent;border:2px solid var(--border-strong)"></div><div><div class="t-sm">長行自動換行</div><div class="t-xs">套用在 diff、blame、patch 和衝突解決畫面。</div></div></div>
+            <div class="gap2"></div>
+            <div class="fl">每行最多顯示</div><div class="gap1"></div>
+            <div class="inp" style="width:200px"><span>200</span><span class="sfx">字</span></div>
+            <div class="gap2"></div>
+            <div class="t-xs">以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。</div>
+            <div class="gap4"></div>
+            <div class="fl">全檔檢視最多</div><div class="gap1"></div>
+<div class="inp" style="width:200px"><span>5000</span><span class="sfx">行</span></div>
+<div class="gap2"></div><div class="t-xs">超過的檔案只顯示變更附近的片段，全檔按鈕停用。</div>
+          </div>
+        </div>
+        <div class="dlg-foot"><span class="btn-primary">Close</span></div>
+      </div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>沿用的外框</td><td>對話框、nav、區塊標題、「長行自動換行」與「每行最多顯示」：照現況畫，不改；body 高 420，放不下時 pane 捲動</td><td><span class="tag code">preferences_dialog.dart:900-934</span> <span class="tag code">code-line-width-cap-spec.html</span></td></tr>
+        <tr><td>示意，不是畫值</td><td>主題列的佔位文字與高度；勾選框（實作是 Material <code>CheckboxListTile</code>）；輸入框內字級、後綴的顏色與位置（實作由 <code>TextField</code> 與 <code>gbmInputDecoration</code> 決定）</td><td><span class="tag code">preferences_dialog.dart:236-240,885-899</span> <span class="tag code">gbm_input_decoration.dart:46-81</span></td></tr>
+        <tr><td>元件</td><td><code>_NumberField</code>：標籤 11 px textSecondary、間距 4、輸入框 200×30、後綴</td><td><span class="tag code">preferences_dialog.dart:262-330</span></td></tr>
+        <tr><td>說明文字</td><td>11 px、textTertiary、行高 1.5，與欄位間距 8</td><td>樣式 <span class="tag code">preferences_dialog.dart:924-932</span> · 文案 <span class="tag new">新增</span></td></tr>
+        <tr><td>位置</td><td>Appearance「程式碼」區塊，「每行最多顯示」說明之下</td><td>同為程式碼顯示方式 · 位置 <span class="tag new">新增</span>（全檔開關本身在 View 選單與 titlebar，不在 Preferences）</td></tr>
+        <tr><td>與上一個說明的間距</td><td>16 px（space4）</td><td><span class="tag new">新增</span>：前面是說明文字、不是欄位；現有「說明 → 下一塊」都用 space4 <span class="tag code">preferences_dialog.dart:387,1337</span>，但那些是換區塊</td></tr>
+        <tr><td>標籤、後綴</td><td>「全檔檢視最多」、「行」</td><td><span class="tag new">新增</span>（同對話框的中文數字欄慣例：「記憶體中保留」「筆」 <span class="tag code">:1311-1313</span>；「Full file」是按鈕的英文名稱，標籤用中文）</td></tr>
+        <tr><td>預設</td><td>5000</td><td><span class="tag rule">裁定</span>「except file over 5000 lines」 · 量測：5k 開啟 72–77 ms、捲動 p90 15–16 ms，在 100 ms／16 ms 預算內 <span class="tag code">working_copy_diff_pane.dart:56-59</span></td></tr>
+        <tr><td>超過上限時</td><td>不變：片段模式、按鈕停用、tooltip「File too large for full view」</td><td><span class="tag code">working_copy_diff_pane.dart:243-268,486,718</span> <span class="tag rule">裁定</span> 2026-10-24 G1</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="range">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · 待裁定</div>
+      <h2>可以填多大、多小</h2>
+    </div>
+    <div class="callout" style="border-left-color:var(--success);background:var(--tag-rule-bg);color:var(--tag-rule-ink)"><b>使用者裁定 2026-10-31</b>：畫面 1「照稿」；範圍「B. 500–20000」。</div>
+    <div class="callout">現有的 <code>_NumberField</code> 只接受正整數，沒有上下限；打到一半或 0 不寫入，畫面上沒有任何錯誤提示。行數上限有效能後果：20,000 行開啟 530 ms、捲動每幀 47–57 ms，<b>超過預算</b>，這也是上限定在 5,000 的原因；20,000 以上沒量過（<code>working_copy_diff_pane.dart:56-59</code>）。請選一種。</div>
+    <div class="variants2">
+      <figure style="margin:0;display:grid;gap:8px"><figcaption class="t-sm" style="color:var(--page-muted)"><b>A. 不設範圍</b>：跟其他數字欄一樣，任何正整數都存。填 100000 就照做，大檔可能卡。</figcaption>
+        <div class="stage"><div class="mock mini"><div class="fl">全檔檢視最多</div><div class="gap1"></div>
+<div class="inp" style="width:200px"><span>100000</span><span class="sfx">行</span></div>
+<div class="gap2"></div><div class="t-xs">超過的檔案只顯示變更附近的片段，全檔按鈕停用。</div></div></div></figure>
+      <figure style="margin:0;display:grid;gap:8px"><figcaption class="t-sm" style="color:var(--page-muted)"><b>B. 500–20,000，超出不存並說明</b>：外框變 danger、下方紅字，沿用 External apps 的拒絕寫法。範圍數字 <span class="tag new">新增</span></figcaption>
+        <div class="stage"><div class="mock mini"><div class="fl">全檔檢視最多</div><div class="gap1"></div>
+<div class="inp err" style="width:200px"><span>100000</span><span class="sfx">行</span></div><div class="ferr">請填 500 到 20000，這次修改沒有存檔（仍是 5000）</div>
+<div class="gap2"></div><div class="t-xs">超過的檔案只顯示變更附近的片段，全檔按鈕停用。</div></div></div></figure>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>內容</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>B 的錯誤外框</td><td>border 改 danger</td><td><span class="tag code">gbm_input_decoration.dart:41,53</span>（<code>hasError</code>）</td></tr>
+        <tr><td>B 的錯誤文字</td><td>11 px danger，上方間距 4</td><td><span class="tag code">gbm_input_decoration.dart:102-111</span>（<code>gbmFieldError</code>）</td></tr>
+        <tr><td>B 的錯誤位置</td><td>輸入框正下方、不縮排，之後才是說明文字</td><td><span class="tag new">新增</span>：External apps 的錯誤縮排 148、在指令欄下方 <span class="tag code">preferences_dialog.dart:1214-1218</span>，那是它那一列的版型；這裡沒有左欄</td></tr>
+        <tr><td>B 的文案格式</td><td>「…，這次修改沒有存檔（仍是 X）」</td><td><span class="tag code">preferences_dialog.dart:1221</span>；前半「請填 500 到 20000」<span class="tag new">新增</span></td></tr>
+        <tr><td>B 的範圍</td><td>500–20,000</td><td><span class="tag new">新增</span>：上限取量過的最大值，但 20,000 本身不過預算（開啟 530 ms），填到上限時大檔會明顯卡頓；下限 500 沒有量測依據，只是避免小檔也被擋</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>

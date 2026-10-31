@@ -179,8 +179,11 @@ void main() {
       expect(lead.pixels, greaterThan(2000));
       _expectRowsAligned(tester, unstaged, staged);
 
+      // `lead` follows once staged leads, so its value before the wheel is
+      // what staged has to move up from.
+      final double before = lead.pixels;
       await _wheel(tester, staged, const Offset(0, -1500));
-      expect(_vertical(tester, staged).pixels, lessThan(lead.pixels));
+      expect(_vertical(tester, staged).pixels, lessThan(before));
       _expectRowsAligned(tester, unstaged, staged);
     });
 

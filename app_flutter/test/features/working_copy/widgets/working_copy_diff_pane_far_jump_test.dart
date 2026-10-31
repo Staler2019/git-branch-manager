@@ -22,12 +22,14 @@ const Set<int> _stagedEdits = <int>{11, 1201, 3300, 4100};
 Future<void> _pump(
   WidgetTester tester, {
   bool twoFile = true,
+  bool softWrap = false,
   Set<int> unstagedEdits = _unstagedEdits,
   Set<int> stagedEdits = _stagedEdits,
   double textScale = 1,
   ScrollController? scrollController,
 }) async {
-  tester.view.physicalSize = const Size(900, 500);
+  // Narrower with soft wrap on, so a row wraps in a `2 file` column.
+  tester.view.physicalSize = Size(softWrap ? 700 : 900, 500);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await pumpGbmWidget(
@@ -37,7 +39,7 @@ Future<void> _pump(
         data: MediaQuery.of(context)
             .copyWith(textScaler: TextScaler.linear(textScale)),
         child: WorkingCopyDiffPane(
-          softWrap: false,
+          softWrap: softWrap,
           displayPath: 'lib/a.dart',
           unstagedFile: replacementsDiff(_lines, unstagedEdits, context: 3),
           stagedFile: replacementsDiff(_lines, stagedEdits, context: 3),
@@ -327,5 +329,51 @@ void main() {
     _expectAligned(tester);
     expect(sync.jumpCount(1) - before, 1);
     expect(_seeds(tester, 0), greaterThan(0));
+  });
+
+  for (final bool twoFile in <bool>[false, true]) {
+    testWidgets('${twoFile ? '2 file' : 'unified'} with every row taller than '
+        'the estimate: wheeling back up from a far jump reaches the top '
+        'without running out of layout passes', (WidgetTester tester) async {
+      await _pump(tester, twoFile: twoFile, textScale: 1.3);
+      await _wheel(tester, 0, 1);
+      _position(tester, 0).jumpTo(9000);
+      await _settle(tester);
+      expect(_seeds(tester, 0), greaterThan(0), reason: 'the premise');
+      for (int guard = 0; _position(tester, 0).pixels > 0; guard++) {
+        expect(guard, lessThan(200), reason: 'stuck');
+        await _wheel(tester, 0, -300);
+      }
+      expect(tester.takeException(), isNull);
+      final Rect top = tester.getRect(
+        find
+            .descendant(of: _view(0), matching: find.byType(DiffLineView))
+            .first,
+      );
+      expect(top.top, greaterThan(tester.getRect(_view(0)).top));
+    });
+  }
+
+  testWidgets('2 file with soft wrap: a jump to the end stays at the end '
+      'while the rows there are measured taller', (WidgetTester tester) async {
+    await _pump(tester, softWrap: true);
+    await _wheel(tester, 0, 1);
+    final ScrollPosition p = _position(tester, 0);
+    p.jumpTo(p.maxScrollExtent);
+    await _settle(tester);
+    await tester.pumpAndSettle();
+    expect(_seeds(tester, 0), greaterThan(0), reason: 'the premise');
+    final ScrollPosition q = _position(tester, 0);
+    expect(q.pixels, q.maxScrollExtent);
+    double lowest = 0;
+    for (final Element e
+        in find
+            .descendant(of: _view(0), matching: find.byType(DiffLineView))
+            .evaluate()) {
+      final Rect r = tester.getRect(find.byWidget(e.widget));
+      if (r.bottom > lowest) lowest = r.bottom;
+    }
+    expect(lowest, lessThanOrEqualTo(tester.getRect(_view(0)).bottom));
+    _expectAligned(tester);
   });
 }

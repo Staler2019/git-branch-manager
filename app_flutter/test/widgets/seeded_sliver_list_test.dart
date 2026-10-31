@@ -44,6 +44,10 @@ class _Harness {
   final Set<int> built = <int>{};
   int builds = 0;
 
+  /// Added to the last three items' height: their measured height growing
+  /// after they are laid out, the way a soft-wrapped row re-measures.
+  final ValueNotifier<double> grow = ValueNotifier<double>(0);
+
   Widget get widget => Directionality(
     textDirection: TextDirection.ltr,
     child: CustomScrollView(
@@ -56,10 +60,20 @@ class _Harness {
             (BuildContext context, int i) {
               builds++;
               built.add(i);
-              return SizedBox(
+              final Widget item = SizedBox(
                 key: ValueKey<int>(i),
                 height: _height(i),
                 child: Text('item $i'),
+              );
+              if (i < _count - 3) return item;
+              return ValueListenableBuilder<double>(
+                valueListenable: grow,
+                builder: (BuildContext context, double extra, Widget? _) =>
+                    SizedBox(
+                      key: ValueKey<int>(i),
+                      height: _height(i) + extra,
+                      child: Text('item $i'),
+                    ),
               );
             },
             childCount: _count,
@@ -84,6 +98,7 @@ Future<_Harness> _pump(
   addTearDown(tester.view.reset);
   final _Harness h = _Harness(estimate: estimate, initialOffset: initialOffset);
   addTearDown(h.controller.dispose);
+  addTearDown(h.grow.dispose);
   await tester.pumpWidget(h.widget);
   return h;
 }
@@ -226,6 +241,22 @@ void main() {
     expect(items.last.$1, _count - 1);
     expect(items.last.$2.bottom, moreOrLessEquals(600));
     _expectContiguous(items);
+  });
+
+  testWidgets('after a far jump to the end, the last items growing as they '
+      'are measured keeps the list at its end', (WidgetTester tester) async {
+    final _Harness h = await _pump(tester);
+    h.controller.jumpTo(h.controller.position.maxScrollExtent);
+    await tester.pump();
+    expect(h.render(tester).seedCount, 1);
+    h.grow.value = 150;
+    await tester.pump();
+    await tester.pump();
+    final ScrollPosition p = h.controller.position;
+    expect(p.pixels, p.maxScrollExtent);
+    final List<(int, Rect)> items = _onScreen(tester);
+    expect(items.last.$1, _count - 1);
+    expect(items.last.$2.bottom, moreOrLessEquals(600));
   });
 
   testWidgets('scrolling in steps of half a viewport never seeds', (

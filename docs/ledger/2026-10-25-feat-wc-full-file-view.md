@@ -423,3 +423,29 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 - 新增的 `Duration(` 只有 `_scrollToRegion` 的 200 ms 動畫時長，不是執行期門檻。
 - orphan wiring 雙向 grep：新符號在 `lib/` 都有呼叫端和讀取端。`seedCount` 只有測試會讀，是計數用的 seam（作法同 `jumpCount`）。
 - hover sweep：S、J、JC 都沒有新增 `InkWell`／`GestureDetector`。
+
+## G3 之後的回報（973dcaee … 9114ea7f，2026-10-31 – 11-01）
+
+### Situation
+使用者驗收 2 file 時回報四件事：一側為空時畫了 Nothing staged／unstaged；untracked 檔的 staged 欄該只寫 Not in Git；新檔整份 stage 之後 unstaged 欄應顯示檔案內容；binary 檔的空欄還畫著空的 well 外框；以及新檔整份 stage 後再退回中間幾行，staged 卡片沒有切開也沒有留白。另外裁定全檔的行數上限做成偏好。
+
+### Task／Action
+- **空側與 untracked**（973dcaee、5c39b4c5、0b2fa68e）：空側不畫 placeholder；untracked 的 staged 欄只留 `Not in Git`。
+- **Slice E：空側畫 index 的整份檔案**（5579aba8、54e27779、a1b76302、6c091743、4837e43a）：只在全檔模式、而且對側欄自己正在畫全檔時（沿用 `_fillFor` 的 gate，含行數上限）才畫；預覽列是 fill 列，key 是 `f:` namespace，對 payload 貢獻為零。片段模式依使用者裁定「片段模式就維持跟現在一樣」不變。a1b76302 是做 E 時抓到的既有缺陷：slot heights 重建後，已 layout 的列必須重新回報實測高度，否則一側後到時兩欄差一個估計誤差。每個 commit 的 mutation 數記在各自的 message。
+- **binary 空欄不畫外框**（6ea43157）：第一版讓 spacer 不包 `_FrameSegment`，紅了既有的 sync_test「一側為空仍補高度」；改成 `_ownHeightOf` 歸零也還差 17 px（最後一段的框邊）。最後保留框的幾何、只是不畫（`_FrameSegment.painted`），沒有改動任何既有期望值。Mutation 3 個，變紅的測試數分別是 3、1、3。以 rect 斷言下緣的第一版測試在 mutation 下存活（溢出落在 layout rect 之內），改成「外框數 == `_FrameSegment` 數」。
+- **Slice P：行數上限改為偏好**（d6eea07f G1 稿、2772da95、d4d7e7a9、f269f1ef）：`fullFileViewMaxLines` 預設 5000，讀取時 clamp 到 500–20000；Preferences 加一個 `_NumberField`，超出範圍不寫入並顯示 `請填 500 到 20000，這次修改沒有存檔（仍是 X）`。spec-auditor 抓到設計稿和 plan 裡引用的效能數字是 Slice L 原型的數字（25 ms／10 ms），已就地更正為接上填空之後的實測（5k 開啟 72–77 ms、捲動 15–16 ms；20k 530 ms、47–57 ms，不過預算）。Mutation：P1 有效 4 個、P2 4 個（其中 `ref.watch`→`ref.read` 是等價的：同一個 build 已經 watch 了該 provider，所以其他 3 個各紅 1 個）、P3 6 個，每個都紅 1 個。
+- **Slice B：2 file 的卡片依對側變更位置切開**（83d6d32e、fa6a3c90、9114ea7f）：原因是 `DiffBarrierMemo` 給單一 source `IndexBarriers.none`，這是 2026-10-04 的裁定「`2 file` is untouched」。使用者裁定「所有檔案都套用」之後，pane 以同一份 memo 算出兩側的 barrier，傳給兩欄的 view 和 `_syncLayout`。plan-verifier 判 READY。
+  - 既有 4 個測試的 fixture 把 staged 的變更放在 unstaged 的變更之間，套用新規則後卡片會被切開；使用者裁定「改 fixture，保留測試主題」。fixture 移到 unstaged 那段的下一行（`replacementsDiff` 的 staged 取代列，其 removed 列落在 (L-1,1)、added 列落在 (L,0)。只有放在下一行時，兩張卡片才會同段又不互相切開）。第一次改的時候把 staged 放在那段的最後一行，誤以為不會切開，結果 (L-1,1) 落在 unstaged 的變更之間，仍然紅。又有 2 個測試的前提隨著改變：「短側段尾補高」的斷言原本收進了別段的 spacer，「一側後到」的 L17 也不再是段首。兩者都改正，細節記在 83d6d32e 的 message。
+  - Mutation 4 個（pane 不傳、`_syncLayout` 不用、兩欄互換、view 忽略參數），每一個都讓 4 個新測試全紅。device 測試在 B1 之前的 lib 上跑是紅的（找到 0 張切開的卡片），之後是綠的。
+  - 已就地更正 record `2026-10-04-working-copy-layout.md`。
+
+### Result
+- 全套 4415 綠、8 skip，analyzer 0。device：two_file_barrier_flow 1 綠；empty_side_preview_flow 1、sync_scroll_flow 3、full_file_stage_flow 7、untracked_unstage_flow 1，都在 Slice P／binary 之後跑過，全綠。
+- Verifier（Slice B）：見下一節。
+
+### Verifier（Slice B，HEAD 9114ea7f）：CONFIRMED
+- 驗證方式：全套 4415 綠、analyzer 0、device `two_file_barrier_flow` 綠。另外寫了一支探針（scratchpad，不進 repo），在 modified 檔、從 unstaged 側切開的情況下，excerpt 與全檔兩種模式都比對過：2 file 卡片按鈕的 payload 與 unified 相同；Shift+Down 跨過對側變更（本欄是 context）之後，submitter 只送出被選到的變更行；staged 欄切開後，one-shot 也是如此。`_syncFor` 的 assert 沒有觸發過。
+- Advisories 的處置：
+  - A2（P4，這個 slice 引入的註解漂移：`_columnScopes` 的 doc 與 sync_test 檔頭）：FIX，就地改寫。
+  - A1（P4，既有行為）：2 file 的 staged 欄不發布 submitter（`onTemporaryScopeChanged: staged ? null : …`），所以在 staged 欄做的選取按 Ctrl/Cmd+Alt+S 不會有反應，只能按 block 上的按鈕。這是 f269f1ef 之前就有的行為，不在本 slice 範圍內，回報給使用者決定。
+  - A3（P4，覆蓋缺口）：「卡片被切開」與 Shift+Down／one-shot 組合的情況，repo 內沒有測試，只有探針證實。DEFER，回報。

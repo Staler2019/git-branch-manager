@@ -97,7 +97,7 @@ class RenderSeededSliverList extends RenderSliverList {
     // to the bottom was aiming at.
     final double? reportedEnd = geometry?.scrollExtent;
     bool seeded = false;
-    if (count > 0 && constraints.scrollOffset > 0 && _isFar(start, end)) {
+    if (count > 0 && _isFar(start, end)) {
       if (firstChild != null) collectGarbage(childCount, 0);
       final int index = indexAt(constraints.scrollOffset).clamp(0, count - 1);
       if (addInitialChild(index: index, layoutOffset: offsetOf(index))) {

@@ -133,13 +133,14 @@ void main() {
       'forward and back', (WidgetTester tester) async {
     final _Harness h = await _pump(tester);
     final double total = h.estimates[_count];
-    for (final double f in <double>[.25, .75, .1]) {
+    for (final double f in <double>[.25, .75, .1, 0]) {
       h.builds = 0;
       h.controller.jumpTo(total * f);
       await tester.pump();
       expect(h.builds, lessThan(60), reason: 'jump to $f');
     }
-    expect(h.render(tester).seedCount, 3);
+    expect(h.render(tester).seedCount, 4);
+    expect(_onScreen(tester).first, (0, const Rect.fromLTWH(0, 0, 400, 20)));
   });
 
   testWidgets('with an exact estimate, the item at the top after a far jump '

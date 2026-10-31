@@ -1,8 +1,11 @@
 // Measures scrolling the conflict-resolve window's three synced columns on a
 // 5,000-line file with 20 conflicts (the full-file view's own cap): a
 // stress pass that jumps 1/120 of the extent every frame, then single far
-// jumps. A measurement, not a gate: the far-jump frame is held against the
-// stress p90 x 1.5 by hand (plan: Slice J, J0/JB4).
+// jumps. A measurement, not a gate (使用者裁定 2026-10-31「接受現況，記錄數字」):
+// one text segment is one item several viewports tall, so a stress step
+// mostly builds nothing (the control) and one that crosses into a segment
+// builds one per column (the stress p90); a far jump builds the segment it
+// lands in and its neighbour in the cache, about twice that.
 //
 //   flutter drive --profile -d macos --driver=integration_test/perf/driver.dart \
 //     --target=integration_test/perf/conflict_scroll_perf_test.dart
@@ -136,7 +139,9 @@ void main() {
     position.jumpTo(0);
     await tester.pumpAndSettle();
     final List<String> far = <String>[];
-    for (final double f in <double>[.75, .1, .5, 0]) {
+    double max = 0;
+    // The last one is the control.
+    for (final double f in <double>[.75, .1, .5, 0, 1 / 120]) {
       await idle();
       timings.clear();
       position.jumpTo(position.maxScrollExtent * f);
@@ -147,9 +152,18 @@ void main() {
           : timings
                 .map((FrameTiming t) => _ms(t.buildDuration))
                 .reduce((double a, double b) => a > b ? a : b);
-      far.add('to$f=${worst.toStringAsFixed(1)}');
+      if (f == 1 / 120) {
+        far.add('control=${worst.toStringAsFixed(1)}');
+      } else {
+        if (worst > max) max = worst;
+        far.add('to$f=${worst.toStringAsFixed(1)}');
+      }
     }
     // ignore: avoid_print
-    print('PERF conflict-far ${far.join(' ')}');
+    print(
+      'PERF conflict-far ${far.join(' ')} '
+      'max=${max.toStringAsFixed(1)} '
+      'stressP90=${_percentile(build, .9).toStringAsFixed(1)}',
+    );
   });
 }

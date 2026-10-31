@@ -256,6 +256,110 @@ void main() {
     });
   });
 
+  // wc-full-file-line-cap-spec.html, ruled 2026-10-31: screen 1 「照稿」,
+  // range 「B. 500–20000」.
+  group('PreferencesDialogContent - Appearance, full-file line cap', () {
+    Finder field() => find.byKey(const Key('fullFileViewMaxLinesField'));
+    const String note = '超過的檔案只顯示變更附近的片段，全檔按鈕停用。';
+
+    testWidgets('sits under the line width cap with its label, suffix and '
+        'note', (tester) async {
+      await _pump(tester, section: 'Appearance');
+
+      expect(find.text('全檔檢視最多'), findsOneWidget);
+      expect(find.text('行'), findsOneWidget);
+      expect(find.text(note), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('全檔檢視最多')).dy -
+            tester.getBottomLeft(find.text('以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。')).dy,
+        GbmSpacing.space4,
+      );
+      expect(
+        tester.getTopLeft(find.text(note)).dy -
+            tester.getBottomLeft(field()).dy,
+        GbmSpacing.space2,
+      );
+      expect(tester.widget<TextField>(field()).controller!.text, '5000');
+    });
+
+    testWidgets('a number in 500-20000 is written', (tester) async {
+      final result = await _pump(tester, section: 'Appearance');
+      int stored() =>
+          result.container.read(appPreferencesProvider).fullFileViewMaxLines;
+
+      for (final int n in <int>[500, 8000, 20000]) {
+        await tester.ensureVisible(field());
+        await tester.enterText(field(), '$n');
+        await tester.pump();
+        expect(stored(), n);
+      }
+    });
+
+    testWidgets('one outside it is not written, and the field says why', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Appearance');
+      final GbmColors colors = tester.element(field()).gbmColors;
+      int stored() =>
+          result.container.read(appPreferencesProvider).fullFileViewMaxLines;
+      Color border() =>
+          (tester.widget<TextField>(field()).decoration!.enabledBorder!
+                  as OutlineInputBorder)
+              .borderSide
+              .color;
+
+      await tester.ensureVisible(field());
+      await tester.enterText(field(), '8000');
+      await tester.pump();
+      for (final String text in <String>['499', '20001', '100000']) {
+        await tester.enterText(field(), text);
+        await tester.pump();
+        expect(stored(), 8000, reason: '"$text" must not be written');
+        expect(
+          find.text('請填 500 到 20000，這次修改沒有存檔（仍是 8000）'),
+          findsOneWidget,
+          reason: text,
+        );
+        expect(border(), colors.danger, reason: text);
+      }
+      // The message sits right under the box, the note under it.
+      expect(
+        tester.getTopLeft(find.textContaining('請填 500 到 20000')).dy -
+            tester.getBottomLeft(field()).dy,
+        GbmSpacing.space1,
+      );
+      expect(
+        tester.getTopLeft(find.text(note)).dy,
+        greaterThan(
+          tester.getBottomLeft(find.textContaining('請填 500 到 20000')).dy,
+        ),
+      );
+
+      await tester.enterText(field(), '600');
+      await tester.pump();
+      expect(stored(), 600);
+      expect(find.textContaining('請填 500 到 20000'), findsNothing);
+      expect(border(), colors.borderDefault);
+    });
+
+    // Unchanged from every other number field: a half-typed or empty box is
+    // simply not written, and is not called wrong.
+    testWidgets('an empty or unparseable box writes nothing and says '
+        'nothing', (tester) async {
+      final result = await _pump(tester, section: 'Appearance');
+      await tester.ensureVisible(field());
+      for (final String text in <String>['', 'abc']) {
+        await tester.enterText(field(), text);
+        await tester.pump();
+        expect(
+          result.container.read(appPreferencesProvider).fullFileViewMaxLines,
+          5000,
+        );
+        expect(find.textContaining('請填 500 到 20000'), findsNothing);
+      }
+    });
+  });
+
   // 「拖拉四段＋右側自由輸入倍率」: four stops on a slider, any whole
   // multiplier in the field. No seconds are shown anywhere.
   group('PreferencesDialogContent - Advanced, git timeout multiplier', () {

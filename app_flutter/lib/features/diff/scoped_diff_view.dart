@@ -21,6 +21,7 @@ import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';
 import 'sync_scroll/sync_height_reporter.dart';
+import 'sync_scroll/sync_scroll_controller.dart';
 import 'sync_scroll/sync_slot_heights.dart';
 import 'sync_scroll/sync_slot_spacer.dart';
 import 'widgets/diff_line.dart';
@@ -211,6 +212,7 @@ typedef ScopedDiffSync = ({
   int column,
   List<int> segmentOfUnit,
   SyncSlotHeights heights,
+  SyncScrollController? scroll,
 });
 
 /// How far a row's left edge sits inside the view: the well's 8px margin,
@@ -390,7 +392,27 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// the pinned head alone and not the list.
   final ValueNotifier<double> _sideways = ValueNotifier<double>(0);
 
+  /// Makes this column the synced leader ([SyncScrollController.lead]):
+  /// the user is about to move it, or this view is about to by program.
+  void _leadSync() {
+    final ScopedDiffSync? sync = widget.sync;
+    sync?.scroll?.lead(sync.column);
+  }
+
   bool _onScrollNotification(Notification notification) {
+    // Only a user's own scroll: a follower's guarded `jumpTo` goes idle,
+    // which reports an idle direction from the column that did not lead.
+    final bool user = switch (notification) {
+      UserScrollNotification(:final ScrollDirection direction) =>
+        direction != ScrollDirection.idle,
+      ScrollStartNotification(:final DragStartDetails? dragDetails) =>
+        dragDetails != null,
+      _ => false,
+    };
+    if (user &&
+        (notification as ScrollNotification).metrics.axis == Axis.vertical) {
+      _leadSync();
+    }
     final ScrollMetrics? metrics = switch (notification) {
       ScrollNotification(:final ScrollMetrics metrics) => metrics,
       ScrollMetricsNotification(:final ScrollMetrics metrics) => metrics,
@@ -862,6 +884,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
             // the region takes focus back as the drag starts, so
             // the selection the drag makes survives (ledger: #167).
             if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
+            _leadSync();
             _tracker.beginGesture();
             _pointerDown = true;
             // A new drag replaces the scope the pinned head belongs to, and
@@ -1341,6 +1364,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       return true;
     }
 
+    _leadSync();
     SchedulerBinding.instance.addPostFrameCallback((_) {
       if (!mounted || reveal()) return;
       final DiffListModel? model = _model;
@@ -1463,6 +1487,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// the pass after that is closer, and once the card is built its own box
   /// is revealed exactly. At most [_kJumpPasses] passes.
   void _jumpToCard(int item) {
+    _leadSync();
     int passes = 0;
     void pass() {
       final DiffListModel? model = _model;
@@ -1770,6 +1795,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         heights: widget.sync!.heights,
         column: widget.sync!.column,
         segment: segment,
+        scroll: widget.sync!.scroll,
       ),
       DiffHeadingItem(:final DiffBlock block) => _HunkHeading(
         hunk: widget.sources[block.sourceIndex].file!.hunks[block.hunkIndex],

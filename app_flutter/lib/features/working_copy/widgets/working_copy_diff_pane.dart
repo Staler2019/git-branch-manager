@@ -15,6 +15,7 @@ import '../../diff/diff_list_model.dart';
 import '../../diff/diff_scopes.dart';
 import '../../diff/scoped_diff_view.dart';
 import '../../diff/sync_scroll/sync_segments.dart';
+import '../../diff/sync_scroll/sync_scroll_controller.dart';
 import '../../diff/sync_scroll/sync_slot_heights.dart';
 import '../../diff/sync_scroll/sync_spans.dart';
 import '../../diff/widgets/diff_line.dart';
@@ -369,8 +370,29 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
     );
   }
 
+  /// `2 file`'s two columns scrolled as one (S4); built with the first
+  /// `2 file` build and dropped on leaving it, so re-entering mirrors the
+  /// unstaged column's offset afresh.
+  SyncScrollController? _syncScroll;
+  ScrollController? _syncScrollUnstaged;
+
+  SyncScrollController _syncScrollFor(SyncSlotHeights heights) {
+    if (!identical(_syncScrollUnstaged, _unstagedScroll)) _dropSyncScroll();
+    _syncScrollUnstaged = _unstagedScroll;
+    final SyncScrollController scroll = _syncScroll ??= SyncScrollController(
+      <ScrollController>[_unstagedScroll, _stagedScroll],
+    );
+    return scroll..heights = heights;
+  }
+
+  void _dropSyncScroll() {
+    _syncScroll?.dispose();
+    _syncScroll = null;
+  }
+
   @override
   void dispose() {
+    _dropSyncScroll();
     _sync?.heights.dispose();
     _stagedScroll.dispose();
     _ownedUnstagedScroll.dispose();
@@ -402,8 +424,10 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
           scopeCounts: _mode == WorkingCopyDiffMode.unified
               ? _scopeCounts()
               : null,
-          onModeChanged: (WorkingCopyDiffMode mode) =>
-              setState(() => _mode = mode),
+          onModeChanged: (WorkingCopyDiffMode mode) => setState(() {
+            if (mode != WorkingCopyDiffMode.twoFile) _dropSyncScroll();
+            _mode = mode;
+          }),
           fullFile: widget.fullFile,
           tooLarge: widget.fullFile && _overCap(),
           onToggleFullFile: widget.onToggleFullFile,
@@ -420,6 +444,9 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
                   _fillFor(const <bool>[true]),
                 ];
                 final sync = _syncLayout(fills);
+                final SyncScrollController scroll = _syncScrollFor(
+                  sync.heights,
+                );
                 return <Widget>[
                   for (int c = 0; c < 2; c++)
                     _side(
@@ -429,6 +456,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
                         column: c,
                         segmentOfUnit: sync.segmentOf[c],
                         heights: sync.heights,
+                        scroll: scroll,
                       ),
                     ),
                 ];

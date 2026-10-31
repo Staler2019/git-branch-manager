@@ -1904,6 +1904,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     return _ItemHit.wrap(
       index,
       _FrameSegment(
+        // A column with nothing to draw -- a binary file, or a side with no
+        // change -- still ends each sync segment in a spacer; painted, those
+        // spacers would be a well holding nothing (使用者回報 2026-10-31
+        // 「binary這種無法顯示內容的，unstage下方還是會有空行panel，不應該
+        // 有」). They keep the frame's geometry, so the segments still line
+        // up with the other column, on the backdrop alone.
+        painted: item is! DiffSpacerItem || _wellHasContent(model),
         first: index == leading.length,
         last: index == model.items.length - 1,
         rightGutter: _showsRuler(model) ? _kRulerGutter : 0,
@@ -1916,6 +1923,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       ),
     );
   }
+
+  /// Whether the well holds anything but sync spacers.
+  static bool _wellHasContent(DiffListModel model) => model.items.any(
+    (DiffListItem item) => item is! DiffLeadingItem && item is! DiffSpacerItem,
+  );
 
   /// Whether fill item [index] is the last row of its run: the next row
   /// that is not a sync spacer starts a run of its own, or there is none. A
@@ -2109,11 +2121,16 @@ class _FrameSegment extends StatelessWidget {
     required this.last,
     required this.child,
     this.rightGutter = 0,
+    this.painted = true,
   });
 
   final bool first;
   final bool last;
   final Widget child;
+
+  /// Whether the well's ground and border are drawn; its margins and
+  /// padding are kept either way.
+  final bool painted;
 
   /// Extra right padding, the room the overview ruler takes.
   final double rightGutter;
@@ -2145,30 +2162,31 @@ class _FrameSegment extends StatelessWidget {
       child: Stack(
         clipBehavior: Clip.none,
         children: <Widget>[
-          Positioned.fill(
-            child: ClipRect(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: <Widget>[
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    top: first ? 0 : -overhang,
-                    bottom: last ? 0 : -overhang,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: colors.surfaceSunken,
-                        border: Border.all(color: colors.borderSubtle),
-                        borderRadius: BorderRadius.circular(
-                          GbmSpacing.radiusMd,
+          if (painted)
+            Positioned.fill(
+              child: ClipRect(
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: <Widget>[
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      top: first ? 0 : -overhang,
+                      bottom: last ? 0 : -overhang,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: colors.surfaceSunken,
+                          border: Border.all(color: colors.borderSubtle),
+                          borderRadius: BorderRadius.circular(
+                            GbmSpacing.radiusMd,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
           Padding(
             padding: EdgeInsets.fromLTRB(
               inset,

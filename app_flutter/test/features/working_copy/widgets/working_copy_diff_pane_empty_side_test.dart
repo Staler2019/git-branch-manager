@@ -8,7 +8,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
+import 'package:gbm_flutter/features/diff/sync_scroll/sync_slot_spacer.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
+
+import 'package:gbm_flutter/theme/gbm_theme.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
 
 import '../../../support/full_file_diffs.dart';
 import '../../../support/pump_app.dart';
@@ -45,6 +49,23 @@ DiffFile _newFile(List<String> lines) => DiffFile(
       ],
     ),
   ],
+);
+
+/// A changed binary file: no hunk to draw on either side.
+const DiffFile _binary = DiffFile(
+  oldPath: 'a.png',
+  newPath: 'a.png',
+  kind: FileChangeKind.modified,
+  oldMode: '100644',
+  newMode: '100644',
+  oldBlob: '',
+  newBlob: '',
+  binary: true,
+  similarity: 0,
+  addedLines: 0,
+  removedLines: 0,
+  displayPath: 'a.png',
+  hunks: <DiffHunk>[],
 );
 
 void main() {
@@ -212,6 +233,78 @@ void main() {
     expect(
       tester.getRect(inColumn(1, 'L15')).top,
       moreOrLessEquals(tester.getRect(inColumn(0, 'L15')).top, epsilon: 0.5),
+    );
+  });
+
+  /// The well's frame -- sunken ground inside a subtle border -- drawn in
+  /// column [c].
+  Finder wellFrames(WidgetTester tester, int c) {
+    final GbmColors colors = tester
+        .element(find.byType(ScopedDiffView).at(c))
+        .gbmColors;
+    return find.descendant(
+      of: find.byType(ScopedDiffView).at(c),
+      matching: find.byWidgetPredicate(
+        (Widget w) =>
+            w is DecoratedBox &&
+            w.decoration is BoxDecoration &&
+            (w.decoration as BoxDecoration).color == colors.surfaceSunken &&
+            (w.decoration as BoxDecoration).border != null,
+      ),
+    );
+  }
+
+  // 使用者回報 2026-10-31「binary這種無法顯示內容的，unstage下方還是會有空行
+  // panel，不應該有」: a column with nothing to draw still ended each sync
+  // segment in a spacer, and the spacer was framed as the well's only item.
+  for (final bool fullFile in <bool>[false, true]) {
+    testWidgets('a binary file draws no empty well in either column '
+        '(full file ${fullFile ? 'on' : 'off'})', (WidgetTester tester) async {
+      await pump(
+        tester,
+        fullFile: fullFile,
+        unstagedFile: _binary,
+        unstagedFullFile: _binary,
+      );
+      await twoFile(tester);
+
+      expect(find.text('a.png (binary file)'), findsOneWidget);
+      expect(wellFrames(tester, 0), findsNothing);
+      expect(wellFrames(tester, 1), findsNothing);
+    });
+  }
+
+  testWidgets('full file off: the side with nothing draws no empty well, '
+      'the side with cards keeps its own', (WidgetTester tester) async {
+    await pump(
+      tester,
+      fullFile: false,
+      unstagedFile: unstaged,
+      unstagedFullFile: unstagedFull,
+    );
+    await twoFile(tester);
+
+    expect(wellFrames(tester, 1), findsNothing);
+    // The side with cards keeps every item of its well painted, the
+    // spacers included: the last one draws the well's bottom edge.
+    expect(
+      wellFrames(tester, 0).evaluate().length,
+      find
+          .descendant(
+            of: find.byType(ScopedDiffView).at(0),
+            matching: find.byWidgetPredicate(
+              (Widget w) => w.runtimeType.toString() == '_FrameSegment',
+            ),
+          )
+          .evaluate()
+          .length,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(ScopedDiffView).at(0),
+        matching: find.byType(SyncSlotSpacer),
+      ),
+      findsWidgets,
     );
   });
 }

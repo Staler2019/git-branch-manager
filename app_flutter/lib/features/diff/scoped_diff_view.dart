@@ -691,9 +691,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // over every hunk of every source, which is not cached the way the scope
     // split is -- and this runs on every frame of a drag.
     final List<_Block> blocks = _orderedBlocks(scopesBySource);
-    final bool anyContent = sources.any(
-      (ScopedDiffSource source) => source.hasContent,
-    );
+    // Fill rows count too: a `2 file` column with no diff of its own draws
+    // the index as fill (plan: Slice E), and they are drawn the way any
+    // other fill run is.
+    final bool anyContent =
+        sources.any((ScopedDiffSource source) => source.hasContent) ||
+        (widget.fill?.isNotEmpty ?? false);
     // The list's first items, scrolled with the diff as they were when the
     // well was the pane's.
     final List<Widget> leading = <Widget>[

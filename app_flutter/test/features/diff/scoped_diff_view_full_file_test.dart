@@ -408,4 +408,78 @@ void main() {
       }
     });
   });
+
+  // plan: Slice E, E2. A `2 file` column whose own direction has no change
+  // has no diff to draw cards from; it draws the index as fill rows
+  // ([indexRowsOfFullDiff]) instead of its empty label, and those rows
+  // belong to no hunk, so nothing framed among them can be staged.
+  group('ScopedDiffView -- a source with no diff but fill rows', () {
+    final List<DiffFillRow> preview = <DiffFillRow>[
+      for (int n = 1; n <= 3; n++)
+        (
+          sourceIndex: 0,
+          indexLine: n,
+          line: DiffLine(
+            kind: DiffLineKind.context,
+            oldLine: n,
+            newLine: n,
+            text: 'idx $n',
+          ),
+        ),
+    ];
+
+    Future<void> pumpEmpty(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(900, 2400);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await pumpGbmWidget(
+        tester,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: 800,
+            child: ScopedDiffView(
+              softWrap: false,
+              fill: preview,
+              sources: <ScopedDiffSource>[
+                ScopedDiffSource(
+                  title: 'Staged',
+                  file: null,
+                  staged: true,
+                  emptyLabel: 'Nothing staged',
+                  onStageScope: (int h, List<int> l) =>
+                      staged.add((hunkIndex: h, lines: l)),
+                ),
+              ],
+              onTemporaryScopeChanged: submitters.add,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('draws every fill row under its head, not the empty label', (
+      WidgetTester tester,
+    ) async {
+      await pumpEmpty(tester);
+      expect(find.text('Nothing staged'), findsNothing);
+      expect(find.text('Staged'), findsOneWidget);
+      for (int n = 1; n <= 3; n++) {
+        expect(find.text('idx $n'), findsOneWidget);
+      }
+      expect(top(tester, 'idx 1'), lessThan(top(tester, 'idx 2')));
+      expect(top(tester, 'idx 2'), lessThan(top(tester, 'idx 3')));
+    });
+
+    testWidgets('a drag across them frames nothing to stage', (
+      WidgetTester tester,
+    ) async {
+      await pumpEmpty(tester);
+      await dragSelect(tester, 'idx 1', 'idx 3');
+      expect(submitters.where((void Function()? s) => s != null), isEmpty);
+      expect(find.byType(GbmButton), findsNothing);
+      expect(staged, isEmpty);
+    });
+  });
 }

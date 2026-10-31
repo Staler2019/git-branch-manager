@@ -22,6 +22,7 @@ import 'diff_truncation.dart';
 import 'selection_touch.dart';
 import 'sync_scroll/sync_height_reporter.dart';
 import 'sync_scroll/sync_scroll_controller.dart';
+import 'sync_scroll/user_scroll.dart';
 import 'sync_scroll/sync_slot_heights.dart';
 import 'sync_scroll/sync_slot_spacer.dart';
 import 'widgets/diff_line.dart';
@@ -409,22 +410,12 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   }
 
   bool _onScrollNotification(Notification notification) {
-    // Only a user's own scroll: a follower's guarded `jumpTo` goes idle,
-    // which reports an idle direction from the column that did not lead.
-    final bool user = switch (notification) {
-      UserScrollNotification(:final ScrollDirection direction) =>
-        direction != ScrollDirection.idle,
-      ScrollStartNotification(:final DragStartDetails? dragDetails) =>
-        dragDetails != null,
-      _ => false,
-    };
-    if (user) {
-      switch ((notification as ScrollNotification).metrics.axis) {
-        case Axis.vertical:
-          _leadSync();
-        case Axis.horizontal:
-          _leadSideways();
-      }
+    switch (userScrollAxis(notification)) {
+      case Axis.vertical:
+        _leadSync();
+      case Axis.horizontal:
+        _leadSideways();
+      case null:
     }
     final ScrollMetrics? metrics = switch (notification) {
       ScrollNotification(:final ScrollMetrics metrics) => metrics,

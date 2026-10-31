@@ -319,9 +319,9 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
   ({List<List<int>> segmentOf, SyncSlotHeights heights})? _sync;
   List<Object?> _syncKey = const <Object?>[];
 
-  /// Scope splits for the sync layout. A cache each, apart from the title
-  /// bar's: those split with the other side's barriers, these as a lone
-  /// `2 file` column does, which is what its view draws.
+  /// Scope splits for the sync layout, one cache per column apart from the
+  /// title bar's. All of them split with the same [_sideBarriers], which is
+  /// what each column's view draws (plan: Slice B).
   final List<DiffScopeCache> _columnScopes = <DiffScopeCache>[
     DiffScopeCache(),
     DiffScopeCache(),

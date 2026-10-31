@@ -11,9 +11,10 @@ import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane
 import '../../../support/full_file_diffs.dart';
 import '../../../support/pump_app.dart';
 
-// Unstaged replaces 10..12 (six card rows), staged replaces 11 (two): the
-// card segment is twice as tall on the unstaged side. Both replace 30, a
-// hunk of its own, so excerpt mode has two segments past the leading one.
+// Unstaged replaces 10..12 (six card rows), staged replaces 13 (two): the
+// card segment is taller on the unstaged side. Unstaged 30 and staged 31
+// share a hunk of their own; with the unstaged hunk's leading context
+// alone in a segment, excerpt mode has three past the leading one.
 const Set<int> _unstagedEdits = <int>{10, 11, 12, 30};
 // Each staged edit is on the line just after an unstaged run: its removed
 // row sits at that run's last position, after all of its changes, so the

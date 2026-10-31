@@ -12,6 +12,7 @@ import '../../widgets/gbm_dashed.dart';
 import '../../widgets/gbm_outlined_pill.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
+import '../../widgets/seeded_sliver_list.dart';
 import '../../widgets/code_line_metrics.dart';
 import 'diff_block_order.dart';
 import 'diff_full_file_fill.dart';
@@ -772,7 +773,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       verticalController: _vertical,
       horizontalController: widget.sync?.horizontal,
       backdrop: widget.backdrop ?? colors.surfaceSunken,
-      child: ListView.builder(
+      // A far jump starts the layout at the item the estimate names
+      // instead of walking every row between ([SeededSliverList]).
+      child: CustomScrollView(
         // Keyed only when there is content. With nothing to draw the list is
         // returned bare, outside the SelectionArea below; a GlobalKey would
         // *move* the rows out of it and back across one refetch, and a moved
@@ -781,7 +784,6 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         // 05-G). Unkeyed, the empty state builds a new list, so do the rows.
         key: anyContent ? _listKey : null,
         controller: _vertical,
-        padding: EdgeInsets.zero,
         // Off: an item scrolled out of view is released, never kept alive
         // unlaid. A kept-alive card that is rebuilt off screen -- the one a
         // long autoscroll drag started in, gaining its one-shot block on
@@ -789,10 +791,18 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         // a size (`RenderBox was not laid out`). Nothing here reads an
         // off-screen row anyway: a drag that scrolled is resolved from its
         // two endpoints ([_adoptRangeFromEndpoints]).
-        addAutomaticKeepAlives: false,
-        itemCount: model.items.length,
-        itemBuilder: (BuildContext context, int index) =>
-            _buildItem(model, index, leading, paint),
+        slivers: <Widget>[
+          SeededSliverList(
+            indexAt: (double y) => _seedIndexAt(model, y),
+            offsetOf: (int i) => _seedOffsetOf(model, i),
+            delegate: SliverChildBuilderDelegate(
+              (BuildContext context, int index) =>
+                  _buildItem(model, index, leading, paint),
+              childCount: model.items.length,
+              addAutomaticKeepAlives: false,
+            ),
+          ),
+        ],
       ),
     );
     if (!anyContent) return list;
@@ -1054,19 +1064,10 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         for (int c = 0; c < model.cardItems.length; c++)
           () {
             final int item = model.cardItems[c];
-            final int segment = model.segmentOfItem(item);
-            double within = 0;
-            for (
-              int i = item - 1;
-              i >= 0 && model.segmentOfItem(i) == segment;
-              i--
-            ) {
-              within += heightOf(i);
-            }
             return _RulerMark(
               item: item,
               number: c + 1,
-              start: (sync.heights.offsetOf(segment) + within) / total,
+              start: _syncedOffsetOf(model, sync, item) / total,
               extent: heightOf(item) / total,
               staged: widget.sources.first.staged,
             );
@@ -1242,6 +1243,59 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       spacerExtentOf: (int segment) =>
           sync.heights.spacerHeight(sync.column, segment),
     );
+  }
+
+  /// Item [item]'s top where a seeded layout places it. A synced column
+  /// counts from its segment's slot top, which every column shares, so two
+  /// columns seeded after one jump meet segment for segment even where the
+  /// estimate is wrong; counting from the model's own estimate would put
+  /// each column off by the estimate's error above it, and differently
+  /// (plan: Slice J, JC1).
+  double _seedOffsetOf(DiffListModel model, int item) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null || sync.heights.segmentCount == 0) {
+      return model.offsetOf(item);
+    }
+    return _syncedOffsetOf(model, sync, item);
+  }
+
+  /// The item a seeded layout starts at for scroll offset [y]; the
+  /// inverse of [_seedOffsetOf].
+  int _seedIndexAt(DiffListModel model, double y) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null || sync.heights.segmentCount == 0) {
+      return model.itemAt(y) ?? 0;
+    }
+    final ({int segment, double within}) at = sync.heights.locate(y);
+    // A segment holds a run of consecutive items; walk to its first, then
+    // down through it by this column's own heights.
+    int item = 0;
+    while (item < model.items.length &&
+        model.segmentOfItem(item) < at.segment) {
+      item++;
+    }
+    double top = 0;
+    while (item + 1 < model.items.length &&
+        model.segmentOfItem(item + 1) == at.segment) {
+      final double next = top + _ownHeightOf(model, item);
+      if (next > at.within) break;
+      top = next;
+      item++;
+    }
+    return item;
+  }
+
+  /// [item]'s top in a synced column: its segment's slot top plus this
+  /// column's own items above it in that segment; one past the last item
+  /// is the total, every column's the same.
+  double _syncedOffsetOf(DiffListModel model, ScopedDiffSync sync, int item) {
+    if (item >= model.items.length) return sync.heights.totalHeight;
+    final int segment = model.segmentOfItem(item);
+    double within = 0;
+    for (int i = item - 1; i >= 0 && model.segmentOfItem(i) == segment; i--) {
+      within += _ownHeightOf(model, i);
+    }
+    return sync.heights.offsetOf(segment) + within;
   }
 
   /// What item [i] adds to its column's own run: its height, measured or

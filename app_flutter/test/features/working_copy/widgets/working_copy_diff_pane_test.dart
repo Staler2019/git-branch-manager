@@ -13,10 +13,14 @@ import 'package:gbm_flutter/widgets/split_pane.dart';
 
 import '../../../support/pump_app.dart';
 
-DiffFile _file(String text, {required bool added}) => DiffFile(
+DiffFile _file(
+  String text, {
+  required bool added,
+  FileChangeKind kind = FileChangeKind.modified,
+}) => DiffFile(
   oldPath: 'lib/a.dart',
   newPath: 'lib/a.dart',
-  kind: FileChangeKind.modified,
+  kind: kind,
   oldMode: '',
   newMode: '',
   oldBlob: '',
@@ -348,6 +352,49 @@ void main() {
         );
       });
     }
+
+    // 使用者裁定 2026-10-31：「the unstage file, if the git have no this
+    // file, the stage panel should shows not exist」, text 「Not in Git」.
+    // An unstaged side that adds the whole file with nothing staged is a
+    // file the index does not hold.
+    testWidgets('2 file with an untracked file: the staged column says Not '
+        'in Git', (WidgetTester tester) async {
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+      );
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+
+      expect(find.text('Not in Git'), findsOneWidget);
+      expect(find.text('brand new'), findsOneWidget);
+    });
+
+    testWidgets('2 file with a tracked file all unstaged, or a staged side '
+        'still loading: no Not in Git', (WidgetTester tester) async {
+      await pump(tester, unstaged: _file('edited', added: true));
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+      expect(find.text('Not in Git'), findsNothing);
+
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+        stagedLoading: true,
+      );
+      await tester.pump();
+      expect(find.text('Not in Git'), findsNothing);
+    });
+
+    testWidgets('unified with an untracked file says nothing about Git', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+      );
+      expect(find.text('Not in Git'), findsNothing);
+    });
 
     testWidgets('the left side is the unstaged one', (
       WidgetTester tester,

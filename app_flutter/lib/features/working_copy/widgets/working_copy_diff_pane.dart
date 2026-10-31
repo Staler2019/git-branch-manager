@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../data/models/parsed_diff.dart';
+import '../../../data/models/working_copy_status.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/code_line_metrics.dart';
@@ -537,17 +538,21 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         staged: staged,
         loading: staged ? widget.stagedLoading : widget.unstagedLoading,
         truncated: staged ? widget.stagedTruncated : widget.unstagedTruncated,
-        emptyLabel: !labelEmpty
-            ? null
-            : staged
-            ? 'Nothing staged'
-            : 'Nothing unstaged',
+        emptyLabel: labelEmpty
+            ? (staged ? 'Nothing staged' : 'Nothing unstaged')
+            : (staged && _untracked ? 'Not in Git' : null),
         onStageScope: (int hunkIndex, List<int> lineIndices) =>
             widget.onStageScope(staged, hunkIndex, lineIndices),
         // Discard is a work-tree rewrite, so it exists on the unstaged side
         // only -- there is nothing about a staged line to throw away.
         onDiscardScope: staged ? null : widget.onDiscardScope,
       );
+
+  /// The unstaged side adds the whole file. An empty staged column then
+  /// means the index holds no copy of it, and a `2 file` one says so
+  /// instead of standing blank (使用者裁定 2026-10-31, 「Not in Git」); a
+  /// column with content or still loading never draws its empty label.
+  bool get _untracked => widget.unstagedFile?.kind == FileChangeKind.added;
 
   /// One `2 file` column, its scroll positions synced through [sync].
   Widget _side({

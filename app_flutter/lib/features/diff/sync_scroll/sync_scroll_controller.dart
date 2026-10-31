@@ -142,17 +142,24 @@ class SyncScrollController {
   }
 
   /// Moves each follower so a spacer both it and the leader have built
-  /// ends at the same height in both viewports. A
-  /// follower that shares none with the leader is left where the mirror put
-  /// it.
+  /// ends at the same height in both viewports.
+  ///
+  /// A follower that shares none with the leader takes the leader's offset
+  /// again: a layout correction (a seeded list held at its end) can move
+  /// the leader without any listener hearing it, so the mirror missed that
+  /// move and the two show different segments (verifier F1).
   void _correct() {
     final int? leader = _leader;
     if (leader == null || !_columns[leader].hasClients) return;
+    final double pixels = _columns[leader].position.pixels;
     for (int c = 0; c < _columns.length; c++) {
       if (c == leader || !_columns[c].hasClients) continue;
       final double? drift = _driftOf(leader, c);
-      if (drift == null || drift.abs() <= 0.5) continue;
-      _jumpTo(c, _columns[c].position.pixels + drift);
+      if (drift == null) {
+        _jumpTo(c, pixels);
+      } else if (drift.abs() > 0.5) {
+        _jumpTo(c, _columns[c].position.pixels + drift);
+      }
     }
   }
 

@@ -20,6 +20,7 @@ import 'package:gbm_flutter/features/diff/diff_full_file_fill.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/diff/widgets/diff_line.dart';
 import 'package:gbm_flutter/widgets/gbm_dashed.dart';
+import 'package:gbm_flutter/widgets/seeded_sliver_list.dart';
 
 import '../../support/pump_app.dart';
 
@@ -610,6 +611,46 @@ void main() {
     await submitByKeyboardPath(tester);
     expect(stageCalls.single.lines, _changedBetween(3, end));
   });
+
+  // Slice J: the rows a far jump lands on were seeded, not walked to; a
+  // drag from among them still frames exactly its two ends' rows.
+  for (final bool keyboard in <bool>[false, true]) {
+    testWidgets(
+      'a scrolled drag right after a far jump frames every changed '
+      'row from the press to the release (${keyboard ? 'Ctrl/Cmd+Alt+S' : 'the pinned head'})',
+      (WidgetTester tester) async {
+        await pump(tester, file: _file(length: 400));
+        vertical.jumpTo(5000);
+        await tester.pump();
+        expect(
+          tester
+              .renderObject<RenderSeededSliverList>(
+                find.byType(SeededSliverList),
+              )
+              .seedCount,
+          1,
+          reason: 'the premise: the jump seeded',
+        );
+        final int from = visibleRows(tester)[1];
+        final int end = await overdragDown(tester, from, frames: 40);
+        expect(end - from, greaterThan(20), reason: 'the premise: it scrolled');
+        await tester.pump();
+
+        if (keyboard) {
+          await submitByKeyboardPath(tester);
+        } else {
+          final Finder pinned = find.descendant(
+            of: find.byKey(const ValueKey<String>('temporary-scope-sticky')),
+            matching: find.textContaining(RegExp('^Stage ')),
+          );
+          expect(pinned, findsOneWidget);
+          await tester.tap(pinned);
+          await tester.pump();
+        }
+        expectOneCall(stageCalls, _changedBetween(from, end));
+      },
+    );
+  }
 
   group('L3-i a drag that scrolls and comes back still took the endpoint '
       'rule', () {

@@ -321,4 +321,43 @@ void main() {
       1,
     );
   });
+
+  // A synced column's seed offsets count its own measured items from a
+  // slot top measured a frame earlier, so they can run backwards: item 3
+  // measured 2,625 tall while the total still held the estimate. The extent
+  // past the laid-out end was then negative and the framework asserted
+  // (`sliver_list.dart`'s `estimatedMaxScrollOffset >= endScrollOffset -
+  // ...`), leaving the viewport without dimensions (mac, 2026-10-31).
+  testWidgets('an estimate that runs backwards never ends the list before '
+      'the items laid out', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(400, 754);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    const int count = 10;
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: CustomScrollView(
+          slivers: <Widget>[
+            SeededSliverList(
+              indexAt: (double y) => (y ~/ 30).clamp(0, count - 1),
+              // Monotonic up to the last item, then a stale total below
+              // item 4's top.
+              offsetOf: (int i) => i < count ? i * 30.0 : 60.0,
+              delegate: SliverChildBuilderDelegate(
+                (BuildContext context, int i) =>
+                    SizedBox(height: i == 3 ? 2625 : 30, child: Text('$i')),
+                childCount: count,
+                addAutomaticKeepAlives: false,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    final RenderSeededSliverList list = tester
+        .renderObject<RenderSeededSliverList>(find.byType(SeededSliverList));
+    expect(list.geometry!.scrollExtent, greaterThanOrEqualTo(3 * 30 + 2625));
+  });
 }

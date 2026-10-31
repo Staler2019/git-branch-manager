@@ -53,7 +53,7 @@ class SeededSliverList extends SliverMultiBoxAdaptorWidget {
         trailingScrollOffset,
       );
     }
-    return trailingScrollOffset + offsetOf(count) - offsetOf(lastIndex + 1);
+    return trailingScrollOffset + _restAfter(offsetOf, lastIndex + 1, count);
   }
 
   @override
@@ -73,6 +73,17 @@ class SeededSliverList extends SliverMultiBoxAdaptorWidget {
       ..indexAt = indexAt
       ..offsetOf = offsetOf;
   }
+}
+
+/// The estimated extent of items [from] to [count], never negative: the
+/// items laid out are a floor under the list's end. A synced column's
+/// estimate counts its own measured items from slot tops measured a frame
+/// earlier, so it can run backwards; a negative rest ended the list before
+/// its own last item and the framework asserted, leaving the viewport
+/// without dimensions (mac, 2026-10-31).
+double _restAfter(double Function(int) offsetOf, int from, int count) {
+  final double rest = offsetOf(count) - offsetOf(from);
+  return rest > 0 ? rest : 0;
 }
 
 class RenderSeededSliverList extends RenderSliverList {

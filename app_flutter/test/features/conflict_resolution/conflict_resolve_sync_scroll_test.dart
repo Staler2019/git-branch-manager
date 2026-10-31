@@ -38,6 +38,30 @@ ParsedConflictFile _tall({int longBy = 0, int pairs = 10}) {
   );
 }
 
+/// 5,000 lines in 21 text segments of 236 and 20 regions of six a side
+/// (Slice JC): one segment is several viewports tall, so a far jump that
+/// walks from the current child lays out every segment on the way.
+ParsedConflictFile _fiveThousand() {
+  final List<ConflictSegment> segments = <ConflictSegment>[];
+  for (int k = 0; k < 21; k++) {
+    segments.add(
+      conflictText(<String>[for (int i = 0; i < 236; i++) 'c${k}_$i']),
+    );
+    if (k == 20) break;
+    segments.add(
+      conflictRegion(
+        <String>[for (int i = 0; i < 6; i++) 'o${k}_$i'],
+        <String>[for (int i = 0; i < 6; i++) 't${k}_$i'],
+      ),
+    );
+  }
+  return ParsedConflictFile(
+    segments: segments,
+    regionCount: 20,
+    wellFormed: true,
+  );
+}
+
 Finder _column(int c) => find.byType(GbmCodeHScroll).at(c);
 
 Finder _vertical(int c) => find
@@ -310,6 +334,51 @@ void main() {
     tester.view.physicalSize = const Size(1200, 900);
     await _settle(tester);
     await _settle(tester);
+    _expectAligned(tester);
+  });
+
+  // Slice JC: each segment item builds one SyncSlotSpacer, the first time
+  // through `rebuild()` (SyncHeightReporter is a render-object widget and
+  // never passes `debugOnRebuildDirtyWidget`).
+  testWidgets('a far jump in a 5,000-line file builds only the segments '
+      'near where it lands, and the three columns stay aligned', (
+    WidgetTester tester,
+  ) async {
+    await pumpConflictWindow(tester, _fiveThousand());
+    await _wheel(tester, 1, const Offset(0, 40));
+    int built = 0;
+    debugOnRebuildDirtyWidget = (Element e, bool builtOnce) {
+      if (e.widget is SyncSlotSpacer && !builtOnce) built++;
+    };
+    addTearDown(() => debugOnRebuildDirtyWidget = null);
+    final Map<double, int> seen = <double, int>{};
+    final double extent = _position(tester, 1).maxScrollExtent;
+    for (final double at in <double>[.75, .1, .5, 0]) {
+      final ScrollPosition result = _position(tester, 1);
+      built = 0;
+      result.jumpTo(result.maxScrollExtent * at);
+      await _settle(tester);
+      seen[at] = built;
+      // The range the scrollbar shows does not change with where it lands.
+      expect(result.maxScrollExtent, closeTo(extent, 5), reason: 'at $at');
+      _expectAligned(tester);
+    }
+    expect(
+      seen.values.every((int n) => n <= 15),
+      isTrue,
+      reason: 'segments built per jump: $seen',
+    );
+  });
+
+  testWidgets('a far jump to the end of a 5,000-line file shows its last '
+      'line in all three columns', (WidgetTester tester) async {
+    await pumpConflictWindow(tester, _fiveThousand());
+    await _wheel(tester, 1, const Offset(0, 40));
+    final ScrollPosition result = _position(tester, 1);
+    result.jumpTo(result.maxScrollExtent);
+    await _settle(tester);
+    expect(result.pixels, result.maxScrollExtent);
+    expect(find.text('c20_235').hitTestable(), findsNWidgets(3));
     _expectAligned(tester);
   });
 }

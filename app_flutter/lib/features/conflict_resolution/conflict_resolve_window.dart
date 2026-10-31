@@ -28,6 +28,7 @@ import '../../widgets/gbm_code_text.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/gbm_row.dart';
 import '../../widgets/lucide_icon.dart';
+import '../../widgets/seeded_sliver_list.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/sync_scroll/sync_height_reporter.dart';
 import '../diff/sync_scroll/sync_scroll_controller.dart';
@@ -254,6 +255,30 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             ],
           ),
       ];
+
+  /// One column's list. A far jump (scrollbar thumb, Previous/Next, a
+  /// column following another) lays out from the segment it lands in,
+  /// placed at that segment's shared top, instead of walking every segment
+  /// on the way (Slice JC).
+  Widget _seededColumn(
+    ScrollController controller,
+    List<Widget> items,
+    SyncSlotHeights heights,
+  ) => CustomScrollView(
+    controller: controller,
+    slivers: <Widget>[
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+        sliver: SeededSliverList(
+          indexAt: (double y) => heights.locate(y).segment,
+          offsetOf: (int k) => k >= heights.segmentCount
+              ? heights.totalHeight
+              : heights.offsetOf(k),
+          delegate: SliverChildListDelegate(items),
+        ),
+      ),
+    ],
+  );
 
   @override
   void dispose() {
@@ -1138,16 +1163,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             verticalController: _oursScroll,
             horizontalController: _sidewaysScroll[0],
             backdrop: colors.surfacePanel,
-            child: ListView(
-              controller: _oursScroll,
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space2,
-              ),
-              children: _synced(
-                0,
-                _buildOursSideBlocks(parsed, softWrap),
-                heights,
-              ),
+            child: _seededColumn(
+              _oursScroll,
+              _synced(0, _buildOursSideBlocks(parsed, softWrap), heights),
+              heights,
             ),
           ),
         ),
@@ -1162,16 +1181,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             verticalController: _resultScroll,
             horizontalController: _sidewaysScroll[1],
             backdrop: colors.surfacePanel,
-            child: ListView(
-              controller: _resultScroll,
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space2,
-              ),
-              children: _synced(
-                1,
-                _buildResultBlocks(parsed, softWrap),
-                heights,
-              ),
+            child: _seededColumn(
+              _resultScroll,
+              _synced(1, _buildResultBlocks(parsed, softWrap), heights),
+              heights,
             ),
           ),
         ),
@@ -1186,16 +1199,10 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             verticalController: _theirsScroll,
             horizontalController: _sidewaysScroll[2],
             backdrop: colors.surfacePanel,
-            child: ListView(
-              controller: _theirsScroll,
-              padding: const EdgeInsets.symmetric(
-                horizontal: GbmSpacing.space2,
-              ),
-              children: _synced(
-                2,
-                _buildTheirsSideBlocks(parsed, softWrap),
-                heights,
-              ),
+            child: _seededColumn(
+              _theirsScroll,
+              _synced(2, _buildTheirsSideBlocks(parsed, softWrap), heights),
+              heights,
             ),
           ),
         ),

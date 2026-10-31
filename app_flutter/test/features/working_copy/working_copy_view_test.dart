@@ -10,6 +10,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
+import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart'
     show RepoSessionState, WorkingCopyDiffReply, repoSessionProvider;
@@ -888,6 +889,145 @@ void main() {
     // ScopedDiffView.dispose() reports `null` post-frame, so when the whole
     // view goes in the same frame -- leaving the Working Copy tab with a
     // selection still framed -- the report lands after this State is gone.
+    // The diff's scroll offset is written into the draft on every scroll
+    // event so it survives a tab switch; the view watched the whole draft,
+    // so every scrolled frame rebuilt the screen and the diff pane under it.
+    // The staged side of `2 file` has a controller of its own and did not.
+    testWidgets('scrolling the diff stores the offset without rebuilding '
+        'the pane', (tester) async {
+      final DiffFile file = DiffFile(
+        oldPath: 'lib/main.dart',
+        newPath: 'lib/main.dart',
+        kind: FileChangeKind.modified,
+        oldMode: '',
+        newMode: '',
+        oldBlob: '',
+        newBlob: '',
+        binary: false,
+        similarity: 0,
+        addedLines: 30,
+        removedLines: 0,
+        displayPath: 'lib/main.dart',
+        hunks: <DiffHunk>[
+          DiffHunk(
+            oldStart: 1,
+            oldCount: 60,
+            newStart: 1,
+            newCount: 60,
+            heading: '',
+            lines: <DiffLine>[
+              for (int i = 0; i < 60; i++)
+                DiffLine(
+                  kind: i.isEven ? DiffLineKind.context : DiffLineKind.added,
+                  oldLine: i + 1,
+                  newLine: i + 1,
+                  text: 'line_$i',
+                ),
+            ],
+          ),
+        ],
+      );
+      final ProviderContainer container = await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(WorkingCopyStatus(entries: [unstagedEntry])),
+          wc.repoWorkingCopyDiffsProvider(identity).overrideWithValue(
+            <String, WorkingCopyDiffReply>{
+              'false:lib/main.dart': WorkingCopyDiffReply(
+                path: 'lib/main.dart',
+                staged: false,
+                diff: ParsedDiff(
+                  files: <DiffFile>[file],
+                  truncated: false,
+                  inputBytes: 0,
+                ),
+              ),
+            },
+          ),
+        ],
+      );
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+
+      final Widget pane = tester.widget(find.byType(WorkingCopyDiffPane));
+      final ScrollPosition position = tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byType(WorkingCopyDiffPane),
+                  matching: find.byWidgetPredicate(
+                    (Widget w) =>
+                        w is Scrollable &&
+                        w.axisDirection == AxisDirection.down,
+                  ),
+                )
+                .first,
+          )
+          .position;
+      expect(position.maxScrollExtent, greaterThan(100));
+      for (final double offset in <double>[40, 80, 120]) {
+        position.jumpTo(offset);
+        await tester.pump();
+      }
+
+      expect(
+        container.read(workingCopyDraftProvider(identity)).diffScrollOffset,
+        120,
+      );
+      expect(
+        identical(tester.widget(find.byType(WorkingCopyDiffPane)), pane),
+        isTrue,
+        reason: 'a new pane widget means the screen above it rebuilt',
+      );
+    });
+
+    // Slice W: the line-width cap reaches the pane per build, not once per
+    // mount ([FLU-listen-misses-the-current-value]).
+    testWidgets('flipping the line-width cap reaches the diff pane', (
+      tester,
+    ) async {
+      final ProviderContainer container = await pumpGbmWidget(
+        tester,
+        child: SizedBox(
+          width: 800,
+          height: 600,
+          child: WorkingCopyView(identity: identity),
+        ),
+        overrides: [
+          repoSessionProvider(identity).overrideWith(
+            (ref) =>
+                FakeRepoSessionController(identity, const RepoSessionState()),
+          ),
+          wc
+              .repoWorkingCopyStatusProvider(identity)
+              .overrideWithValue(WorkingCopyStatus(entries: [unstagedEntry])),
+        ],
+      );
+      await tester.tap(find.text('lib/main.dart'));
+      await tester.pump();
+      int cap() => tester
+          .widget<WorkingCopyDiffPane>(find.byType(WorkingCopyDiffPane))
+          .maxCodeLineChars;
+      expect(cap(), 200);
+
+      await container
+          .read(appPreferencesProvider.notifier)
+          .update((AppPreferences p) => p.copyWith(maxCodeLineChars: 10));
+      await tester.pump();
+      expect(cap(), 10);
+    });
+
     testWidgets('leaving the view with a framed selection clears the '
         'shortcut submitter without touching a disposed ref', (tester) async {
       String lineText(int i) => 'line_$i = $i';

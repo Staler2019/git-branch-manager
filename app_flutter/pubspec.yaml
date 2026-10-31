@@ -52,6 +52,11 @@ dev_dependencies:
     sdk: flutter
   integration_test:
     sdk: flutter
+  # Only for `flutter drive --profile` of integration_test/perf/ -- the
+  # profile-mode measurements `flutter test` cannot make (it has no
+  # --profile). An SDK package: nothing is downloaded.
+  flutter_driver:
+    sdk: flutter
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is

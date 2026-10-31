@@ -37,6 +37,12 @@ enum GbmActionId {
   viewWorkingCopy,
   viewNextTab,
   viewFileListAsTree,
+
+  /// Not from spec page 04's MENUS table either: the Working Copy full-file
+  /// view is outside the spec (G1 design `wc-full-file-view-spec.html`,
+  /// ruling 5: `Full file`, no shortcut). It toggles a global preference,
+  /// as `File list as tree` above it does.
+  viewToggleFullFile,
   viewGraphColumns,
   viewCommitDetail,
   viewToggleSidebar,

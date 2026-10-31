@@ -2,6 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -27,6 +28,7 @@ import 'package:gbm_flutter/widgets/file_tree_folder_row.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
+import 'package:gbm_flutter/widgets/code_line_metrics.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -208,6 +210,41 @@ void main() {
 
         expect(find.byType(GbmCodeHScroll), findsNWidgets(3));
         expect(find.byType(GbmPinnedGutter), findsNothing);
+      });
+
+      // Slice W: 「最寬 200 個中文字、超過就截斷」也套用在 conflict resolve.
+      testWidgets('a line past the cap ends in an ellipsis inside it', (
+        tester,
+      ) async {
+        await _pumpWindow(
+          tester,
+          identity,
+          _sessionWith(_conflictEntry),
+          longParsed(),
+          initialPrefs: <String, Object>{'appPrefs.maxCodeLineChars': 10},
+        );
+        await _selectConflictFile(tester);
+        final double clip =
+            10 * CjkCharWidthMemo().widthOf(kConflictCodeTextStyle);
+        final List<RenderParagraph> cut = tester
+            .renderObjectList<RenderParagraph>(find.byType(RichText))
+            .where(
+              (RenderParagraph p) =>
+                  <String>[longOurs, longTheirs].contains(p.text.toPlainText()),
+            )
+            .toList();
+        expect(cut, isNotEmpty);
+        for (final RenderParagraph p in cut) {
+          expect(p.didExceedMaxLines, isTrue);
+          expect(p.size.width, lessThanOrEqualTo(clip + 0.01));
+        }
+        // The editable result box is not a file view (使用者裁定
+        // 「輸入欄位不套用」): nothing caps it.
+        for (final TextField f in tester.widgetList<TextField>(
+          find.byType(TextField),
+        )) {
+          expect(f.maxLines, isNot(1));
+        }
       });
 
       testWidgets('the side columns stop wrapping their lines', (tester) async {

@@ -10,10 +10,12 @@
 // string would on screen. That is the safe direction for a test that needs
 // the overflow to exist at all.
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/blame_panel.dart';
+import 'package:gbm_flutter/widgets/code_line_metrics.dart';
 import 'package:gbm_flutter/widgets/gbm_code_hscroll.dart';
 
 import 'panel_test_support.dart';
@@ -37,6 +39,7 @@ Future<void> _pump(
   WidgetTester tester, {
   required bool softWrap,
   String content = _longContent,
+  int? maxChars,
 }) => pumpPanel(
   tester,
   BlamePanel(identity: panelTestIdentity, path: 'lib/main.dart'),
@@ -50,7 +53,10 @@ Future<void> _pump(
   // The list column is one pane of a split shell inside a 1200px surface, so
   // the code area is a few hundred px -- narrow enough for the fixture line
   // to overflow it in test-font terms.
-  initialPrefs: <String, Object>{'appPrefs.softWrapEnabled': softWrap},
+  initialPrefs: <String, Object>{
+    'appPrefs.softWrapEnabled': softWrap,
+    'appPrefs.maxCodeLineChars': ?maxChars,
+  },
 );
 
 void main() {
@@ -78,17 +84,38 @@ void main() {
     // The regression this guards: `maxLines: 1` + `TextOverflow.ellipsis`
     // used to be hardcoded on this row, so the end of a long blame line was
     // unreachable. Neither mode may bring it back -- wrapping shows the rest
-    // below, scrolling shows it to the right.
+    // below, scrolling shows it to the right. Asserted on what is painted,
+    // not on the `Text`'s settings: since Slice W a line past
+    // `maxCodeLineChars` is cut by ruling, so every line carries an
+    // ellipsis setting and only a line that exceeds the cap may use it
+    // (user ruling 2026-10-25). This line is far inside the default 200.
     for (final bool softWrap in const <bool>[false, true]) {
       await _pump(tester, softWrap: softWrap);
-      final Text code = tester.widget<Text>(find.text(_longContent));
-      expect(code.maxLines, isNull, reason: 'softWrap=$softWrap');
-      expect(
-        code.overflow,
-        isNot(TextOverflow.ellipsis),
-        reason: 'softWrap=$softWrap',
-      );
+      final RenderParagraph p = tester
+          .renderObjectList<RenderParagraph>(find.byType(RichText))
+          .singleWhere(
+            (RenderParagraph p) => p.text.toPlainText() == _longContent,
+          );
+      expect(p.didExceedMaxLines, isFalse, reason: 'softWrap=$softWrap');
     }
+  });
+
+  // Slice W: past `AppPreferences.maxCodeLineChars` the line is cut, which
+  // the user ruled for every file view (「所有file顯示最寬都是這個數值」).
+  testWidgets('a line past the cap ends in an ellipsis inside it', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, softWrap: false, maxChars: 10);
+    final RenderParagraph p = tester
+        .renderObjectList<RenderParagraph>(find.byType(RichText))
+        .singleWhere(
+          (RenderParagraph p) => p.text.toPlainText() == _longContent,
+        );
+    expect(p.didExceedMaxLines, isTrue);
+    expect(
+      p.size.width,
+      lessThanOrEqualTo(10 * CjkCharWidthMemo().widthOf(kBlameCodeTextStyle)),
+    );
   });
 
   testWidgets('the pinned gutter paints nothing over the row background', (

@@ -595,6 +595,64 @@ void main() {
       expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
     });
 
+    // 使用者裁定 ②: a staged deletion after index 11 sits inside what the gap
+    // rule would make one unstaged card (index 10 and 13 removed). The card
+    // splits, and the chip has to count the split -- through the same
+    // DiffBarrierMemo the list uses.
+    testWidgets('the counts follow a split caused by the other side\'s pure '
+        'deletion', (WidgetTester tester) async {
+      DiffFile sketched(String sketch, {required int start}) {
+        int oldLine = start;
+        int newLine = start;
+        return DiffFile(
+          oldPath: 'lib/a.dart',
+          newPath: 'lib/a.dart',
+          kind: FileChangeKind.modified,
+          oldMode: '',
+          newMode: '',
+          oldBlob: '',
+          newBlob: '',
+          binary: false,
+          similarity: 0,
+          addedLines: 0,
+          removedLines: 0,
+          displayPath: 'lib/a.dart',
+          hunks: <DiffHunk>[
+            DiffHunk(
+              oldStart: start,
+              oldCount: sketch.replaceAll('+', '').length,
+              newStart: start,
+              newCount: sketch.replaceAll('-', '').length,
+              heading: '',
+              lines: <DiffLine>[
+                for (int i = 0; i < sketch.length; i++)
+                  DiffLine(
+                    kind: switch (sketch[i]) {
+                      '+' => DiffLineKind.added,
+                      '-' => DiffLineKind.removed,
+                      _ => DiffLineKind.context,
+                    },
+                    oldLine: sketch[i] == '+' ? 0 : oldLine++,
+                    newLine: sketch[i] == '-' ? 0 : newLine++,
+                    text: 'row $i',
+                  ),
+              ],
+            ),
+          ],
+        );
+      }
+
+      await pump(
+        tester,
+        unstaged: sketched('-..-', start: 10),
+        staged: sketched('.-.', start: 11),
+      );
+
+      expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
+      expect(find.text('Stage 1 line'), findsNWidgets(2));
+      expect(find.text('Unstage 1 line'), findsOneWidget);
+    });
+
     // U8, and it is the round's only change that crosses into `2 file`:
     // 「u8 影響樣式應該要跟 2 file 模式相同，所以應該要一起動，這是唯一會影響
     // 到 2file 的」. So both modes are asserted, not one -- the whole reason

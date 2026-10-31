@@ -2,6 +2,7 @@
 // variants against docs/design/tokens-reference.md's components.css, across
 // all three theme variants -- colors are read from `tokensFor()` rather than
 // hardcoded so a token change doesn't silently desync these assertions.
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
@@ -155,6 +156,73 @@ void main() {
         );
         expect(bg, colors.accentSubtle);
         expect(iconColor, colors.accent);
+      });
+
+      // KIT `.gbm-iconbtn:hover{background:var(--surface-hover);
+      // color:var(--text-primary)}`; `.gbm-iconbtn.active` is declared after
+      // it at the same specificity, so an active button keeps `accent`.
+      // 使用者裁定 2026-10-24 (wc-full-file-view-spec.html §03). Read off the
+      // icon's resolved IconTheme after a real hover, not off the style.
+      Future<Color?> hoveredIconColor(
+        WidgetTester tester, {
+        required bool active,
+        required bool hover,
+      }) async {
+        await _pump(
+          tester,
+          variant,
+          GbmIconButton(
+            icon: const Icon(Icons.add),
+            active: active,
+            onPressed: () {},
+          ),
+        );
+        if (hover) {
+          final TestGesture mouse = await tester.createGesture(
+            kind: PointerDeviceKind.mouse,
+          );
+          await mouse.addPointer(location: Offset.zero);
+          addTearDown(mouse.removePointer);
+          await mouse.moveTo(tester.getCenter(find.byType(GbmIconButton)));
+          // Settle, not one pump: the icon colour animates to its new value.
+          await tester.pumpAndSettle();
+        }
+        return IconTheme.of(tester.element(find.byIcon(Icons.add))).color;
+      }
+
+      testWidgets('the icon is textSecondary at rest', (tester) async {
+        expect(
+          (await hoveredIconColor(
+            tester,
+            active: false,
+            hover: false,
+          ))?.toARGB32(),
+          colors.textSecondary.toARGB32(),
+        );
+      });
+
+      testWidgets('hover turns the icon textPrimary', (tester) async {
+        expect(
+          (await hoveredIconColor(
+            tester,
+            active: false,
+            hover: true,
+          ))?.toARGB32(),
+          colors.textPrimary.toARGB32(),
+        );
+      });
+
+      testWidgets('an active button keeps its accent icon on hover', (
+        tester,
+      ) async {
+        expect(
+          (await hoveredIconColor(
+            tester,
+            active: true,
+            hover: true,
+          ))?.toARGB32(),
+          colors.accent.toARGB32(),
+        );
       });
     });
 

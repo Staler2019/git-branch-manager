@@ -102,4 +102,75 @@ void main() {
       expect(large > small, isTrue);
     });
   });
+
+  // 「最長200字中文」: the unit is a CJK glyph, which a test font cannot tell
+  // apart from '0' (both are one em), so what is checked is *which* string
+  // gets measured, by a measurer that records it.
+  group('CjkCharWidthMemo', () {
+    test('measures one CJK character in the given style', () {
+      final List<(String, TextStyle)> calls = <(String, TextStyle)>[];
+      final CjkCharWidthMemo memo = CjkCharWidthMemo(
+        measure: (String text, TextStyle s) {
+          calls.add((text, s));
+          return 7;
+        },
+      );
+      expect(memo.widthOf(style), 7);
+      expect(calls, <(String, TextStyle)>[('中', style)]);
+    });
+
+    test('measures once per style', () {
+      final CjkCharWidthMemo memo = CjkCharWidthMemo(
+        measure: (String text, TextStyle s) => s.fontSize!,
+      );
+      memo.widthOf(style);
+      memo.widthOf(style);
+      expect(memo.hits, 1);
+      expect(memo.misses, 1);
+      expect(memo.widthOf(const TextStyle(fontSize: 20)), 20);
+      expect(memo.misses, 2);
+    });
+
+    test('the default measurer lays out real text', () {
+      // Test font: one em per glyph.
+      expect(CjkCharWidthMemo().widthOf(style), 10);
+    });
+  });
+
+  group('capCodeWidth', () {
+    test('a content narrower than the cap keeps its own width', () {
+      final CappedCodeWidth w = capCodeWidth(
+        naturalWidth: 300,
+        maxChars: 50,
+        charWidth: 10,
+        gutterWidth: 96,
+      );
+      expect(w.totalWidth, 300);
+      expect(w.clipWidth, 500);
+    });
+
+    test('a wider content stops at gutter plus N characters', () {
+      final CappedCodeWidth w = capCodeWidth(
+        naturalWidth: 5000,
+        maxChars: 50,
+        charWidth: 10,
+        gutterWidth: 96,
+      );
+      expect(w.totalWidth, 96 + 500);
+      expect(w.clipWidth, 500);
+    });
+
+    test('side by side caps each column, divider included', () {
+      final CappedCodeWidth w = capCodeWidth(
+        naturalWidth: 5000,
+        maxChars: 50,
+        charWidth: 10,
+        gutterWidth: 40,
+        columns: 2,
+        columnGap: 1,
+      );
+      expect(w.totalWidth, 2 * (40 + 500) + 1);
+      expect(w.clipWidth, 500);
+    });
+  });
 }

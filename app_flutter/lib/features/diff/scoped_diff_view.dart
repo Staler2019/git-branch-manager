@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
 import '../../data/models/parsed_diff.dart';
@@ -10,9 +12,20 @@ import '../../widgets/gbm_dashed.dart';
 import '../../widgets/gbm_outlined_pill.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_row.dart';
+import '../../widgets/seeded_sliver_list.dart';
+import '../../widgets/code_line_metrics.dart';
+import 'diff_block_order.dart';
+import 'diff_full_file_fill.dart';
+import 'diff_list_model.dart';
+import 'diff_row_keys.dart';
 import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';
+import 'sync_scroll/sync_height_reporter.dart';
+import 'sync_scroll/sync_scroll_controller.dart';
+import 'sync_scroll/user_scroll.dart';
+import 'sync_scroll/sync_slot_heights.dart';
+import 'sync_scroll/sync_slot_spacer.dart';
 import 'widgets/diff_line.dart';
 
 /// One side of the Working Copy diff, drawn as spec P03's 變體 B: every run
@@ -112,6 +125,12 @@ class ScopedDiffView extends StatefulWidget {
     this.showColumnHeads = true,
     this.onTemporaryScopeChanged,
     required this.softWrap,
+    this.fill,
+    this.verticalController,
+    this.contentWidth = 0,
+    this.codeClipWidth,
+    this.backdrop,
+    this.sync,
   });
 
   /// The diffs to draw, in painted order. One element is `2 file` mode's
@@ -137,6 +156,37 @@ class ScopedDiffView extends StatefulWidget {
   /// tests pumps it with plain values.
   final bool softWrap;
 
+  /// The full-file view's unchanged rows ([fullFileFillRows]) for these
+  /// [sources], in their order, or null for excerpt mode. Non-null is what
+  /// full-file mode *is* here: the rows are drawn between the cards, and no
+  /// `@@` heading is drawn (G1 ruling: 全檔模式不要有 `@@ -18,6 +18,6 @@`).
+  final List<DiffFillRow>? fill;
+
+  /// The controller of this view's own vertical list. The pane hands one in
+  /// because it decides which views share a position (`unified` has one
+  /// view, `2 file` one per side) and because the overview ruler reads it;
+  /// null makes the view own one.
+  final ScrollController? verticalController;
+
+  /// The widest row, gutter included ([diffFileContentWidth]); wider than
+  /// the view, the rows scroll sideways together under one scrollbar.
+  final double contentWidth;
+
+  /// Where each row's code is cut (`AppPreferences.maxCodeLineChars`,
+  /// [capCodeWidth]), or null for no cut. [contentWidth] is already capped
+  /// by the caller, which is what keeps the pinned one-shot head
+  /// ([_stickyHead]) on the same width the rows are drawn at.
+  final double? codeClipWidth;
+
+  /// What a pinned gutter paints under itself; null is the well's own
+  /// `surfaceSunken`.
+  final Color? backdrop;
+
+  /// This view as one synced `2 file` column, or null. Synced, each
+  /// segment's run ends in a spacer that pads it to the tallest column's,
+  /// and every item reports its laid-out height into [ScopedDiffSync.heights].
+  final ScopedDiffSync? sync;
+
   @override
   State<ScopedDiffView> createState() => _ScopedDiffViewState();
 }
@@ -144,12 +194,81 @@ class ScopedDiffView extends StatefulWidget {
 /// One drawable block, decorated with which source and hunk it came from and
 /// where it sits on the index side -- everything the merged list needs to
 /// order it and then draw it.
-typedef _Block = ({
-  int sourceIndex,
-  int hunkIndex,
-  DiffSegment segment,
-  IndexPosition position,
+typedef _Block = DiffBlock;
+
+/// What every item of one build reads about the one-shot scope -- see
+/// [_ScopedDiffViewState._itemPaint].
+typedef _ItemPaint = ({
+  TemporaryScope? temporary,
+  Set<String> touched,
+  String label,
+  int? headItem,
+  Map<int, int> ordinalOf,
 });
+
+/// What a synced `2 file` column hands the view (plan: Slice S): which
+/// segment each of its sync units is in (`syncUnitSpans`'s order, computed
+/// by the pane from the same blocks this view draws) and the slot heights
+/// both columns share; [scroll] mirrors the vertical offset (S4), and
+/// [sideways] the [horizontal] controller's (S5a).
+typedef ScopedDiffSync = ({
+  int column,
+  List<int> segmentOfUnit,
+  SyncSlotHeights heights,
+  SyncScrollController? scroll,
+  ScrollController? horizontal,
+  SyncScrollController? sideways,
+});
+
+/// How far a row's left edge sits inside the view: the well's 8px margin,
+/// its 8px padding and 1px border, and a gap's 1px dashed rule plus 2px
+/// (`scoped_diff_view_lazy_test.dart` records every row at x = 20).
+const double _kRowInset = 20;
+
+/// How many measure-and-jump passes [_ScopedDiffViewState._jumpToCard]
+/// takes before giving up on a card it still has not built.
+const int _kJumpPasses = 6;
+
+/// The overview ruler, pinned to the view (G1 design §04 #4): 10 wide, the
+/// well's 8 margin + 1 border + the ruler's own 4 from the right, and its
+/// 8 + 1 + 8 from the top and bottom.
+const double _kRulerWidth = 10;
+const double _kRulerRight = GbmSpacing.space2 + 1 + 4;
+const double _kRulerVertical = GbmSpacing.space2 + 1 + GbmSpacing.space2;
+
+/// What the rows give up on the right for the ruler: the well's padding
+/// goes from 8 to 22 (§04 #4: 8 + ruler 10 + inset 4).
+const double _kRulerGutter = 22 - GbmSpacing.space2;
+
+/// Where the pinned one-shot head ([_StickyTemporaryHead]) sits: inside
+/// the block's own edges, so it reads as the block cut by the top of the
+/// view (design `wc-sticky-temp-head-spec.html` INF-3). Left: the well's 8
+/// margin, 8 padding and 1 border, and the card's 3px left edge. Right: the
+/// same 17, the ruler's gutter when there is one, and the card's 1px ring.
+const double _kStickyLeft = GbmSpacing.space2 * 2 + 1 + 3;
+const double _kStickyRight = GbmSpacing.space2 * 2 + 1 + 1;
+
+/// What a pinned head running past the view's right edge leaves clear for
+/// the vertical scrollbar (使用者裁定「右緣留出捲軸的寬度」): the desktop
+/// Material `Scrollbar`'s default 8 thickness and 2 cross-axis margin,
+/// which `GbmCodeHScroll` takes unthemed.
+const double _kStickyScrollbarGutter = 8 + 2;
+
+/// The item a pointer endpoint landed on ([_ScopedDiffViewState._endpointAt]).
+///
+/// Opaque, so every point of an item -- its padding, a card's margin, the
+/// well's frame -- names the item, not only the parts that paint.
+class _ItemHit {
+  const _ItemHit(this.index);
+
+  final int index;
+
+  static Widget wrap(int index, Widget child) => MetaData(
+    metaData: _ItemHit(index),
+    behavior: HitTestBehavior.opaque,
+    child: child,
+  );
+}
 
 class _ScopedDiffViewState extends State<ScopedDiffView> {
   final GlobalKey<SelectionAreaState> _selectionAreaKey =
@@ -189,20 +308,20 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// say 「1 未暫存」 over two Stage cards ([CULT-single-source-of-truth]).
   final DiffBarrierMemo _barriers = DiffBarrierMemo();
 
-  List<Set<int>> _barriersBySource() => _barriers.barriersFor(<DiffSide>[
+  List<IndexBarriers> _barriersBySource() => _barriers.barriersFor(<DiffSide>[
     for (final ScopedDiffSource source in widget.sources)
       (file: source.file, staged: source.staged),
   ]);
 
   /// The scopes of every source, by source index.
   List<Map<int, List<DiffScope>>> _scopesBySource() {
-    final List<Set<int>> barriers = _barriersBySource();
+    final List<IndexBarriers> barriers = _barriersBySource();
     return <Map<int, List<DiffScope>>>[
       for (int i = 0; i < widget.sources.length; i++)
         _cacheFor(i).scopesOf(
           widget.sources[i].file,
           staged: widget.sources[i].staged,
-          barrierIndexLines: barriers[i],
+          barriers: barriers[i],
         ),
     ];
   }
@@ -216,6 +335,148 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// then works by keyboard. Requested on pointer down, because tapping does
   /// not grant focus by itself (CLAUDE.md's sidebar case).
   final FocusNode _wellFocus = FocusNode(debugLabel: 'gbm-diff-well');
+
+  ScrollController? _ownedVertical;
+
+  ScrollController get _vertical =>
+      widget.verticalController ?? (_ownedVertical ??= ScrollController());
+
+  /// The list as the last build laid it out: what a pointer endpoint is
+  /// resolved against, so a press and a release name rows in the order they
+  /// were painted.
+  DiffListModel? _model;
+
+  final GlobalKey _listKey = GlobalKey(debugLabel: 'gbm-diff-list');
+  final GlobalKey _hScrollKey = GlobalKey(debugLabel: 'gbm-diff-hscroll');
+
+  /// Between a pointer down and its pointer up in the well.
+  bool _pointerDown = false;
+
+  /// The list scrolled at least once since the pointer went down. **Sticky**:
+  /// a drag down and back up can leave the offset where it started -- an
+  /// autoscroll clamped at 0 -- with rows rebuilt in between, so comparing
+  /// the two ends would read it as unscrolled.
+  bool _gestureScrolled = false;
+
+  /// The diff was replaced while the pointer was down ([_dropSelection]):
+  /// whatever the pointer framed named rows of the diff that is gone.
+  bool _gestureDropped = false;
+
+  /// Where the gesture started, as an endpoint ([_endpointAt]).
+  int? _gestureStart;
+
+  ScrollController? _listenedVertical;
+
+  void _listenToVertical() {
+    final ScrollController controller = _vertical;
+    if (identical(controller, _listenedVertical)) return;
+    _listenedVertical?.removeListener(_onVerticalMoved);
+    _listenedVertical = controller..addListener(_onVerticalMoved);
+  }
+
+  void _onVerticalMoved() {
+    if (_pointerDown) _gestureScrolled = true;
+    _scheduleStickyUpdate();
+  }
+
+  /// The real one-shot head, so [_stickyWanted] can tell whether it has
+  /// scrolled above the top. There is at most one ([_ItemPaint.headItem]).
+  final GlobalKey _temporaryHeadKey = GlobalKey(debugLabel: 'gbm-temp-head');
+
+  /// The card item holding the one-shot head and the last row of the block
+  /// in painted order, as the last build laid them out; null without a
+  /// one-shot scope.
+  ({int headItem, int lastRow})? _temporaryExtent;
+
+  /// Whether the pinned copy of the head is drawn ([_stickyWanted]).
+  bool _showSticky = false;
+
+  /// How far the code is scrolled sideways, read off the horizontal
+  /// scroller's notifications as they bubble past ([GbmCodeHScroll] keeps
+  /// its controller to itself). A notifier, so a sideways scroll rebuilds
+  /// the pinned head alone and not the list.
+  final ValueNotifier<double> _sideways = ValueNotifier<double>(0);
+
+  /// Makes this column the synced leader ([SyncScrollController.lead]):
+  /// the user is about to move it, or this view is about to by program.
+  void _leadSync() {
+    final ScopedDiffSync? sync = widget.sync;
+    sync?.scroll?.lead(sync.column);
+  }
+
+  /// [_leadSync] for the sideways axis ([ScopedDiffSync.sideways]).
+  void _leadSideways() {
+    final ScopedDiffSync? sync = widget.sync;
+    sync?.sideways?.lead(sync.column);
+  }
+
+  bool _onScrollNotification(Notification notification) {
+    switch (userScrollAxis(notification)) {
+      case Axis.vertical:
+        _leadSync();
+      case Axis.horizontal:
+        _leadSideways();
+      case null:
+    }
+    final ScrollMetrics? metrics = switch (notification) {
+      ScrollNotification(:final ScrollMetrics metrics) => metrics,
+      ScrollMetricsNotification(:final ScrollMetrics metrics) => metrics,
+      _ => null,
+    };
+    if (metrics != null && metrics.axis == Axis.horizontal) {
+      _sideways.value = metrics.pixels;
+    }
+    return false;
+  }
+
+  bool _stickyUpdateScheduled = false;
+
+  /// Re-reads [_stickyWanted] after the next layout: a scroll notification
+  /// arrives before the list has laid out at its new offset, so reading the
+  /// rows then would measure the old frame.
+  void _scheduleStickyUpdate() {
+    if (_stickyUpdateScheduled) return;
+    if (_temporaryExtent == null && !_showSticky) return;
+    _stickyUpdateScheduled = true;
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _stickyUpdateScheduled = false;
+      if (!mounted) return;
+      final bool wanted = _stickyWanted();
+      if (wanted != _showSticky) setState(() => _showSticky = wanted);
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// The block's head is above the top of the view while some of its rows
+  /// are still at or below it (使用者裁定「長距離拖曳後 => 改」, sticky
+  /// head). A head still on screen keeps the one button where it is.
+  bool _stickyWanted() {
+    final ({int headItem, int lastRow})? extent = _temporaryExtent;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    final RenderObject? anchor = _hScrollKey.currentContext?.findRenderObject();
+    if (extent == null ||
+        list is! RenderBox ||
+        anchor is! RenderBox ||
+        !list.hasSize) {
+      return false;
+    }
+    final RenderObject? head = _temporaryHeadKey.currentContext
+        ?.findRenderObject();
+    final bool headAbove;
+    if (head is RenderBox && head.attached && head.hasSize) {
+      headAbove = list.globalToLocal(head.localToGlobal(Offset.zero)).dy < 0;
+    } else {
+      // Not built: above the top exactly when its card is above the item
+      // at the top.
+      final RenderMetaData? top = _itemHitAt(list, _probe(list, anchor, 0.5));
+      if (top == null) return false;
+      headAbove = extent.headItem < (top.metaData as _ItemHit).index;
+    }
+    if (!headAbove) return false;
+    final int? atTop = _endpointAt(list.localToGlobal(Offset.zero));
+    // Row r is endpoint 2r + 1; a boundary before it is 2r.
+    return atTop != null && atTop <= 2 * extent.lastRow + 1;
+  }
 
   /// The two ends of the keyboard range, as row keys.
   ///
@@ -231,11 +492,13 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   void initState() {
     super.initState();
     _tracker = SelectionTouchTracker()..addListener(_onTouchChanged);
+    _listenToVertical();
   }
 
   @override
   void didUpdateWidget(ScopedDiffView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    _listenToVertical();
     // A new diff renumbers every line, and the tracker's keys are positions
     // -- so a selection carried across the reload would point at whatever
     // now sits at those indices. This is the plan's
@@ -243,6 +506,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // produces the new diff.
     if (_diffsChanged(oldWidget.sources, widget.sources)) {
       _dropSelection(alsoClearHighlight: false);
+    }
+    if (!identical(oldWidget.sync?.heights, widget.sync?.heights)) {
+      _measured.clear();
     }
   }
 
@@ -266,6 +532,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _tracker.removeListener(_onTouchChanged);
     _tracker.dispose();
     _wellFocus.dispose();
+    _listenedVertical?.removeListener(_onVerticalMoved);
+    _ownedVertical?.dispose();
+    _sideways.dispose();
     // Leaving a submitter behind would leave the menu item live pointing at
     // a column that is no longer on screen.
     if (_reportedScope) {
@@ -316,6 +585,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// ConcurrentModificationError out of
   /// `MultiSelectableSelectionContainerDelegate.handleClearSelection`.
   void _dropSelection({required bool alsoClearHighlight}) {
+    if (_pointerDown) _gestureDropped = true;
     _tracker.clear();
     // The range ends with the selection it describes. Leaving the two row
     // keys behind would let the next arrow press extend a range whose rows
@@ -331,6 +601,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   }
 
   void _reportScope(TemporaryScope? temporary) {
+    _temporary = temporary;
     final void Function(void Function()? submit)? report =
         widget.onTemporaryScopeChanged;
     if (report == null) return;
@@ -339,9 +610,20 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     _reportedScope = hasScope;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      report(hasScope ? () => _submitTemporary(temporary) : null);
-      // `temporary` is promoted non-null by `hasScope` above.
+      report(hasScope ? _submitCurrentTemporary : null);
     });
+  }
+
+  /// The scope the last build resolved. The submitter [_reportScope]
+  /// publishes reads this when it is called rather than capturing the scope
+  /// it was published with: it is republished only when a scope starts or
+  /// stops existing, so a captured one went stale the moment the range grew
+  /// (Shift+Down after the first row staged only that row).
+  TemporaryScope? _temporary;
+
+  void _submitCurrentTemporary() {
+    final TemporaryScope? temporary = _temporary;
+    if (temporary != null) _submitTemporary(temporary);
   }
 
   /// Spends the one-shot scope: submit, forget, and drop the highlight too
@@ -383,8 +665,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // would have no single dispatch (U5).
     if (scope.sourceIndex >= widget.sources.length) return;
     final ScopedDiffSource source = widget.sources[scope.sourceIndex];
-    for (final MapEntry<int, List<int>> entry in scope.byHunk.entries) {
-      source.onStageScope(entry.key, entry.value);
+    // **Last hunk first.** Each call is resolved by the core against a
+    // fresh -U3 diff (`StageOps.cpp` re-reads it), so once hunk 0 is staged
+    // the old hunk 1 *is* hunk 0, and an ascending second call moved the
+    // card after the one framed -- found by the device tier
+    // (`full_file_stage_flow_test.dart`), in excerpt mode as much as full.
+    // Staging a later hunk leaves every earlier one's index and line
+    // indices as they were.
+    final List<int> hunks = scope.byHunk.keys.toList()
+      ..sort((int a, int b) => b.compareTo(a));
+    for (final int hunk in hunks) {
+      source.onStageScope(hunk, scope.byHunk[hunk]!);
     }
     _dropSelection(alsoClearHighlight: false);
   }
@@ -398,6 +689,45 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // over every hunk of every source, which is not cached the way the scope
     // split is -- and this runs on every frame of a drag.
     final List<_Block> blocks = _orderedBlocks(scopesBySource);
+    final bool anyContent = sources.any(
+      (ScopedDiffSource source) => source.hasContent,
+    );
+    // The list's first items, scrolled with the diff as they were when the
+    // well was the pane's.
+    final List<Widget> leading = <Widget>[
+      if (widget.showColumnHeads)
+        for (int i = 0; i < sources.length; i++)
+          _ColumnHead(
+            title: sources[i].title,
+            staged: sources[i].staged,
+            scopeCount: scopesBySource[i].values.fold<int>(
+              0,
+              (int sum, List<DiffScope> scopes) => sum + scopes.length,
+            ),
+          ),
+      // A source that is in flight or refused says so **even when another
+      // source has rows**, and it says so in its own right rather than by
+      // suppressing the list. Losing that message is a real regression the
+      // merge introduced and two existing tests caught: with the staged
+      // side drawing cards, the unstaged side's 「Diff too large」 simply
+      // vanished, which is exactly the 「no message at all」
+      // `diff_truncation.dart` exists to prevent.
+      //
+      // Unreachable with one source -- a single source cannot both have
+      // content and be the one with the notice -- so `2 file` mode is
+      // provably untouched by this (U6).
+      if (anyContent)
+        for (final ScopedDiffSource source in sources)
+          if (_noticeFor(source) case final Widget notice) notice,
+      if (!anyContent) _emptyBody(colors),
+    ];
+    final List<_Block> drawn = anyContent ? blocks : const <_Block>[];
+    _leadingCount = leading.length;
+    final DiffListModel model = _listModel(
+      drawn,
+      leadingCount: leading.length,
+      sync: _syncFor(drawn),
+    );
 
     // One read of the touched set, gated once: everything derived from it --
     // the one-shot block, the row tint, the submitter published to
@@ -417,188 +747,349 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         },
     ];
     final TemporaryScope? temporary = resolveTemporaryScope(
-      rowsInRenderOrder: _rowsFrom(blocks),
+      rowsInRenderOrder: model.rowKeys,
       touched: settledTouched,
       changedBySource: changedBySource,
     );
     _reportScope(temporary);
 
-    final bool anyContent = sources.any(
-      (ScopedDiffSource source) => source.hasContent,
+    _model = model;
+    if (widget.softWrap) {
+      SchedulerBinding.instance.addPostFrameCallback(
+        (_) => _measureCharsPerLine(),
+      );
+    }
+    final _ItemPaint paint = _itemPaint(model, temporary, settledTouched);
+    _temporaryExtent = _extentOf(model, temporary, paint.headItem);
+    _scheduleStickyUpdate();
+    // `SelectionArea > GbmCodeHScroll > ListView.builder`, the order
+    // `panel_diff_text.dart` builds: the selection stays outside everything
+    // the drag meets, and only the rows near the viewport are built -- an
+    // eager column of a 5k-line file took a second to open.
+    final Widget list = GbmCodeHScroll(
+      key: _hScrollKey,
+      contentWidth: widget.contentWidth,
+      codeClipWidth: widget.codeClipWidth,
+      verticalController: _vertical,
+      horizontalController: widget.sync?.horizontal,
+      backdrop: widget.backdrop ?? colors.surfaceSunken,
+      // A far jump starts the layout at the item the estimate names
+      // instead of walking every row between ([SeededSliverList]).
+      child: CustomScrollView(
+        // Keyed only when there is content. With nothing to draw the list is
+        // returned bare, outside the SelectionArea below; a GlobalKey would
+        // *move* the rows out of it and back across one refetch, and a moved
+        // SelectionListener is sorted by the region while inactive
+        // (framework asserts; device tier, `context_menu_flows_test.dart`
+        // 05-G). Unkeyed, the empty state builds a new list, so do the rows.
+        key: anyContent ? _listKey : null,
+        controller: _vertical,
+        // Off: an item scrolled out of view is released, never kept alive
+        // unlaid. A kept-alive card that is rebuilt off screen -- the one a
+        // long autoscroll drag started in, gaining its one-shot block on
+        // release -- registers selectables the framework then sorts without
+        // a size (`RenderBox was not laid out`). Nothing here reads an
+        // off-screen row anyway: a drag that scrolled is resolved from its
+        // two endpoints ([_adoptRangeFromEndpoints]).
+        slivers: <Widget>[
+          SeededSliverList(
+            indexAt: (double y) => _seedIndexAt(model, y),
+            offsetOf: (int i) => _seedOffsetOf(model, i),
+            delegate: SliverChildBuilderDelegate(
+              (BuildContext context, int index) =>
+                  _buildItem(model, index, leading, paint),
+              childCount: model.items.length,
+              addAutomaticKeepAlives: false,
+            ),
+          ),
+        ],
+      ),
     );
+    if (!anyContent) return list;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        if (widget.showColumnHeads)
-          for (int i = 0; i < sources.length; i++)
-            _ColumnHead(
-              title: sources[i].title,
-              staged: sources[i].staged,
-              scopeCount: scopesBySource[i].values.fold<int>(
-                0,
-                (int sum, List<DiffScope> scopes) => sum + scopes.length,
-              ),
-            ),
-        // A source that is in flight or refused says so **even when another
-        // source has rows**, and it says so in its own right rather than by
-        // suppressing the list. Losing that message is a real regression the
-        // merge introduced and two existing tests caught: with the staged
-        // side drawing cards, the unstaged side's 「Diff too large」 simply
-        // vanished, which is exactly the 「no message at all」
-        // `diff_truncation.dart` exists to prevent.
+    // One SelectionArea for the whole view. In `2 file` mode that
+    // is one per side, because each side is its own view and a
+    // selection cannot cross the seam between two columns. In
+    // `unified` it spans both directions deliberately: the drag is
+    // allowed to run across the boundary, and
+    // [resolveTemporaryScope] is what decides which single
+    // direction it acts in (U5) -- a rule the user can see in the
+    // button's own label, rather than a wall they hit mid-drag.
+    // The drag window. Reports are only the user's own between
+    // these two, which is also the only window in which reading
+    // them does not feed back into itself -- see
+    // SelectionTouchTracker's `_latched`.
+    //
+    // `Ctrl/Cmd+Shift+Enter` is bound **here**, not in
+    // `gbm_shortcuts.dart`. The spec contradicts itself about this
+    // key: P16's REVISIONS assigns Stage selected lines
+    // `Ctrl/Cmd+Alt+S` while P03-5 and `SCOPES` row 7 both say
+    // `Ctrl/Cmd+Shift+Enter`. #75 settled it by keeping *both*
+    // readings -- the global binding is the revision's, and this
+    // one lives inside the diff's own focus scope, which is what
+    // the earlier pages describe. Scoped rather than global for
+    // the same reason `Ctrl/Cmd+A` is (CLAUDE.md): a binding
+    // closer to a focused editor than `DefaultTextEditingShortcuts`
+    // would steal that editor's own Enter.
+    final Widget well = CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        for (final bool meta in const <bool>[false, true])
+          SingleActivator(
+            LogicalKeyboardKey.enter,
+            shift: true,
+            control: !meta,
+            meta: meta,
+          ): () {
+            // **Unpinned by any test, deliberately.** A written
+            // one was deleted rather than kept: with no selection
+            // nothing inside the diff holds focus, so the key
+            // never reaches this callback at all and the
+            // assertion passed with the guard removed *and* with
+            // the callback replaced by an unconditional stage --
+            // a fixture that cannot disagree with the code. What
+            // the guard actually prevents is the *second* press
+            // after one has already spent the scope: an empty
+            // submit whose only effect is a redundant
+            // `clearSelection()`, which is the call that throws
+            // ConcurrentModificationError when the tree is
+            // mid-restructure. That is the same
+            // read-the-selection-back limitation recorded on
+            // `_dropSelection`.
+            if (temporary == null) return;
+            _submitTemporary(temporary);
+          },
+        // `SCOPES` row 7's other half: 「diff 區按住拖過多行，或
+        // Shift + ↑ ↓」. Bound here rather than globally for the
+        // same reason Ctrl/Cmd+Shift+Enter is -- a bare arrow key
+        // belongs to whatever has focus, and this only claims it
+        // while focus is inside the diff.
         //
-        // Unreachable with one source -- a single source cannot both have
-        // content and be the one with the notice -- so `2 file` mode is
-        // provably untouched by this (U6).
-        if (anyContent)
-          for (final ScopedDiffSource source in sources)
-            if (_noticeFor(source) case final Widget notice) notice,
-        if (!anyContent)
-          _emptyBody(colors)
-        else
-          Padding(
-            padding: const EdgeInsets.all(GbmSpacing.space2),
-            child: Container(
-              decoration: BoxDecoration(
-                color: colors.surfaceSunken,
-                border: Border.all(color: colors.borderSubtle),
-                borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-              ),
-              padding: const EdgeInsets.all(GbmSpacing.space2),
-              // One SelectionArea for the whole view. In `2 file` mode that
-              // is one per side, because each side is its own view and a
-              // selection cannot cross the seam between two columns. In
-              // `unified` it spans both directions deliberately: the drag is
-              // allowed to run across the boundary, and
-              // [resolveTemporaryScope] is what decides which single
-              // direction it acts in (U5) -- a rule the user can see in the
-              // button's own label, rather than a wall they hit mid-drag.
-              // The drag window. Reports are only the user's own between
-              // these two, which is also the only window in which reading
-              // them does not feed back into itself -- see
-              // SelectionTouchTracker's `_latched`.
-              //
-              // `Ctrl/Cmd+Shift+Enter` is bound **here**, not in
-              // `gbm_shortcuts.dart`. The spec contradicts itself about this
-              // key: P16's REVISIONS assigns Stage selected lines
-              // `Ctrl/Cmd+Alt+S` while P03-5 and `SCOPES` row 7 both say
-              // `Ctrl/Cmd+Shift+Enter`. #75 settled it by keeping *both*
-              // readings -- the global binding is the revision's, and this
-              // one lives inside the diff's own focus scope, which is what
-              // the earlier pages describe. Scoped rather than global for
-              // the same reason `Ctrl/Cmd+A` is (CLAUDE.md): a binding
-              // closer to a focused editor than `DefaultTextEditingShortcuts`
-              // would steal that editor's own Enter.
-              child: CallbackShortcuts(
-                bindings: <ShortcutActivator, VoidCallback>{
-                  for (final bool meta in const <bool>[false, true])
-                    SingleActivator(
-                      LogicalKeyboardKey.enter,
-                      shift: true,
-                      control: !meta,
-                      meta: meta,
-                    ): () {
-                      // **Unpinned by any test, deliberately.** A written
-                      // one was deleted rather than kept: with no selection
-                      // nothing inside the diff holds focus, so the key
-                      // never reaches this callback at all and the
-                      // assertion passed with the guard removed *and* with
-                      // the callback replaced by an unconditional stage --
-                      // a fixture that cannot disagree with the code. What
-                      // the guard actually prevents is the *second* press
-                      // after one has already spent the scope: an empty
-                      // submit whose only effect is a redundant
-                      // `clearSelection()`, which is the call that throws
-                      // ConcurrentModificationError when the tree is
-                      // mid-restructure. That is the same
-                      // read-the-selection-back limitation recorded on
-                      // `_dropSelection`.
-                      if (temporary == null) return;
-                      _submitTemporary(temporary);
-                    },
-                  // `SCOPES` row 7's other half: 「diff 區按住拖過多行，或
-                  // Shift + ↑ ↓」. Bound here rather than globally for the
-                  // same reason Ctrl/Cmd+Shift+Enter is -- a bare arrow key
-                  // belongs to whatever has focus, and this only claims it
-                  // while focus is inside the diff.
-                  //
-                  // Flutter does not supply this for free. SelectableRegion
-                  // has keyboard selection intents, but with the tracker's
-                  // latch removed entirely a Shift+ArrowDown after a drag
-                  // still left the scope's count unchanged, so the region
-                  // was not extending anything here to begin with.
-                  const SingleActivator(
-                    LogicalKeyboardKey.arrowDown,
-                    shift: true,
-                  ): () =>
-                      _extendByRow(1),
-                  const SingleActivator(
-                    LogicalKeyboardKey.arrowUp,
-                    shift: true,
-                  ): () =>
-                      _extendByRow(-1),
-                },
-                child: Focus(
-                  focusNode: _wellFocus,
-                  child: Listener(
-                    onPointerDown: (_) {
-                      // Tapping does not grant focus by itself, and without
-                      // focus the arrow bindings above are unreachable for a
-                      // user who never drags.
-                      //
-                      // **Only when nothing here holds it already.**
-                      // [SelectableRegion] clears its selection when it
-                      // loses focus (`_handleFocusChanged`, non-web), and it
-                      // requests focus for itself as a drag begins -- so an
-                      // unconditional request from this ancestor is a live
-                      // way to wipe the selection out from under the gesture
-                      // that is making it. `hasFocus` is true for an
-                      // ancestor of the primary focus, so this node being
-                      // 「already focused」 covers the case where the region
-                      // below it is the one actually holding it, and the key
-                      // events reach [CallbackShortcuts] either way.
-                      //
-                      // **Never observed, and pinned by no test.** Requesting
-                      // focus on every pointer down left both tiers green:
-                      // the region takes focus back as the drag starts, so
-                      // the selection the drag makes survives (ledger: #167).
-                      if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
-                      _tracker.beginGesture();
-                    },
-                    onPointerUp: (_) {
-                      _tracker.endGesture();
-                      _adoptRangeFromTouched();
-                    },
-                    onPointerCancel: (_) => _tracker.endGesture(),
-                    child: SelectionArea(
-                      key: _selectionAreaKey,
-                      // The scroll well is the *pane's*, not this
-                      // widget's: `unified` mode scrolls both sides on one
-                      // vertical position, and a well per side cannot
-                      // express that. Rows still find it -- GbmPinnedGutter
-                      // reads GbmCodeHScrollScope out of the context, so it
-                      // does not care who built it. What has to stay true
-                      // here is that the SelectionArea remains outside
-                      // everything the drag meets.
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: _wellChildren(
-                          blocks,
-                          temporary,
-                          settledTouched,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+        // Flutter does not supply this for free. SelectableRegion
+        // has keyboard selection intents, but with the tracker's
+        // latch removed entirely a Shift+ArrowDown after a drag
+        // still left the scope's count unchanged, so the region
+        // was not extending anything here to begin with.
+        const SingleActivator(LogicalKeyboardKey.arrowDown, shift: true): () =>
+            _extendByRow(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp, shift: true): () =>
+            _extendByRow(-1),
+      },
+      child: Focus(
+        focusNode: _wellFocus,
+        child: Listener(
+          onPointerDown: (PointerDownEvent event) {
+            // Tapping does not grant focus by itself, and without
+            // focus the arrow bindings above are unreachable for a
+            // user who never drags.
+            //
+            // **Only when nothing here holds it already.**
+            // [SelectableRegion] clears its selection when it
+            // loses focus (`_handleFocusChanged`, non-web), and it
+            // requests focus for itself as a drag begins -- so an
+            // unconditional request from this ancestor is a live
+            // way to wipe the selection out from under the gesture
+            // that is making it. `hasFocus` is true for an
+            // ancestor of the primary focus, so this node being
+            // 「already focused」 covers the case where the region
+            // below it is the one actually holding it, and the key
+            // events reach [CallbackShortcuts] either way.
+            //
+            // **Never observed, and pinned by no test.** Requesting
+            // focus on every pointer down left both tiers green:
+            // the region takes focus back as the drag starts, so
+            // the selection the drag makes survives (ledger: #167).
+            if (!_wellFocus.hasFocus) _wellFocus.requestFocus();
+            _leadSync();
+            _tracker.beginGesture();
+            _pointerDown = true;
+            // A new drag replaces the scope the pinned head belongs to, and
+            // the build that would drop it waits for the release
+            // ([_onTouchChanged] skips mid-drag). Off now; any rebuild
+            // before the release has no settled scope, and draws none.
+            if (_showSticky) setState(() => _showSticky = false);
+            _gestureScrolled = false;
+            _gestureDropped = false;
+            // Shift extends the range there is: its start stays put.
+            final int? anchor = _anchorRow == null
+                ? null
+                : _model?.rowIndexOf(_anchorRow!);
+            _gestureStart =
+                HardwareKeyboard.instance.isShiftPressed && anchor != null
+                ? 2 * anchor + 1
+                : _endpointAt(event.position);
+          },
+          onPointerUp: (PointerUpEvent event) {
+            _pointerDown = false;
+            _tracker.endGesture();
+            if (_gestureDropped) return;
+            if (_gestureScrolled) {
+              _adoptRangeFromEndpoints(event.position);
+            } else {
+              _adoptRangeFromTouched();
+            }
+          },
+          onPointerCancel: (_) {
+            _pointerDown = false;
+            _tracker.endGesture();
+          },
+          child: SelectionArea(key: _selectionAreaKey, child: list),
+        ),
+      ),
+    );
+    final bool ruler = _showsRuler(model);
+    // Always a Stack, so the well keeps its place in the tree when the
+    // pinned head comes and goes. The ruler and the head sit beside the
+    // well's [Listener], not inside it: a press on either is a jump or a
+    // stage, never the start of a drag -- and outside the SelectionArea.
+    return Stack(
+      children: <Widget>[
+        NotificationListener<Notification>(
+          onNotification: _onScrollNotification,
+          child: well,
+        ),
+        // Under the ruler, as the real head is: running to the view's
+        // edge, the copy can reach beneath it.
+        if (_showSticky && temporary != null)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _stickyHead(
+              staged: widget.sources[temporary.sourceIndex].staged,
+              label: paint.label,
+              onStage: () => _submitTemporary(temporary),
+              rightInset: _kStickyRight + (ruler ? _kRulerGutter : 0),
             ),
+          ),
+        if (ruler)
+          Positioned(
+            key: const ValueKey<String>('diff-overview-ruler'),
+            top: _kRulerVertical,
+            bottom: _kRulerVertical,
+            right: _kRulerRight,
+            width: _kRulerWidth,
+            // Synced, the marks move as the slot heights are measured.
+            child: widget.sync == null
+                ? _OverviewRuler(marks: _rulerMarks(model), onMark: _jumpToCard)
+                : ListenableBuilder(
+                    listenable: widget.sync!.heights,
+                    builder: (BuildContext context, Widget? _) =>
+                        _OverviewRuler(
+                          marks: _rulerMarks(model),
+                          onMark: _jumpToCard,
+                        ),
+                  ),
           ),
       ],
     );
+  }
+
+  /// The pinned head over the block as it lies on screen (使用者裁定
+  /// 「對齊 block 實際位置」): the block spans content x [_kStickyLeft] ..
+  /// width - [rightInset], and code wider than the view scrolls it
+  /// sideways, so the copy follows it there, cut to the view and, on the
+  /// right, to [_kStickyScrollbarGutter] short of it. A side whose block
+  /// edge is cut off gets no dashed line.
+  Widget _stickyHead({
+    required bool staged,
+    required String label,
+    required VoidCallback onStage,
+    required double rightInset,
+  }) => LayoutBuilder(
+    builder: (BuildContext context, BoxConstraints box) =>
+        ValueListenableBuilder<double>(
+          valueListenable: _sideways,
+          builder: (BuildContext context, double sideways, Widget? _) {
+            final double view = box.maxWidth;
+            final bool scrolls = widget.contentWidth > view;
+            final double width = scrolls ? widget.contentWidth : view;
+            final double dx = scrolls ? sideways : 0;
+            final double left = _kStickyLeft - dx;
+            final double right = width - rightInset - dx;
+            final double clear = view - _kStickyScrollbarGutter;
+            return Padding(
+              padding: EdgeInsets.only(
+                left: left > 0 ? left : 0,
+                right: right < clear ? view - right : _kStickyScrollbarGutter,
+              ),
+              child: _StickyTemporaryHead(
+                key: const ValueKey<String>('temporary-scope-sticky'),
+                staged: staged,
+                label: label,
+                onStage: onStage,
+                leftEdge: left >= 0,
+                rightEdge: right <= clear,
+              ),
+            );
+          },
+        ),
+  );
+
+  /// [_temporaryExtent] for this build.
+  static ({int headItem, int lastRow})? _extentOf(
+    DiffListModel model,
+    TemporaryScope? temporary,
+    int? headItem,
+  ) {
+    if (temporary == null || headItem == null) return null;
+    int lastRow = -1;
+    for (final MapEntry<int, List<int>> hunk in temporary.byHunk.entries) {
+      for (final int line in hunk.value) {
+        final int? row = model.rowIndexOf(
+          selectionRowKey(temporary.sourceIndex, hunk.key, line),
+        );
+        if (row != null && row > lastRow) lastRow = row;
+      }
+    }
+    return lastRow < 0 ? null : (headItem: headItem, lastRow: lastRow);
+  }
+
+  /// The ruler is full-file mode's: in excerpt mode a position on it would
+  /// not be a position in the file.
+  bool _showsRuler(DiffListModel model) =>
+      widget.fill != null && model.cardItems.isNotEmpty;
+
+  /// One mark per card, placed by the card's share of the painted rows; a
+  /// card head counts as one row, so a card's share is its rows plus one.
+  ///
+  /// A synced column places them by the slot heights instead (F2): its
+  /// rows alone would not line up with the other column's, whose rows sit
+  /// at different heights, while every segment's top is the same in both.
+  List<_RulerMark> _rulerMarks(DiffListModel model) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync != null && sync.heights.totalHeight > 0) {
+      final double total = sync.heights.totalHeight;
+      double heightOf(int i) => _ownHeightOf(model, i);
+      return <_RulerMark>[
+        for (int c = 0; c < model.cardItems.length; c++)
+          () {
+            final int item = model.cardItems[c];
+            return _RulerMark(
+              item: item,
+              number: c + 1,
+              start: _syncedOffsetOf(model, sync, item) / total,
+              extent: heightOf(item) / total,
+              staged: widget.sources.first.staged,
+            );
+          }(),
+      ];
+    }
+    final int heads = model.cardItems.length;
+    final int units = model.rowKeys.length + heads;
+    return <_RulerMark>[
+      for (int c = 0; c < heads; c++)
+        _RulerMark(
+          item: model.cardItems[c],
+          number: c + 1,
+          start: (model.firstRowOf(model.cardItems[c]) + c) / units,
+          extent: (model.rowCountOf(model.cardItems[c]) + 1) / units,
+          staged: switch (model.items[model.cardItems[c]]) {
+            DiffBlockItem(:final DiffBlock block) =>
+              widget.sources[block.sourceIndex].staged,
+            _ => false,
+          },
+        ),
+    ];
   }
 
   /// What to draw when no source has a single row to show.
@@ -702,18 +1193,155 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// Both now read [_orderedBlocks]; the derivation below is deliberately
   /// the only body here, so there is nothing left to drift.
   List<String> _rowsInRenderOrder() =>
-      _rowsFrom(_orderedBlocks(_scopesBySource()));
+      _listModel(_orderedBlocks(_scopesBySource())).rowKeys;
 
-  /// The row keys of [blocks], in the order they are painted.
-  ///
-  /// Separate from [_rowsInRenderOrder] only so `build` can hand over blocks
-  /// it has already ordered; the keyboard handlers have no frame to share
-  /// with and order their own.
-  static List<String> _rowsFrom(List<_Block> blocks) => <String>[
-    for (final _Block block in blocks)
-      for (final int lineIndex in block.segment.lineIndices)
-        selectionRowKey(block.sourceIndex, block.hunkIndex, lineIndex),
-  ];
+  /// The list [blocks] are laid out as: the one place items, row keys and
+  /// their order are derived, for the builder and the keyboard alike.
+  DiffListModel _listModel(
+    List<_Block> blocks, {
+    int leadingCount = 0,
+    DiffListSync? sync,
+  }) => DiffListModel.fromBlocks(
+    blocks,
+    sides: <DiffSide>[
+      for (final ScopedDiffSource source in widget.sources)
+        (file: source.file, staged: source.staged),
+    ],
+    headings: widget.fill == null,
+    metrics: (
+      rowExtent: kDiffListEstimate.rowExtent,
+      headingExtent: kDiffListEstimate.headingExtent,
+      cardChromeExtent: kDiffListEstimate.cardChromeExtent,
+      gapChromeExtent: kDiffListEstimate.gapChromeExtent,
+      charsPerLine: widget.softWrap ? _charsPerLine : 0,
+    ),
+    leadingExtents: List<double>.filled(leadingCount, kDiffLeadingEstimate),
+    sync: sync,
+  );
+
+  /// [ScopedDiffView.sync] for [blocks], or null when unsynced. The pane
+  /// derived its units from the same blocks; a count that disagrees is a
+  /// bug, and drawing the column unsynced beats padding it wrong.
+  DiffListSync? _syncFor(List<_Block> blocks) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null) return null;
+    int units = 0;
+    for (final _Block block in blocks) {
+      units += switch (block.segment) {
+        DiffFillSegment(:final List<DiffFillRow> rows) => rows.length,
+        _ => 1,
+      };
+    }
+    assert(
+      units == sync.segmentOfUnit.length,
+      'sync units $units != ${sync.segmentOfUnit.length}',
+    );
+    if (units != sync.segmentOfUnit.length) return null;
+    return (
+      segmentOfUnit: sync.segmentOfUnit,
+      segmentCount: sync.heights.segmentCount,
+      spacerExtentOf: (int segment) =>
+          sync.heights.spacerHeight(sync.column, segment),
+    );
+  }
+
+  /// Item [item]'s top where a seeded layout places it. A synced column
+  /// counts from its segment's slot top, which every column shares, so two
+  /// columns seeded after one jump meet segment for segment even where the
+  /// estimate is wrong; counting from the model's own estimate would put
+  /// each column off by the estimate's error above it, and differently
+  /// (plan: Slice J, JC1).
+  double _seedOffsetOf(DiffListModel model, int item) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null || sync.heights.segmentCount == 0) {
+      return model.offsetOf(item);
+    }
+    return _syncedOffsetOf(model, sync, item);
+  }
+
+  /// The item a seeded layout starts at for scroll offset [y]; the
+  /// inverse of [_seedOffsetOf].
+  int _seedIndexAt(DiffListModel model, double y) {
+    final ScopedDiffSync? sync = widget.sync;
+    if (sync == null || sync.heights.segmentCount == 0) {
+      return model.itemAt(y) ?? 0;
+    }
+    final ({int segment, double within}) at = sync.heights.locate(y);
+    // A segment holds a run of consecutive items; walk to its first, then
+    // down through it by this column's own heights.
+    int item = 0;
+    while (item < model.items.length &&
+        model.segmentOfItem(item) < at.segment) {
+      item++;
+    }
+    double top = 0;
+    while (item + 1 < model.items.length &&
+        model.segmentOfItem(item + 1) == at.segment) {
+      final double next = top + _ownHeightOf(model, item);
+      if (next > at.within) break;
+      top = next;
+      item++;
+    }
+    return item;
+  }
+
+  /// [item]'s top in a synced column: its segment's slot top plus this
+  /// column's own items above it in that segment; one past the last item
+  /// is the total, every column's the same.
+  double _syncedOffsetOf(DiffListModel model, ScopedDiffSync sync, int item) {
+    if (item >= model.items.length) return sync.heights.totalHeight;
+    final int segment = model.segmentOfItem(item);
+    double within = 0;
+    for (int i = item - 1; i >= 0 && model.segmentOfItem(i) == segment; i--) {
+      within += _ownHeightOf(model, i);
+    }
+    return sync.heights.offsetOf(segment) + within;
+  }
+
+  /// What item [i] adds to its column's own run: its height, measured or
+  /// else estimated -- except a spacer, which adds only the well's edge it
+  /// draws when it is the first or last framed item. Its padding is what
+  /// the run is subtracted from, so counting it would feed it back.
+  double _ownHeightOf(DiffListModel model, int i) {
+    if (model.items[i] is DiffSpacerItem) {
+      return _FrameSegment.edges(
+        first: i == _leadingCount,
+        last: i == model.items.length - 1,
+      );
+    }
+    return _measured[i] ?? model.extentOf(i);
+  }
+
+  /// How many leading items the last build drew: the first framed item
+  /// comes after them.
+  int _leadingCount = 0;
+
+  /// Each synced item's measured height, by item index; cleared with the
+  /// sync it was measured for, since a new one numbers its items afresh.
+  final Map<int, double> _measured = <int, double>{};
+
+  /// [item] laid out [height] tall: its segment's run in this column is
+  /// the sum of its items, measured or else estimated, spacer excluded.
+  void _onItemHeight(int item, double height) {
+    final ScopedDiffSync? sync = widget.sync;
+    final DiffListModel? model = _model;
+    if (sync == null || model == null || item >= model.items.length) return;
+    if (model.items[item] is! DiffSpacerItem) _measured[item] = height;
+    final int segment = model.segmentOfItem(item);
+    int first = item;
+    while (first > 0 && model.segmentOfItem(first - 1) == segment) {
+      first--;
+    }
+    double run = 0;
+    for (
+      int i = first;
+      i < model.items.length && model.segmentOfItem(i) == segment;
+      i++
+    ) {
+      run += _ownHeightOf(model, i);
+    }
+    sync.heights.report(sync.column, segment, run);
+  }
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
   ///
@@ -761,6 +1389,255 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     final int lo = anchorIndex < focusIndex ? anchorIndex : focusIndex;
     final int hi = anchorIndex < focusIndex ? focusIndex : anchorIndex;
     _tracker.setTouched(rows.sublist(lo, hi + 1).toSet());
+    _revealAfterLayout(rows[focusIndex]);
+  }
+
+  /// Scrolls the list so row [key] -- the end `Shift + ↑ ↓` just moved --
+  /// is on screen, once the frame the move causes has laid it out.
+  ///
+  /// After layout, because that frame can add or drop a one-shot block's
+  /// head above the row. A row the lazy list has not built has no box to
+  /// reveal: the list first jumps to the estimate of its item's offset
+  /// ([DiffListModel.offsetOf]) and corrects against the real box one
+  /// frame later. Only the vertical position moves; `Scrollable.ensureVisible`
+  /// would also scroll the code sideways to the row's far edge.
+  ///
+  /// Either edge, whichever way the key moved: a new block head can push
+  /// the row an upward step reached below the view.
+  void _revealAfterLayout(String key) {
+    bool reveal() {
+      final RenderObject? row = _tracker
+          .keyFor(key)
+          .currentContext
+          ?.findRenderObject();
+      if (row == null || !_vertical.hasClients) return false;
+      final ScrollPosition position = _vertical.position;
+      position.ensureVisible(
+        row,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+      position.ensureVisible(
+        row,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart,
+      );
+      return true;
+    }
+
+    _leadSync();
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || reveal()) return;
+      final DiffListModel? model = _model;
+      final int? row = model?.rowIndexOf(key);
+      if (model == null || row == null || !_vertical.hasClients) return;
+      final ScrollPosition position = _vertical.position;
+      position.jumpTo(
+        model
+            .offsetOf(model.itemOfRow(row))
+            .clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) reveal();
+      });
+      SchedulerBinding.instance.ensureVisualUpdate();
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
+  }
+
+  /// Where a pointer at [global] is in the painted rows, as a position on a
+  /// ruler of half steps: row `r` is `2r + 1`, and the boundary with `b`
+  /// rows above it is `2b`. Null before the first layout.
+  ///
+  /// Only the pointer's height counts. The point tested is on the row
+  /// gutter, at a fixed x measured from [GbmCodeHScroll]'s own box, which
+  /// does not scroll sideways, so a pointer off either side of the pane, on
+  /// the well's padding or on a card's side border still names the row at
+  /// its height; and the height is clamped into the list, so a pointer above
+  /// or below it names the first or last row on screen. The hit test enters
+  /// at the vertical list's viewport: below the horizontal scrollbar, whose
+  /// painter would otherwise swallow a point at the bottom edge, and below
+  /// the Scrollable's `IgnorePointer`, which ignores every hit while an
+  /// autoscroll is still animating as the pointer comes up.
+  ///
+  /// The point lands on an item ([_ItemHit]); within it, a row whose box
+  /// holds the height is that row, and anything else -- a card's head, a
+  /// one-shot block's head or margins, a card's bottom border, the space
+  /// between items -- is the boundary below the item's rows above that
+  /// height. A boundary belongs to no row.
+  int? _endpointAt(Offset global) {
+    final DiffListModel? model = _model;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    final RenderObject? anchor = _hScrollKey.currentContext?.findRenderObject();
+    if (model == null ||
+        list is! RenderBox ||
+        anchor is! RenderBox ||
+        !list.hasSize ||
+        list.size.height <= 0) {
+      return null;
+    }
+    final double y = list
+        .globalToLocal(global)
+        .dy
+        .clamp(0, list.size.height - 0.5)
+        .toDouble();
+    final Offset probe = _probe(list, anchor, y);
+    final RenderMetaData? hit = _itemHitAt(list, probe);
+    if (hit != null) {
+      return _endpointInItem(model, (hit.metaData as _ItemHit).index, probe.dy);
+    }
+    // Below the last item: a list shorter than its viewport.
+    return 2 * model.rowKeys.length;
+  }
+
+  /// The global point on the row gutter at height [y] of [list] -- the
+  /// fixed x [_endpointAt] explains, measured from [anchor], the
+  /// [GbmCodeHScroll] box that does not scroll sideways.
+  static Offset _probe(RenderBox list, RenderBox anchor, double y) => Offset(
+    anchor.localToGlobal(const Offset(_kRowInset + kDiffGutterWidth / 2, 0)).dx,
+    list.localToGlobal(Offset(0, y)).dy,
+  );
+
+  /// The item ([_ItemHit]) whose box holds the global point [probe],
+  /// hit-tested from [list]'s viewport ([_endpointAt] says why there).
+  static RenderMetaData? _itemHitAt(RenderBox list, Offset probe) {
+    final RenderBox target = _viewportIn(list) ?? list;
+    final BoxHitTestResult result = BoxHitTestResult();
+    target.hitTest(result, position: target.globalToLocal(probe));
+    for (final HitTestEntry entry in result.path) {
+      final Object hit = entry.target;
+      if (hit is RenderMetaData && hit.metaData is _ItemHit) return hit;
+    }
+    return null;
+  }
+
+  /// How many code characters one wrapped line holds at the list's current
+  /// width, for the soft-wrap height estimate (使用者裁定 ②: 字數 ÷ 每行容納
+  /// 字數); 0 until the list has been laid out once.
+  int _charsPerLine = 0;
+
+  /// Re-reads [_charsPerLine] once the list has a width, and rebuilds only
+  /// when it changed -- so a resize re-estimates, and a steady frame costs a
+  /// division.
+  void _measureCharsPerLine() {
+    if (!mounted || !widget.softWrap) return;
+    final RenderObject? list = _listKey.currentContext?.findRenderObject();
+    if (list is! RenderBox || !list.hasSize) return;
+    final double code =
+        list.size.width -
+        _kRowInset -
+        kDiffGutterWidth -
+        (GbmSpacing.space2 * 2 + 1) -
+        (widget.fill != null ? _kRulerGutter : 0);
+    final double glyph = widestLineWidth('0', kDiffCodeTextStyle);
+    final int chars = glyph <= 0 ? 0 : (code / glyph).floor().clamp(1, 1 << 20);
+    if (chars != _charsPerLine) setState(() => _charsPerLine = chars);
+  }
+
+  /// One [GlobalKey] per card item, so a ruler press can find the card once
+  /// the list has built it.
+  final Map<int, GlobalKey> _cardKeys = <int, GlobalKey>{};
+
+  /// Scrolls card item [item]'s top to the top of the view.
+  ///
+  /// The card may never have been built, and the model's offsets are
+  /// estimates that drift over thousands of rows (a real row is not exactly
+  /// [kDiffListEstimate]'s height). So each pass measures one item that is on
+  /// screen -- the one at the top -- and jumps by the *estimated distance*
+  /// from it to the card, which is only as wrong as the rows in between;
+  /// the pass after that is closer, and once the card is built its own box
+  /// is revealed exactly. At most [_kJumpPasses] passes.
+  void _jumpToCard(int item) {
+    _leadSync();
+    int passes = 0;
+    void pass() {
+      final DiffListModel? model = _model;
+      if (!mounted || model == null || !_vertical.hasClients) return;
+      final ScrollPosition position = _vertical.position;
+      final RenderObject? card = _cardKeys[item]?.currentContext
+          ?.findRenderObject();
+      if (card != null) {
+        position.ensureVisible(card);
+        return;
+      }
+      if (passes++ >= _kJumpPasses) return;
+      final RenderObject? list = _listKey.currentContext?.findRenderObject();
+      final RenderObject? anchor = _hScrollKey.currentContext
+          ?.findRenderObject();
+      double target = model.offsetOf(item);
+      if (list is RenderBox && anchor is RenderBox && list.hasSize) {
+        final RenderMetaData? top = _itemHitAt(list, _probe(list, anchor, 0.5));
+        if (top != null) {
+          final int topItem = (top.metaData as _ItemHit).index;
+          final double topReal =
+              position.pixels +
+              list.globalToLocal(top.localToGlobal(Offset.zero)).dy;
+          target = topReal + model.offsetOf(item) - model.offsetOf(topItem);
+        }
+      }
+      position.jumpTo(
+        target.clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
+      SchedulerBinding.instance.addPostFrameCallback((_) => pass());
+      SchedulerBinding.instance.ensureVisualUpdate();
+    }
+
+    pass();
+  }
+
+  static RenderViewportBase? _viewportIn(RenderObject root) {
+    if (root is RenderViewportBase) return root;
+    RenderViewportBase? found;
+    root.visitChildren((RenderObject child) {
+      found ??= _viewportIn(child);
+    });
+    return found;
+  }
+
+  int _endpointInItem(DiffListModel model, int item, double globalY) {
+    final int first = model.firstRowOf(item);
+    final int count = model.rowCountOf(item);
+    int above = 0;
+    for (int r = first; r < first + count; r++) {
+      final RenderObject? row = _tracker
+          .keyFor(model.rowKeys[r])
+          .currentContext
+          ?.findRenderObject();
+      if (row is! RenderBox || !row.hasSize) continue;
+      final double top = row.localToGlobal(Offset.zero).dy;
+      if (globalY < top) break;
+      if (globalY < top + row.size.height) return 2 * r + 1;
+      above = r - first + 1;
+    }
+    return 2 * (first + above);
+  }
+
+  /// Settles a drag that scrolled the list (使用者裁定 ①「端點幾何」): the
+  /// range is every row painted between the gesture's two endpoints, both
+  /// end rows included.
+  ///
+  /// Row state cannot be read for it. A row the autoscroll passed may never
+  /// have been built, one scrolled out has been released, and the framework
+  /// orders selectables by screen position, which an off-screen row does not
+  /// have -- so this reads no row's selection, only where the pointer went
+  /// down and where it came up. An unscrolled drag keeps the live-state rule
+  /// ([_adoptRangeFromTouched]); every row it framed is on screen.
+  void _adoptRangeFromEndpoints(Offset release) {
+    final DiffListModel? model = _model;
+    final int? start = _gestureStart;
+    final int? end = _endpointAt(release);
+    if (model == null || start == null || end == null) return;
+    final int lo = start < end ? start : end;
+    final int hi = start < end ? end : start;
+    // Rows r with lo <= 2r + 1 <= hi.
+    final int firstRow = lo ~/ 2;
+    final int lastRow = (hi - 1) ~/ 2;
+    if (hi < 1 || lastRow < firstRow) {
+      _tracker.setTouched(const <String>{});
+      return;
+    }
+    _tracker.setTouched(model.rowKeys.sublist(firstRow, lastRow + 1).toSet());
+    final bool downward = start <= end;
+    _anchorRow = model.rowKeys[downward ? firstRow : lastRow];
+    _focusRow = model.rowKeys[downward ? lastRow : firstRow];
   }
 
   /// Adopts whatever a finished drag framed as the keyboard range, so the
@@ -822,126 +1699,25 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// reaching a staged card painted above an unstaged one resolved to
   /// unstaged, against U5, and a Shift-range spanned rows in an order
   /// nothing on screen was in ([SPEC-range-follows-paint-order]).
-  List<_Block> _orderedBlocks(List<Map<int, List<DiffScope>>> scopesBySource) {
-    // Every drawable block of every source, decorated with where it sits on
-    // the index -- the ruler the two diffs share ([indexPositionOf]).
-    final List<_Block> blocks = <_Block>[];
-    final List<Set<int>> barriers = _barriersBySource();
+  List<_Block> _orderedBlocks(List<Map<int, List<DiffScope>>> scopesBySource) =>
+      orderedDiffBlocks(
+        <DiffSide>[
+          for (final ScopedDiffSource source in widget.sources)
+            (file: source.file, staged: source.staged),
+        ],
+        scopesBySource,
+        fill: widget.fill,
+      );
 
-    for (
-      int sourceIndex = 0;
-      sourceIndex < widget.sources.length;
-      sourceIndex++
-    ) {
-      final ScopedDiffSource source = widget.sources[sourceIndex];
-      final DiffFile? diffFile = source.file;
-      if (diffFile == null || !source.hasContent) continue;
-      final Map<int, List<DiffScope>> byHunk = scopesBySource[sourceIndex];
-      for (int hunkIndex = 0; hunkIndex < diffFile.hunks.length; hunkIndex++) {
-        final DiffHunk hunk = diffFile.hunks[hunkIndex];
-        for (final DiffSegment segment in hunkSegments(
-          hunk,
-          byHunk[hunkIndex] ?? const <DiffScope>[],
-          // 使用者裁定 B (docs/records/2026-10-04-merged-diff-region-order.md): a context row whose index line the *other* source
-          // draws as a change of its own is dropped here rather than drawn
-          // twice. Empty for a single source, so `2 file` mode is untouched.
-          hiddenLines: barrierLineIndices(
-            hunk,
-            staged: source.staged,
-            indexLines: barriers[sourceIndex],
-          ),
-        )) {
-          blocks.add((
-            sourceIndex: sourceIndex,
-            hunkIndex: hunkIndex,
-            segment: segment,
-            // The empty case is unreachable by construction -- a gap
-            // segment is only emitted for a non-empty run and a scope
-            // always has at least one changed line -- so it only has to be
-            // a total order, not a meaningful position.
-            position: segment.lineIndices.isEmpty
-                ? (
-                    line: source.staged ? hunk.newStart : hunk.oldStart,
-                    offset: 0,
-                  )
-                : indexPositionOf(
-                    hunk,
-                    segment.lineIndices.first,
-                    staged: source.staged,
-                  ),
-          ));
-        }
-      }
-    }
-
-    // Ruling U1 (docs/records/2026-10-04-merged-diff-region-order.md):
-    // 「我要對齊的不是行號，是 git 判斷出的區域變更」. Ordering
-    // *regions* asserts only that one region precedes another in the file,
-    // which is true in the index coordinates both diffs already carry. It is
-    // not the hard line alignment 變體 B's own note forbids -- that would
-    // claim two rows from two different diffs are the same line.
-    //
-    // Sorted, never merged: 「unstage, stage 必定是不同 scope」, so two
-    // regions at the same position stay two cards with two buttons.
-    //
-    // Decorated with the original index because [List.sort] is not stable
-    // and the tie-break has to be deterministic: at equal positions the
-    // unstaged side comes first, which is the reading order the two-column
-    // layout taught. Skipped entirely for a single source, so `2 file` mode
-    // provably cannot be reordered by this (U6).
-    if (widget.sources.length > 1) {
-      final List<int> order = <int>[for (int i = 0; i < blocks.length; i++) i];
-      order.sort((int a, int b) {
-        final int byPosition = compareIndexPositions(
-          blocks[a].position,
-          blocks[b].position,
-        );
-        if (byPosition != 0) return byPosition;
-        final int bySource = blocks[a].sourceIndex.compareTo(
-          blocks[b].sourceIndex,
-        );
-        if (bySource != 0) return bySource;
-        return a.compareTo(b);
-      });
-      final List<_Block> sorted = <_Block>[
-        for (final int i in order) blocks[i],
-      ];
-      blocks
-        ..clear()
-        ..addAll(sorted);
-    }
-
-    return blocks;
-  }
-
-  /// Built imperatively rather than as one nested collection-for, because
-  /// the loop carries a running scope ordinal across hunks -- and now across
-  /// sources, so a merged list numbers its cards 1..N once rather than
-  /// restarting at each direction.
+  /// What every item of one build reads about the one-shot scope, worked out
+  /// once per build rather than once per item: the builder is called lazily
+  /// and in any order, so nothing may carry from one item to the next.
   ///
-  /// **There is no temporary card here at all.** This list emits exactly
-  /// three kinds of child -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
-  /// and a one-shot selection is rendered *inside* the cards it covers:
-  /// [_ScopeCard] wraps the covered run of its own rows in a
-  /// [_TemporaryBlock] in place, and the head plus its button go on the
-  /// first card the selection reaches (`showTemporaryHead` below). That is
-  /// the style demo's own structure -- `.variant-B-temp` is nested inside
-  /// `.variant-B-card`, which goes `.variant-B-card-muted` with its button
-  /// `.variant-B-btn-off` ([SPEC-demo-dom-is-the-spec]).
-  ///
-  /// **Corrected in place**: this comment used to say the temporary card
-  /// 「holds a fixed slot at the top and is a [SizedBox.shrink] when there
-  /// is no selection」, and justified it by the reparenting hazard -- an
-  /// inline insertion shifts every row below it, and the rows carry
-  /// [SelectionListener]s whose reports are what decided the card should
-  /// exist. Both halves outlived what they described. The slot shipped,
-  /// the user pointed at it, and it was replaced by the nested form; the
-  /// hazard is answered by the rows' own [GlobalKey]s, which make Flutter
-  /// *move* an element into its new parent rather than rebuild it. A
-  /// recorded hazard is a reason to solve the problem, not a licence to
-  /// change the design ([FLU-selectionarea-gives-a-string]).
-  List<Widget> _wellChildren(
-    List<_Block> blocks,
+  /// Cards are numbered 1..N once across the whole painted order -- across
+  /// hunks and, in a merged list, across sources -- rather than restarting
+  /// at each direction; [DiffListModel.cardItems] is that order.
+  _ItemPaint _itemPaint(
+    DiffListModel model,
     TemporaryScope? temporary,
     Set<String> settledTouched,
   ) {
@@ -958,11 +1734,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // How many rows the drag framed *within the winning source*: the label's
     // primary number is 匡選行數, and counting rows the scope excluded would
     // promise to move lines the button will not touch.
+    //
+    // Fill rows count whichever source supplied them: a fill row is an index
+    // line *neither* side changes, so it is context in the winning source's
+    // file too, and leaving it out would understate a drag that crossed it.
     final int temporarySpanned = temporary == null
         ? 0
         : settledTouched
               .where(
-                (String row) => row.startsWith('${temporary.sourceIndex}:'),
+                (String row) =>
+                    row.startsWith('${temporary.sourceIndex}:') ||
+                    row.startsWith('f:'),
               )
               .length;
     final String temporaryLabel = temporary == null
@@ -977,103 +1759,234 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // rows it reaches in later cards still carry the dashed body and the
     // touched tint, so the extent stays visible without a second button
     // claiming to be a second action.
-    bool temporaryHeadPlaced = false;
-
-    final List<Widget> children = <Widget>[];
-    int ordinal = 1;
-    // A heading whenever the list moves to a different hunk *or* a different
-    // source. In a merged list that is more headings than either side alone
-    // would draw, and each earns its place: `@@ -a,b +c,d @@` is the only
-    // thing on screen that says which diff's coordinates the rows below it
-    // are in (U4).
-    int? lastSourceIndex;
-    int? lastHunkIndex;
-
-    for (final _Block block in blocks) {
-      final ScopedDiffSource source = widget.sources[block.sourceIndex];
-      final DiffFile diffFile = source.file!;
-      final DiffHunk hunk = diffFile.hunks[block.hunkIndex];
-      final bool isTemporarySource =
-          temporary != null && temporary.sourceIndex == block.sourceIndex;
-
-      if (block.sourceIndex != lastSourceIndex ||
-          block.hunkIndex != lastHunkIndex) {
-        lastSourceIndex = block.sourceIndex;
-        lastHunkIndex = block.hunkIndex;
-        children.add(
-          _HunkHeading(
-            hunk: hunk,
-            hunkIndex: block.hunkIndex,
-            onTap: () =>
-                _selectHunk(block.sourceIndex, diffFile, block.hunkIndex),
-          ),
-        );
-      }
-
-      switch (block.segment) {
-        case DiffGapSegment():
-          children.add(
-            _GapBlock(
-              sourceIndex: block.sourceIndex,
-              hunk: hunk,
-              hunkIndex: block.hunkIndex,
-              lineIndices: block.segment.lineIndices,
-              staged: source.staged,
-              tracker: _tracker,
-              touched: settledTouched,
-              softWrap: widget.softWrap,
-            ),
-          );
-        case DiffScopeSegment(:final DiffScope scope):
-          final bool superseded =
-              isTemporarySource &&
-              (temporaryByHunk[block.hunkIndex] ?? const <int>[]).any(
-                scope.changedLineIndices.contains,
-              );
-          final Set<int> temporaryLines = superseded
-              ? (temporaryByHunk[block.hunkIndex] ?? const <int>[]).toSet()
-              : const <int>{};
-          final bool showTemporaryHead = superseded && !temporaryHeadPlaced;
-          if (showTemporaryHead) temporaryHeadPlaced = true;
-          children.add(
-            _ScopeCard(
-              sourceIndex: block.sourceIndex,
-              hunk: hunk,
-              scope: scope,
-              ordinal: ordinal++,
-              staged: source.staged,
-              // U2: in a merged list the card is the only thing that can say
-              // which direction it acts in, so the dot the column head used
-              // to carry moves onto the card head. With the heads still
-              // drawn it would be the same fact twice, inches apart.
-              showDirectionDot: !widget.showColumnHeads,
-              hunkIndex: block.hunkIndex,
-              tracker: _tracker,
-              touched: settledTouched,
-              softWrap: widget.softWrap,
-              temporaryLines: temporaryLines,
-              showTemporaryHead: showTemporaryHead,
-              temporaryLabel: temporaryLabel,
-              temporaryHunkCount: temporaryByHunk.length,
-              onSubmitTemporary: temporary == null
-                  ? _noTemporaryScope
-                  : () => _submitTemporary(temporary),
-              superseded: superseded,
-              onStage: () => source.onStageScope(
-                block.hunkIndex,
-                scope.changedLineIndices,
-              ),
-              onDiscard: source.onDiscardScope == null
-                  ? null
-                  : () => source.onDiscardScope!(
-                      block.hunkIndex,
-                      scope.changedLineIndices,
-                    ),
-            ),
-          );
+    final Map<int, int> ordinalOf = <int, int>{};
+    int? temporaryHeadItem;
+    for (int c = 0; c < model.cardItems.length; c++) {
+      final int item = model.cardItems[c];
+      ordinalOf[item] = c + 1;
+      if (temporaryHeadItem == null && _superseded(model, item, temporary)) {
+        temporaryHeadItem = item;
       }
     }
-    return children;
+    return (
+      temporary: temporary,
+      touched: settledTouched,
+      label: temporaryLabel,
+      headItem: temporaryHeadItem,
+      ordinalOf: ordinalOf,
+    );
+  }
+
+  /// Whether the one-shot scope covers some of card [item]'s changed lines,
+  /// so the temporary scope has taken the card over.
+  static bool _superseded(
+    DiffListModel model,
+    int item,
+    TemporaryScope? temporary,
+  ) {
+    if (temporary == null) return false;
+    final DiffBlock block = (model.items[item] as DiffBlockItem).block;
+    if (block.sourceIndex != temporary.sourceIndex) return false;
+    final DiffScope scope = (block.segment as DiffScopeSegment).scope;
+    return (temporary.byHunk[block.hunkIndex] ?? const <int>[]).any(
+      scope.changedLineIndices.contains,
+    );
+  }
+
+  /// Item [index] of the list.
+  ///
+  /// **There is no temporary card here at all.** The list holds exactly
+  /// three kinds of diff item -- [_HunkHeading], [_GapBlock], [_ScopeCard] --
+  /// and a one-shot selection is rendered *inside* the cards it covers:
+  /// [_ScopeCard] wraps the covered run of its own rows in a
+  /// [_TemporaryBlock] in place, and the head plus its button go on the
+  /// first card the selection reaches ([_ItemPaint.headItem]). That is the
+  /// style demo's own structure -- `.variant-B-temp` is nested inside
+  /// `.variant-B-card`, which goes `.variant-B-card-muted` with its button
+  /// `.variant-B-btn-off` ([SPEC-demo-dom-is-the-spec]).
+  ///
+  /// **Corrected in place**: this comment used to say the temporary card
+  /// 「holds a fixed slot at the top and is a [SizedBox.shrink] when there
+  /// is no selection」, and justified it by the reparenting hazard -- an
+  /// inline insertion shifts every row below it, and the rows carry
+  /// [SelectionListener]s whose reports are what decided the card should
+  /// exist. Both halves outlived what they described. The slot shipped,
+  /// the user pointed at it, and it was replaced by the nested form; the
+  /// hazard is answered by the rows' own [GlobalKey]s, which make Flutter
+  /// *move* an element into its new parent rather than rebuild it. A
+  /// recorded hazard is a reason to solve the problem, not a licence to
+  /// change the design ([FLU-selectionarea-gives-a-string]).
+  Widget _buildItem(
+    DiffListModel model,
+    int index,
+    List<Widget> leading,
+    _ItemPaint paint,
+  ) {
+    final Widget built = _buildUnreportedItem(model, index, leading, paint);
+    if (widget.sync == null) return built;
+    // A spacer reports too, though its height is not what it adds
+    // ([_ownHeightOf]): a segment holding nothing of this column's but its
+    // spacer would otherwise never leave the pane's estimate.
+    return SyncHeightReporter(
+      onHeight: (double height) => _onItemHeight(index, height),
+      child: built,
+    );
+  }
+
+  Widget _buildUnreportedItem(
+    DiffListModel model,
+    int index,
+    List<Widget> leading,
+    _ItemPaint paint,
+  ) {
+    final DiffListItem item = model.items[index];
+    // Outside the selection, as they were before they moved into the list:
+    // a drag over a column head selects nothing.
+    if (item case DiffLeadingItem(index: final int leadingIndex)) {
+      return _ItemHit.wrap(
+        index,
+        SelectionContainer.disabled(child: leading[leadingIndex]),
+      );
+    }
+    final Widget child = switch (item) {
+      DiffLeadingItem() => const SizedBox.shrink(),
+      DiffSpacerItem(:final int segment) => SyncSlotSpacer(
+        heights: widget.sync!.heights,
+        column: widget.sync!.column,
+        segment: segment,
+        scroll: widget.sync!.scroll,
+      ),
+      DiffHeadingItem(:final DiffBlock block) => _HunkHeading(
+        hunk: widget.sources[block.sourceIndex].file!.hunks[block.hunkIndex],
+        hunkIndex: block.hunkIndex,
+        onTap: () => _selectHunk(
+          block.sourceIndex,
+          widget.sources[block.sourceIndex].file!,
+          block.hunkIndex,
+        ),
+      ),
+      // One item per fill row, so a 5k-line file builds only what is on
+      // screen; the run's 2px margins go on its first and last row only, and
+      // each row's dashed rule carries on where the row above left off, so
+      // the rows stack exactly as one block of them did (使用者裁定：每列 1
+      // item，虛線接續).
+      DiffFillItem(:final DiffFillRow row) => _GapBlock(
+        rows: <_GapRow>[
+          (
+            key: selectionFillRowKey(row.sourceIndex, row.indexLine),
+            line: row.line,
+            staged: widget.sources[row.sourceIndex].staged,
+          ),
+        ],
+        tracker: _tracker,
+        touched: paint.touched,
+        softWrap: widget.softWrap,
+        marginTop: model.fillRunOffsetOf(index) == 0,
+        marginBottom: _endsFillRun(model, index),
+        ruleSegment: model.fillRunOffsetOf(index),
+      ),
+      DiffBlockItem(:final DiffBlock block) => _blockItem(
+        model,
+        index,
+        block,
+        paint,
+      ),
+    };
+    return _ItemHit.wrap(
+      index,
+      _FrameSegment(
+        first: index == leading.length,
+        last: index == model.items.length - 1,
+        rightGutter: _showsRuler(model) ? _kRulerGutter : 0,
+        child: model.cardItems.contains(index)
+            ? KeyedSubtree(
+                key: _cardKeys.putIfAbsent(index, GlobalKey.new),
+                child: child,
+              )
+            : child,
+      ),
+    );
+  }
+
+  /// Whether fill item [index] is the last row of its run: the next row
+  /// that is not a sync spacer starts a run of its own, or there is none. A
+  /// spacer between two rows of a run leaves the run whole.
+  static bool _endsFillRun(DiffListModel model, int index) {
+    int next = index + 1;
+    while (next < model.items.length && model.items[next] is DiffSpacerItem) {
+      next++;
+    }
+    return next >= model.items.length || model.fillRunOffsetOf(next) == 0;
+  }
+
+  Widget _blockItem(
+    DiffListModel model,
+    int index,
+    DiffBlock block,
+    _ItemPaint paint,
+  ) {
+    final ScopedDiffSource source = widget.sources[block.sourceIndex];
+    final DiffHunk hunk = source.file!.hunks[block.hunkIndex];
+    switch (block.segment) {
+      case DiffGapSegment():
+      case DiffFillSegment():
+        return _GapBlock(
+          rows: <_GapRow>[
+            for (final int lineIndex in block.segment.lineIndices)
+              (
+                key: selectionRowKey(
+                  block.sourceIndex,
+                  block.hunkIndex,
+                  lineIndex,
+                ),
+                line: hunk.lines[lineIndex],
+                staged: source.staged,
+              ),
+          ],
+          tracker: _tracker,
+          touched: paint.touched,
+          softWrap: widget.softWrap,
+        );
+      case DiffScopeSegment(:final DiffScope scope):
+        final TemporaryScope? temporary = paint.temporary;
+        final bool superseded = _superseded(model, index, temporary);
+        final Map<int, List<int>> temporaryByHunk =
+            temporary?.byHunk ?? const <int, List<int>>{};
+        return _ScopeCard(
+          sourceIndex: block.sourceIndex,
+          hunk: hunk,
+          scope: scope,
+          ordinal: paint.ordinalOf[index]!,
+          staged: source.staged,
+          // U2: in a merged list the card is the only thing that can say
+          // which direction it acts in, so the dot the column head used
+          // to carry moves onto the card head. With the heads still
+          // drawn it would be the same fact twice, inches apart.
+          showDirectionDot: !widget.showColumnHeads,
+          hunkIndex: block.hunkIndex,
+          tracker: _tracker,
+          touched: paint.touched,
+          softWrap: widget.softWrap,
+          temporaryLines: superseded
+              ? (temporaryByHunk[block.hunkIndex] ?? const <int>[]).toSet()
+              : const <int>{},
+          showTemporaryHead: paint.headItem == index,
+          temporaryHeadKey: _temporaryHeadKey,
+          temporaryLabel: paint.label,
+          onSubmitTemporary: temporary == null
+              ? _noTemporaryScope
+              : () => _submitTemporary(temporary),
+          superseded: superseded,
+          onStage: () =>
+              source.onStageScope(block.hunkIndex, scope.changedLineIndices),
+          onDiscard: source.onDiscardScope == null
+              ? null
+              : () => source.onDiscardScope!(
+                  block.hunkIndex,
+                  scope.changedLineIndices,
+                ),
+        );
+    }
   }
 
   /// Stands in for the submit callback on a card that has no one-shot scope
@@ -1095,6 +2008,171 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       ),
     ),
   );
+}
+
+/// One card's mark on the overview ruler: its item, its 1-based number, and
+/// its [start] and [extent] as fractions of the ruler's height.
+class _RulerMark {
+  const _RulerMark({
+    required this.item,
+    required this.number,
+    required this.start,
+    required this.extent,
+    required this.staged,
+  });
+
+  final int item;
+  final int number;
+  final double start;
+  final double extent;
+  final bool staged;
+}
+
+/// The full-file view's overview ruler (G1 design §04 #4): a sunken pill
+/// track, one direction-coloured mark per card, inset 1 on either side and
+/// never shorter than 4. A press on a mark calls [onMark] with its card.
+class _OverviewRuler extends StatelessWidget {
+  const _OverviewRuler({required this.marks, required this.onMark});
+
+  final List<_RulerMark> marks;
+  final ValueChanged<int> onMark;
+
+  static const double _inset = 1;
+  static const double _minHeight = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final double height = constraints.maxHeight;
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surfaceSunken,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Stack(
+            children: <Widget>[
+              for (final _RulerMark mark in marks)
+                Positioned(
+                  key: ValueKey<String>('ruler-mark-${mark.number}'),
+                  top: (height * mark.start).clamp(0, height - _minHeight),
+                  height: (height * mark.extent).clamp(_minHeight, height),
+                  left: _inset,
+                  right: _inset,
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onMark(mark.item),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: mark.staged ? colors.success : colors.accent,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// One item's share of the sunken well the diff sits in
+/// (`surfaceSunken` + `borderSubtle` + r6, 8px outside and 8px inside).
+///
+/// The list is lazy, so no one widget spans every item to draw the frame
+/// around them all; each item draws the whole rounded box and keeps only its
+/// own slice of it. The first item keeps the top edge, the last the bottom,
+/// the rest only the sides -- stacked, the slices are the one box the eager
+/// column drew, and `scoped_diff_view_lazy_test.dart` pins every row to where
+/// that column painted it.
+///
+/// Only the box is clipped, not [child]: a card's shadow still reaches past
+/// its item the way it reached past its place in the column.
+class _FrameSegment extends StatelessWidget {
+  const _FrameSegment({
+    required this.first,
+    required this.last,
+    required this.child,
+    this.rightGutter = 0,
+  });
+
+  final bool first;
+  final bool last;
+  final Widget child;
+
+  /// Extra right padding, the room the overview ruler takes.
+  final double rightGutter;
+
+  /// How much taller the frame makes an item than its child: the well's
+  /// margin, border and padding above the first and below the last.
+  static double edges({required bool first, required bool last}) =>
+      (first ? GbmSpacing.space2 + _inset : 0) +
+      (last ? GbmSpacing.space2 + _inset : 0);
+
+  /// The well's own padding plus its 1px border, which a Container adds to
+  /// its padding when it draws one.
+  static const double _inset = GbmSpacing.space2 + 1;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    // Far enough past a cut edge that its rounded corner and border fall
+    // outside the slice.
+    const double overhang = GbmSpacing.radiusMd + 2;
+    const double inset = _inset;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        GbmSpacing.space2,
+        first ? GbmSpacing.space2 : 0,
+        GbmSpacing.space2,
+        last ? GbmSpacing.space2 : 0,
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: <Widget>[
+          Positioned.fill(
+            child: ClipRect(
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: <Widget>[
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    top: first ? 0 : -overhang,
+                    bottom: last ? 0 : -overhang,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: colors.surfaceSunken,
+                        border: Border.all(color: colors.borderSubtle),
+                        borderRadius: BorderRadius.circular(
+                          GbmSpacing.radiusMd,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              inset,
+              first ? inset : 0,
+              inset + rightGutter,
+              last ? inset : 0,
+            ),
+            child: child,
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// One direction's 「in flight」 or 「refused」 line in a merged list.
@@ -1304,31 +2382,42 @@ class _HunkHeading extends StatelessWidget {
   }
 }
 
+/// One row of a [_GapBlock]: its selection key, the line, and the direction
+/// of the diff it was taken from.
+typedef _GapRow = ({String key, DiffLine line, bool staged});
+
 /// `.variant-B-gap`: the code a change sits in. Dimmed and marked with a
 /// rule down its left so the eye can tell at a glance which lines a button
 /// would move and which are only there for context.
 class _GapBlock extends StatelessWidget {
   const _GapBlock({
-    required this.sourceIndex,
-    required this.hunk,
-    required this.hunkIndex,
-    required this.lineIndices,
-    required this.staged,
+    required this.rows,
     required this.tracker,
     required this.touched,
     required this.softWrap,
+    this.marginTop = true,
+    this.marginBottom = true,
+    this.ruleSegment = 0,
   });
 
   final bool softWrap;
 
-  /// Which of the view's sources these rows came from -- the first component
-  /// of every row key, so two sources' identically-numbered rows stay
-  /// distinct ([selectionRowKey]).
-  final int sourceIndex;
-  final DiffHunk hunk;
-  final int hunkIndex;
-  final List<int> lineIndices;
-  final bool staged;
+  /// Whether the block keeps its 2px margin above and below. False between
+  /// two full-file fill rows, which are one item each but one run on screen.
+  final bool marginTop;
+  final bool marginBottom;
+
+  /// Which segment of its run's dashed rule this block draws
+  /// ([GbmDashedLine.segment]); nonzero only for a fill row below the first
+  /// of its run.
+  final int ruleSegment;
+
+  /// The rows, each with its selection key: a hunk's context rows
+  /// ([selectionRowKey], whose source component keeps two sources'
+  /// identically-numbered rows distinct) or the full-file view's fill rows
+  /// ([selectionFillRowKey]). One widget for both, so a fill row is drawn the
+  /// way a gap is by construction rather than by a second copy of it.
+  final List<_GapRow> rows;
   final SelectionTouchTracker tracker;
 
   /// Row keys currently in the one-shot scope. Passed down rather than read
@@ -1349,7 +2438,10 @@ class _GapBlock extends StatelessWidget {
     // appears in its stylesheet only under `.variant-A-*` and
     // `.variant-C-*`), and the dashed rule is what carries the distinction.
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2),
+      margin: EdgeInsets.only(
+        top: marginTop ? 2 : 0,
+        bottom: marginBottom ? 2 : 0,
+      ),
       // IntrinsicHeight because the rule beside the rows is a vertical
       // GbmDashedLine, which needs a bounded height to draw into, and a
       // `Column` hands its non-flex children `maxHeight: infinity` whatever
@@ -1359,7 +2451,11 @@ class _GapBlock extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            GbmDashedLine(color: colors.borderDefault, axis: Axis.vertical),
+            GbmDashedLine(
+              color: colors.borderDefault,
+              axis: Axis.vertical,
+              segment: ruleSegment,
+            ),
             const SizedBox(width: 2),
             Expanded(
               child: Column(
@@ -1370,17 +2466,15 @@ class _GapBlock extends StatelessWidget {
                   // can move: the button's primary number is how many lines
                   // the drag framed, and counting only the changed ones
                   // would understate what the user actually selected.
-                  for (final int index in lineIndices)
+                  for (final _GapRow row in rows)
                     SelectionTouchRow(
                       tracker: tracker,
-                      rowKey: selectionRowKey(sourceIndex, hunkIndex, index),
+                      rowKey: row.key,
                       child: DiffLineView(
                         softWrap: softWrap,
-                        line: hunk.lines[index],
-                        staged: staged,
-                        touched: touched.contains(
-                          selectionRowKey(sourceIndex, hunkIndex, index),
-                        ),
+                        line: row.line,
+                        staged: row.staged,
+                        touched: touched.contains(row.key),
                       ),
                     ),
                 ],
@@ -1408,8 +2502,8 @@ class _ScopeCard extends StatefulWidget {
     required this.softWrap,
     required this.temporaryLines,
     required this.showTemporaryHead,
+    required this.temporaryHeadKey,
     required this.temporaryLabel,
-    required this.temporaryHunkCount,
     required this.onSubmitTemporary,
     required this.superseded,
     required this.onStage,
@@ -1449,8 +2543,10 @@ class _ScopeCard extends StatefulWidget {
   /// however many cards it spans.
   final bool showTemporaryHead;
 
+  /// Goes on the one-shot head when this card draws it.
+  final GlobalKey temporaryHeadKey;
+
   final String temporaryLabel;
-  final int temporaryHunkCount;
   final VoidCallback onSubmitTemporary;
 
   /// A live text selection covers some of this card's changed lines, so the
@@ -1595,9 +2691,9 @@ class _ScopeCardState extends State<_ScopeCard> {
       out.add(
         _TemporaryBlock(
           showHead: !headPlaced,
+          headKey: widget.temporaryHeadKey,
           staged: widget.staged,
           label: widget.temporaryLabel,
-          hunkCount: widget.temporaryHunkCount,
           onStage: widget.onSubmitTemporary,
           children: rows,
         ),
@@ -1794,9 +2890,9 @@ class _CardHead extends StatelessWidget {
 class _TemporaryBlock extends StatelessWidget {
   const _TemporaryBlock({
     required this.showHead,
+    required this.headKey,
     required this.staged,
     required this.label,
-    required this.hunkCount,
     required this.onStage,
     required this.children,
   });
@@ -1806,15 +2902,14 @@ class _TemporaryBlock extends StatelessWidget {
   /// still shows how far it got, but one scope gets one button.
   final bool showHead;
 
+  /// The state's [_ScopedDiffViewState._temporaryHeadKey].
+  final GlobalKey headKey;
+
   final bool staged;
 
   /// Already composed by the caller, because the counts are the *whole*
   /// selection's and not this block's -- one press moves all of it.
   final String label;
-
-  /// How many hunks the selection spans, and so how many `stageLines` calls
-  /// one press makes.
-  final int hunkCount;
 
   final VoidCallback onStage;
   final List<Widget> children;
@@ -1847,69 +2942,156 @@ class _TemporaryBlock extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
             if (showHead)
-              Container(
-                color: colors.accentSubtle,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: GbmSpacing.space2,
-                  vertical: 3,
-                ),
-                // A Wrap for the same reason [_CardHead] is one: in `2 file`
-                // mode this sits inside a card inside half a diff pane, and a
-                // Row there does not shrink, it overflows.
-                child: Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: GbmSpacing.space2,
-                  runSpacing: 4,
-                  children: <Widget>[
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Flexible(
-                          child: Text(
-                            hunkCount > 1
-                                ? '臨時選取 · 跨 $hunkCount 個 hunk'
-                                : '臨時選取',
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: GbmTypography.textXs,
-                              fontWeight: FontWeight.bold,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: GbmSpacing.space2),
-                        // `.variant-B-once`: outlined and lettered in
-                        // --warning over a transparent ground. It shipped as
-                        // a GbmBadge at its default neutral kind, which is
-                        // the same shape as the +N/-N tallies in the card
-                        // head a few pixels above -- and this is the one
-                        // thing on screen that says 「這個按下去就沒了」.
-                        GbmOutlinedPill(
-                          label: '一次性',
-                          color: colors.warning,
-                          fontWeight: GbmTypography.weightSemibold,
-                        ),
-                      ],
-                    ),
-                    GbmButton(
-                      label: label,
-                      onPressed: onStage,
-                      size: GbmButtonSize.sm,
-                      kind: staged
-                          ? GbmButtonKind.secondary
-                          : GbmButtonKind.primary,
-                      // Same control, same treatment: this block acts in the
-                      // same direction as the card it sits in.
-                      borderColor: staged ? colors.borderStrong : null,
-                    ),
-                  ],
-                ),
+              _TemporaryHead(
+                key: headKey,
+                staged: staged,
+                label: label,
+                onStage: onStage,
               ),
             if (showHead) GbmDashedLine(color: colors.accent),
             ...children,
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// The one-shot block's head: 臨時選取, the 一次性 pill and the button.
+/// One widget for both places it is drawn -- at the top of the block, and
+/// pinned to the top of the view ([_StickyTemporaryHead]) -- so the two
+/// cannot drift apart.
+class _TemporaryHead extends StatelessWidget {
+  const _TemporaryHead({
+    super.key,
+    required this.staged,
+    required this.label,
+    required this.onStage,
+  });
+
+  final bool staged;
+  final String label;
+  final VoidCallback onStage;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    return Container(
+      color: colors.accentSubtle,
+      padding: const EdgeInsets.symmetric(
+        horizontal: GbmSpacing.space2,
+        vertical: 3,
+      ),
+      // A Wrap for the same reason [_CardHead] is one: in `2 file`
+      // mode this sits inside a card inside half a diff pane, and a
+      // Row there does not shrink, it overflows.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: GbmSpacing.space2,
+        runSpacing: 4,
+        children: <Widget>[
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Flexible(
+                child: Text(
+                  // No hunk count: 「跨 2 個 hunk 這文字不需要顯示
+                  // 出來」 (使用者裁定 2026-10-25).
+                  '臨時選取',
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: GbmTypography.textXs,
+                    fontWeight: FontWeight.bold,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+              const SizedBox(width: GbmSpacing.space2),
+              // `.variant-B-once`: outlined and lettered in
+              // --warning over a transparent ground. It shipped as
+              // a GbmBadge at its default neutral kind, which is
+              // the same shape as the +N/-N tallies in the card
+              // head a few pixels above -- and this is the one
+              // thing on screen that says 「這個按下去就沒了」.
+              GbmOutlinedPill(
+                label: '一次性',
+                color: colors.warning,
+                fontWeight: GbmTypography.weightSemibold,
+              ),
+            ],
+          ),
+          GbmButton(
+            label: label,
+            onPressed: onStage,
+            size: GbmButtonSize.sm,
+            kind: staged ? GbmButtonKind.secondary : GbmButtonKind.primary,
+            // Same control, same treatment: this block acts in the
+            // same direction as the card it sits in.
+            borderColor: staged ? colors.borderStrong : null,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// [_TemporaryHead] pinned to the top of the view while its block runs on
+/// below (使用者裁定「長距離拖曳後 => 改」; `wc-sticky-temp-head-spec.html`).
+/// It reads as the block cut by the top edge: the block's dashed sides, the
+/// head's own dashed rule under it, the bottom corners rounded and the top
+/// open (INF-4), and no shadow (INF-5,「不加」).
+class _StickyTemporaryHead extends StatelessWidget {
+  const _StickyTemporaryHead({
+    super.key,
+    required this.staged,
+    required this.label,
+    required this.onStage,
+    required this.leftEdge,
+    required this.rightEdge,
+  });
+
+  final bool staged;
+  final String label;
+  final VoidCallback onStage;
+
+  /// The block's own left / right edge is on screen, so this side draws
+  /// its dashed line and rounded corner; off screen, the copy runs to the
+  /// view's edge as the block does.
+  final bool leftEdge;
+  final bool rightEdge;
+
+  @override
+  Widget build(BuildContext context) {
+    final GbmColors colors = context.gbmColors;
+    const Radius corner = Radius.circular(GbmSpacing.radiusSm);
+    return ClipRRect(
+      borderRadius: BorderRadius.only(
+        bottomLeft: leftEdge ? corner : Radius.zero,
+        bottomRight: rightEdge ? corner : Radius.zero,
+      ),
+      child: Stack(
+        children: <Widget>[
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              _TemporaryHead(staged: staged, label: label, onStage: onStage),
+              GbmDashedLine(color: colors.accent),
+            ],
+          ),
+          for (final bool left in <bool>[
+            if (leftEdge) true,
+            if (rightEdge) false,
+          ])
+            Positioned(
+              top: 0,
+              bottom: 0,
+              left: left ? 0 : null,
+              right: left ? null : 0,
+              child: GbmDashedLine(color: colors.accent, axis: Axis.vertical),
+            ),
+        ],
       ),
     );
   }

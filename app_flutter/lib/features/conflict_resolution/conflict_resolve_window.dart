@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -23,11 +24,19 @@ import '../../widgets/gbm_button.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../widgets/code_line_metrics.dart';
 import '../../widgets/gbm_code_hscroll.dart';
+import '../../widgets/gbm_code_text.dart';
 import '../../widgets/gbm_menu.dart';
 import '../../widgets/gbm_row.dart';
 import '../../widgets/lucide_icon.dart';
+import '../../widgets/seeded_sliver_list.dart';
 import '../../widgets/split_pane.dart';
+import '../diff/sync_scroll/sync_height_reporter.dart';
+import '../diff/sync_scroll/sync_scroll_controller.dart';
+import '../diff/sync_scroll/sync_slot_heights.dart';
+import '../diff/sync_scroll/sync_slot_spacer.dart';
+import 'conflict_column_sync_lead.dart';
 import 'conflict_hunk_menu_items.dart';
+import 'conflict_sync_estimate.dart';
 import 'conflict_line_order.dart';
 import 'conflict_resolve_logic.dart';
 import 'original_operation_message_dialog.dart';
@@ -132,6 +141,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   /// keystroke rather than when a new file is parsed.
   final CodeWidthMemo _resultWidthMemo = CodeWidthMemo();
 
+  /// The unit of `AppPreferences.maxCodeLineChars` in this window's code
+  /// style. The editable result box below is not capped (使用者裁定
+  /// 「輸入欄位不套用」).
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
+
   double _paneContentWidth(ParsedConflictFile parsed, bool softWrap) {
     if (softWrap) return 0;
     return kConflictBadgeGutterWidth +
@@ -174,9 +188,107 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
   final ScrollController _resultScroll = ScrollController();
   final ScrollController _theirsScroll = ScrollController();
 
+  /// The three columns scrolled as one (plan: Slice S6, 「三欄互跟」): the
+  /// segments of [ParsedConflictFile.segments] are shared by all three, one
+  /// item each, so every segment pads to its tallest column ([_syncHeights])
+  /// and the column the user moves leads the other two.
+  late final SyncScrollController _verticalSync = SyncScrollController(
+    <ScrollController>[_oursScroll, _resultScroll, _theirsScroll],
+  );
+
+  /// Each column's sideways scroller, mirrored the same way.
+  final List<ScrollController> _sidewaysScroll = <ScrollController>[
+    for (int c = 0; c < 3; c++) ScrollController(),
+  ];
+  late final SyncScrollController _sidewaysSync = SyncScrollController(
+    _sidewaysScroll,
+  );
+
+  /// Keyed by the parsed file, soft wrap and the metrics its estimates were
+  /// built from. A result region's estimate is its unresolved one; a taken
+  /// region reports its measured height instead.
+  SyncSlotHeights? _syncHeights;
+  Object? _syncHeightsKey;
+
+  SyncSlotHeights _syncHeightsFor(
+    ParsedConflictFile parsed,
+    bool softWrap,
+    ConflictSyncMetrics metrics,
+  ) {
+    final Object key = (parsed, softWrap, metrics);
+    final SyncSlotHeights? current = _syncHeights;
+    if (current != null && _syncHeightsKey == key) return current;
+    current?.dispose();
+    _syncHeightsKey = key;
+    final SyncSlotHeights heights = SyncSlotHeights.forSegments(
+      columns: 3,
+      segments: parsed.segments.length,
+      estimate: (int c, int k) => conflictSegmentEstimate(
+        column: c,
+        segment: parsed.segments[k],
+        metrics: metrics,
+      ),
+    );
+    _verticalSync.heights = heights;
+    return _syncHeights = heights;
+  }
+
+  /// [blocks] (one per segment) as synced items: each reports its height
+  /// and ends in its segment's spacer.
+  List<Widget> _synced(int column, List<Widget> blocks, SyncSlotHeights h) =>
+      <Widget>[
+        for (int k = 0; k < blocks.length; k++)
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              SyncHeightReporter(
+                onHeight: (double height) => h.report(column, k, height),
+                child: blocks[k],
+              ),
+              SyncSlotSpacer(
+                heights: h,
+                column: column,
+                segment: k,
+                scroll: _verticalSync,
+              ),
+            ],
+          ),
+      ];
+
+  /// One column's list. A far jump (scrollbar thumb, Previous/Next, a
+  /// column following another) lays out from the segment it lands in,
+  /// placed at that segment's shared top, instead of walking every segment
+  /// on the way (Slice JC).
+  Widget _seededColumn(
+    ScrollController controller,
+    List<Widget> items,
+    SyncSlotHeights heights,
+  ) => CustomScrollView(
+    controller: controller,
+    slivers: <Widget>[
+      SliverPadding(
+        padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
+        sliver: SeededSliverList(
+          indexAt: (double y) => heights.locate(y).segment,
+          offsetOf: (int k) => k >= heights.segmentCount
+              ? heights.totalHeight
+              : heights.offsetOf(k),
+          delegate: SliverChildListDelegate(items),
+        ),
+      ),
+    ],
+  );
+
   @override
   void dispose() {
     _resultController?.dispose();
+    _verticalSync.dispose();
+    _sidewaysSync.dispose();
+    _syncHeights?.dispose();
+    for (final ScrollController c in _sidewaysScroll) {
+      c.dispose();
+    }
     _oursScroll.dispose();
     _resultScroll.dispose();
     _theirsScroll.dispose();
@@ -479,22 +591,47 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
     return before.isNotEmpty ? before.last : pool.last;
   }
 
-  /// Scrolls all three region columns to a given region index.
-  void _scrollToRegion(int index) {
-    for (final store in [
-      _leftRegionKeys,
-      _resultRegionKeys,
-      _rightRegionKeys,
-    ]) {
-      final BuildContext? ctx = store[index]?.currentContext;
-      if (ctx != null) {
-        Scrollable.ensureVisible(
-          ctx,
-          duration: const Duration(milliseconds: 200),
-          alignment: 0.1,
-        );
-      }
+  /// Scrolls the result column to a region; ours and theirs follow it
+  /// through the sync (C1: one driven column, so one leader). A region not
+  /// built yet has no context to reveal, so the column first jumps to its
+  /// estimated top and tries again the next frame, at most three times
+  /// (D2), the way the diff view's `_revealAfterLayout` does.
+  void _scrollToRegion(int index, [int attempt = 0]) {
+    _verticalSync.lead(1);
+    _sidewaysSync.lead(1);
+    final BuildContext? ctx = _resultRegionKeys[index]?.currentContext;
+    if (ctx != null) {
+      Scrollable.ensureVisible(
+        ctx,
+        duration: const Duration(milliseconds: 200),
+        alignment: 0.1,
+      );
+      return;
     }
+    final SyncSlotHeights? heights = _syncHeights;
+    final ParsedConflictFile? parsed = _parsed;
+    if (attempt >= 3 ||
+        heights == null ||
+        parsed == null ||
+        !_resultScroll.hasClients) {
+      return;
+    }
+    int region = 0;
+    for (int k = 0; k < parsed.segments.length; k++) {
+      if (parsed.segments[k].kind != ConflictSegmentKind.region) continue;
+      if (region++ != index) continue;
+      final ScrollPosition position = _resultScroll.position;
+      position.jumpTo(
+        heights
+            .offsetOf(k)
+            .clamp(position.minScrollExtent, position.maxScrollExtent),
+      );
+      break;
+    }
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollToRegion(index, attempt + 1);
+    });
+    SchedulerBinding.instance.ensureVisualUpdate();
   }
 
   /// Returns the ConflictSegment for a given region index.
@@ -906,7 +1043,15 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
       );
     }
 
-    final double paneWidth = _paneContentWidth(parsed, softWrap);
+    final CappedCodeWidth? cap = softWrap
+        ? null
+        : capCodeWidth(
+            naturalWidth: _paneContentWidth(parsed, softWrap),
+            maxChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+            charWidth: _cjkMemo.widthOf(kConflictCodeTextStyle),
+            gutterWidth: kConflictBadgeGutterWidth + GbmSpacing.space4,
+          );
+    final double paneWidth = cap?.totalWidth ?? 0;
     final bool anyHasBase = parsed.regions.any((r) => r.hasBase);
 
     return Column(
@@ -947,51 +1092,11 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
           ),
         ),
         Expanded(
-          child: GbmSplitPane(
-            axis: Axis.horizontal,
-            spec: GbmLayout.splitterCwPanes,
-            storageId: 'cw.panes',
-            children: <Widget>[
-              // LEFT: Ours column
-              GbmCodeHScroll(
-                contentWidth: paneWidth,
-                verticalController: _oursScroll,
-                backdrop: colors.surfacePanel,
-                child: ListView(
-                  controller: _oursScroll,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: GbmSpacing.space2,
-                  ),
-                  children: _buildOursSideBlocks(parsed, softWrap),
-                ),
-              ),
-              // MIDDLE: Result column with badges
-              GbmCodeHScroll(
-                contentWidth: paneWidth,
-                verticalController: _resultScroll,
-                backdrop: colors.surfacePanel,
-                child: ListView(
-                  controller: _resultScroll,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: GbmSpacing.space2,
-                  ),
-                  children: _buildResultBlocks(parsed, softWrap),
-                ),
-              ),
-              // RIGHT: Theirs column
-              GbmCodeHScroll(
-                contentWidth: paneWidth,
-                verticalController: _theirsScroll,
-                backdrop: colors.surfacePanel,
-                child: ListView(
-                  controller: _theirsScroll,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: GbmSpacing.space2,
-                  ),
-                  children: _buildTheirsSideBlocks(parsed, softWrap),
-                ),
-              ),
-            ],
+          // Measured where the columns' text is drawn: the window's own
+          // context sits above the `Material` that sets the line height.
+          child: Builder(
+            builder: (BuildContext context) =>
+                _columns(context, parsed, softWrap, paneWidth, cap),
           ),
         ),
         if (_allResolved && _resultController != null)
@@ -1024,6 +1129,83 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
               ],
             ),
           ),
+      ],
+    );
+  }
+
+  /// The three synced columns.
+  Widget _columns(
+    BuildContext context,
+    ParsedConflictFile parsed,
+    bool softWrap,
+    double paneWidth,
+    CappedCodeWidth? cap,
+  ) {
+    final GbmColors colors = context.gbmColors;
+    final SyncSlotHeights heights = _syncHeightsFor(
+      parsed,
+      softWrap,
+      conflictSyncMetrics(context, kConflictCodeTextStyle),
+    );
+    return GbmSplitPane(
+      axis: Axis.horizontal,
+      spec: GbmLayout.splitterCwPanes,
+      storageId: 'cw.panes',
+      children: <Widget>[
+        // LEFT: Ours column
+        ConflictColumnSyncLead(
+          column: 0,
+          vertical: _verticalSync,
+          horizontal: _sidewaysSync,
+          child: GbmCodeHScroll(
+            contentWidth: paneWidth,
+            codeClipWidth: cap?.clipWidth,
+            verticalController: _oursScroll,
+            horizontalController: _sidewaysScroll[0],
+            backdrop: colors.surfacePanel,
+            child: _seededColumn(
+              _oursScroll,
+              _synced(0, _buildOursSideBlocks(parsed, softWrap), heights),
+              heights,
+            ),
+          ),
+        ),
+        // MIDDLE: Result column with badges
+        ConflictColumnSyncLead(
+          column: 1,
+          vertical: _verticalSync,
+          horizontal: _sidewaysSync,
+          child: GbmCodeHScroll(
+            contentWidth: paneWidth,
+            codeClipWidth: cap?.clipWidth,
+            verticalController: _resultScroll,
+            horizontalController: _sidewaysScroll[1],
+            backdrop: colors.surfacePanel,
+            child: _seededColumn(
+              _resultScroll,
+              _synced(1, _buildResultBlocks(parsed, softWrap), heights),
+              heights,
+            ),
+          ),
+        ),
+        // RIGHT: Theirs column
+        ConflictColumnSyncLead(
+          column: 2,
+          vertical: _verticalSync,
+          horizontal: _sidewaysSync,
+          child: GbmCodeHScroll(
+            contentWidth: paneWidth,
+            codeClipWidth: cap?.clipWidth,
+            verticalController: _theirsScroll,
+            horizontalController: _sidewaysScroll[2],
+            backdrop: colors.surfacePanel,
+            child: _seededColumn(
+              _theirsScroll,
+              _synced(2, _buildTheirsSideBlocks(parsed, softWrap), heights),
+              heights,
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -1791,10 +1973,9 @@ class _ResultLine extends StatelessWidget {
     ),
   );
 
-  Widget _content(GbmColors colors) => Text(
+  Widget _content(GbmColors colors) => GbmCodeText(
     entry.lineContent,
     softWrap: softWrap,
-    overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
     style: kConflictCodeTextStyle.copyWith(color: colors.textPrimary),
   );
 
@@ -1819,10 +2000,9 @@ class _ContextBlock extends StatelessWidget {
     if (text.trim().isEmpty) return const SizedBox(height: GbmSpacing.space1);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: Text(
+      child: GbmCodeText(
         text,
         softWrap: softWrap,
-        overflow: softWrap ? TextOverflow.clip : TextOverflow.visible,
         style: kConflictCodeTextStyle.copyWith(color: colors.textTertiary),
       ),
     );
@@ -2147,12 +2327,9 @@ class _SidePaneState extends State<_SidePane> {
                           padding: const EdgeInsets.symmetric(
                             vertical: GbmSpacing.space1,
                           ),
-                          child: Text(
+                          child: GbmCodeText(
                             line,
                             softWrap: widget.softWrap,
-                            overflow: widget.softWrap
-                                ? TextOverflow.clip
-                                : TextOverflow.visible,
                             style: kConflictCodeTextStyle.copyWith(
                               color: colors.textPrimary,
                             ),

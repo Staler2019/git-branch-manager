@@ -1,0 +1,425 @@
+# Working Copy 全檔檢視（feat/wc-full-file-view）
+
+## Situation
+
+使用者回報 Working Copy 的 diff 只看得到每個 change 前後 3 行，看不到整個檔案、更長的上下文，也看不出
+change 在檔案裡的位置。要一顆按鈕切到「全檔檢視」，`2 file` 與 `unified` 都要能用。
+
+Spec 沒畫過全檔檢視（bundle 搜「整個檔案／全檔／full file／whole file／expand」皆 0 筆相關），所以這是
+spec 外的新功能，G1 設計稿的每個值只能引 KIT 或既有 widget。
+
+同一輪使用者另外回報 unified 模式下同一行出現兩次，排成第一個 slice（A），不依賴全檔功能。
+
+## Task
+
+使用者裁定（2026-10-24，AskUserQuestion）：
+
+1. 全檔 = 直接全部攤開：卡片與 Stage/Unstage/Discard 照舊，卡片之間補上整份檔案的未變更行，畫法同 `_GapBlock`
+   （dashed 左線，不淡化）。
+2. 變更定位 = 捲軸旁的 overview ruler，可點擊跳轉；不做 ↑↓ 按鈕。
+3. 開關 = 全域偏好（`AppPreferences`，同 soft wrap）。
+4. Slice A：兩張卡片都包住同一個未變更行 →「卡片在這裡切開」；對側純插入／純刪除落在卡片範圍中間 →「卡片在那個位置切開」。
+5. G1（設計稿 `docs/claude-design-demo/wc-full-file-view-spec.html`）：`Icons.expand`；tooltip 與 View 選單 `Full file`，
+   不綁快捷鍵；上限 tooltip `File too large for full view`；全檔模式不畫 `@@`；ruler 方向色（未暫存 `accent`、已暫存
+   `success`）、寬 10、距 well 右緣 4、上下對齊 well padding 8、底軌 `surface-sunken` r999、標記內縮 1／最小高 4／r2、
+   well 右 padding 8 → 22；與 spec 不同處改回 spec（diff 列 padding 12 → 10、icon hover `textPrimary`）；Unstage 環色
+   維持 `borderStrong`（修 spec）。
+6. 超時一律走 `gitTimeoutMultiplier`，不新增寫死的 deadline。
+7. Slice L（step 5 量測後）：片段與全檔共用同一條 lazy 路徑；soft wrap 開啟時以「字數 ÷ 每行容納字數」估高，跳轉後修正。
+8. Slice L 的選取：捲動過的拖曳改用 ①「端點幾何」；填空列「每列 1 item，虛線接續」；「關掉 keep-alive，繼續 L3」。
+9. AUTO 模式：本分支可 commit；不 push、不開 PR、不 merge、不安裝、不刪除、不做外部動作。
+
+## Action
+
+### 關鍵約束
+
+`StageOps.cpp` 的 stage/unstage/discard lines 在 core 用預設 `DiffOptions`（-U3）**重算** diff，再以
+`hunkIndex + lineIndices` 定位。畫面若改用 -U∞ 的 diff，索引會對到別的 hunk。所以 -U3 diff 仍是唯一的動作依據，
+全檔 diff 只提供填空的未變更行（row key `'f:$source:$line'`，結構上解析不成 hunk 列），對任何 payload 貢獻為零。
+
+### Slice A：unified 去重與排序（acbd3ca5 … ca8ad300）
+
+- barrier 由「對側變更的 index 行」改成對側**每一個**變更列的 `(line, offset, rank)`（unstaged rank 0），scope 不能
+  嚴格跨過任一個；推論：任兩張不同側卡片的 key 範圍不重疊，裁定 ① ② 由同一條規則滿足。
+- 剩下的重複只會是 context 對 context，用隱藏處理（`hiddenContextLines`）：gap 對 gap 留 unstaged；卡片內的 context
+  對 gap，gap 讓出。
+- `orderedDiffBlocks`（抽成純函式）在 merged 模式下把 gap 拆成單行排序後再合併；不變式：繪製列 `(line, offset, rank)`
+  非遞減，`2 file` 序列不變（U6）。
+- 修正前紅：barrier 3 個、隱藏 3 個、排序 2 個。
+
+### 全檔資料路徑（eb2c7368 … d66ae3f0）
+
+- `DiffOptions::fullFile()`：`contextLines = 2147483647`（git 以 int 解析 `-U`）。git 2.56.0 實測：50 行、第 5／45 行
+  變更的檔案回一個 `@@ -1,50 +1,50 @@` hunk。
+- capi `gbm_working_copy_full_diff` + 事件 41；走 `sharedReadPool().post()`，不搶 -U3 的 `postFront`。超時沿用
+  `workingTreeDiff` 的 180 s，經 `effectiveDeadlines()` 乘倍率；倍率 3 時 operation record 的 `timeoutMs` = 540000。
+- 一致性：`fullDiffAgreesWith` 比對兩份 diff 的變更行；不一致時每個 `(path, side, fingerprint)` 最多重抓一次（-U3 與全檔一起）。
+- `fullFileFillRows`：只出兩側 -U3 hunk 都沒畫到的 index 行，5k 行 3 ms，不快取（pane 只在輸入變時 rebuild）。
+- 上限 `kFullFileViewMaxLines = 5000`（見量測）；超過時按鈕 disabled、不 active、tooltip 說明。
+- 途中修掉一個既有 bug（9f1b64fe）：`_reportScope` 只在有↔無切換時發布 submitter，Shift+↓ 擴大範圍後 Ctrl/Cmd+Alt+S
+  仍只送出第一列。
+
+### 量測（macOS，profile build，`integration_test/perf/`）
+
+| 結構 | 行數 | 開啟 | 捲動 p90 |
+|---|---|---|---|
+| eager `Column`（step 5 原版） | 5k | 963–1488 ms | 35–41 ms |
+| 純 `Text` eager | 5k | 259 ms | — |
+| lazy `ListView.builder`（L2，4f9fcbf5） | 5k | 80 ms | 15.5 ms |
+| lazy | 20k | 539 ms | 45 ms |
+| lazy + 填空接上（aba0e02d） | 5k | 72–77 ms | 15–16 ms |
+| lazy + 填空接上 | 20k | 530 ms | 47–57 ms |
+
+預算為開啟 ≤ 100 ms、捲動每幀 ≤ 16 ms：5k 通過，20k 不通過，上限因此定在 5,000（使用者的預期是 5k）。
+
+### Slice L：lazy list（eaf385f7 … 3d1be912）
+
+- `DiffListModel`：item = 卡片／gap／hunk 標題／每列 fill／leading；prefix offsets + 二分搜尋。
+- 外框由 `_FrameSegment` 逐 item 畫切片，`scoped_diff_view_lazy_test` 以 eager 版的每列 rect 為對照組。
+- **keep-alive 被否決的根因**：kept-alive 而未 paint 的列，`applyPaintTransform` 是 `setZero()`，`paragraph.dart` 的
+  edge 判斷變成 NaN，`_compareScreenOrder` 又用 `getTransformTo(null)` 排順序；實作時另見 kept-alive 的畫面外 item
+  重建時註冊未 layout 的 selectable，丟出 `RenderBox was not laid out`。所以 `addAutomaticKeepAlives: false`，捲動過的
+  拖曳改由兩個端點決定範圍（sticky `_gestureScrolled`；手勢中途 diff 被換掉時不產生範圍）。
+- **IgnorePointer 根因**：放開時 autoscroll 的 `DrivenScrollActivity` 仍在跑，Scrollable 的 `RenderIgnorePointer` 吃掉
+  所有 hit，終點落到列表尾端。hit test 改從 `RenderViewport` 進入。
+- 端點只看 y：探針 x 取 `GbmCodeHScroll` 不橫捲的 box 上的 gutter 位置。
+- L4：Shift+方向鍵移動端點時，以 vertical `ScrollPosition.ensureVisible` 對上下兩緣各做一次。
+
+### Step 8：overview ruler（c0dec44e）
+
+- ruler 疊在 well 的 `Listener` 外面（按標記不是拖曳起點）；標記位置 = 卡片在繪製列中的比例，卡片 head 算一列。
+- `_jumpToCard`：卡片已建出就 `ensureVisible`；未建出時量畫面頂端 item 的真實位置，跳「估計距離」，下一幀再修正，
+  最多 6 次。這取代了計畫裡「TextPainter 量真實列高」的作法。
+- **補接一個漏掉的裁定**：裁定 7 的 soft wrap 估高從 L1/L2 起一直沒接上——view 永遠傳 `charsPerLine: 0`。soft wrap
+  長行時 model 估總高 66k、實際約 410k，修正迴圈每次只走估計距離，6 次走不到。現在版面完成後依 list 寬度與
+  `kDiffCodeTextStyle` 字寬算出，有變才 `setState`。
+
+### Step 9：device 層（91ff012b）與它找出的 staging 錯行（028e0338）
+
+`full_file_stage_flow_test.dart` 第一次跑就紅：從 `INSERTED_ONE` 拖到 `INSERTED_TWO`，`git diff --cached` 裡是 ONE 與
+**THREE**。片段模式重現相同結果——是既有 bug，不是全檔模式造成的：
+
+```
+_submitTemporary 依 hunk 由小到大送出；core 每次以 -U3 重算
+stage(h0)  →  剩下 [TWO=h0, THREE=h1]
+stage(h1)  →  對到 THREE
+```
+
+修法：由最大的 hunk index 開始送出；stage 後面的 hunk 不改變前面 hunk 的 index 與行號。widget 層的 fake 不會重算 diff，
+表達不出這個錯（[TEST-fixture-cannot-disagree] 第 11 型），四個既有測試甚至把「依檔案順序」寫成期望值，皆已改並註明。
+
+另兩個 device 層的發現：
+
+- autoscroll 之後一次性 block 的 head（含 Stage 按鈕）畫在範圍最上方，已捲出且未建出——範圍存在，但只剩快捷鍵可送出。
+  這是 UX 觀察，沒有改。
+- 一次 autoscroll 案例 staged diff 為空；debug 重跑時通過。推測是 [TEST-no-dart-process-while-core-runs-git]（core 仍在
+  stage／重抓 1000 行全檔 diff 時測試就 `runGit`），沒有證實。讀 git 前改成先等 board 把檔案列在兩欄。
+- 第一次整檔 run 共 37 分 19 秒，其中 autoscroll 案例約 36 分鐘；instrument 後同一案例 101 秒到達、整案 3 分鐘內。
+  36 分鐘的原因**沒有找到**。
+
+### G3：device 層逐檔重跑找出的回歸（bdbafd87）與 hover（915c4922）
+
+逐檔重跑 ~~28~~ 24 個 device 檔：~~27~~ 23 綠，`context_menu_flows_test.dart` 5/5 紅（05-G 右鍵 Discard 後 framework 例外
+`identical(childRenderObject, parentRenderObject)` 與 `Cannot get renderObject of inactive element`，其餘 4 個是連鎖）。
+
+- worktree 二分：`c3e6ee7a`（lazy 前）綠、`4f9fcbf5`（L2）綠、`f53626b3`（L3）紅。**L3 提交時沒有跑 device 層**，
+  這是本輪的 G3 漏網。
+- 對照實驗：開回 keep-alive → 仍紅；拿掉 step 8 的卡片 GlobalKey → 仍紅；拿掉「無內容時直接回傳 list」的 early
+  return → 綠。
+- 根因：L3 為端點幾何在 ListView 掛了 `_listKey`。refetch 期間來源短暫沒有內容，`build` 把 list 回傳在
+  `SelectionArea` 之外；帶 GlobalKey 的列被**搬出再搬回**，region 對 inactive 的 `SelectionListener` 排序。
+  L3 之前沒有 key，空狀態是重建，所以沒事。
+- 修法：`_listKey` 只在有內容時掛上。`_hScrollKey` 一律掛上不會紅（內層 key 一變列就重建），所以不加條件。
+- hover sweep：ruler 標記可點但沒有 click cursor，補上。
+- 兩個修正後再逐檔重跑：24/24 檔全綠。
+
+### 移除 orphan（c81011da）
+
+`GbmCodeScrollWell` 在 slice L 後於 `lib/` 無 reader，doc comment 的論點（列不能 unmount）也已不成立；原樣搬進
+`diff_row_cost_perf_test.dart` 當 eager 基準，量測結構不變。
+
+## Result
+
+### 測試與 mutation
+
+- `flutter test` 4224 通過（~8 skip）；analyzer 0；format 通過；ctest 950/950（eb2c7368 時）。
+- 每個 commit 的 mutations-run / tests-reddened 記在各自的 commit message。等價 mutation：81b9c24f 的 high-inclusive
+  （barrier 一定來自另一側、rank 不同）；30fef443 的 M10（拿掉 sort）；33abb9e0 的 shouldRepaint；4f9fcbf5 的 K8
+  （ListView padding）；f53626b3 的 N8（hit test 從 viewport 進入，local 即內容座標）；cb89afd8 的「關閉時也觸發」。
+  66d0d73a 的 M8（binding 呼叫錯成 `workingCopyDiff`）在 fake 層走不到，改由 device 層覆蓋。
+
+### Verifier（HEAD 915c4922）：CONFIRMED
+
+六項主張皆通過。除了重跑 unit（420）與 `full_file_stage_flow_test`（6/6），另有兩個獨立探針：真 git 產生
+HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 payload 比對，failures 0），以及照 `StageOps.cpp`
+每次重讀 -U3 的送出順序模擬（164 情境：由大到小 164/164 正確，由小到大 72 個出錯）。兩個 P4，記錄不修：
+
+- unstage 方向跨多個 staged hunk 的一次性 scope，device 層沒有覆蓋（只有模擬證據）。
+- 超過上限時 titlebar 按鈕 disabled，關掉偏好只能走 View → Full file。
+- fuzz 的 parser 不處理 `\ No newline at end of file`，檔尾無換行沒有被 fuzz 到。
+
+### 這一輪自己的失誤（照實記）
+
+1. **aba0e02d 提交時全套是紅的**：fake 的 `refetchDisagreeingDiffs` override 蓋掉了被測的真實方法，3 個測試紅；
+   當時只看了輸出的最後一行。f31551de 修正。之後一律 grep `All tests passed|Some tests failed|[E]`。
+2. **step 8 第一次 mutation 漏算**：腳本 regex 把測試名限制在 60 字元，長名稱的紅被當成存活（R6 誤報）。修正解析後重跑；
+   R7/R8/R11 是真的存活（測試字型下估計值太準），補了兩個會讓估計值漂移的測試。
+3. **soft wrap 估高沒接上**（見 step 8），直到 ruler 的跳轉測試才被發現。
+4. **L3 沒跑 device 層就提交**，`context_menu_flows_test` 因此紅了 L3 之後的每一個 commit，直到 G3 才發現（見上）。
+5. **staging 錯行**是本輪以前就存在的 bug，但本輪 L3 的 30 個捲動拖曳測試都只用單一 hunk 的 fixture，也沒看出來；
+   是 device 層第一次用三個 hunk 才抓到。
+
+### 與計畫的差異
+
+- 端點命中：計畫寫「每個子區塊各包 `MetaData`」，實作改成等價的幾何規則（item 內以列的 rect 判斷）。
+- hit test 從 `RenderViewport` 進入，不是 ListView 的 box（IgnorePointer 根因）。
+- 捲到卡片的跳轉由 L4 移到 step 8（L4 時沒有呼叫端）。
+- TextPainter 量列高 → 跳轉時以畫面上 item 的真實位置做迭代修正。
+- 選單切換的整合測試是新檔 `workspace_full_file_toggle_test.dart`，沒有擴充 parity test。
+- View 選單位置（`File list as tree` 之後）是我選的，spec 沒有規定。
+
+### 未做／待決
+
+- `algorithm-chooser` 在 ruler 的比例換算與跳轉修正前沒有派出（換算是單純比例，修正是逐次逼近，判斷不需要）。
+- ~~一次性 block 的 head 在長距離拖曳後不在畫面上（上方 UX 觀察），沒有改，待使用者決定。~~ **使用者裁定「長距離拖曳後 => 改」**，選 sticky head，已實作，見最後一節。
+- ~~規則提煉：新增 `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 與 `[TEST-mutation-check-every-test]`
+  的一條 Do，使兩個 L1 檔超過 6,000 字元報告門檻（`fn-flutter-input.md` 7,532、`arch-testing.md` 6,218）。
+  `memory-steward` 建議：兩條 FLU 已由 site comment 與測試承載，移除；TEST 那條縮短；另列既有條目的 trim 候選。
+  依 CLAUDE.md，待使用者裁定後套用，裁定前不提交規則檔。~~ **使用者裁定（2026-10-25）「照 memory agent 做」**，已套用，見下節。
+- 二分用的 worktree（scratchpad 內，detached `f53626b3`）未刪除（AUTO 模式不做刪除）。
+
+### 規則精簡（使用者裁定「照 memory agent 做」）
+
+- `[FLU-stage-last-hunk-first]`、`[FLU-lazy-scrolled-drag-geometry]` 不新增：`scoped_diff_view.dart` 的 site comment 與
+  測試已承載；`fn-flutter-input.md` 開頭「site comment 與測試已承載的規則」清單補上這兩項。
+- `[TEST-mutation-check-every-test]` 新的 Do 縮短；第一條 Do 拿掉 `JsonCodec.cpp` 的例子。
+- `[FLU-clear-selection-before-dispatch]` 的 Note 縮成一行（site comment 已有完整歷史）。
+- `[TEST-no-pumpandsettle-with-spinner]` 的 Do 拿掉刪除線歷史。依 standing rule 4 不默默刪掉，原文保存在此：
+
+  > - **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, ~~`welcome_screen.dart` while scanning~~ (no indicator, 2026-10-23)); ~~`StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.~~ `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`, `status_bar.dart`), so they too never settle while one runs — a static empty track was the reported 「不知道有沒有在跑」 (2026-10-15).
+
+- 結果：`arch-testing.md` 5,801、`fn-flutter-input.md` 5,616，皆在 6,000 以內；L0 24,456 不變。
+
+### 使用者四項裁定之後（7ad8ad05 … ）
+
+裁定原文：「照memory agent做」「長距離拖曳後 => 改」「P4,跨多個 staged hunk測試=>加」「P4,案超過 5,000 行時 titlebar 按鈕是 disabled => 自動暫停這個檔案的全檔檢視，但不影響全局設定」。
+
+- **跨 staged hunk 的 unstage（100e5896）**：device 測試，三段插入全部 stage、拖曳框住前兩張 staged 卡片後 Unstage，第三段仍在 staged。
+  綠；mutation（`_submitTemporary` 改為由前往後）→ 紅。mutations-run 1、tests-reddened 1。
+- **超過上限（7a2ebc59）**：讀碼後確認既有行為已符合裁定（按鈕 disabled、tooltip、片段模式、`onToggleFullFile` 不被呼叫，判斷每次 build 依檔案重算）。
+  追問後使用者選「Disabled + 說明」。補一個守衛測試：同一個 pane 先大檔後小檔，小檔重新填空、偏好未被切換。
+  這個測試一開始就是綠的，沒有先紅；mutation（`_overCap` 觸發後保持 true）→ 紅。mutations-run 1、tests-reddened 1。
+- **sticky head 設計（0c31ee24）**：`docs/claude-design-demo/wc-sticky-temp-head-spec.html`。
+  spec-auditor 第一輪 15 不符／5 無出處，最嚴重的是我把置頂 head 的位置算成左 12／右 24，少算 well 外側 8px（正確 20／32，片段模式右 18）。
+  第二輪 150 個值中 2 不符／2 無出處，另有 2 處文字與 CSS 矛盾，都在發佈前改正。
+  使用者裁定：「可以照著實作，但是 跨 2 個 hunk 這文字不需要顯示出來」，追問後「兩處都拿掉」；陰影「不加」；對比度「開issue,說明影響範圍」→ **#200**。
+- **拿掉「跨 N 個 hunk」（84514066）**：`hunkCount`／`temporaryHunkCount` 只供這段文字使用，一併移除（[CULT-orphan-wiring]）。
+- **sticky head（c335eeb8）**：條件是「head 上緣在 viewport 之上，而且 block 最後一列仍在 viewport 上緣之下」。
+  head 已建出時量它的 GlobalKey；沒建出時比較它所在的 card item 與頂端的 item。block 尾端用既有的 `_endpointAt` 編碼判斷。
+  head 內容抽成 `_TemporaryHead`，兩處共用。`ScopedDiffView` 改成一律回傳 `Stack`，避免 head 出現或消失時 well 跟著重建。
+  判斷在 layout 之後做，所以置頂版比 block 晚一個 frame。
+  5 個 widget 測試、7 個 mutation，每個 mutation 都有指名的測試變紅：mutations-run 7、tests-reddened 5。
+  device 測試（自動捲動拖曳）改按置頂版的按鈕：7/7 綠；mutation（按鈕無作用）→ 紅。
+- **全套**：`flutter test` 4233 通過、8 skipped；analyzer 0；format 乾淨。
+- **device 層逐檔重跑（G3）**：`full_file_stage_flow_test.dart` 7/7、`stage_lines_flow_test.dart` 9/9、`context_menu_flows_test.dart` 5/5（上一輪改了 view 的樹結構後紅過，這次 view 一律包 `Stack`，所以也跑）。
+  `integration_test/perf/` 的兩個量測檔沒有重跑；它們量的是列的成本，不驗證正確性。
+
+- **Verifier（HEAD 7ab5e32d）：REFUTED**，F1（P2）：已有一次性 scope、置頂 head 正在畫面上時開始新的拖曳，
+  置頂 head 和綁著舊 scope 的按鈕會留到放開才消失。原因是 `_onTouchChanged` 在拖曳中不 rebuild。主張的其餘 4 點都確認無誤
+  （payload、幾何、不重建 well、拿掉 hunk 文字）。
+- **F1 修正（137556fa）**：pointer down 時收起置頂 head。先寫的兩個測試（原地拖曳、向上自動捲動）先紅後綠；mutation（拿掉收起）→ 兩個都紅。
+  另外在 `_stickyWanted` 加過一個 pointer-down guard，mutation 證明它多餘（放開前的 rebuild 沒有 settled scope，本來就不會畫出來），已拿掉。
+  mutations-run 2、tests-reddened 2。全套 4235 綠；device `full_file_stage_flow_test.dart` 7/7。
+- **Verifier（HEAD 137556fa，fresh）：CONFIRMED**，五點全部成立。原本讓 F1 成立的探測在兩個方向都通過；新拖曳放開後，置頂 head 綁的是新 scope。
+  兩個 hunk 時，按置頂 head 與走鍵盤路徑送出的呼叫相同（最後一個 hunk 先送）；staged 側只送 Unstage；SelectionArea 的 State 從頭到尾是同一個物件。
+  全套 4235 綠；device 7/7。
+- ~~待查（P4，低信心，沒有修）：verifier 沒有驗證 diff 橫向捲動時的情況。真正的 head 會隨內容橫向移動，當它被頂端切掉一部分時，
+  在置頂版左 20／右 18（或 32）的範圍外是否還會露出一條，沒有驗證。~~
+  **已查（2026-10-25，使用者要求「橫向捲動時是否露出一條真正的 head查一下」）：會露出。** 內容比畫面寬時，block 隨內容延伸並橫向捲動；
+  固定 20／18 的置頂版兩側，像素取樣在 x 0..20 與 482..500 取到真正 head 的底色 #0d2a4d。
+  - 使用者裁定（AskUserQuestion）：「對齊 block 實際位置」。左右範圍取 block 與 view 的交集；block 邊緣在畫面外的那一側，不畫虛線，也不畫圓角。
+  - 修正（313bb4cc）：橫向位移取自冒泡上來的 `ScrollNotification`／`ScrollMetricsNotification`，存在 `ValueNotifier`，所以橫向捲動只重建置頂版。
+    置頂版移到 ruler 之下，否則延伸到右緣時會蓋住 ruler 的上段（hit test 證實）。
+  - 新增 5 個測試：橫捲 0／60／700、ruler 在上、resize 夾住位移、不寬時兩側虛線都在。mutations-run 6、tests-reddened 5。
+    哪一個沒有變紅，當時沒有記下來，這裡不補猜測。全套 4241 綠，analyzer 0。
+    device `full_file_stage_flow_test.dart` 7/7（HEAD 313bb4cc）。`stage_lines_flow`、`context_menu_flows` 在這次修正之後沒有重跑。
+  - 設計稿 INF-3 就地更正（f2e1b73f）。
+  - ~~觀察，交給使用者決定：內容比畫面寬時，置頂版延伸到右緣，會蓋住垂直捲軸 thumb 最上面約 31px。~~
+    **使用者裁定：「右緣留出捲軸的寬度」。** 修正（2f34808e）：置頂版的右側最多延伸到 view 右緣往內 10。
+    10 = Material 桌面版 `Scrollbar` 的預設 thickness 8 + crossAxisMargin 2；`GbmCodeHScroll` 沒有設 theme。這個值出自 SDK，不出自 spec。
+    block 右緣落在這 10 以內時，視同在畫面外，不畫虛線。
+    測試：期望值 0 → 10；新增 dx 686（block 右緣落在捲軸區內）；新增 thumb 區的 hit test。
+    mutations-run 3、tests-reddened 3／1／1。另外把 inset 斷言拿掉、只留 hit test，在 gutter 改成 0 的情況下 dx 0 與 dx 60 都變紅，證實修正前置頂版確實會攔下拖曳 thumb 的手勢。
+    全套 4242 綠，analyzer 0；device `full_file_stage_flow_test.dart` 7/7（HEAD 05d09b68）。設計稿 INF-3 已補上（05d09b68）。
+- G3（HEAD 11a1529e）：device `stage_lines_flow_test.dart` 9/9、`context_menu_flows_test.dart` 5/5；本輪沒有新增執行期 timeout；orphan wiring 兩個方向都查過；hover sweep 只抓到 ruler 標記的 click 游標。
+- **Verifier（HEAD 11a1529e，fresh）：CONFIRMED**，四點全部成立，沒有 P0–P2。
+  scratchpad probe 的掃描範圍：excerpt 的 dx 0..700 共 18 個點，包含右緣落在 (490, 500] 的整段；ruler 加上寬 code 的 11 個點；`2 file` 右側 view 的 7 個點。
+  每個點都比對了 head 的左右緣、真實 block 的 rect、虛線的側數，以及捲軸區的 hit test。橫向捲動之後，SelectionArea 的 State 仍是同一個物件。
+  ~~P4（推測）：widget test 的 DPR 是 1，桌面上非整數 DPR 的情況沒有驗證。~~
+  **已驗證（使用者要求「驗證一下」）：非整數 DPR 下沒有露出。** 測試的 DPR 分別設為 1.25、1.5、1.75、2.25、2.5，片段模式與 ruler 模式各跑一次，每次掃過 16 個帶小數的 dx，例如 0.3、19.6、333.33、671.7、686.4、691.9。
+  - 每個 dx 都檢查兩件事。邏輯座標：置頂版與 block 的 rect 相同（容差 1e-6），虛線側數、捲軸區的 hit test 都正確。像素：用 `RenderRepaintBoundary.toImage(pixelRatio: dpr)` 取圖，在 head 的色帶上，置頂版左右外側超過 1 個 anti-aliasing physical pixel、捲軸區以外的地方，沒有任何一個 physical column 帶有 head 的底色。10 組全部通過。
+  - oracle 的有效性：把置頂版改回不跟著橫向捲動（`scrolls = false`），拿掉邏輯座標的斷言，只留像素檢查。結果在 dpr 1.5 下，每個 dx 都抓到 11–40 個露出的 column。
+  - 限制：小於 1 個 physical pixel 的露出，和 anti-aliasing 分不出來，這個 oracle 看不到。不過置頂版與 block 的邏輯座標完全相同，兩者的光柵化結果也相同。
+  - probe 只放在 scratchpad，沒有進 repo，因為它檢查的事已經由邏輯座標的測試鎖住。
+- 觀察（既有行為，本輪沒改）：verifier 的基準探測顯示，新的拖曳進行中，舊的 block 內一次性 block 也留在畫面上直到放開，原因相同。
+
+這一段自己的失誤：
+- 兩個 widget 測試的 fixture 寫錯，都在實作前就紅了，原因不在程式碼：row 9 在 300px 的 viewport 外沒被建出；`temporary-scope-card` 的 box 比 head 高出 4px 的 margin。改測試，不改程式碼。
+- 第一版設計稿的出處註解有 15 處與 app 不符（見上），是只看 widget 名稱、沒逐一讀數字造成的。
+- 這一段中途，auto mode 的 Bash 安全檢查服務連續 6 次沒有回應判定，工作暫停一次；服務恢復後照原步驟繼續，沒有略過任何步驟。
+
+
+## 使用者回報：2 file 的 unstaged 側與 unified 捲動卡頓（2026-10-25）
+
+- **Situation**：使用者回報「2 file下，unstage頁面會卡卡的，但stage側卻不會；unified頁面也是卡卡的」。
+- **Task**：找出根因並量測，再修正。
+- **Action**：
+  - 根因：`WorkingCopyView` 把 diff 的捲動位置在每次捲動時寫進 `workingCopyDraftProvider`（`_onDiffScroll`），而兩處 `ref.watch` 又看整個 draft。結果是每捲一幀，整個畫面連同 diff pane 都重建一次。
+  - 為什麼只有部分畫面卡：unstaged 側與 unified 用的是這個 controller；staged 側有自己的 controller，不寫 draft，所以不卡。
+  - 為什麼之前沒抓到：先前的量測檔 `full_file_view_perf_test.dart` 直接 pump `ScopedDiffView`，沒有經過 `WorkingCopyView`，所以量不到這個路徑。
+  - 修正（c4776a15）：兩處都只讀 `amending`，改成 `select(d => d.amending)`。
+  - 新增量測檔 `integration_test/perf/wc_scroll_perf_test.dart`，經由真實 app 量測（profile 模式、macOS、5,000 行、全檔模式）每幀的 build 時間：
+
+    | 捲動位置 | p50 修正前 → 後 | p90 修正前 → 後 |
+    |---|---|---|
+    | unified | 67.6 → 10.3 ms | 73.6 → 16.7 ms |
+    | 2 file unstaged | 153.7 → 8.3 ms | 162.0 → 14.6 ms |
+    | 2 file staged | 8.0 → 7.8 ms | 15.5 → 14.1 ms |
+
+  - 測試：新增 widget 測試，斷言捲動後 offset 仍然存進 draft，而且 pane 的 widget 沒有被換掉。mutation 2 個（兩處各自改回 watch 整個 draft），mutations-run 2、tests-reddened 2。全套 4243 綠，analyzer 0。
+- **Result**：三種捲動都回到 staged 側原本的水準。
+- 同一則回報的第二點（2 file 左右沒有同步捲動）已取得裁定，將以 Plan 送審，見下一節。
+
+## Slice W：所有程式碼檢視的每行字寬上限（334901d4 … 7780da53）
+
+- **Situation**：同步捲動的討論中，使用者裁定橫向寬度「最長200字中文」是上限，並擴大到「所有file顯示最寬都是這個數值」，數值做成偏好設定。
+- **Task**：一個全域偏好 `maxCodeLineChars`（預設 200），套用到 8 個 `GbmCodeHScroll` 建構點；超過的行截斷。
+- **Action**：
+  - G1（334901d4，`docs/claude-design-demo/code-line-width-cap-spec.html`）：spec-auditor 找出我草稿的 5 處錯誤，已就地更正。使用者裁定「c, ok」：截斷用 ellipsis，spec 的截斷一律是 `text-overflow:ellipsis`；淡出提示（原 W3）刪除。
+  - 其他裁定：上限比 pane 窄時「在上限處裁掉」；side-by-side「每一欄各 N 字」；conflict 的輸入欄位「輸入欄位不套用」。
+  - W1（5697dff0）：偏好、Preferences 欄位、`flatKeysToClear`。mutations-run 6、tests-reddened 6。
+  - W2a（f51ccf42）：`capCodeWidth` / `CjkCharWidthMemo`（量 '中'，measurer 可注入）；scope 的 `codeClipWidth` 是 required，backdrop 轉傳它。mutations-run 7、tests-reddened 7。
+  - W2b（7780da53）：`GbmCodeText`，加上 8 個建構點的接線。mutations-run 14、tests-reddened 14。第一輪 12/14：2 file 單側的 clip 與 `WorkingCopyView` 讀偏好兩個 mutation 沒被抓到，補測試後才全紅。
+  - 實作中量到的四件事：
+    1. **Flutter 對多行段落套 ellipsis 只留第一行**：3 行的 `Text` 量出高度 14。所以改成逐行各自一個段落。
+    2. **複製被截斷的行仍得全文**：stop ② 不成立，已以測試確認。
+    3. **letterSpacing 漂移（既有缺陷）**：各 view 用裸 `TextPainter` 量捲動範圍，但 `Text` 會先合併 Material body style 的 `letterSpacing: 0.25`，畫出來每字寬 0.25 px。預設 200 時最長那一行因此被誤截。KIT `.gbm-diffline` 沒有 letter-spacing，所以在 `GbmCodeText` 固定為 0。這觸發 stop ①，使用者裁定接受：lazy 快照 63.8→62.5、76.5→75.0，位置不變；blame「never truncated」改成驗證繪製結果。
+    4. **緊的父約束會蓋掉 `ConstrainedBox`**：`Expanded` 的 cell 會如此。改用 `Align` 之後，side-by-side 的 cell 反而縮窄。再改用 `LayoutBuilder`，又因為放在 `IntrinsicHeight` 底下而 crash（"LayoutBuilder does not support returning intrinsic dimensions"）。最後換成一個支援 intrinsic 的 `RenderProxyBox`（`_HoldToWidth`）。
+  - 查過、但不是問題：well 與卡片的邊框沒有算進 `contentWidth`。量測結果：剛好 N 字的行在 300 和 800 寬下都完整顯示（寬 125 = clip）；cap 200 捲到最右時，行尾在 x=772，viewport 右緣 800。
+- **Result**：
+  - 全套 4272 綠、8 skip，analyzer 0。
+  - `wc_scroll_perf_test`（profile，macOS）build p90：unified 16.7→14.7 ms、2 file unstaged 14.6→14.1 ms、staged 14.1→13.5 ms；stop ③ 沒有觸發。2 file unstaged 有一幀 buildMax 290 ms 的離群值，p50/p90 不受影響，沒有再追。
+- **Verifier（HEAD 7780da53）：CONFIRMED**
+  - 全套 4274 綠、8 skip。比上面多 2 個，是補了 2 file 與 `WorkingCopyView` 的測試之後才跑的。
+  - 另以 6 個臨時 probe 實測：conflict 多行 context block、`GbmPinnedGutterBackdrop` 下的卡片列、hunk header、side-by-side 在 300/2400 寬與 `IntrinsicHeight` 中、複製得全文、TextField 不受上限影響、偏好值 200→10→200 即時切換。
+  - 兩項 P4 依規則 defer：
+    - A1：`appPrefs.maxCodeLineChars` 讀取時沒有下限 clamp。UI 只寫正整數，但 storage 被手改成負數時，`_HoldToWidth` 會建出負的 maxWidth（未實測）。
+    - A2：DiffPage 的 hunk header 不在寬度量測之內（既有）。超過的部分以前是 visible overflow，捲不到；現在改成 ellipsis。
+  - 限制：test 字型每個字元一樣寬，所以「中文字寬」的換算只由 `CjkCharWidthMemo` 的注入 measurer 單元測試驗證。
+
+## Slice S：2 file 與 conflict resolve 的同步捲動（f5de1776 … 82e2e97e）
+
+- **Situation**：使用者回報 2 file 左右不同步。裁定原文：「同步沒改的行段，如果有改就各自留高度，向詫異處最上行對齊。這段也是需要套用的conflict resolve的規則」；追問後裁定「短側尾部插高度，一起卷」，範圍是「三欄互跟，都放進 PR #201」。spec 與 records 都沒有同步捲動的條目，所以這是新裁定。
+- **Task**：各欄依共用分段補齊高度，捲任一欄，其他欄顯示同一段的同一位置；leader 的捲動不被中斷、沒有回授；2 file 的 staging payload 不變。
+- **Action**：
+  - 純層：`partitionSyncSegments`（k-way sweep，`lo > curHi` 才切開，O(N·C)）、`SyncSlotHeights`（各欄段高取最大，短側段尾 spacer，共用 prefix）。
+  - **prefix 與 Fenwick 的量測**（使用者要求「不做fenwick那你必須要實際量測」）：AOT、本機 macOS、3 次。prefix 每幀重建最差 19.21 µs/幀（K = 20k），約佔 16 ms 幀預算的 0.12%；Fenwick 快 10–90 倍，但兩者都遠低於 1 ms 的同步預算。決定用 prefix；K 超過 200k，或同步工作超過 1 ms/幀時，重新評估。
+  - `DiffListModel` 新增段尾 `DiffSpacerItem`；不帶 sync 時 item 序列與先前完全相同。
+  - `SyncScrollController`：leader 只由 `lead()` 設定，來源有 pointer down、`userScrollAxis`、ruler、Shift+↑↓ 與初始值；follower 夾在自己的 extent 內，leader 從不被 jump。
+  - 橫向：`GbmCodeHScroll` 新增 `horizontalController`；寬度取兩欄較寬者，上限交給 Slice W。
+  - conflict resolve：三欄的每個 segment 都包一層 `SyncHeightReporter` 加 `SyncSlotSpacer`；`conflictSegmentEstimate` 估高；`_scrollToRegion` 只捲 result 欄，目標還沒建出時先跳到估計位置。
+  - **與 plan 不同處**（皆因 mutation 紅不起來而刪除，見各 commit message）：不做 bias／idle 補償，因為 sliver 自己會保留可見內容；不做「最多重試 3 次」的迴圈；conflict 的 soft wrap 不估換行數；result region 的估高不讀已 take 的行數；不做 pointer down 的 lead。
+- **Result**：
+  - mutations-run / tests-reddened 照 commit 分列：S1 5/5、S2 7/7、model 6/6、S3 7/7、S4 共四輪 13/3 → 14/8 → 13/11 → 3/2（沒抓到的直接刪掉，不補假測試）、S5a 6/6、userScrollAxis 2/2、S6 11/6 → 6/4 → 2/2、L3-s 3/3、device 2/3。
+  - perf（使用者裁定：以每幀 80 px 的捲動判，p90 不超過不同步時 + 2 ms）：成對量測 +1.6–1.8 ms，PASS。
+  - 量測檔本身的缺陷：staged 帶頭那一組原本沒有被同步。staged 已在底端，往下滾一格捲不動，所以不會成為 leader。修正後，量測先斷言 90% 以上的幀有鏡射，數字才算數。
+- **Verifier（HEAD 93df262d）：REFUTED，一項 P2（F1）**
+  - 重現條件：2 file、soft wrap 開啟、5,000 行加長行。把 staged 欄的捲軸 thumb 拖到底，或依序遠跳到 .7、.2、.5、1.0。停下之後，兩欄畫面上顯示的段完全不重疊，相差 39 段，而且一直維持到下一次使用者捲動。
+  - 在 82e2e97e 也會發生，那時還沒有 SeededSliverList，相差約 1,100 段。所以這是 S 本身的缺陷，J 只是把差距縮小。
+  - 根因：SeededSliverList 用 `scrollOffsetCorrection` 把 leader 留在結尾時，不會通知任何 listener，follower 因此漏掉這次鏡射。之後兩欄沒有共同建出的 spacer，`_correct` 沒有東西可比，就什麼都不做；它的 doc 原本寫的就是 "left where the mirror put it"。
+  - 修法（7b89960d）：沒有共同 spacer 時，follower 重新取 leader 目前的 offset。
+  - 中途寫的 fallback 是依共用段頂跳到 leader 最近的 spacer。它的三個細節 mutation 都存活，連「直接鏡射 leader 的 pixels」也存活，最後就簡化成這個寫法。
+  - 測試前提修正：第一版斷言「leader 有 spacer 時 follower 必須共用一個」，在沒有 mutation 的程式上也會紅。原因是 leader 的 spacer 在畫面下方的 cache 裡，follower 同一段的實際內容比估計高，段尾超出 cache，還沒建出來；這是段內、畫面外的估計誤差，plan 本來就接受。最後改成只比畫面上看得到的段尾。
+  - mutation 1 run / 2 red；修正前 4 個測試裡有 2 個紅。
+  - 同一次驗證，JC（9c31883c）：CONFIRMED。
+  - P4（defer）：拖 thumb 的途中，偶爾有單幀錯位（2 px，有一幀 340 px），下一幀就修正。
+- **Verifier（HEAD 7b89960d，F1 recheck）：CONFIRMED**
+  - 原探針全部通過：兩欄顯示同一批段，段尾等高，`mis=[]`，leader 的 jump 次數是 0。
+  - 停下之後再 pump 2 秒，follower 的 jumpCount 不再增加，`hasScheduledFrame=false`，所以沒有回饋迴圈。
+  - 全套 4376 綠。
+  - P4（defer）：`working_copy_diff_pane_sync_far_test` 只比 leader 畫面上看得到的段尾。leader 是最高那一欄而且沒有 spacer 時（.7 那一步），這一步比了 0 個。verifier 另外量過段頂，差 0.1 px，對齊沒有問題，但目前沒有測試斷言這種情況。
+
+## Slice J：遠跳只建落點附近的列（b193cd78 … 6f3cec79）
+
+- **Situation**：S7 的 perf 量到遠跳那一幀的 build：unified 577–1081 ms、2 file 1324–2602 ms。根因是 `RenderSliverList` 沒有 extent，只能從現有的 child 一列一列走到目標；往回跳到 10% 那一幀，兩欄合計建了 8,289 列。使用者裁定「也要修遠跳」。
+- **Task**：遠跳時從估計的 item 開始 layout；捲回頂端要對齊 0；既有測試的期望值不改；捲動過的拖曳 payload 不變。
+- **Action**：
+  - `SeededSliverList`（`lib/widgets/`），它不 import `DiffListModel`，只接收 `indexAt`／`offsetOf` 兩個 callback。
+  - 2 file 同步模式下，播種的 offset = P(段) + 同一欄、同一段中排在它之前的 item 高度（JC1）。
+  - J0：量 conflict resolve 遠跳那一幀，392–582 ms，約超過門檻 10 倍。使用者裁定「做，接在 Slice J 之後」，也就是 Slice JC。
+  - JD2 使用者裁定「維持現狀：只還原 pixels」，所以錨點還原不做。
+  - **偏離 Non-goal「不改 `maxScrollExtent` 估計」**：J2 的對照組紅出三個缺陷，都在 sliver 裡修掉（6f4811e9）：
+    1. framework 用平均高度估捲動範圍，播種用的是模型估計，兩者不一致。1.3 倍字高跳到 50% 時，會落在估計的結尾之後再彈回。改法：`estimateMaxScrollOffset` 改用 `offsetOf(count)`。
+    2. 開在 offset 400 也會播種，offset 因此被修正 21。改法：沒有 child 時，目標在一個 cache extent 之內就從 item 0 走過去。
+    3. 跳到結尾時停在真正的結尾之前 21。改法：碰到上次回報的結尾時，用 `scrollOffsetCorrection` 留在結尾。第一版比對的是 `offsetOf(count)`，反而推過結尾 17。
+  - **JD1 的 stop**：mutation「同步模式也用 `DiffListModel.offsetOf`」在 JS 與第一個非對稱 fixture 上都紅不起來。原因是 model 只在 rebuild 時更新：量測之前建的 model，兩欄加總都是同一個估計 H。量過非對稱的段並 rebuild 之後，兩欄的 `maxScrollExtent` 差 1,221（114265 vs 115486），JC1 版兩欄都是 116823。新增「兩欄結尾相同」的斷言之後，兩個 mutation 都變紅，stop 解除。**plan 原本寫的對齊與 jump 數斷言，都分不出這兩種做法。**
+  - J4 第一次量：回 0 仍要 612 / 1494 ms。原因是「`scrollOffset > 0` 才播種」的條件讓回頂端時不播種，一路往回走；add5e304 修掉這個條件。
+  - **verifier 第一次 REFUTED（兩項 P2），6f3cec79 修正**：
+    1. 每一列都比估計高時，從遠跳逐步捲回頂端會耗盡 viewport 的 10 次 layout。`RenderSliverList` 的「假設前面沒有 child」以及 so=0 那一支，每次 layout 只修正一列。改法：`_roomShortfall` 一次補足 `offsetOf(index)` 與實際頂端的差，所有 child 同步平移；第 0 個 item 固定在 0，消除平移後的 -3.4e-11 誤差。
+    2. 2 file soft wrap 跳到結尾後，最後幾列量到更高，結尾就跑出畫面。改法：`_holdEnd`／`_endAfter` 讓列表留在結尾，直到 offset 被其他來源改動或 count 改變；`_keepAtEnd` 也不再要求 last child 已建出。
+    - 修正中的一個 mutation「rebase 時的 ratio 一律取 1」存活，tests-reddened 0。這代表 ratio 是多餘的：剩下的空間由下一次 layout 補足。所以拿掉 ratio，直接簡化程式，沒有替它補測試。
+- **Result**：
+  - 遠跳建出的 `DiffLineView`：unified 2,686 → < 200；2 file 3,888 → < 200；開在 60000 時 2,733 → < 200。
+  - J4（使用者裁定：預算改以「同一 run 閒置後的對照幀 × 1.5」為準）：
+
+    | 模式 | 遠跳那一幀（ms） | 對照幀 | 預算 | 結果 |
+    |---|---|---|---|---|
+    | unified | 25.3–28.6 | 24.2 | 36.3 | PASS |
+    | 2 file | 38.2–50.0 | 43.3 | 64.9 | PASS |
+
+    修正前同一組：unified 1081 / 949 / 577 / 732 ms；2 file 2602 / 2269 / 1324 / 1618 ms。原本的預算「壓力 p90 × 1.5」連對照幀本身都通不過，因為停頓之後的第一幀本來就比連續捲動中的幀貴。
+  - mutation（有效的）：
+    - J1 5/5。
+    - J2 與 sliver 共 10 個，seed+300 為等價（payload 由端點幾何決定，與座標無關）。
+    - 6f3cec79 共 5 個：no-rebase 2、no-snap-zero 1、no-hold 2、keep-needs-last 1、rebase-ratio-1 0（判為等價，已移除 ratio）。
+    - 另外 2 個 mutation 寫錯：`if (true)` 讓 `sync` 失去 type promotion，編譯失敗，不計入。
+  - 全套 4370 綠、8 skip，analyzer 0。
+- **Verifier（HEAD 6f3cec79）：CONFIRMED**（recheck）
+  - 原 P2 之一，往回捲時 layout 次數用完：測了 12 組（unified 與 2 file × soft wrap／字高組合 × 滾輪／拖曳，每步 300 px），每組都先 jumpTo(9000) 再捲回頂端。全部沒有 exception，pixels 都回到 0，第 0 個 item 的 layoutOffset 都是 0，seedCount 1→1。
+  - 原 P2 之二，soft wrap 跳到結尾時沒到底：4 組的 short 都是 0.000，pixels 等於 maxScrollExtent；在結尾滾輪 -300 之後，hold 有放開。
+  - 全套 4370 綠、8 skip，analyzer 0。從 b193cd78 起，test 目錄的 diff 只有新增行，沒有刪除或改動。
+
+## Slice JC：conflict resolve 三欄接上播種（9c31883c、本節之後的 perf commit）
+
+- **Situation**：J0 量到 conflict resolve 遠跳那一幀 392–582 ms。原因是 `ListView(children:)` 一段 text 就是一個 item，遠跳時會把中間經過的每一段都完整 layout 一次。使用者裁定「做，接在 Slice J 之後」。
+- **Task**：三欄改用 `SeededSliverList`，`offsetOf` 取共用段頂 P(k)；既有 conflict 測試的期望值不改。
+- **Action**：
+  - `_seededColumn` 包成 `CustomScrollView`、`SliverPadding`、`SeededSliverList`，`SliverChildListDelegate` 的預設值（keep-alive、repaint boundary）都沒改。stop ②（keep-alive 的 item 被 collectGarbage 丟掉時出例外）沒有發生。
+  - 計數方式依 plan-verifier 第一輪的更正，數的是 `SyncSlotSpacer` 的首次 build。`SyncHeightReporter` 是 render-object widget，`debugOnRebuildDirtyWidget` 看不到它。
+- **Result**：
+  - widget 測試：5,000 行、20 個 region，遠跳到 75% / 10% / 50% / 0 時，三欄合計建出的段數修正前是 120 / 108 / 96 / 108（先紅），修正後每次都是 3。三欄對齊，捲動範圍在四次遠跳之間只差 2 px。
+  - mutation 3 run / 3 red：
+    - offsetOf 回傳 0：既有的對齊測試有 4 個紅。
+    - indexAt 回傳 0：新測試紅。
+    - offsetOf(段數) 不回傳 totalHeight：一開始存活，補上「捲動範圍不變」的斷言後紅。
+    - 第一版 offset-zero 寫錯了（`0 * k >= 1` 恆為 false，等於沒改程式），不計入。
+  - perf（macOS profile）：
+
+    | 量測 | build ms |
+    |---|---|
+    | 遠跳那一幀（JC 之前） | 392–582 |
+    | 遠跳那一幀（JC 之後） | 75% 54.8 · 10% 53.8 · 50% 54.6 · 0 25.6 |
+    | 壓力量測 p50 / p90 | 0.1 / 27.0 |
+    | 對照幀（閒置後跳 1/120） | 1.1 |
+
+  - **J4 的預算定義（對照 × 1.5）在 conflict 不成立**，觸發 stop ③。原因是一段 text 是一個 item、高好幾個 viewport：一步多半落在同一段裡，什麼都不建；跨進新的一段時，每欄建一段（p90）；遠跳要建落點那一段加上 cache 內的鄰段，所以約是跨段步的兩倍。使用者裁定「接受現況，記錄數字」。perf 檔只量測、不判定。要再降低，就得拆小 text segment 的粒度，這違反本 slice 的 Non-goal，而且要另外寫 plan。
+  - 全套 4372 綠、8 skip，analyzer 0。
+
+## G3（S／J／JC 之後，HEAD 4afda79b）
+
+- 全套：4376 綠、8 skip，analyzer 0，format 乾淨。
+- device 層 10 個檔逐一跑（macOS）：conflict_flow 1、full_file_stage_flow 7、merge_squash_flow 2、prepared_message_flow 5、stage_lines_flow 9、commit_flow 1、context_menu_flows 5、untracked_unstage_flow 1、working_copy_line_counts 1、sync_scroll_flow 3，全部綠。
+- sync_scroll_flow 第一次跑紅了 1 個，原因在斷言本身：`lead` 是 unstaged 欄的 live position，staged 成為 leader 之後它會跟著鏡射，等於拿 staged 和自己的鏡像比。之前會綠，靠的是 correction 留下的 drift；7b89960d 改成精確鏡射後兩者相等（1500 對 1500）。4afda79b 改成先記下滾輪之前的值。屬 [TEST-fixture-cannot-disagree] 第 8 型：斷言太弱。
+- 新增的 `Duration(` 只有 `_scrollToRegion` 的 200 ms 動畫時長，不是執行期門檻。
+- orphan wiring 雙向 grep：新符號在 `lib/` 都有呼叫端和讀取端。`seedCount` 只有測試會讀，是計數用的 seam（作法同 `jumpCount`）。
+- hover sweep：S、J、JC 都沒有新增 `InkWell`／`GestureDetector`。

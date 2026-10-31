@@ -983,6 +983,8 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
             : FileListViewMode.list;
         await ref.read(fileListViewModeProvider.notifier).setMode(newMode);
       },
+      GbmActionId.viewToggleFullFile: () =>
+          ref.read(appPreferencesProvider.notifier).toggleFullFileView(),
       GbmActionId.viewGraphColumns: () => _showGraphColumnsDialog(context),
       GbmActionId.viewCommitDetail: () =>
           ref.read(chromeVisibilityProvider.notifier).toggleCommitDetail(),

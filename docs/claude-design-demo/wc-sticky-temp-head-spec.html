@@ -1,0 +1,279 @@
+<title>一次性 Head 置頂</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: one reading column; three specimens side by side, stacked at phone width.
+   PAGE-CHROME TOKENS (--pg-*) only style this page, never a specimen. */
+:root {
+  --pg-bg:#f6f7f9; --pg-fg:#1b2027; --pg-muted:#5a6573; --pg-rule:#d9dee4; --pg-panel:#ffffff; --pg-accent:#2f6fd0;
+  --pg-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+  --pg-mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --pg-bg:#11151a; --pg-fg:#e3e8ee; --pg-muted:#98a2ae; --pg-rule:#2a313a; --pg-panel:#181d23; --pg-accent:#6ea2ef; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --pg-bg:#11151a; --pg-fg:#e3e8ee; --pg-muted:#98a2ae; --pg-rule:#2a313a; --pg-panel:#181d23; --pg-accent:#6ea2ef; color-scheme: dark }
+body { background: var(--pg-bg); color: var(--pg-fg); font-family: var(--pg-sans); line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 32px 64px; }
+main { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 1.6rem; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.1rem; margin: 0 0 12px; text-wrap: balance; }
+p, li { max-width: 68ch; }
+.lede { color: var(--pg-muted); margin: 6px 0 0; }
+code { font-family: var(--pg-mono); font-size: .9em; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--pg-rule); border-radius: 6px; background: var(--pg-panel); }
+table { border-collapse: collapse; width: 100%; font-size: .875rem; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--pg-rule); vertical-align: top; }
+th { color: var(--pg-muted); font-weight: 600; font-size: .78rem; letter-spacing: .04em; text-transform: uppercase; }
+tr:last-child td { border-bottom: 0; }
+.tag { font-family: var(--pg-mono); font-size: .75rem; color: var(--pg-accent); }
+.themes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.themebtn { font: inherit; font-size: .8rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--pg-rule); background: var(--pg-panel); color: var(--pg-fg); cursor: pointer; }
+.themebtn[aria-pressed="true"] { border-color: var(--pg-accent); color: var(--pg-accent); }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+.specimens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 860px) { .specimens { grid-template-columns: minmax(0, 1fr); } }
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+figcaption { font-size: .85rem; color: var(--pg-muted); }
+figcaption b { color: var(--pg-fg); }
+
+/* ============================================================
+   MOCKUP TOKENS (--gbm-*) — verbatim from app_flutter/lib/theme/tokens.dart's
+   three GbmColors constants. Defined on .stage ONLY.
+   ============================================================ */
+.stage {
+  --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1;
+  --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#c97a17;
+  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37;
+  font-family: "Inter", var(--pg-sans);                  /* [APP] fontUi 'Inter' (tokens.dart), page fallback */
+  line-height: normal;                                   /* [GLUE] undo the page's 1.6 inside specimens */
+}
+.stage *, .stage *::before, .stage *::after { box-sizing: border-box; } /* [KIT] *{box-sizing:border-box} */
+.stage[data-app-theme="dark-technical"] {
+  --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d;
+  --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#0d2a4d; --gbm-warning:#d29922;
+  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8;
+}
+.stage[data-app-theme="light-ide"] {
+  --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4;
+  --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-warning:#9a6700;
+  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329;
+}
+
+/* The ScopedDiffView itself: the Stack the ruler and the sticky head sit in.
+   Its origin is the view edge, outside the frame's 8px margin. */
+.gbm-view { position: relative; overflow: hidden;       /* [GLUE] a clipping viewport */
+  height: 236px;                                         /* [INF-1] illustrative */
+  background: var(--gbm-surface-panel); }                /* [INF-1] pane ground behind the frame, illustrative */
+.gbm-content { position: absolute; left: 0; right: 0; }  /* [GLUE] scrolled by an inline top: [INF-1] */
+/* _FrameSegment: margin 8 + border 1 + padding 8 (right padding 8 + 14 with ruler). */
+.gbm-frame { margin: 0 8px;                              /* [APP] outer Padding space2 */
+  background: var(--gbm-surface-sunken);                 /* [APP] surfaceSunken */
+  border: 1px solid var(--gbm-border-subtle);            /* [APP] Border.all(borderSubtle) */
+  border-bottom: 0; border-radius: 6px 6px 0 0;          /* [APP] radiusMd; first segment only */
+  padding: 8px 22px 0 8px; }                             /* [APP] space2; right space2 + _kRulerGutter 14 */
+.gbm-frame.scrolled { border-top: 0; border-radius: 0; padding-top: 0; } /* [APP] a middle segment: sides only */
+.scope-card { margin: 8px 0;                             /* [APP] margin vertical space2 */
+  background: var(--gbm-surface-panel);                  /* [APP] surfacePanel */
+  border: 1px solid var(--gbm-border-default);           /* [APP] ring, not hovered: borderDefault */
+  border-left: 3px solid var(--gbm-accent);              /* [APP] unstaged left edge, width 3 */
+  border-radius: 6px; overflow: hidden;                  /* [APP] radiusMd, Clip.antiAlias */
+  box-shadow: 0 1px 2px rgba(0,0,0,.08); }               /* [APP] GbmEffects.shadowSm (0.4 alpha in dark: not themed here, INF-1) */
+.card-head { font-size: 11px; font-weight: 700; color: var(--gbm-text-secondary); /* [APP] _CardHead textXs bold */
+  padding: 3px 8px;                                      /* [APP] space2 / 3 */
+  background: var(--gbm-surface-panel-raised);           /* [APP] surfacePanelRaised */
+  border-bottom: 1px solid var(--gbm-border-default); }  /* [APP] BorderSide(borderDefault) */
+.diff-line { display: flex; font-family: "JetBrains Mono", var(--pg-mono); /* [APP] fontMono 'JetBrains Mono' */
+  font-size: 12.5px; line-height: 1.6;                   /* [APP] kDiffCodeTextStyle textSm, height 1.6 */
+  padding: 1px 10px; color: var(--gbm-text-secondary);  /* [APP] top/bottom 1, kDiffLinePaddingX 10; context textSecondary */
+  white-space: pre; }                                    /* [INF-1] specimens drawn with soft wrap off */
+.diff-line.add { background: var(--gbm-diff-add-bg); color: var(--gbm-diff-add-text); } /* [APP] diffAddBg / diffAddText */
+.diff-line .ln { width: 36px; flex: none; text-align: right; /* [APP] two width 36 columns, TextAlign.right */
+  font-size: 11px; color: var(--gbm-text-tertiary); }    /* [APP] textXs, textTertiary */
+.diff-line .mk { width: 14px; flex: none; }            /* [APP] width 14 marker column, start-aligned */
+
+/* _TemporaryBlock — unchanged. The dashed outline is painted over the child
+   (foreground), so it takes no layout; the 4px margin sits inside it. */
+.temp-block { outline: 1px dashed var(--gbm-accent); outline-offset: -1px; /* [STUDIES] .variant-B-temp 1px dashed --accent; [APP] foregroundPainter, no layout */
+  border-radius: 4px; }                                  /* [APP] radiusSm */
+.temp-inner { margin: 4px 0;                             /* [APP] margin vertical space1, inside the outline */
+  border-radius: 4px; overflow: hidden; }                /* [APP] Clip.antiAlias, radiusSm */
+.temp-head { background: var(--gbm-accent-subtle);       /* [APP] accentSubtle */
+  padding: 3px 8px;                                      /* [APP] space2 / 3 */
+  border-bottom: 1px dashed var(--gbm-accent);           /* [STUDIES] .variant-B-temphead border-bottom 1px dashed --accent */
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; /* [APP] Wrap spaceBetween, center */
+  gap: 4px 8px; }                                        /* [APP] runSpacing 4, spacing space2 */
+.temp-title { display: flex; align-items: center; gap: 8px; /* [APP] SizedBox(width: space2) */
+  min-width: 0; }                                        /* [GLUE] Flexible */
+.temp-label { font-size: 11px; font-weight: 700; color: var(--gbm-text-secondary); } /* [APP] textXs bold textSecondary; wraps */
+.once-pill { font-size: 11px; font-weight: 600;          /* [APP] textXs, weightSemibold */
+  color: var(--gbm-warning); border: 1px solid var(--gbm-warning); /* [STUDIES] .variant-B-once; [APP] transparent ground */
+  padding: 0 8px; border-radius: 999px; white-space: nowrap; } /* [APP] GbmOutlinedPill space2 / 0, radiusFull, softWrap false */
+.gbm-btn-sm { height: 24px; padding: 0 8px; font-size: 11px; font-weight: 500; /* [KIT] .gbm-btn-sm; .gbm-btn weight-medium */
+  border-radius: 6px; border: 1px solid transparent;     /* [KIT] .gbm-btn r6, 1px solid transparent */
+  font-family: "Inter", var(--pg-sans);                  /* [KIT] --font-ui */
+  background: var(--gbm-accent); color: var(--gbm-text-on-accent); } /* [KIT] .gbm-btn-primary */
+
+/* NEW: the sticky copy, in the view's Stack beside the ruler. */
+.temp-head-sticky { position: absolute; top: 0;          /* [INF-2] viewport top */
+  left: 20px; right: 32px;                               /* [INF-3] 8+9+3 left; 8+9+14+1 right (18 in excerpt mode) */
+  border-left: 1px dashed var(--gbm-accent);             /* [INF-4] the block's dashed sides, cut at the top; */
+  border-right: 1px dashed var(--gbm-accent);            /*   the bottom is .temp-head's own dashed line */
+  border-radius: 0 0 4px 4px; }                          /* [INF-4] radiusSm, bottom corners only */
+.ruler { position: absolute; top: 17px; bottom: 17px; right: 13px; width: 10px; /* [APP] _kRulerVertical 17, _kRulerRight 13, _kRulerWidth 10 */
+  background: var(--gbm-surface-sunken); border-radius: 999px; } /* [PRIOR] track surface-sunken r999 */
+</style>
+
+<main>
+  <header>
+    <h1>一次性 block 的 head 置頂</h1>
+    <p class="lede">長距離拖曳之後，一次性 block 的上緣和它的 Stage／Unstage 按鈕常常已經捲出畫面，所在的卡片甚至沒被建出。依你的裁定改用 sticky head：block 還在畫面上時，head 黏在 viewport 頂端。</p>
+  </header>
+
+  <section>
+    <h2>什麼時候出現</h2>
+    <ul>
+      <li><b>出現</b>：一次性 block 的 head 上緣在 viewport 上緣之上（已捲出，或所在的 item 沒被建出），而 block 最後一列的下緣仍在 viewport 上緣之下。</li>
+      <li><b>不出現</b>：真正的 head 在畫面內，所以畫面上永遠只有一顆按鈕；block 整個捲出畫面；拖曳中（block 本來就在放開後才出現）。</li>
+      <li><b>兩種模式都有</b>：片段與全檔都有；<code>2 file</code> 每側各自判斷。片段模式沒有 ruler，右緣是 18 而不是 32。目前只有全檔模式的 view 有 Stack（放 ruler），片段模式要在出現 sticky head 時也包一層 Stack。</li>
+      <li><b>按下</b>：與 block 內的按鈕是同一個 callback（<code>_submitTemporary</code>），payload 不變。</li>
+      <li><b>使用者裁定（2026-10-25）</b>：「可以照著實作，但是 跨 2 個 hunk 這文字不需要顯示出來」；追問後裁定「兩處都拿掉」，block 內的 head 與置頂版都只寫「臨時選取」。INF-5「不加」陰影。對比度：「開issue,說明影響範圍」，見 #200。</li>
+      <li><b>沿用與新增</b>：head 的內容（底色、padding、label、pill、按鈕）沿用 block 內的 head；外圍的虛線外框是新加的（INF-4）。block、卡片本身的畫法都不變。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>三個樣本（全檔模式，有 ruler）</h2>
+    <div class="themes" role="group" aria-label="配色">
+      <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="true">neutral-professional</button>
+      <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="false">dark-technical</button>
+      <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+    </div>
+    <div class="stage" id="stage" data-app-theme="neutral-professional">
+      <div class="specimens">
+        <figure>
+          <div class="gbm-view">
+            <div class="gbm-content" style="top:8px">
+              <div class="gbm-frame">
+                <div class="scope-card">
+                  <div class="card-head">變更 1</div>
+                  <div class="diff-line add"><span class="ln"></span><span class="ln">40</span><span class="mk">+</span>a</div>
+                  <div class="temp-block"><div class="temp-inner">
+                    <div class="temp-head"><span class="temp-title"><span class="temp-label">臨時選取</span><span class="once-pill">一次性</span></span><button class="gbm-btn-sm" type="button">Stage 4 lines</button></div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">41</span><span class="mk">+</span>b</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">42</span><span class="mk">+</span>c</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">43</span><span class="mk">+</span>d</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">44</span><span class="mk">+</span>e</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+            <div class="ruler"></div>
+          </div>
+          <figcaption><b>A · head 在畫面內</b>：照舊，不顯示置頂的 head。</figcaption>
+        </figure>
+        <figure>
+          <div class="gbm-view">
+            <div class="gbm-content" style="top:-40px">
+              <div class="gbm-frame scrolled">
+                <div class="scope-card">
+                  <div class="card-head">變更 1</div>
+                  <div class="temp-block"><div class="temp-inner">
+                    <div class="temp-head"><span class="temp-title"><span class="temp-label">臨時選取</span><span class="once-pill">一次性</span></span><button class="gbm-btn-sm" type="button">Stage 26 lines</button></div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">61</span><span class="mk">+</span>r</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">62</span><span class="mk">+</span>s</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">63</span><span class="mk">+</span>t</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">64</span><span class="mk">+</span>u</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">65</span><span class="mk">+</span>v</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">66</span><span class="mk">+</span>w</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">67</span><span class="mk">+</span>x</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">68</span><span class="mk">+</span>y</div>
+                    <div class="diff-line add"><span class="ln"></span><span class="ln">69</span><span class="mk">+</span>z</div>
+                  </div></div>
+                </div>
+              </div>
+            </div>
+            <div class="temp-head temp-head-sticky"><span class="temp-title"><span class="temp-label">臨時選取</span><span class="once-pill">一次性</span></span><button class="gbm-btn-sm" type="button">Stage 26 lines</button></div>
+            <div class="ruler"></div>
+          </div>
+          <figcaption><b>B · head 捲出上緣，block 還在</b>：head 黏在 viewport 頂端，蓋住底下的列。</figcaption>
+        </figure>
+        <figure>
+          <div class="gbm-view">
+            <div class="gbm-content" style="top:-8px">
+              <div class="gbm-frame scrolled">
+                <div class="scope-card">
+                  <div class="card-head">變更 3</div>
+                  <div class="diff-line add"><span class="ln"></span><span class="ln">90</span><span class="mk">+</span>g</div>
+                  <div class="diff-line add"><span class="ln"></span><span class="ln">91</span><span class="mk">+</span>h</div>
+                  <div class="diff-line add"><span class="ln"></span><span class="ln">92</span><span class="mk">+</span>i</div>
+                  <div class="diff-line add"><span class="ln"></span><span class="ln">93</span><span class="mk">+</span>j</div>
+                </div>
+              </div>
+            </div>
+            <div class="ruler"></div>
+          </div>
+          <figcaption><b>C · block 整個在上方</b>：不顯示。</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>每個值的出處</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>元件</th><th>值</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>置頂 head 內容</td><td>accentSubtle 底、padding 8／3、label textXs bold textSecondary（可換行）、一次性 pill、sm 按鈕、下緣 1px dashed accent</td><td><span class="tag">[APP]</span> <code>_TemporaryBlock</code>；<span class="tag">[STUDIES]</span> <code>.variant-B-temphead</code></td></tr>
+        <tr><td>一次性 pill</td><td>warning 外框與字、透明底、padding 0／8、r999、不換行</td><td><span class="tag">[STUDIES]</span> <code>.variant-B-once</code>；<span class="tag">[APP]</span> <code>GbmOutlinedPill</code></td></tr>
+        <tr><td>按鈕</td><td>h24、padding 0／8、11px w500、r6；unstaged primary，staged secondary + borderStrong</td><td><span class="tag">[KIT]</span> <code>.gbm-btn-sm</code>；<span class="tag">[APP]</span> <code>GbmButton</code></td></tr>
+        <tr><td>按鈕文字</td><td><code>Stage N lines</code>／<code>Unstage N lines</code>，可加 <code>(M changed)</code></td><td><span class="tag">[APP]</span> <code>scopeButtonLabel</code></td></tr>
+        <tr><td>ruler</td><td>距 view 上下 17、右 13、寬 10（= well 內距上下 8、右 4）</td><td><span class="tag">[APP]</span> <code>_kRulerVertical</code>、<code>_kRulerRight</code>、<code>_kRulerWidth</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>用猜的部分（需要你裁定）</h2>
+    <div class="tablewrap"><table>
+      <thead><tr><th>#</th><th>猜的值</th><th>理由</th></tr></thead>
+      <tbody>
+        <tr><td>INF-1</td><td>樣本的高度、捲動位置、pane 底色、列內容、卡片 head 省略的 badge 與按鈕</td><td>只是示意；實作沿用既有元件，不改。</td></tr>
+        <tr><td>INF-2</td><td>貼在 viewport 頂端（top 0）</td><td>外框是每個 item 各畫一段，捲動後最上面就是列本身，沒有留白。</td></tr>
+        <tr><td>INF-3</td><td>水平範圍對齊 block：左 20（8+9+3），右 32（8+9+14+1），片段模式右 18；<s><b>不跟著橫向捲動</b></s> <b>更正（2026-10-25，使用者裁定「對齊 block 實際位置」）</b>：內容比畫面寬時，左右取 block 在畫面上的實際位置與 view 的交集，跟著橫向捲動；block 邊緣在畫面外的一側不畫虛線與圓角。置頂版放在 ruler 之下。<b>補充（2026-10-25，使用者裁定「右緣留出捲軸的寬度」）</b>：右側最多延伸到 view 右緣往內 10（Flutter 桌面版 Material <code>Scrollbar</code> 預設 thickness 8 + crossAxisMargin 2，<code>GbmCodeHScroll</code> 未設主題；出處是 SDK，不是 spec）；block 右緣落在這 10 之內時，視同在畫面外。</td><td><s>真正的 head 在橫向捲動的內容裡，會跟著捲走；置頂版放在 view 的 Stack（和 ruler 同層），按鈕永遠看得到。</s> 固定 20／18 時，真正的 head 隨內容延伸並橫向捲動，置頂版左右會露出一條真正的 head（像素取樣證實）。對齊之後剛好蓋住它；label 與按鈕仍在可見範圍內。延伸到右緣時會蓋住垂直捲軸 thumb 的上段約 31px，也會攔下拖曳 thumb 的手勢，所以右側讓出捲軸的寬度。</td></tr>
+        <tr><td>INF-4</td><td>左右畫 1px dashed accent，下方沿用 head 本身的虛線，下方圓角 r4，上方不畫。左右邊框佔 1px，所以內容比 block 內的 head 內縮 1px</td><td>看起來是 block 的虛線外框被 viewport 上緣截斷。</td></tr>
+        <tr><td>INF-5</td><td>不加陰影</td><td>卡片有 <code>shadowSm</code>（hover 時 <code>shadowMd</code>），但 spec 沒有替「蓋在列上方的浮起 head」定陰影；accentSubtle 的實心底已經擋住底下的列。要加的話，沿用 shadowSm 最接近。</td></tr>
+        <tr><td>INF-6</td><td>樣本 C 不提供任何指引</td><td>ruler 目前不標一次性 block；要標的話是另一個設計。</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>Audit 結果</h2>
+    <ul>
+      <li>結構檢查：0 個不成對、0 個未關閉的標籤。</li>
+      <li>Token 涵蓋：三組色盤沒有用了卻沒定義的 token，也沒有定義了沒用的。所有 hex 都與 <code>tokens.dart</code> 相同。</li>
+      <li>對比度低於 4.5（照實回報，沒有改；兩者都是 block 內既有 head 本來就有的值）：一次性 pill 在 accentSubtle 底上，neutral 2.95、light-ide 4.29、dark 5.72；primary 按鈕白字在 accent 底上，三組都是 3.75。</li>
+      <li>spec-auditor 第二輪（複審）：150 個值中 126 個符合、2 個不符（marker 對齊、按鈕高度少了 box-sizing）、2 個無出處，另有 2 處文字與 CSS 矛盾（sticky 上緣、陰影的說法）；本版全部改正。INF-3 的 20／32／18 與 ruler 的 17／13／10 經複審確認正確。</li>
+      <li>spec-auditor 第一輪：15 個不符、5 個無出處。最嚴重的是 INF-3 少算了 well 外側的 8px（原本寫左 12／右 24），本版已改正。其餘不符也已照 app 改正：卡片外環、卡片 head、行號欄、虛線外框不佔版面、label 可換行、按鈕的透明外框與字型。</li>
+    </ul>
+  </section>
+</main>
+
+<script>
+(function () {
+  var stage = document.getElementById('stage');
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      stage.setAttribute('data-app-theme', b.getAttribute('data-theme-btn'));
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', o === b ? 'true' : 'false'); });
+    });
+  });
+})();
+</script>

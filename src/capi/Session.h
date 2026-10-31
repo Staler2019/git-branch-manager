@@ -197,6 +197,9 @@ public:
     /// Async: see gbm_working_copy_diff()'s doc comment in gbm_capi.h.
     void requestWorkingCopyDiff(std::string path, bool staged);
 
+    /// Async: see gbm_working_copy_full_diff()'s doc comment in gbm_capi.h.
+    void requestWorkingCopyFullDiff(std::string path, bool staged);
+
     /// Async: see gbm_stage_files()/gbm_unstage_files()'s doc comments.
     void stageFiles(std::vector<std::string> paths);
     void unstageFiles(std::vector<std::string> paths);
@@ -526,6 +529,14 @@ public:
 
 private:
     Session(GitInstallation installation, RepoPaths paths, std::unique_ptr<IProcessRunner> runner);
+
+    /// One path's work-tree (staged=false) or index diff under `options`,
+    /// emitted as {path, staged, diff} on `eventType`. The body both
+    /// requestWorkingCopyDiff() and requestWorkingCopyFullDiff() post.
+    void emitWorkingCopyDiff(const std::string& path,
+                             bool staged,
+                             const DiffOptions& options,
+                             int32_t eventType);
 
     /// Publishes a chunk of the walk that `generation` dispatched, dropping
     /// it if a newer dispatch has already superseded that one. See

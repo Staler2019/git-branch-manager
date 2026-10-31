@@ -37,6 +37,21 @@ repoWorkingCopyDiffsProvider =
       );
     });
 
+/// Every full-context diff fetched for the full-file view, keyed by
+/// [workingCopyDiffKey] -- the same keys as [repoWorkingCopyDiffsProvider],
+/// so a side's two replies are found together.
+final ProviderFamily<Map<String, WorkingCopyDiffReply>, RepoIdentity>
+repoWorkingCopyFullDiffsProvider =
+    Provider.family<Map<String, WorkingCopyDiffReply>, RepoIdentity>((
+      ref,
+      identity,
+    ) {
+      return ref.watch(
+        repoSessionProvider(identity)
+            .select((state) => state.workingCopyFullDiffs),
+      );
+    });
+
 void refreshWorkingCopy(WidgetRef ref, RepoIdentity identity) {
   ref.read(repoSessionProvider(identity).notifier).refreshWorkingCopy();
 }
@@ -50,6 +65,31 @@ void requestWorkingCopyDiff(
   ref
       .read(repoSessionProvider(identity).notifier)
       .requestDiff(path, staged: staged);
+}
+
+/// [requestWorkingCopyDiff] with unlimited context, for the full-file view.
+void requestWorkingCopyFullDiff(
+  WidgetRef ref,
+  RepoIdentity identity,
+  String path, {
+  bool staged = false,
+}) {
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .requestFullDiff(path, staged: staged);
+}
+
+/// [RepoSessionController.refetchDisagreeingDiffs], for a side whose two
+/// diffs disagree.
+void refetchDisagreeingWorkingCopyDiffs(
+  WidgetRef ref,
+  RepoIdentity identity,
+  String path, {
+  required bool staged,
+}) {
+  ref
+      .read(repoSessionProvider(identity).notifier)
+      .refetchDisagreeingDiffs(path, staged: staged);
 }
 
 void stageFiles(WidgetRef ref, RepoIdentity identity, List<String> paths) {

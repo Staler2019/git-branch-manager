@@ -38,6 +38,7 @@ void main() {
                 contentWidth: contentWidth,
                 verticalController: verticalFor(tester),
                 backdrop: const Color(0xFF101010),
+                codeClipWidth: null,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -131,6 +132,7 @@ void main() {
                 contentWidth: 1000,
                 verticalController: verticalFor(tester),
                 backdrop: const Color(0xFF101010),
+                codeClipWidth: null,
                 child: const GbmPinnedGutterClip(
                   gutterWidth: gutterWidth,
                   child: Padding(
@@ -191,5 +193,77 @@ void main() {
     await tester.pump();
 
     expect(tester.getRect(find.byKey(codeKey)).left, codeBefore);
+  });
+
+  // Slice W, WB1/WC3: rows cut their code at the clip width the scroller
+  // hands down -- including rows under a GbmPinnedGutterBackdrop, which
+  // rebuilds the scope and would otherwise drop it.
+  group('codeClipWidth', () {
+    Widget host(double? clip, Widget child) => MaterialApp(
+      home: Scaffold(
+        body: SizedBox(
+          width: viewportWidth,
+          height: 200,
+          child: GbmCodeHScroll(
+            contentWidth: 100,
+            verticalController: ScrollController(),
+            backdrop: const Color(0xFF101010),
+            codeClipWidth: clip,
+            child: child,
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('reaches rows, and rows under a backdrop override', (
+      WidgetTester tester,
+    ) async {
+      double? direct;
+      double? underBackdrop;
+      await tester.pumpWidget(
+        host(
+          120,
+          Column(
+            children: <Widget>[
+              Builder(
+                builder: (BuildContext c) {
+                  direct = GbmCodeHScroll.maybeCodeClipWidthOf(c);
+                  return const SizedBox(height: 1);
+                },
+              ),
+              GbmPinnedGutterBackdrop(
+                color: const Color(0xFF303030),
+                child: Builder(
+                  builder: (BuildContext c) {
+                    underBackdrop = GbmCodeHScroll.maybeCodeClipWidthOf(c);
+                    return const SizedBox(height: 1);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      expect(direct, 120);
+      expect(underBackdrop, 120);
+    });
+
+    testWidgets('a changed clip width rebuilds the rows that read it', (
+      WidgetTester tester,
+    ) async {
+      final List<double?> seen = <double?>[];
+      Widget reader() => Builder(
+        builder: (BuildContext c) {
+          seen.add(GbmCodeHScroll.maybeCodeClipWidthOf(c));
+          return const SizedBox(height: 1);
+        },
+      );
+      // The same child instance both times, so only the scope's
+      // notification can make it build again.
+      final Widget child = reader();
+      await tester.pumpWidget(host(200, child));
+      await tester.pumpWidget(host(50, child));
+      expect(seen, <double?>[200, 50]);
+    });
   });
 }

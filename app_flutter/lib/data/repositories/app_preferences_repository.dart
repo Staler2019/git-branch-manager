@@ -44,6 +44,8 @@ class AppPreferences {
     this.skippedVersion = '',
     // Ruling: off by default -- `docs/records/2026-10-04-soft-wrap-off-by-default.md`
     this.softWrapEnabled = false,
+    this.maxCodeLineChars = 200,
+    this.fullFileViewEnabled = false,
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
     this.tieredRefresh = true,
@@ -122,6 +124,21 @@ class AppPreferences {
   /// with the line-number gutter pinned at the left edge.
   final bool softWrapEnabled;
 
+  /// Appearance → 程式碼. With [softWrapEnabled] off, every code view draws
+  /// at most this many CJK character widths per column, in its own code
+  /// style, and ends a longer line with an ellipsis. Not from the spec -- the
+  /// user's ruling 「最長200字中文」「是上限」, designed in
+  /// `docs/claude-design-demo/code-line-width-cap-spec.html`.
+  final int maxCodeLineChars;
+
+  /// Working Copy diff: draw the whole file around the -U3 cards rather
+  /// than the cards alone, in both `2 file` and `unified`. Not from the
+  /// spec -- a user-requested addition like [softWrapEnabled], designed in
+  /// `docs/claude-design-demo/wc-full-file-view-spec.html`; global and
+  /// remembered by the user's ruling (「記住，全域偏好」). Off by default, so
+  /// the diff opens the way it always has.
+  final bool fullFileViewEnabled;
+
   /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
   /// seventh the user asked for to A/B the three flags below on real
   /// hardware. See `docs/records/2026-10-04-soft-wrap-off-by-default.md` for the precedent of a
@@ -187,6 +204,8 @@ class AppPreferences {
     bool? autoUpdateCheckEnabled,
     String? skippedVersion,
     bool? softWrapEnabled,
+    int? maxCodeLineChars,
+    bool? fullFileViewEnabled,
     bool? showRefreshTimings,
     bool? keepDiffDuringRefresh,
     bool? tieredRefresh,
@@ -209,6 +228,8 @@ class AppPreferences {
           autoUpdateCheckEnabled ?? this.autoUpdateCheckEnabled,
       skippedVersion: skippedVersion ?? this.skippedVersion,
       softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
+      maxCodeLineChars: maxCodeLineChars ?? this.maxCodeLineChars,
+      fullFileViewEnabled: fullFileViewEnabled ?? this.fullFileViewEnabled,
       showRefreshTimings: showRefreshTimings ?? this.showRefreshTimings,
       keepDiffDuringRefresh:
           keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
@@ -306,6 +327,12 @@ class AppPreferencesRepository {
       softWrapEnabled:
           _prefs.getBool('${_kPrefix}softWrapEnabled') ??
           defaults.softWrapEnabled,
+      maxCodeLineChars:
+          _prefs.getInt('${_kPrefix}maxCodeLineChars') ??
+          defaults.maxCodeLineChars,
+      fullFileViewEnabled:
+          _prefs.getBool('${_kPrefix}fullFileViewEnabled') ??
+          defaults.fullFileViewEnabled,
       showRefreshTimings:
           _prefs.getBool('${_kPrefix}showRefreshTimings') ??
           defaults.showRefreshTimings,
@@ -347,6 +374,11 @@ class AppPreferencesRepository {
     );
     await _prefs.setString('${_kPrefix}skippedVersion', p.skippedVersion);
     await _prefs.setBool('${_kPrefix}softWrapEnabled', p.softWrapEnabled);
+    await _prefs.setInt('${_kPrefix}maxCodeLineChars', p.maxCodeLineChars);
+    await _prefs.setBool(
+      '${_kPrefix}fullFileViewEnabled',
+      p.fullFileViewEnabled,
+    );
     await _prefs.setBool('${_kPrefix}showRefreshTimings', p.showRefreshTimings);
     await _prefs.setBool(
       '${_kPrefix}keepDiffDuringRefresh',
@@ -390,6 +422,13 @@ class AppPreferencesNotifier extends StateNotifier<AppPreferences> {
     state = mutate(state);
     await _repo.write(state);
   }
+
+  /// Flips [AppPreferences.fullFileViewEnabled]: the one toggle View → Full
+  /// file and the diff pane's titlebar button both call.
+  Future<void> toggleFullFileView() => update(
+    (AppPreferences p) =>
+        p.copyWith(fullFileViewEnabled: !p.fullFileViewEnabled),
+  );
 }
 
 final StateNotifierProvider<AppPreferencesNotifier, AppPreferences>

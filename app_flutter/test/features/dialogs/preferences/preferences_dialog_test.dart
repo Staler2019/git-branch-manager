@@ -208,6 +208,54 @@ void main() {
     });
   });
 
+  // code-line-width-cap-spec.html screen 1, ruled 「c, ok」 2026-10-25.
+  group('PreferencesDialogContent - Appearance, line width cap', () {
+    Finder field() => find.byKey(const Key('maxCodeLineCharsField'));
+
+    testWidgets('sits under soft wrap with its label, suffix and hint', (
+      tester,
+    ) async {
+      await _pump(tester, section: 'Appearance');
+
+      expect(find.text('每行最多顯示'), findsOneWidget);
+      expect(find.text('字'), findsOneWidget);
+      expect(find.text('以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。'), findsOneWidget);
+      expect(
+        tester.getTopLeft(find.text('每行最多顯示')).dy,
+        greaterThan(tester.getBottomLeft(find.text('長行自動換行')).dy),
+      );
+      expect(tester.widget<TextField>(field()).controller!.text, '200');
+    });
+
+    testWidgets('a stored value is what the field shows', (tester) async {
+      await _pump(
+        tester,
+        section: 'Appearance',
+        initialPrefs: <String, Object>{'appPrefs.maxCodeLineChars': 80},
+      );
+      expect(tester.widget<TextField>(field()).controller!.text, '80');
+    });
+
+    testWidgets('a positive number is written, anything else is not', (
+      tester,
+    ) async {
+      final result = await _pump(tester, section: 'Appearance');
+      int stored() =>
+          result.container.read(appPreferencesProvider).maxCodeLineChars;
+
+      await tester.ensureVisible(field());
+      await tester.enterText(field(), '50');
+      await tester.pump();
+      expect(stored(), 50);
+
+      for (final String text in <String>['', '0', '-3', 'abc']) {
+        await tester.enterText(field(), text);
+        await tester.pump();
+        expect(stored(), 50, reason: '"$text" must not be written');
+      }
+    });
+  });
+
   // 「拖拉四段＋右側自由輸入倍率」: four stops on a slider, any whole
   // multiplier in the field. No seconds are shown anywhere.
   group('PreferencesDialogContent - Advanced, git timeout multiplier', () {

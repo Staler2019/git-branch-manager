@@ -1,0 +1,528 @@
+<title>Full File View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>
+
+/* ============================================================
+   PAGE CHROME TOKENS  (--pg-*)
+   Namespaced away from the mockup tokens (--gbm-*) so the
+   document's cascade can never bleed into the specimens.
+   Skeleton reused verbatim from worktree-dialogs-spec.html —
+   the sibling page in this folder — rather than re-derived.
+   ============================================================ */
+:root {
+  --pg-ground:      #f4f5f7;
+  --pg-surface:     #ffffff;
+  --pg-sunken:      #eceef1;
+  --pg-line:        #dcdfe4;
+  --pg-line-strong: #c3cad1;
+  --pg-ink:         #14181d;
+  --pg-ink-2:       #4f5966;
+  --pg-ink-3:       #6b7684;
+  --pg-accent:      #1857b8;
+  --pg-good:        #137a3f;
+  --pg-bad:         #b32c2c;
+  --pg-warn:        #a2620f;
+  --pg-shadow:      0 1px 2px rgba(11,13,16,.06), 0 8px 24px rgba(11,13,16,.07);
+
+  --step--1: .8125rem;
+  --step-0:  .9375rem;
+  --step-1:  1.125rem;
+  --step-2:  1.5rem;
+  --step-3:  2rem;
+  --step-4:  2.75rem;
+
+  --measure: 68ch;
+  --rail: 1px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pg-ground:      #0b0e12;
+    --pg-surface:     #12161c;
+    --pg-sunken:      #0e1116;
+    --pg-line:        #232a33;
+    --pg-line-strong: #333c47;
+    --pg-ink:         #e7edf4;
+    --pg-ink-2:       #9aa4b1;
+    --pg-ink-3:       #6f7885;
+    --pg-accent:      #6fa8ff;
+    --pg-good:        #3fb950;
+    --pg-bad:         #ff6a63;
+    --pg-warn:        #d29922;
+    --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+}
+:root[data-theme="dark"] {
+  --pg-ground:      #0b0e12;
+  --pg-surface:     #12161c;
+  --pg-sunken:      #0e1116;
+  --pg-line:        #232a33;
+  --pg-line-strong: #333c47;
+  --pg-ink:         #e7edf4;
+  --pg-ink-2:       #9aa4b1;
+  --pg-ink-3:       #6f7885;
+  --pg-accent:      #6fa8ff;
+  --pg-good:        #3fb950;
+  --pg-bad:         #ff6a63;
+  --pg-warn:        #d29922;
+  --pg-shadow:      0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  background: var(--pg-ground);
+  color: var(--pg-ink);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--step-0);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 3rem) 6rem; }
+
+/* ---------- masthead ---------- */
+.masthead {
+  display: flex; flex-direction: column; gap: 1rem;
+  padding: clamp(2.5rem, 6vw, 4.5rem) 0 2rem;
+  border-bottom: var(--rail) solid var(--pg-line);
+}
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; font-weight: 500;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--pg-ink-3);
+  display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; align-items: center;
+}
+h1 {
+  font-size: var(--step-4); font-weight: 700; line-height: 1.08;
+  letter-spacing: -.022em; text-wrap: balance; margin: 0;
+}
+.standfirst {
+  font-size: var(--step-1); line-height: 1.5; color: var(--pg-ink-2);
+  max-width: var(--measure); text-wrap: pretty;
+}
+.status-row { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .25rem; }
+.pill {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .04em;
+  padding: .3rem .6rem; border-radius: 3px;
+  border: var(--rail) solid var(--pg-line-strong);
+  color: var(--pg-ink-2); background: var(--pg-surface);
+  white-space: nowrap;
+}
+.pill.is-ratified { border-color: var(--pg-good); color: var(--pg-good); }
+.pill.is-open     { border-color: var(--pg-warn); color: var(--pg-warn); }
+.pill.is-done     { border-color: var(--pg-good); color: var(--pg-good); }
+
+/* ---------- sections ---------- */
+section { padding-top: 3.5rem; }
+.sec-head { display: flex; align-items: baseline; gap: .875rem; margin-bottom: .5rem; }
+.sec-num {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .75rem; font-weight: 700; color: var(--pg-accent);
+  letter-spacing: .04em; padding-top: .35em;
+}
+h2 { font-size: var(--step-2); font-weight: 650; letter-spacing: -.016em; margin: 0; text-wrap: balance; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.01em; margin: 2.25rem 0 .5rem; }
+.lede { color: var(--pg-ink-2); max-width: var(--measure); margin-bottom: 1.5rem; text-wrap: pretty; }
+p { max-width: var(--measure); margin: 0 0 1rem; text-wrap: pretty; }
+p:last-child { margin-bottom: 0; }
+code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .875em; background: var(--pg-sunken);
+  border: var(--rail) solid var(--pg-line);
+  padding: .08em .35em; border-radius: 3px;
+}
+.zh { font-family: "Inter", "PingFang TC", "Noto Sans TC", sans-serif; }
+ul.plain { max-width: var(--measure); padding-left: 1.15rem; margin: 0 0 1rem; }
+ul.plain li { margin-bottom: .4rem; }
+
+/* ---------- verdict table ---------- */
+.tablewrap { overflow-x: auto; border: var(--rail) solid var(--pg-line); border-radius: 4px; background: var(--pg-surface); }
+table { border-collapse: collapse; width: 100%; font-size: var(--step--1); }
+th, td { text-align: left; padding: .7rem .9rem; border-bottom: var(--rail) solid var(--pg-line); vertical-align: top; }
+thead th {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); font-weight: 500; background: var(--pg-sunken);
+  position: sticky; top: 0;
+}
+tbody tr:last-child td { border-bottom: none; }
+td.num { font-family: "JetBrains Mono", ui-monospace, monospace; font-variant-numeric: tabular-nums; color: var(--pg-ink-3); white-space: nowrap; }
+.verdict { font-weight: 600; white-space: nowrap; }
+.verdict.ok   { color: var(--pg-good); }
+.verdict.bad  { color: var(--pg-bad); }
+.verdict.none { color: var(--pg-warn); }
+
+/* ---------- callout ---------- */
+.callout {
+  border-left: 3px solid var(--pg-accent);
+  background: var(--pg-surface);
+  padding: 1rem 1.15rem; border-radius: 0 4px 4px 0;
+  margin: 1.5rem 0; max-width: var(--measure);
+}
+.callout.is-warn { border-left-color: var(--pg-warn); }
+.callout.is-ask  { border-left-color: var(--pg-bad); }
+.callout__title {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--pg-ink-3); margin-bottom: .4rem;
+}
+
+/* ---------- specimen stage ---------- */
+.stage-controls {
+  display: flex; flex-wrap: wrap; gap: .75rem; align-items: center;
+  margin-bottom: 1.25rem; padding: .75rem .9rem;
+  background: var(--pg-surface); border: var(--rail) solid var(--pg-line); border-radius: 4px;
+}
+.stage-controls .label {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--pg-ink-3);
+}
+.themebtns { display: flex; gap: .25rem; flex-wrap: wrap; }
+.themebtn {
+  font: 500 .75rem/1 "Inter", sans-serif;
+  padding: .45rem .7rem; border-radius: 3px; cursor: pointer;
+  border: var(--rail) solid var(--pg-line-strong);
+  background: var(--pg-surface); color: var(--pg-ink-2);
+}
+.themebtn:hover { border-color: var(--pg-accent); color: var(--pg-ink); }
+.themebtn[aria-pressed="true"] { background: var(--pg-accent); border-color: var(--pg-accent); color: #fff; }
+.themebtn:focus-visible { outline: 2px solid var(--pg-accent); outline-offset: 2px; }
+
+.compare { display: grid; gap: 1.5rem; grid-template-columns: 1fr; align-items: start; }
+@media (min-width: 1000px) { .compare { grid-template-columns: 1fr 1fr; } }
+
+.specimen { display: flex; flex-direction: column; gap: .625rem; min-width: 0; }
+.specimen-head { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+.specimen-tag {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
+  padding: .2rem .5rem; border-radius: 3px; font-weight: 500;
+}
+.specimen-tag.before { color: var(--pg-bad);  border: var(--rail) solid var(--pg-bad); }
+.specimen-tag.after  { color: var(--pg-good); border: var(--rail) solid var(--pg-good); }
+.specimen-tag.optA   { color: var(--pg-accent); border: var(--rail) solid var(--pg-accent); }
+.specimen-tag.optB   { color: var(--pg-ink-2); border: var(--rail) solid var(--pg-line-strong); }
+.specimen-note { font-size: var(--step--1); color: var(--pg-ink-3); }
+.stage {
+  padding: 1.25rem 1rem; border-radius: 4px;
+  border: var(--rail) solid var(--pg-line);
+  background: var(--gbm-surface-app);
+  display: flex; justify-content: center;
+  overflow-x: auto;
+}
+
+
+/* ============================================================
+   MOCKUP TOKENS  (--gbm-*)  — verbatim from
+   app_flutter/lib/theme/tokens.dart's three GbmColors constants,
+   same block as working-copy-layout-spec.html plus surface-hover
+   and shadow-sm (GbmEffects.shadowSm), which this page needs and
+   that one did not. Defined on .stage ONLY.
+   ============================================================ */
+.stage {
+  --gbm-surface-app:#f7f8f9; --gbm-surface-sunken:#eef0f2; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-hover:#eef0f2;
+  --gbm-border-subtle:#dfe3e7; --gbm-border-default:#c3cad1; --gbm-border-strong:#98a3ad;
+  --gbm-text-primary:#171b1f; --gbm-text-secondary:#4f5966; --gbm-text-tertiary:#6b7684; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-success:#1a8a4a;
+  --gbm-diff-add-bg:#e6f6ec; --gbm-diff-add-text:#136c37;
+  --gbm-diff-del-bg:#fbeaea; --gbm-diff-del-text:#a32e2e;
+  --gbm-shadow-sm:0 1px 2px rgba(0,0,0,.08);
+}
+[data-app-theme="dark-technical"] {
+  --gbm-surface-app:#0d1117; --gbm-surface-sunken:#010409; --gbm-surface-panel:#0d1117; --gbm-surface-panel-raised:#161b22;
+  --gbm-surface-hover:#161b22;
+  --gbm-border-subtle:#21262d; --gbm-border-default:#30363d; --gbm-border-strong:#3d444d;
+  --gbm-text-primary:#e6edf3; --gbm-text-secondary:#9198a1; --gbm-text-tertiary:#6e7681; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#0d2a4d; --gbm-success:#3fb950;
+  --gbm-diff-add-bg:#0f2e1a; --gbm-diff-add-text:#7ee2a8;
+  --gbm-diff-del-bg:#3a1414; --gbm-diff-del-text:#ff9b93;
+  --gbm-shadow-sm:0 1px 2px rgba(0,0,0,.4);
+}
+[data-app-theme="light-ide"] {
+  --gbm-surface-app:#ffffff; --gbm-surface-sunken:#f5f6f8; --gbm-surface-panel:#ffffff; --gbm-surface-panel-raised:#ffffff;
+  --gbm-surface-hover:#f0f2f5;
+  --gbm-border-subtle:#eaecef; --gbm-border-default:#dcdfe4; --gbm-border-strong:#c6cad1;
+  --gbm-text-primary:#1c2128; --gbm-text-secondary:#57606a; --gbm-text-tertiary:#8b949e; --gbm-text-on-accent:#ffffff;
+  --gbm-accent:#2f81f7; --gbm-accent-subtle:#eaf1fe; --gbm-success:#1a7f37;
+  --gbm-diff-add-bg:#e9fbee; --gbm-diff-add-text:#116329;
+  --gbm-diff-del-bg:#ffebe9; --gbm-diff-del-text:#82241f;
+  --gbm-shadow-sm:0 1px 2px rgba(0,0,0,.08);
+}
+
+/* ============================================================
+   THE SPECIMEN. Tags:
+     [APP]  read from the shipped widget (file named in §03)
+     [KIT]  the spec bundle's .gbm-* component CSS
+     [INF]  inferred — no source; listed in §04, needs a ruling
+     [GLUE] layout mechanics of this HTML (flex, overflow, position) — no visual value
+   ============================================================ */
+.working-copy-diff-pane {
+  /* page framing only, not part of the design: font stack, width, frame, base colour */
+  font-family: "Inter", "PingFang TC", -apple-system, sans-serif;
+  width: 100%; max-width: 760px;
+  background: var(--gbm-surface-panel);
+  border: 1px solid var(--gbm-border-default);
+  color: var(--gbm-text-primary);
+}
+/* _TitleBar [APP]: h38, padding 0 space3(12), surfacePanelRaised, border-bottom borderDefault, gaps space2 */
+.wc-titlebar { height: 38px; padding: 0 12px; display: flex; align-items: center; gap: 8px;
+  background: var(--gbm-surface-panel-raised); border-bottom: 1px solid var(--gbm-border-default); /* [APP] */ }
+.wc-path { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--gbm-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; /* [APP] fontMono textSm, Flexible + ellipsis */ }
+.wc-spacer { flex: 1 1 auto; /* [APP] Spacer() */ }
+.wc-counts { font-size: 11px; color: var(--gbm-text-tertiary); white-space: nowrap; /* [APP] textXs textTertiary */ }
+
+/* GbmIconButton = .gbm-iconbtn [KIT]; icon 16 [APP] theme_switcher_buttons.dart */
+.gbm-iconbtn { width: 28px; height: 28px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: var(--gbm-text-secondary); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; /* [KIT]; flex [GLUE] */ }
+.gbm-iconbtn:hover { background: var(--gbm-surface-hover); color: var(--gbm-text-primary); /* [KIT]; app keeps the icon colour, 使用者裁定: back to spec */ }
+.gbm-iconbtn.active { background: var(--gbm-accent-subtle); color: var(--gbm-accent); /* [KIT] = [APP] */ }
+
+/* GbmSegmentedControl [APP]: padding 1, 1px borderDefault, radiusSm 4; key gap 2, padding 2/6, radius 2, icon 14 */
+.gbm-segmented { display: inline-flex; gap: 2px; padding: 1px; border: 1px solid var(--gbm-border-default);
+  border-radius: 4px; flex: 0 0 auto; /* [APP]; flex [GLUE] */ }
+.seg-key { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 2px;
+  font-size: 11px; color: var(--gbm-text-tertiary); /* [APP] textXs */ }
+.seg-key.is-active { background: var(--gbm-accent); color: var(--gbm-text-on-accent); font-weight: 700; /* [APP] */ }
+
+/* 2 file: two wells side by side [APP] splitterWcDiffSides 1:1 */
+.wc-diff-sides { display: flex; /* [GLUE] */ }
+.wc-diff-sides .side { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; /* [APP] 1:1 */ }
+.wc-diff-sides .side + .side { border-left: 1px solid var(--gbm-border-subtle); margin-left: 2px; padding-left: 2px;
+  /* [APP] split_pane.dart: 1px borderSubtle centred in a 5px slot (hover accent) */ }
+/* _ColumnHead [APP]: padding space1/space2, dot 8, gap space2, textXs bold textSecondary */
+.column-head { padding: 4px 8px; display: flex; align-items: center; gap: 8px;
+  font-size: 11px; font-weight: 700; color: var(--gbm-text-secondary); /* [APP] */ }
+.column-head .title { flex: 1 1 auto; /* [APP] Expanded */ }
+/* GbmOutlinedPill('N 個 scope') [APP]: pad 1/space2, 1px borderSubtle, surfacePanelRaised, radiusFull, textXs textTertiary */
+.gbm-outlined-pill { padding: 1px 8px; border: 1px solid var(--gbm-border-subtle); border-radius: 999px;
+  background: var(--gbm-surface-panel-raised); font-size: 11px; font-weight: 400; color: var(--gbm-text-tertiary); /* [APP] */ }
+.column-head-dot, .card-head-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--gbm-accent);
+  display: inline-block; flex: 0 0 auto; /* [APP] direction dot 8 */ }
+.column-head-dot.is-staged, .card-head-dot.is-staged { background: var(--gbm-success); /* [APP] */ }
+
+/* ScopedDiffView's well [APP]: outer padding space2, surfaceSunken, 1px borderSubtle, radiusMd, inner padding space2 */
+.gbm-code-scroll-well { margin: 8px; padding: 8px; background: var(--gbm-surface-sunken);
+  border: 1px solid var(--gbm-border-subtle); border-radius: 6px; position: relative; /* [APP]; position [GLUE] */ }
+.gbm-code-scroll-well.has-ruler { padding-right: 22px; /* [INF] §04 #4: 8 + ruler 10 + inset 4 */ }
+
+/* DiffLineView (diff_line.dart): kDiffCodeTextStyle mono 12.5 lh 1.6 [APP]; padding 1px 10px [KIT];
+   gutter 36 / 36 / 14, numbers textXs textTertiary right-aligned, marker in the row's text colour */
+.diff-line-view { display: flex; font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 12.5px; line-height: 1.6; white-space: pre; padding: 1px 10px; /* [KIT] .gbm-diffline -- app draws 12, 使用者裁定: back to spec */ }
+.diff-line-view .gut { flex: 0 0 auto; user-select: none; /* [GLUE] */ }
+.gut-old, .gut-new { width: 36px; text-align: right; font-size: 11px; color: var(--gbm-text-tertiary); /* [APP] */ }
+.gut-mark { width: 14px; /* [APP] */ }
+.diff-line-view .code { flex: 1 1 auto; overflow: hidden; /* [GLUE] */ }
+.gbm-diffline-ctx { color: var(--gbm-text-secondary); /* [KIT] = [APP] */ }
+.gbm-diffline-add { background: var(--gbm-diff-add-bg); color: var(--gbm-diff-add-text); /* [KIT] = [APP] */ }
+.gbm-diffline-del { background: var(--gbm-diff-del-bg); color: var(--gbm-diff-del-text); /* [KIT] = [APP] */ }
+/* _HunkHeading [APP]: GbmRow h22, mono textXs textTertiary, gap space2, then a 1px borderSubtle rule */
+.hunk-heading { height: 22px; display: flex; align-items: center; gap: 8px; white-space: nowrap;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--gbm-text-tertiary); /* [APP] */ }
+.hunk-heading .rule { flex: 1 1 auto; height: 1px; background: var(--gbm-border-subtle); /* [APP] */ }
+
+/* _GapBlock [APP]: margin 2/0, GbmDashedLine(borderDefault) dash 3 gap 2, then 2px, NOT faded.
+   A fill run (rows only the full-file diff supplies) is drawn exactly like this -- no new style. */
+.gap-block { margin: 2px 0; padding-left: 3px;
+  background: repeating-linear-gradient(to bottom, var(--gbm-border-default) 0 3px, transparent 3px 5px) left top / 1px 100% no-repeat; /* [APP] */ }
+
+/* _ScopeCard [APP]: margin space2/0, surfacePanel, radiusMd, 1px borderDefault ring, 3px left accent / success, shadowSm, antiAlias */
+.scope-card { margin: 8px 0; background: var(--gbm-surface-panel); border-radius: 6px;
+  border: 1px solid var(--gbm-border-default); border-left: 3px solid var(--gbm-accent);
+  box-shadow: var(--gbm-shadow-sm); overflow: hidden; /* [APP] */ }
+.scope-card.is-staged { border-left-color: var(--gbm-success); /* [APP] */ }
+/* _CardHead [APP]: surfacePanelRaised, border-bottom borderDefault, padding 3/space2, spaceBetween, spacing space2 */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 3px 8px;
+  background: var(--gbm-surface-panel-raised); border-bottom: 1px solid var(--gbm-border-default); /* [APP] */ }
+.card-tag { display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--gbm-text-secondary); /* [APP] */ }
+.card-tag b { font-weight: 700; /* [APP] */ }
+/* GbmBadge [APP]: mono 10.5 weightSemibold, pad 0/5, radiusFull, min 18x18; space1 between the two badges */
+.gbm-badge { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10.5px; font-weight: 600; padding: 0 5px;
+  border-radius: 999px; min-width: 18px; min-height: 18px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center; /* [APP] */ }
+.gbm-badge.is-add { background: var(--gbm-diff-add-bg); color: var(--gbm-diff-add-text); /* [APP] */ }
+.gbm-badge.is-del { background: var(--gbm-diff-del-bg); color: var(--gbm-diff-del-text); margin-left: -4px; /* [APP] 8 - 4 = space1 */ }
+/* .gbm-btn + .gbm-btn-sm [KIT] = gbm_button.dart [APP]: h24, textXs, pad 0/space2, radiusMd, w500 */
+.gbm-btn { display: inline-flex; align-items: center; height: 24px; padding: 0 8px;
+  border-radius: 6px; font-size: 11px; font-weight: 500; white-space: nowrap; /* [KIT] */ }
+.gbm-btn-primary { background: var(--gbm-accent); color: var(--gbm-text-on-accent); /* [KIT] */ }
+.gbm-btn-secondary { background: var(--gbm-surface-panel-raised); color: var(--gbm-text-primary);
+  box-shadow: inset 0 0 0 1px var(--gbm-border-strong);
+  /* [KIT] fill; ring [APP] borderStrong -- 使用者裁定: keep the app, the spec is amended (§03) */ }
+
+/* Overview ruler — 使用者裁定 2026-10-24: direction colours, geometry as proposed (§04 #3 / #4) */
+.diff-overview-ruler { position: absolute; top: 8px; bottom: 8px; right: 4px; width: 10px;
+  border-radius: 999px; background: var(--gbm-surface-sunken); /* [INF] */ }
+.ruler-mark { position: absolute; left: 1px; right: 1px; min-height: 4px;
+  border-radius: 2px; background: var(--gbm-accent); cursor: pointer; /* [INF] */ }
+.ruler-mark.is-staged { background: var(--gbm-success); /* [INF] */ }
+
+/* page-only */
+.spec-table { width: 100%; border-collapse: collapse; font-size: .85rem; margin: .5rem 0 1rem; }
+.spec-table th, .spec-table td { text-align: left; padding: .35rem .5rem; border-bottom: 1px solid var(--pg-line); vertical-align: top; }
+.spec-table code { white-space: nowrap; }
+.stack { display: flex; flex-direction: column; gap: 1.5rem; }
+.stack-tight { display: flex; flex-direction: column; gap: .75rem; width: 100%; align-items: center; }
+.icon-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 1rem; }
+</style>
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">
+      <span>docs/claude-design-demo</span>
+      <span>2026-10-24</span>
+      <span>feat/wc-full-file-view</span>
+    </div>
+    <h1>Full File View</h1>
+    <p class="standfirst">
+      Working Copy diff 標題列多一顆按鈕：開啟後，卡片之間補上整份檔案的未變更行，捲軸旁畫出每張卡片的位置。
+      <code>2 file</code> 與 <code>unified</code> 都適用。spec 沒有畫過這個功能，所以這一頁每個值不是引自 app／KIT，就是列在 §04 等你裁定。
+    </p>
+    <div class="status-row">
+      <span class="pill is-ratified">使用者裁定 · 直接全部攤開</span>
+      <span class="pill is-ratified">使用者裁定 · 捲軸旁的變更標記</span>
+      <span class="pill is-ratified">使用者裁定 · 記住，全域偏好</span>
+      <span class="pill is-ratified">使用者裁定 · 卡片在共用行切開（①）</span>
+      <span class="pill is-ratified">使用者裁定 · 卡片在對側變更處切開（②）</span>
+      <span class="pill is-ratified">使用者裁定 · 全檔模式不畫 @@ 標題</span>
+      <span class="pill is-ratified">使用者裁定 · 不做上下跳轉按鈕</span>
+      <span class="pill is-ratified">使用者裁定 · 與 spec 不同處改回 spec</span>
+      <span class="pill is-ratified">使用者裁定 · Unstage 環色維持 app，改 spec</span>
+      <span class="pill is-ratified">使用者裁定 · ruler 方向色</span>
+      <span class="pill is-ratified">使用者裁定 · icon 用 Icons.expand</span>
+    </div>
+  </header>
+
+  <section id="what">
+    <div class="sec-head"><span class="sec-num">01</span><h2>改什麼、不改什麼</h2></div>
+    <ul>
+      <li><b>改</b>：標題列在計數與 <code>2 file | unified</code> 之間多一顆 <code>GbmIconButton(active:)</code>；開啟時 well 內多出填空行與右側 ruler。</li>
+      <li><b>不改</b>：卡片、Stage／Unstage／Discard 按鈕、選取與拖曳 one-shot。填空行沒有按鈕，對任何 payload 的貢獻為零。</li>
+      <li>填空行畫法 <b>完全等於</b> 現有 <code>_GapBlock</code>（dashed 左線、不淡化），沒有新樣式。</li>
+    </ul>
+  </section>
+
+  <section id="icon">
+    <div class="sec-head"><span class="sec-num">02</span><h2>按鈕 icon</h2></div>
+    <div class="icon-choices">
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">使用者裁定</span><strong><code>Icons.expand</code></strong></div><div class="stage" data-stage data-app-theme="dark-technical"><div class="stack-tight"><div class="working-copy-diff-pane"><div class="wc-titlebar"><span class="wc-path">lib/session.dart</span><span class="wc-spacer"></span><span class="wc-counts">1 未暫存 · 1 已暫存</span><span class="gbm-iconbtn " title="Full file" role="button" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 20h16v2H4zM4 2h16v2H4zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3z"/></svg></span><span class="gbm-segmented"><span class="seg-key "><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 15h8v-2H3zm0 4h8v-2H3zm0-8h8V9H3zm0-6v2h8V5zm10 0h8v14h-8z"/></svg><span>2 file</span></span><span class="seg-key is-active"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 18h17v-6H4zM4 5v6h17V5z"/></svg><span>unified</span></span></span></div></div><div class="working-copy-diff-pane"><div class="wc-titlebar"><span class="wc-path">lib/session.dart</span><span class="wc-spacer"></span><span class="wc-counts">1 未暫存 · 1 已暫存</span><span class="gbm-iconbtn active" title="Full file" role="button" aria-pressed="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 20h16v2H4zM4 2h16v2H4zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3z"/></svg></span><span class="gbm-segmented"><span class="seg-key "><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 15h8v-2H3zm0 4h8v-2H3zm0-8h8V9H3zm0-6v2h8V5zm10 0h8v14h-8z"/></svg><span>2 file</span></span><span class="seg-key is-active"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 18h17v-6H4zM4 5v6h17V5z"/></svg><span>unified</span></span></span></div></div></div></div><div class="specimen-note">上：關閉。下：開啟（<code>.gbm-iconbtn.active</code>）。</div></div>
+    </div>
+  </section>
+
+  <section id="specimens">
+    <div class="sec-head"><span class="sec-num">02b</span><h2>三個樣本</h2></div>
+    <p class="lede">範例檔 <code>lib/session.dart</code>，23 行：第 7 行未暫存修改、第 21 行已暫存修改。</p>
+    <div class="stage-controls">
+      <span class="label">App 主題</span>
+      <div class="themebtns" role="group" aria-label="Preview theme">
+        <button class="themebtn" type="button" data-theme-btn="neutral-professional" aria-pressed="false">neutral-professional</button>
+        <button class="themebtn" type="button" data-theme-btn="dark-technical" aria-pressed="true">dark-technical</button>
+        <button class="themebtn" type="button" data-theme-btn="light-ide" aria-pressed="false">light-ide</button>
+      </div>
+    </div>
+    <div class="stack">
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag before">現在</span><strong>unified，片段模式</strong></div><div class="stage" data-stage data-app-theme="dark-technical"><div class="working-copy-diff-pane"><div class="wc-titlebar"><span class="wc-path">lib/session.dart</span><span class="wc-spacer"></span><span class="wc-counts">1 未暫存 · 1 已暫存</span><span class="gbm-iconbtn " title="Full file" role="button" aria-pressed="false"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 20h16v2H4zM4 2h16v2H4zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3z"/></svg></span><span class="gbm-segmented"><span class="seg-key "><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 15h8v-2H3zm0 4h8v-2H3zm0-8h8V9H3zm0-6v2h8V5zm10 0h8v14h-8z"/></svg><span>2 file</span></span><span class="seg-key is-active"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 18h17v-6H4zM4 5v6h17V5z"/></svg><span>unified</span></span></span></div><div class="gbm-code-scroll-well"><div class="hunk-heading"><span>@@ -4,7 +4,7 @@ class RepoSession {</span><span class="rule"></span></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">4</span><span class="gut gut-new">4</span><span class="gut gut-mark"> </span><span class="code">  RepoSession(this.path);</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">5</span><span class="gut gut-new">5</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">6</span><span class="gut gut-new">6</span><span class="gut gut-mark"> </span><span class="code">  final String path;</span></div></div><div class="scope-card " data-mark="unstaged"><div class="card-head"><span class="card-tag"><span class="card-head-dot "></span><b>變更 1</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-primary">Stage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">7</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">  Timer? _poll;</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">7</span><span class="gut gut-mark">+</span><span class="code">  Timer? _pollTimer;</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">8</span><span class="gut gut-new">8</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">9</span><span class="gut gut-new">9</span><span class="gut gut-mark"> </span><span class="code">  void start() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">10</span><span class="gut gut-new">10</span><span class="gut gut-mark"> </span><span class="code">    _poll = Timer.periodic(</span></div></div><div class="hunk-heading"><span>@@ -18,6 +18,6 @@ class RepoSession {</span><span class="rule"></span></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">18</span><span class="gut gut-new">18</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">19</span><span class="gut gut-new">19</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">20</span><span class="gut gut-new">20</span><span class="gut gut-mark"> </span><span class="code">  Future&lt;void&gt; refresh() async {</span></div></div><div class="scope-card is-staged" data-mark="staged"><div class="card-head"><span class="card-tag"><span class="card-head-dot is-staged"></span><b>變更 2</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-secondary btn-unstage">Unstage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">21</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">    await fetchStatus();</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">21</span><span class="gut gut-mark">+</span><span class="code">    await _fetchStatus();</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">22</span><span class="gut gut-new">22</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">23</span><span class="gut gut-new">23</span><span class="gut gut-mark"> </span><span class="code">}</span></div></div></div></div></div><div class="specimen-note">按鈕未啟用：只有每個 hunk 前後 3 行。</div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">提案</span><strong>unified，全檔模式</strong></div><div class="stage" data-stage data-app-theme="dark-technical"><div class="working-copy-diff-pane"><div class="wc-titlebar"><span class="wc-path">lib/session.dart</span><span class="wc-spacer"></span><span class="wc-counts">1 未暫存 · 1 已暫存</span><span class="gbm-iconbtn active" title="Full file" role="button" aria-pressed="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 20h16v2H4zM4 2h16v2H4zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3z"/></svg></span><span class="gbm-segmented"><span class="seg-key "><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 15h8v-2H3zm0 4h8v-2H3zm0-8h8V9H3zm0-6v2h8V5zm10 0h8v14h-8z"/></svg><span>2 file</span></span><span class="seg-key is-active"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 18h17v-6H4zM4 5v6h17V5z"/></svg><span>unified</span></span></span></div><div class="gbm-code-scroll-well has-ruler"><div class="gap-block fill"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">1</span><span class="gut gut-new">1</span><span class="gut gut-mark"> </span><span class="code">import &#x27;dart:async&#x27;;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">2</span><span class="gut gut-new">2</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">3</span><span class="gut gut-new">3</span><span class="gut gut-mark"> </span><span class="code">class RepoSession {</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">4</span><span class="gut gut-new">4</span><span class="gut gut-mark"> </span><span class="code">  RepoSession(this.path);</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">5</span><span class="gut gut-new">5</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">6</span><span class="gut gut-new">6</span><span class="gut gut-mark"> </span><span class="code">  final String path;</span></div></div><div class="scope-card " data-mark="unstaged"><div class="card-head"><span class="card-tag"><span class="card-head-dot "></span><b>變更 1</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-primary">Stage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">7</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">  Timer? _poll;</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">7</span><span class="gut gut-mark">+</span><span class="code">  Timer? _pollTimer;</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">8</span><span class="gut gut-new">8</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">9</span><span class="gut gut-new">9</span><span class="gut gut-mark"> </span><span class="code">  void start() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">10</span><span class="gut gut-new">10</span><span class="gut gut-mark"> </span><span class="code">    _poll = Timer.periodic(</span></div></div><div class="gap-block fill"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">11</span><span class="gut gut-new">11</span><span class="gut gut-mark"> </span><span class="code">      const Duration(seconds: 30),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">12</span><span class="gut gut-new">12</span><span class="gut gut-mark"> </span><span class="code">      (_) =&gt; refresh(),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">13</span><span class="gut gut-new">13</span><span class="gut gut-mark"> </span><span class="code">    );</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">14</span><span class="gut gut-new">14</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">15</span><span class="gut gut-new">15</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">16</span><span class="gut gut-new">16</span><span class="gut gut-mark"> </span><span class="code">  void stop() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">17</span><span class="gut gut-new">17</span><span class="gut gut-mark"> </span><span class="code">    _poll?.cancel();</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">18</span><span class="gut gut-new">18</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">19</span><span class="gut gut-new">19</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">20</span><span class="gut gut-new">20</span><span class="gut gut-mark"> </span><span class="code">  Future&lt;void&gt; refresh() async {</span></div></div><div class="scope-card is-staged" data-mark="staged"><div class="card-head"><span class="card-tag"><span class="card-head-dot is-staged"></span><b>變更 2</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-secondary btn-unstage">Unstage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">21</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">    await fetchStatus();</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">21</span><span class="gut gut-mark">+</span><span class="code">    await _fetchStatus();</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">22</span><span class="gut gut-new">22</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">23</span><span class="gut gut-new">23</span><span class="gut gut-mark"> </span><span class="code">}</span></div></div><div class="diff-overview-ruler" aria-hidden="true"><span class="ruler-mark " style="top:22.2%;height:11.1%"></span><span class="ruler-mark is-staged" style="top:81.5%;height:11.1%"></span></div></div></div></div><div class="specimen-note">按鈕啟用：卡片之間補上整份檔案，不畫 <code>@@</code> 標題；右側 ruler 標出兩張卡片在檔案中的位置。</div></div>
+      <div class="specimen"><div class="specimen-head"><span class="specimen-tag after">提案</span><strong>2 file，全檔模式</strong></div><div class="stage" data-stage data-app-theme="dark-technical"><div class="working-copy-diff-pane"><div class="wc-titlebar"><span class="wc-path">lib/session.dart</span><span class="wc-spacer"></span><span class="gbm-iconbtn active" title="Full file" role="button" aria-pressed="true"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M4 20h16v2H4zM4 2h16v2H4zm9 7h3l-4-4-4 4h3v6H8l4 4 4-4h-3z"/></svg></span><span class="gbm-segmented"><span class="seg-key is-active"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M3 15h8v-2H3zm0 4h8v-2H3zm0-8h8V9H3zm0-6v2h8V5zm10 0h8v14h-8z"/></svg><span>2 file</span></span><span class="seg-key "><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M4 18h17v-6H4zM4 5v6h17V5z"/></svg><span>unified</span></span></span></div><div class="wc-diff-sides"><div class="side"><div class="column-head"><span class="column-head-dot"></span><span class="title">Unstaged</span><span class="gbm-outlined-pill">1 個 scope</span></div><div class="gbm-code-scroll-well has-ruler"><div class="gap-block fill"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">1</span><span class="gut gut-new">1</span><span class="gut gut-mark"> </span><span class="code">import &#x27;dart:async&#x27;;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">2</span><span class="gut gut-new">2</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">3</span><span class="gut gut-new">3</span><span class="gut gut-mark"> </span><span class="code">class RepoSession {</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">4</span><span class="gut gut-new">4</span><span class="gut gut-mark"> </span><span class="code">  RepoSession(this.path);</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">5</span><span class="gut gut-new">5</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">6</span><span class="gut gut-new">6</span><span class="gut gut-mark"> </span><span class="code">  final String path;</span></div></div><div class="scope-card " data-mark="unstaged"><div class="card-head"><span class="card-tag"><b>變更 1</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-primary">Stage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">7</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">  Timer? _poll;</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">7</span><span class="gut gut-mark">+</span><span class="code">  Timer? _pollTimer;</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">8</span><span class="gut gut-new">8</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">9</span><span class="gut gut-new">9</span><span class="gut gut-mark"> </span><span class="code">  void start() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">10</span><span class="gut gut-new">10</span><span class="gut gut-mark"> </span><span class="code">    _poll = Timer.periodic(</span></div></div><div class="gap-block fill"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">11</span><span class="gut gut-new">11</span><span class="gut gut-mark"> </span><span class="code">      const Duration(seconds: 30),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">12</span><span class="gut gut-new">12</span><span class="gut gut-mark"> </span><span class="code">      (_) =&gt; refresh(),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">13</span><span class="gut gut-new">13</span><span class="gut gut-mark"> </span><span class="code">    );</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">14</span><span class="gut gut-new">14</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">15</span><span class="gut gut-new">15</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">16</span><span class="gut gut-new">16</span><span class="gut gut-mark"> </span><span class="code">  void stop() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">17</span><span class="gut gut-new">17</span><span class="gut gut-mark"> </span><span class="code">    _poll?.cancel();</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">18</span><span class="gut gut-new">18</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">19</span><span class="gut gut-new">19</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">20</span><span class="gut gut-new">20</span><span class="gut gut-mark"> </span><span class="code">  Future&lt;void&gt; refresh() async {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">21</span><span class="gut gut-new">21</span><span class="gut gut-mark"> </span><span class="code">    await _fetchStatus();</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">22</span><span class="gut gut-new">22</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">23</span><span class="gut gut-new">23</span><span class="gut gut-mark"> </span><span class="code">}</span></div></div><div class="diff-overview-ruler" aria-hidden="true"><span class="ruler-mark " style="top:24.0%;height:12.0%"></span></div></div></div><div class="side"><div class="column-head"><span class="column-head-dot is-staged"></span><span class="title">Staged</span><span class="gbm-outlined-pill">1 個 scope</span></div><div class="gbm-code-scroll-well has-ruler"><div class="gap-block fill"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">1</span><span class="gut gut-new">1</span><span class="gut gut-mark"> </span><span class="code">import &#x27;dart:async&#x27;;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">2</span><span class="gut gut-new">2</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">3</span><span class="gut gut-new">3</span><span class="gut gut-mark"> </span><span class="code">class RepoSession {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">4</span><span class="gut gut-new">4</span><span class="gut gut-mark"> </span><span class="code">  RepoSession(this.path);</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">5</span><span class="gut gut-new">5</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">6</span><span class="gut gut-new">6</span><span class="gut gut-mark"> </span><span class="code">  final String path;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">7</span><span class="gut gut-new">7</span><span class="gut gut-mark"> </span><span class="code">  Timer? _poll;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">8</span><span class="gut gut-new">8</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">9</span><span class="gut gut-new">9</span><span class="gut gut-mark"> </span><span class="code">  void start() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">10</span><span class="gut gut-new">10</span><span class="gut gut-mark"> </span><span class="code">    _poll = Timer.periodic(</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">11</span><span class="gut gut-new">11</span><span class="gut gut-mark"> </span><span class="code">      const Duration(seconds: 30),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">12</span><span class="gut gut-new">12</span><span class="gut gut-mark"> </span><span class="code">      (_) =&gt; refresh(),</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">13</span><span class="gut gut-new">13</span><span class="gut gut-mark"> </span><span class="code">    );</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">14</span><span class="gut gut-new">14</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">15</span><span class="gut gut-new">15</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">16</span><span class="gut gut-new">16</span><span class="gut gut-mark"> </span><span class="code">  void stop() {</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">17</span><span class="gut gut-new">17</span><span class="gut gut-mark"> </span><span class="code">    _poll?.cancel();</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">18</span><span class="gut gut-new">18</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">19</span><span class="gut gut-new">19</span><span class="gut gut-mark"> </span><span class="code">&#8203;</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">20</span><span class="gut gut-new">20</span><span class="gut gut-mark"> </span><span class="code">  Future&lt;void&gt; refresh() async {</span></div></div><div class="scope-card is-staged" data-mark="staged"><div class="card-head"><span class="card-tag"><b>變更 1</b><span class="gbm-badge is-add">+1</span><span class="gbm-badge is-del">−1</span></span><span class="gbm-btn gbm-btn-sm gbm-btn-secondary btn-unstage">Unstage 2 lines</span></div><div class="diff-line-view gbm-diffline-del"><span class="gut gut-old">21</span><span class="gut gut-new"></span><span class="gut gut-mark">-</span><span class="code">    await fetchStatus();</span></div><div class="diff-line-view gbm-diffline-add"><span class="gut gut-old"></span><span class="gut gut-new">21</span><span class="gut gut-mark">+</span><span class="code">    await _fetchStatus();</span></div></div><div class="gap-block"><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">22</span><span class="gut gut-new">22</span><span class="gut gut-mark"> </span><span class="code">  }</span></div><div class="diff-line-view gbm-diffline-ctx"><span class="gut gut-old">23</span><span class="gut gut-new">23</span><span class="gut gut-mark"> </span><span class="code">}</span></div></div><div class="diff-overview-ruler" aria-hidden="true"><span class="ruler-mark is-staged" style="top:80.0%;height:12.0%"></span></div></div></div></div></div></div><div class="specimen-note">兩欄各自是一份完整檔案，各自一條 ruler。</div></div>
+    </div>
+  </section>
+
+  <section id="sources">
+    <div class="sec-head"><span class="sec-num">03</span><h2>每個值的出處</h2></div>
+    <table class="spec-table">
+      <thead><tr><th>元件</th><th>值</th><th>出處</th><th>app 現況</th></tr></thead>
+      <tbody>
+        <tr><td>按鈕</td><td>28×28、r6、1px 透明邊、透明底、<code>text-secondary</code>；hover <code>surface-hover</code> + <code>text-primary</code>；active <code>accent-subtle</code> + <code>accent</code></td><td>KIT <code>.gbm-iconbtn</code></td><td><code>widgets/gbm_icon_button.dart</code> 已有 <code>active:</code>。差距（既有）：KIT hover 會把 icon 變 <code>text-primary</code>，app 只換底色。<b>使用者裁定：改回 KIT</b>，本輪改 <code>gbm_icon_button.dart</code>（影響每顆 icon 按鈕）</td></tr>
+        <tr><td>按鈕 icon 尺寸</td><td>16px</td><td>APP <code>theme_switcher_buttons.dart</code> 的 GbmIconButton 用法</td><td>同</td></tr>
+        <tr><td>按鈕位置</td><td>計數之後、segmented 之前，間距 8</td><td>APP <code>_TitleBar</code> 的 <code>SizedBox(width: space2)</code></td><td>新增一格</td></tr>
+        <tr><td>標題列</td><td>h38、pad 0/12、<code>surfacePanelRaised</code>、底線 <code>borderDefault</code></td><td>APP <code>working_copy_diff_pane.dart</code> <code>_TitleBar</code></td><td>不動</td></tr>
+        <tr><td>segmented</td><td>pad 1、1px border、r4；key pad 2/6、r2、11px；active accent 底 bold</td><td>APP <code>GbmSegmentedControl</code></td><td>不動</td></tr>
+        <tr><td>diff 列</td><td>mono 12.5、lh 1.6、pad 1/12；gutter 36／36／14，行號 11px <code>text-tertiary</code>；add／del token</td><td>APP <code>diff_line.dart</code>；KIT <code>.gbm-diffline</code> 寫 pad 1/10</td><td>app 用 12（<code>space3</code>）≠ KIT 10。<b>使用者裁定：改回 10</b>，本輪改 <code>diff_line.dart</code>（影響每個 diff 畫面）</td></tr>
+        <tr><td>hunk 標題</td><td>h22、mono 11 <code>text-tertiary</code>、後接 1px <code>border-subtle</code> 線</td><td>APP <code>_HunkHeading</code></td><td>片段模式不動；<b>全檔模式不畫</b>（使用者裁定）</td></tr>
+        <tr><td>well</td><td>margin 8、pad 8、<code>surface-sunken</code>、1px <code>border-subtle</code>、r6</td><td>APP <code>ScopedDiffView</code></td><td>不動；開 ruler 時右側 padding 8 → 22（§04 #4）</td></tr>
+        <tr><td>欄標頭（2 file）</td><td>pad 4/8、點 8、間距 8、11px bold <code>text-secondary</code>；右側 <code>GbmOutlinedPill('N 個 scope')</code></td><td>APP <code>_ColumnHead</code>、<code>gbm_outlined_pill.dart</code></td><td>不動</td></tr>
+        <tr><td>填空行</td><td>= <code>_GapBlock</code>：margin 2/0、1px dashed <code>border-default</code> 左線、pad-left 2、不淡化</td><td>APP <code>scoped_diff_view.dart</code> <code>_GapBlock</code>；虛線節奏 3/2 = <code>GbmDashedLine</code>（<code>.variant-B-gap</code> 只見於 app 註解，原文在外部 Diff Scope Studies）</td><td>重用</td></tr>
+        <tr><td>卡片</td><td>margin 8/0、r6、1px ring、3px 左邊 accent／success、shadowSm</td><td>APP <code>_ScopeCard</code>（= <code>.variant-B-card</code>）、<code>GbmEffects.shadowSm</code></td><td>不動</td></tr>
+        <tr><td>卡片按鈕</td><td>h24、11px、pad 0/8、w500；Stage = primary；Unstage = secondary（<code>surface-panel-raised</code> 底）+ <code>border-strong</code> 環</td><td>KIT <code>.gbm-btn-sm</code>；APP <code>gbm_button.dart</code>、<code>_CardHead</code> 的 <code>borderColor</code></td><td>不動。環色 app 用 <code>border-strong</code>（= Diff Scope Studies <code>.variant-B-btn-unstage</code>），KIT <code>.gbm-btn-secondary</code> 寫 default：<b>使用者裁定維持 app，修 spec</b>（KIT 是打包的唯讀 bundle，修正記在本頁與 decision record）</td></tr>
+        <tr><td>2 file 分隔線</td><td>5px 槽內置中 1px <code>border-subtle</code>（hover accent）</td><td>APP <code>split_pane.dart</code></td><td>不動</td></tr>
+        <tr><td>badge</td><td>mono 10.5 w600、pad 0/5、最小 18×18、r999</td><td>APP <code>gbm_badge.dart</code></td><td>不動</td></tr>
+        <tr><td>方向點</td><td>8px；accent＝未暫存、success＝已暫存</td><td>APP column head / card head</td><td>不動</td></tr>
+        <tr><td>ruler</td><td>寬 10、內縮 4、底 <code>surface-sunken</code>、標記最小高 4、r2、方向色</td><td><b>無</b> → §04</td><td>新增</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="inferred">
+    <div class="sec-head"><span class="sec-num">04</span><h2>原本猜的部分，現在的狀態</h2></div>
+    <table class="spec-table">
+      <thead><tr><th>#</th><th>項目</th><th>定案</th><th>狀態</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td>按鈕 icon</td><td><code>Icons.expand</code>（§02；<code>Icons.article</code> 落選）。本頁 SVG 路徑是手繪近似，實作用 Material 原檔</td><td>使用者裁定</td></tr>
+        <tr><td>2</td><td>按鈕 tooltip</td><td><code>Full file</code></td><td>使用者裁定（照建議）</td></tr>
+        <tr><td>3</td><td>ruler 標記色</td><td>未暫存 <code>accent</code>、已暫存 <code>success</code></td><td>使用者裁定</td></tr>
+        <tr><td>4</td><td>ruler 幾何</td><td>寬 10、距 well 右緣 4、上下對齊 well padding 8、圓角 999 底軌 <code>surface-sunken</code>；標記左右內縮 1、最小高 4、r2；位置與高度 = 該卡片在全部繪製列中的比例（以列計，卡片標頭算 1 列）；well 右 padding 8 → 22；標記可點，點了捲到卡片</td><td>使用者裁定（照建議）</td></tr>
+        <tr><td>5</td><td>View 選單</td><td><code>Full file</code>，不綁快捷鍵</td><td>使用者裁定（照建議）</td></tr>
+        <tr><td>6</td><td>超過行數上限的 tooltip</td><td><code>File too large for full view</code>；上限待 step 5 量測</td><td>文字已裁定，數字待量</td></tr>
+        <tr><td>7</td><td>全檔模式的 <code>@@</code> 標題</td><td>不畫</td><td>使用者裁定</td></tr>
+        <tr><td>8</td><td>上下跳轉按鈕</td><td>不做</td><td>使用者裁定</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="audits">
+    <div class="sec-head"><span class="sec-num">07</span><h2>Audit 結果</h2></div>
+    <table class="spec-table">
+      <thead><tr><th>Audit</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>1 未引出處的值</td><td><s>specimen CSS 中帶 px／色碼的規則共 0 條沒有標記</s> 更正：我的腳本只檢查帶 px／色碼的規則；spec-auditor 另找出 18 個無出處值（版面機制、frame、ruler 細項）。已逐一補上 [APP]／[GLUE]／§04，重跑後為 0</td></tr>
+        <tr><td>2 token 覆蓋</td><td>三個色盤 used-undefined 0、缺漏 0、多餘 0、dead 0</td></tr>
+        <tr><td>3 對比</td><td>見下表；低於 4.5 的只列出、不改（都是既有 token）</td></tr>
+        <tr><td>4 結構</td><td><code>html.parser</code>：mismatched 0、unclosed 0</td></tr>
+        <tr><td>5 對照 app</td><td><s>不一致 1 處</s> 更正：spec-auditor 找出初稿與 app 不符 6 處，全是<b>我畫錯</b>，app 沒錯：Unstage 底色、環色來源標錯、badge 高度與字重、2 file 分隔線色、欄標頭漏了 <code>N 個 scope</code> pill；另有主題按鈕顯示 dark、樣本卻畫 neutral。已全部照 app 修正。app 與 KIT 之間的既有差距 3 處列在 §03：diff 列 padding、icon hover 色改回 spec；Unstage 環色維持 app、修 spec（使用者裁定）</td></tr>
+        <tr><td>6 元件混淆</td><td>按鈕是 <code>.gbm-iconbtn.active</code>（開關），不是 segmented 的第三格：它和 <code>2 file | unified</code> 是正交的兩個選擇。填空行是 <code>_GapBlock</code>，不是新元件。ruler 是畫在 well 右緣的獨立條，不是 <code>Scrollbar</code> 的 thumb。</td></tr>
+      </tbody>
+    </table>
+    <table class="spec-table">
+      <thead><tr><th>前景 / 背景</th><th>neutral</th><th>dark</th><th>light</th></tr></thead>
+      <tbody>
+        <tr><td>context 列 <code>text-secondary</code> / <code>surface-sunken</code></td><td>6.22</td><td>7.05</td><td>5.91</td></tr>
+        <tr><td>行號、hunk 標題 <code>text-tertiary</code> / <code>surface-sunken</code></td><td>4.04 ⚠</td><td>4.47 ⚠</td><td>2.84 ⚠</td></tr>
+        <tr><td>新增列</td><td>5.81</td><td>9.35</td><td>6.86</td></tr>
+        <tr><td>刪除列</td><td>6.04</td><td>8.03</td><td>8.24</td></tr>
+        <tr><td>標題列計數、segmented 未選 <code>text-tertiary</code> / <code>surface-panel-raised</code></td><td>4.62</td><td>3.77 ⚠</td><td>3.08 ⚠</td></tr>
+        <tr><td>segmented 已選 <code>on-accent</code> / <code>accent</code></td><td>3.75 ⚠</td><td>3.75 ⚠</td><td>3.75 ⚠</td></tr>
+        <tr><td>按鈕 idle（icon，非文字 3:1）</td><td>7.11</td><td>5.94</td><td>6.39</td></tr>
+        <tr><td>按鈕 active（icon，非文字 3:1）</td><td>3.30</td><td>3.85</td><td>3.30</td></tr>
+        <tr><td>ruler 未暫存標記 / 底軌（非文字 3:1）</td><td>3.28</td><td>5.48</td><td>3.47</td></tr>
+        <tr><td>ruler 已暫存標記 / 底軌（非文字 3:1）</td><td>3.85</td><td>8.08</td><td>4.70</td></tr>
+      </tbody>
+    </table>
+    <p>⚠ 全部是 app 現有的 token 組合，本輪新增的兩個元素（按鈕、ruler）都過 3:1。</p>
+  </section>
+
+  <section id="slice-a">
+    <div class="sec-head"><span class="sec-num">06</span><h2>已完成：unified 同行重複（slice A）</h2></div>
+    <p>五個 commit 已在分支上：位置型 barrier（裁定 ①②）、context 對 context 隱藏、逐行排序、拖曳／Shift+方向鍵測試。全檔模式的填空行直接沿用這套去重與排序。</p>
+  </section>
+
+</div>
+<script>
+(function () {
+  var btns = document.querySelectorAll('[data-theme-btn]');
+  var stages = document.querySelectorAll('[data-stage]');
+  btns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var t = b.getAttribute('data-theme-btn');
+      btns.forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      stages.forEach(function (s) { s.setAttribute('data-app-theme', t); });
+    });
+  });
+})();
+</script>

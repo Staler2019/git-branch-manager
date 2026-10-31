@@ -59,6 +59,7 @@ abstract final class GbmEventType {
   static const int cloneProgress = 38;
   static const int cloneFinished = 39;
   static const int branchDeletionProbeReady = 40;
+  static const int workingCopyFullDiffReady = 41;
 }
 
 /// `void (*)(GbmSessionHandle, int32_t, const uint8_t*, int32_t, void*)`.
@@ -1569,6 +1570,10 @@ class GbmBindings {
           .lookupFunction<_WorkingCopyDiffNative, WorkingCopyDiffDart>(
             'gbm_working_copy_diff',
           ),
+      workingCopyFullDiff = library
+          .lookupFunction<_WorkingCopyDiffNative, WorkingCopyDiffDart>(
+            'gbm_working_copy_full_diff',
+          ),
       stageFiles = library.lookupFunction<_StageFilesNative, StageFilesDart>(
         'gbm_stage_files',
       ),
@@ -2043,6 +2048,9 @@ class GbmBindings {
   final WorkingCopyRefreshDart workingCopyRefresh;
   final WorkingCopyStatusJsonDart workingCopyStatusJson;
   final WorkingCopyDiffDart workingCopyDiff;
+
+  /// `gbm_working_copy_full_diff`: the same signature, unlimited context.
+  final WorkingCopyDiffDart workingCopyFullDiff;
   final StageFilesDart stageFiles;
   final UnstageFilesDart unstageFiles;
   final StageHunkDart stageHunk;

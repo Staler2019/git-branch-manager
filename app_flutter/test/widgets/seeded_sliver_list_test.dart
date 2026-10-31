@@ -178,6 +178,55 @@ void main() {
     _expectContiguous(items);
   });
 
+  testWidgets('with an estimate 30% short, a far jump to 90% of the extent '
+      'the scrollbar reports lands there and stays: the extent is counted in '
+      'the estimate the seed is placed by', (WidgetTester tester) async {
+    final _Harness h = await _pump(
+      tester,
+      estimate: (int i) => _height(i) / 1.3,
+    );
+    final double to = h.controller.position.maxScrollExtent * .9;
+    h.controller.jumpTo(to);
+    await tester.pump();
+    await tester.pumpAndSettle();
+    expect(h.controller.position.pixels, to);
+    final List<(int, Rect)> items = _onScreen(tester);
+    expect(items, isNotEmpty);
+    expect(items.first.$1, lessThan(_count - 30), reason: 'not the end');
+    _expectContiguous(items);
+  });
+
+  testWidgets('opening within a cache extent of the top walks from item 0 '
+      'instead of seeding, so the offset is never corrected', (
+    WidgetTester tester,
+  ) async {
+    final _Harness h = await _pump(
+      tester,
+      estimate: (int i) => _height(i) / 1.3,
+      initialOffset: 400,
+    );
+    expect(h.render(tester).seedCount, 0);
+    expect(h.controller.position.pixels, 400);
+    _expectContiguous(_onScreen(tester));
+  });
+
+  testWidgets('with the last items taller than estimated, a jump to the end '
+      'ends at the real end', (WidgetTester tester) async {
+    final _Harness h = await _pump(
+      tester,
+      estimate: (int i) => i >= _count - 3 ? _height(i) - 10 : _height(i),
+    );
+    h.controller.jumpTo(h.controller.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    expect(h.render(tester).seedCount, 1);
+    final ScrollPosition p = h.controller.position;
+    expect(p.pixels, p.maxScrollExtent);
+    final List<(int, Rect)> items = _onScreen(tester);
+    expect(items.last.$1, _count - 1);
+    expect(items.last.$2.bottom, moreOrLessEquals(600));
+    _expectContiguous(items);
+  });
+
   testWidgets('scrolling in steps of half a viewport never seeds', (
     WidgetTester tester,
   ) async {

@@ -7,6 +7,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_scroll_controller.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_slot_spacer.dart';
@@ -552,5 +553,66 @@ void main() {
     await _wheelSideways(tester, 0, 200);
     expect(tester.takeException(), isNull);
     expect(_sideways(tester, 0).pixels, greaterThan(50));
+  });
+
+  // The staged reply lands after the unstaged one, which keeps its
+  // instances: the pane rebuilds its slot heights, and the unstaged rows
+  // already laid out have to tell the new ones their heights again, or the
+  // columns sit off by the estimate's error ([SyncHeightReporter.epoch]).
+  testWidgets('a side landing after the other still lines the columns up', (
+    WidgetTester tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final DiffFile unstaged = replacementsDiff(
+      _lines,
+      _unstagedEdits,
+      context: 3,
+    );
+    final DiffFile unstagedFull = replacementsDiff(
+      _lines,
+      _unstagedEdits,
+      context: kAllContext,
+    );
+    Future<void> pump({required bool landed}) => pumpGbmWidget(
+      tester,
+      child: WorkingCopyDiffPane(
+        softWrap: false,
+        displayPath: 'lib/a.dart',
+        unstagedFile: unstaged,
+        stagedFile: landed
+            ? replacementsDiff(_lines, _stagedEdits, context: 3)
+            : null,
+        unstagedFullFile: unstagedFull,
+        stagedFullFile: landed
+            ? replacementsDiff(_lines, _stagedEdits, context: kAllContext)
+            : null,
+        fullFile: true,
+        unstagedLoading: false,
+        stagedLoading: !landed,
+        onStageScope: (_, _, _) {},
+        onDiscardScope: (_, _) {},
+        onTemporaryScopeChanged: (_) {},
+        onToggleFullFile: () {},
+      ),
+    );
+
+    await pump(landed: false);
+    await tester.tap(find.text('2 file'));
+    await _settle(tester);
+    await pump(landed: true);
+    await _settle(tester);
+
+    // Line 17 is just below both columns' first card (unstaged 7-15,
+    // staged 8-14), a fill row in each: the cards' heights above it differ.
+    Finder row(int c) => find.descendant(
+      of: _view(c),
+      matching: find.text('L17', findRichText: true),
+    );
+    expect(
+      tester.getRect(row(1)).top,
+      moreOrLessEquals(tester.getRect(row(0)).top, epsilon: 0.5),
+    );
   });
 }

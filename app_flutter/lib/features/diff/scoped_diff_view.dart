@@ -1836,6 +1836,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // ([_ownHeightOf]): a segment holding nothing of this column's but its
     // spacer would otherwise never leave the pane's estimate.
     return SyncHeightReporter(
+      epoch: widget.sync?.heights,
       onHeight: (double height) => _onItemHeight(index, height),
       child: built,
     );

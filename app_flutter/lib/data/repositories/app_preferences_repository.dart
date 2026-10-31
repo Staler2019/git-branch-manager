@@ -46,6 +46,7 @@ class AppPreferences {
     this.softWrapEnabled = false,
     this.maxCodeLineChars = 200,
     this.fullFileViewEnabled = false,
+    this.fullFileViewMaxLines = 5000,
     this.showRefreshTimings = false,
     this.keepDiffDuringRefresh = true,
     this.tieredRefresh = true,
@@ -139,6 +140,20 @@ class AppPreferences {
   /// the diff opens the way it always has.
   final bool fullFileViewEnabled;
 
+  /// Appearance → 程式碼. A file longer than this many lines on either side
+  /// stays in excerpts, and the full-file button is disabled. The user's
+  /// ruling 「except file over 5000 lines (lines limit was set in preference
+  /// settings)」, designed in `wc-full-file-line-cap-spec.html`; kept within
+  /// [fullFileViewMaxLinesFloor]..[fullFileViewMaxLinesCeiling] (ruling B).
+  final int fullFileViewMaxLines;
+
+  /// The range [fullFileViewMaxLines] is kept in. 20,000 is the largest size
+  /// measured, and already over the open/scroll budget
+  /// (`working_copy_diff_pane.dart`'s cap comment); 500 only stops a small
+  /// file being refused.
+  static const int fullFileViewMaxLinesFloor = 500;
+  static const int fullFileViewMaxLinesCeiling = 20000;
+
   /// Developer. Not from the spec -- `PREFNAV` has six sections, this is a
   /// seventh the user asked for to A/B the three flags below on real
   /// hardware. See `docs/records/2026-10-04-soft-wrap-off-by-default.md` for the precedent of a
@@ -206,6 +221,7 @@ class AppPreferences {
     bool? softWrapEnabled,
     int? maxCodeLineChars,
     bool? fullFileViewEnabled,
+    int? fullFileViewMaxLines,
     bool? showRefreshTimings,
     bool? keepDiffDuringRefresh,
     bool? tieredRefresh,
@@ -230,6 +246,7 @@ class AppPreferences {
       softWrapEnabled: softWrapEnabled ?? this.softWrapEnabled,
       maxCodeLineChars: maxCodeLineChars ?? this.maxCodeLineChars,
       fullFileViewEnabled: fullFileViewEnabled ?? this.fullFileViewEnabled,
+      fullFileViewMaxLines: fullFileViewMaxLines ?? this.fullFileViewMaxLines,
       showRefreshTimings: showRefreshTimings ?? this.showRefreshTimings,
       keepDiffDuringRefresh:
           keepDiffDuringRefresh ?? this.keepDiffDuringRefresh,
@@ -333,6 +350,15 @@ class AppPreferencesRepository {
       fullFileViewEnabled:
           _prefs.getBool('${_kPrefix}fullFileViewEnabled') ??
           defaults.fullFileViewEnabled,
+      // Clamped: the field writes nothing outside the range, but a store
+      // edited by hand could hold 0, which would refuse every file.
+      fullFileViewMaxLines:
+          (_prefs.getInt('${_kPrefix}fullFileViewMaxLines') ??
+                  defaults.fullFileViewMaxLines)
+              .clamp(
+                AppPreferences.fullFileViewMaxLinesFloor,
+                AppPreferences.fullFileViewMaxLinesCeiling,
+              ),
       showRefreshTimings:
           _prefs.getBool('${_kPrefix}showRefreshTimings') ??
           defaults.showRefreshTimings,
@@ -378,6 +404,10 @@ class AppPreferencesRepository {
     await _prefs.setBool(
       '${_kPrefix}fullFileViewEnabled',
       p.fullFileViewEnabled,
+    );
+    await _prefs.setInt(
+      '${_kPrefix}fullFileViewMaxLines',
+      p.fullFileViewMaxLines,
     );
     await _prefs.setBool('${_kPrefix}showRefreshTimings', p.showRefreshTimings);
     await _prefs.setBool(

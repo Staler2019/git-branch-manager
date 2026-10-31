@@ -41,6 +41,9 @@ void main() {
       // 「最長200字中文」「是上限」: every code view shows at most 200 CJK
       // character widths per column before it cuts the line off.
       expect(p.maxCodeLineChars, 200);
+      // 「except file over 5000 lines (lines limit was set in preference
+      // settings)」: the full-file view stops at 5,000 lines.
+      expect(p.fullFileViewMaxLines, 5000);
       // Developer flags (fix/refresh-ui-first-tiering): the two behaviour
       // flags default to the new behaviour so a fresh profile gets it
       // without visiting Preferences; the timing readout defaults off since
@@ -158,6 +161,51 @@ void main() {
       expect(repo.read().maxCodeLineChars, 50);
       expect(repo.read().gitTimeoutMultiplier, 3);
       expect(prefs.getInt('appPrefs.maxCodeLineChars'), 50);
+    });
+
+    test('the full-file line cap is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(
+        const AppPreferences(
+          fullFileViewMaxLines: 8000,
+          maxCodeLineChars: 50,
+          gitTimeoutMultiplier: 3,
+        ),
+      );
+      expect(repo.read().fullFileViewMaxLines, 8000);
+      expect(repo.read().maxCodeLineChars, 50);
+      expect(prefs.getInt('appPrefs.fullFileViewMaxLines'), 8000);
+    });
+
+    // wc-full-file-line-cap-spec.html, ruling B「500–20000」: the field never
+    // writes outside it, and a store edited by hand is read back inside it.
+    test('the full-file line cap is read back inside 500-20000', () async {
+      for (final (int stored, int read) in <(int, int)>[
+        (100, 500),
+        (500, 500),
+        (20000, 20000),
+        (999999, 20000),
+      ]) {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'appPrefs.fullFileViewMaxLines': stored,
+        });
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        expect(
+          AppPreferencesRepository(prefs).read().fullFileViewMaxLines,
+          read,
+          reason: '$stored',
+        );
+      }
+    });
+
+    test('copyWith carries the full-file line cap', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences next = base.copyWith(fullFileViewMaxLines: 8000);
+      expect(next.fullFileViewMaxLines, 8000);
+      expect(next.copyWith(maxCodeLineChars: 50).fullFileViewMaxLines, 8000);
     });
 
     test('copyWith carries the line width cap', () {

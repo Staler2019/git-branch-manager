@@ -165,6 +165,8 @@ Future<SharedPreferences> _pumpRealApp(
     'appPrefs.fullFileViewEnabled',
     // And this one decides where every unwrapped code line is cut off.
     'appPrefs.maxCodeLineChars',
+    // And this one decides which files may draw whole.
+    'appPrefs.fullFileViewMaxLines',
     // fix/refresh-ui-first-tiering, C1/C4: a developer who has flipped one
     // of these three in their own real app would otherwise have every
     // later device test in the session silently measuring the other

@@ -111,3 +111,30 @@ List<String> _changes(DiffFile file) => <String>[
       if (line.kind == DiffLineKind.added || line.kind == DiffLineKind.removed)
         '${line.kind.value}|${line.oldLine}|${line.newLine}|${line.text}',
 ];
+
+/// The index file as read-only rows, from one side's full-context diff:
+/// what a `2 file` column whose own direction has no change draws, since
+/// both of its ends are the index (plan: Slice E). A staged diff (HEAD ->
+/// index) holds it on its new side, an unstaged one (index -> work tree) on
+/// its old side; each of those rows comes back as context numbered by its
+/// index line, for the column's lone source (index 0). Empty for a binary
+/// diff, which has no lines to draw.
+List<DiffFillRow> indexRowsOfFullDiff(DiffFile full, {required bool staged}) {
+  if (full.binary) return const <DiffFillRow>[];
+  return List<DiffFillRow>.unmodifiable(<DiffFillRow>[
+    for (final DiffHunk hunk in full.hunks)
+      for (final DiffLine line in hunk.lines)
+        // A row only the other end holds has no index line, and is skipped.
+        if (_indexLineOf(line, staged: staged) case final int index)
+          (
+            sourceIndex: 0,
+            indexLine: index,
+            line: DiffLine(
+              kind: DiffLineKind.context,
+              oldLine: index,
+              newLine: index,
+              text: line.text,
+            ),
+          ),
+  ]);
+}

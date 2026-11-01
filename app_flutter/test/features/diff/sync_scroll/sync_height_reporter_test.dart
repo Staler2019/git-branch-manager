@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/diff/sync_scroll/sync_code_row_marker.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_height_reporter.dart';
 
 void main() {
@@ -16,7 +17,7 @@ void main() {
             alignment: Alignment.topLeft,
             child: SyncHeightReporter(
               epoch: epoch,
-              onHeight: got.add,
+              onReport: (double height, double? _) => got.add(height),
               child: const SizedBox(width: 10, height: 30),
             ),
           ),
@@ -43,5 +44,72 @@ void main() {
       30,
       30,
     ]);
+  });
+
+  // Slice H: an item also tells how far down its first code row starts.
+  group('lead', () {
+    Future<List<(double, double?)>> reports(
+      WidgetTester tester,
+      List<double?> above,
+    ) async {
+      final Object sink = Object();
+      final List<(double, double?)> got = <(double, double?)>[];
+      for (final double? gap in above) {
+        await tester.pumpWidget(
+          Directionality(
+            textDirection: TextDirection.ltr,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: SyncHeightReporter(
+                epoch: sink,
+                onReport: (double h, double? lead) => got.add((h, lead)),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    // [gap] null: the item draws no code row at all.
+                    SizedBox(width: 10, height: 40 - (gap ?? 0)),
+                    if (gap != null) ...<Widget>[
+                      const SyncCodeRowMarker(
+                        child: SizedBox(width: 10, height: 5),
+                      ),
+                      SizedBox(width: 10, height: gap - 5),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+      }
+      return got;
+    }
+
+    testWidgets('the first code row\'s top, or none', (
+      WidgetTester tester,
+    ) async {
+      expect(await reports(tester, <double?>[12]), <(double, double?)>[
+        (40, 28),
+      ]);
+    });
+
+    testWidgets('an item with no code row reports no lead', (
+      WidgetTester tester,
+    ) async {
+      expect(await reports(tester, <double?>[null]), <(double, double?)>[
+        (40, null),
+      ]);
+    });
+
+    // A one-shot block moving within a card keeps its height and moves its
+    // first row (plan: Slice H, HB4).
+    testWidgets('a lead that changes alone is reported', (
+      WidgetTester tester,
+    ) async {
+      expect(await reports(tester, <double?>[12, 20]), <(double, double?)>[
+        (40, 28),
+        (40, 20),
+      ]);
+    });
   });
 }

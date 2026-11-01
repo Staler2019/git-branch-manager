@@ -136,18 +136,14 @@ Future<int> _rowsBuilt(
 void _expectAligned(WidgetTester tester, {String reason = ''}) {
   final Map<int, Rect> left = <int, Rect>{};
   for (final Element e
-      in find
-          .descendant(of: _view(0), matching: find.byType(SyncSlotSpacer))
-          .evaluate()) {
+      in find.descendant(of: _view(0), matching: _endSpacers).evaluate()) {
     left[(e.widget as SyncSlotSpacer).segment] = tester.getRect(
       find.byWidget(e.widget),
     );
   }
   int compared = 0;
   for (final Element e
-      in find
-          .descendant(of: _view(1), matching: find.byType(SyncSlotSpacer))
-          .evaluate()) {
+      in find.descendant(of: _view(1), matching: _endSpacers).evaluate()) {
     final Rect? l = left[(e.widget as SyncSlotSpacer).segment];
     if (l == null) continue;
     compared++;
@@ -167,6 +163,12 @@ Future<void> _wheel(WidgetTester tester, int column, double dy) async {
   await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
   await _settle(tester);
 }
+
+/// A segment's end spacer; its start one (plan: Slice H) pads the column's
+/// own first code row and so differs between columns by design.
+final Finder _endSpacers = find.byWidgetPredicate(
+  (Widget w) => w is SyncSlotSpacer && !w.atStart,
+);
 
 void main() {
   testWidgets('unified: a far jump builds only the rows near where it lands, '

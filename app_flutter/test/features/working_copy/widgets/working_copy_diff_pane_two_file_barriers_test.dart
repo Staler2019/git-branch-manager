@@ -149,6 +149,26 @@ void main() {
       expect(find.text('2 個 scope'), findsOneWidget);
       expect(find.text('1 個 scope'), findsOneWidget);
     });
+
+    // Slice H: 「變更1變更2等等那行，也需要留空行，不然左右一樣對不齊」. The
+    // staged card's head sits above its L1; the unstaged L1 has none, so
+    // the unstaged column pads the head's height first.
+    testWidgets('$mode: each staged card\'s first line is level with the '
+        'same line unstaged', (WidgetTester tester) async {
+      await pump(
+        tester,
+        unstaged: _unstaged,
+        staged: _staged,
+        fullFile: fullFile,
+      );
+      for (final String line in <String>['L1', 'L5']) {
+        expect(
+          tester.getRect(inColumn(1, line)).top,
+          moreOrLessEquals(tester.getRect(inColumn(0, line)).top, epsilon: 0.5),
+          reason: line,
+        );
+      }
+    });
   }
 
   // The card is the payload: each half acts on its own two lines, exactly

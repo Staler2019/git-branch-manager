@@ -10,13 +10,15 @@ import 'diff_scopes.dart';
 ///
 /// [rowExtent] is one unwrapped code line. [cardChromeExtent] and
 /// [gapChromeExtent] are what a card and a gap draw besides their rows (a
-/// card's head, borders and margins). [charsPerLine] is how many characters
+/// card's head, borders and margins); [cardLeadExtent] is the part of a
+/// card's above its first row, and half a gap's chrome is above its first. [charsPerLine] is how many characters
 /// one wrapped line holds, or 0 when soft wrap is off and every row is one
 /// line.
 typedef DiffListMetrics = ({
   double rowExtent,
   double headingExtent,
   double cardChromeExtent,
+  double cardLeadExtent,
   double gapChromeExtent,
   int charsPerLine,
 });
@@ -26,22 +28,25 @@ typedef DiffListMetrics = ({
 /// [segmentOfUnit] is the segment of every sync unit of the column's blocks,
 /// in order: a card or gap block is one unit, a fill run one per row
 /// (`syncUnitSpans`). [spacerExtentOf] is what the column pads at the end of
-/// a segment; only the estimates read it.
+/// a segment and [leadExtentOf] what it pads at its start (plan: Slice H);
+/// only the estimates read them.
 typedef DiffListSync = ({
   List<int> segmentOfUnit,
   int segmentCount,
   double Function(int segment) spacerExtentOf,
+  double Function(int segment) leadExtentOf,
 });
 
 /// Estimated item heights, read off the eager layout at the test font
-/// (row 22, heading 22, a card's head and margins 49, a gap's margins 4,
-/// a column head 29). A jump reads them and corrects itself once the target is
+/// (row 22, heading 22, a card's head and margins 49 -- 40 of it above its
+/// first row -- a gap's margins 4, a column head 29). A jump reads them and corrects itself once the target is
 /// built, and a synced column starts its slot heights from them until each
 /// item is measured; nothing is laid out from them.
 const DiffListMetrics kDiffListEstimate = (
   rowExtent: 22,
   headingExtent: 22,
   cardChromeExtent: 49,
+  cardLeadExtent: 40,
   gapChromeExtent: 4,
   charsPerLine: 0,
 );
@@ -86,10 +91,15 @@ final class DiffFillItem extends DiffListItem {
 /// The end of a synced column's run in [segment]: as tall as the tallest
 /// column's run there less this column's own, so every column's next
 /// segment starts at the same height (「短側尾部插高度」). Draws no row.
+///
+/// [atStart]: the start of the run instead, as tall as this column's first
+/// code row needs to come down to the lowest column's (plan: Slice H). Every
+/// segment but 0 has one; segment 0 holds the column heads, no code row.
 final class DiffSpacerItem extends DiffListItem {
-  const DiffSpacerItem(this.segment);
+  const DiffSpacerItem(this.segment, {this.atStart = false});
 
   final int segment;
+  final bool atStart;
 }
 
 /// The painted diff list as something a lazy list can index: its items, the
@@ -109,8 +119,9 @@ class DiffListModel {
   /// rule the view's own loop follows.
   ///
   /// With [sync], every segment of the column ends in a [DiffSpacerItem],
-  /// a segment this column has nothing in included, and segment 0 is the
-  /// leading items'. A heading goes with the block it heads. Rows, cards
+  /// and every one after 0 starts in one too ([DiffSpacerItem.atStart]), a
+  /// segment this column has nothing in included; segment 0 is the leading
+  /// items'. A heading goes with the block it heads. Rows, cards
   /// and keys are exactly what they are without it.
   factory DiffListModel.fromBlocks(
     List<DiffBlock> blocks, {
@@ -128,6 +139,7 @@ class DiffListModel {
     final List<int> changedRows = <int>[];
     final List<int> fillRunOffsets = <int>[];
     final List<int> segmentOfItem = <int>[];
+    final List<double> leads = <double>[];
     int segment = 0;
     int unit = 0;
 
@@ -138,20 +150,28 @@ class DiffListModel {
       return metrics.rowExtent * (lines < 1 ? 1 : lines);
     }
 
-    void add(DiffListItem item, double extent) {
+    void add(DiffListItem item, double extent, {double lead = double.nan}) {
       itemRowStart.add(rowKeys.length);
       items.add(item);
       extents.add(extent);
       fillRunOffsets.add(0);
       segmentOfItem.add(segment);
+      leads.add(lead);
     }
 
-    // Closes every segment before [next] with its spacer.
+    // Closes every segment before [next] with its spacer, and opens each
+    // one after it with its start spacer.
     void padTo(int next) {
       if (sync == null) return;
       while (segment < next) {
         add(DiffSpacerItem(segment), sync.spacerExtentOf(segment));
         segment++;
+        if (segment < sync.segmentCount) {
+          add(
+            DiffSpacerItem(segment, atStart: true),
+            sync.leadExtentOf(segment),
+          );
+        }
       }
     }
 
@@ -170,7 +190,12 @@ class DiffListModel {
         for (int k = 0; k < rows.length; k++) {
           final DiffFillRow row = rows[k];
           padTo(segmentOfNextUnit());
-          add(DiffFillItem(row), rowExtentOf(row.line));
+          // A run's first row draws its top margin, half a gap's chrome.
+          add(
+            DiffFillItem(row),
+            rowExtentOf(row.line),
+            lead: k == 0 ? metrics.gapChromeExtent / 2 : 0,
+          );
           fillRunOffsets[items.length - 1] = k;
           rowKeys.add(selectionFillRowKey(row.sourceIndex, row.indexLine));
         }
@@ -190,7 +215,11 @@ class DiffListModel {
       final bool card = block.segment is DiffScopeSegment;
       if (card) cardItems.add(items.length);
       final int item = items.length;
-      add(DiffBlockItem(block), 0);
+      add(
+        DiffBlockItem(block),
+        0,
+        lead: card ? metrics.cardLeadExtent : metrics.gapChromeExtent / 2,
+      );
       double extent = card ? metrics.cardChromeExtent : metrics.gapChromeExtent;
       for (final int lineIndex in block.segment.lineIndices) {
         final DiffLine line = lines[lineIndex];
@@ -231,6 +260,7 @@ class DiffListModel {
       offsets,
       Int32List.fromList(fillRunOffsets),
       Int32List.fromList(segmentOfItem),
+      Float64List.fromList(leads),
     );
   }
 
@@ -245,6 +275,7 @@ class DiffListModel {
     this._offsets,
     this._fillRunOffsets,
     this._segmentOfItem,
+    this._leads,
   );
 
   /// Every item, in painted order: the leading items, then the diff.
@@ -271,9 +302,36 @@ class DiffListModel {
 
   final Int32List _fillRunOffsets;
   final Int32List _segmentOfItem;
+  final Float64List _leads;
 
   /// The sync segment item [item] is in; 0 for every item when unsynced.
   int segmentOfItem(int item) => _segmentOfItem[item];
+
+  /// Item [item]'s estimated lead -- how far down it its first code row
+  /// starts -- or null when it draws none (a heading, a spacer).
+  double? leadEstimateOf(int item) {
+    final double v = _leads[item];
+    return v.isNaN ? null : v;
+  }
+
+  /// The lead of the segment item [first] opens (plan: Slice H): what
+  /// [heightOf] gives the items before the first one [leadOf] finds a code
+  /// row in, plus that row's top in its item; null when none has one.
+  double? segmentLeadFrom(
+    int first, {
+    required double Function(int item) heightOf,
+    required double? Function(int item) leadOf,
+  }) {
+    final int segment = _segmentOfItem[first];
+    double above = 0;
+    for (int i = first; i < items.length; i++) {
+      if (_segmentOfItem[i] != segment) break;
+      final double? lead = leadOf(i);
+      if (lead != null) return above + lead;
+      above += heightOf(i);
+    }
+    return null;
+  }
 
   /// How many fill rows of the same run come before fill item [item]: the
   /// segment of the run's dashed rule it draws. 0 for any other item.

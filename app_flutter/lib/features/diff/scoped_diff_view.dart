@@ -21,6 +21,7 @@ import 'diff_row_keys.dart';
 import 'diff_scopes.dart';
 import 'diff_truncation.dart';
 import 'selection_touch.dart';
+import 'sync_scroll/sync_code_row_marker.dart';
 import 'sync_scroll/sync_height_reporter.dart';
 import 'sync_scroll/sync_scroll_controller.dart';
 import 'sync_scroll/user_scroll.dart';
@@ -520,6 +521,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     }
     if (!identical(oldWidget.sync?.heights, widget.sync?.heights)) {
       _measured.clear();
+      _measuredLead.clear();
     }
   }
 
@@ -1229,6 +1231,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       rowExtent: kDiffListEstimate.rowExtent,
       headingExtent: kDiffListEstimate.headingExtent,
       cardChromeExtent: kDiffListEstimate.cardChromeExtent,
+      cardLeadExtent: kDiffListEstimate.cardLeadExtent,
       gapChromeExtent: kDiffListEstimate.gapChromeExtent,
       charsPerLine: widget.softWrap ? _charsPerLine : 0,
     ),
@@ -1259,6 +1262,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
       segmentCount: sync.heights.segmentCount,
       spacerExtentOf: (int segment) =>
           sync.heights.spacerHeight(sync.column, segment),
+      leadExtentOf: (int segment) => sync.heights.topPad(sync.column, segment),
     );
   }
 
@@ -1294,7 +1298,7 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     double top = 0;
     while (item + 1 < model.items.length &&
         model.segmentOfItem(item + 1) == at.segment) {
-      final double next = top + _ownHeightOf(model, item);
+      final double next = top + _placedHeightOf(model, sync, item);
       if (next > at.within) break;
       top = next;
       item++;
@@ -1303,16 +1307,32 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   }
 
   /// [item]'s top in a synced column: its segment's slot top plus this
-  /// column's own items above it in that segment; one past the last item
-  /// is the total, every column's the same.
+  /// column's items above it in that segment, as placed; one past the last
+  /// item is the total, every column's the same.
   double _syncedOffsetOf(DiffListModel model, ScopedDiffSync sync, int item) {
     if (item >= model.items.length) return sync.heights.totalHeight;
     final int segment = model.segmentOfItem(item);
     double within = 0;
     for (int i = item - 1; i >= 0 && model.segmentOfItem(i) == segment; i--) {
-      within += _ownHeightOf(model, i);
+      within += _placedHeightOf(model, sync, i);
     }
     return sync.heights.offsetOf(segment) + within;
+  }
+
+  /// How tall item [i] is laid out: [_ownHeightOf], and a spacer's padding
+  /// besides. Where an item sits counts it; the column's own run does not,
+  /// or the padding would feed back into what it is computed from (plan:
+  /// Slice H, HB1/HB2).
+  double _placedHeightOf(DiffListModel model, ScopedDiffSync sync, int i) {
+    final double own = _ownHeightOf(model, i);
+    return switch (model.items[i]) {
+      DiffSpacerItem(:final int segment, :final bool atStart) =>
+        own +
+            (atStart
+                ? sync.heights.topPad(sync.column, segment)
+                : sync.heights.spacerHeight(sync.column, segment)),
+      _ => own,
+    };
   }
 
   /// What item [i] adds to its column's own run: its height, measured or
@@ -1337,13 +1357,22 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
   /// sync it was measured for, since a new one numbers its items afresh.
   final Map<int, double> _measured = <int, double>{};
 
-  /// [item] laid out [height] tall: its segment's run in this column is
-  /// the sum of its items, measured or else estimated, spacer excluded.
-  void _onItemHeight(int item, double height) {
+  /// Each synced item's measured lead, by item index (null: it drew no code
+  /// row); cleared with [_measured].
+  final Map<int, double?> _measuredLead = <int, double?>{};
+
+  /// [item] laid out [height] tall, its first code row [lead] down: its
+  /// segment's run in this column is the sum of its items, measured or else
+  /// estimated, spacers excluded; its segment's lead is the first code row's
+  /// top in that run ([DiffListModel.segmentLeadFrom], plan: Slice H).
+  void _onItemHeight(int item, double height, double? lead) {
     final ScopedDiffSync? sync = widget.sync;
     final DiffListModel? model = _model;
     if (sync == null || model == null || item >= model.items.length) return;
-    if (model.items[item] is! DiffSpacerItem) _measured[item] = height;
+    if (model.items[item] is! DiffSpacerItem) {
+      _measured[item] = height;
+      _measuredLead[item] = lead;
+    }
     final int segment = model.segmentOfItem(item);
     int first = item;
     while (first > 0 && model.segmentOfItem(first - 1) == segment) {
@@ -1357,7 +1386,18 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     ) {
       run += _ownHeightOf(model, i);
     }
-    sync.heights.report(sync.column, segment, run);
+    sync.heights.report(
+      sync.column,
+      segment,
+      run,
+      lead: model.segmentLeadFrom(
+        first,
+        heightOf: (int i) => _ownHeightOf(model, i),
+        leadOf: (int i) => _measuredLead.containsKey(i)
+            ? _measuredLead[i]
+            : model.leadEstimateOf(i),
+      ),
+    );
   }
 
   /// `SCOPES` row 7's second input: 「Shift + ↑ ↓」.
@@ -1846,7 +1886,8 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     // spacer would otherwise never leave the pane's estimate.
     return SyncHeightReporter(
       epoch: widget.sync?.heights,
-      onHeight: (double height) => _onItemHeight(index, height),
+      onReport: (double height, double? lead) =>
+          _onItemHeight(index, height, lead),
       child: built,
     );
   }
@@ -1868,10 +1909,11 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
     }
     final Widget child = switch (item) {
       DiffLeadingItem() => const SizedBox.shrink(),
-      DiffSpacerItem(:final int segment) => SyncSlotSpacer(
+      DiffSpacerItem(:final int segment, :final bool atStart) => SyncSlotSpacer(
         heights: widget.sync!.heights,
         column: widget.sync!.column,
         segment: segment,
+        atStart: atStart,
         scroll: widget.sync!.scroll,
       ),
       DiffHeadingItem(:final DiffBlock block) => _HunkHeading(
@@ -2506,11 +2548,13 @@ class _GapBlock extends StatelessWidget {
                     SelectionTouchRow(
                       tracker: tracker,
                       rowKey: row.key,
-                      child: DiffLineView(
-                        softWrap: softWrap,
-                        line: row.line,
-                        staged: row.staged,
-                        touched: touched.contains(row.key),
+                      child: SyncCodeRowMarker(
+                        child: DiffLineView(
+                          softWrap: softWrap,
+                          line: row.line,
+                          staged: row.staged,
+                          touched: touched.contains(row.key),
+                        ),
                       ),
                     ),
                 ],
@@ -2742,15 +2786,17 @@ class _ScopeCardState extends State<_ScopeCard> {
   Widget _row(int index) => SelectionTouchRow(
     tracker: widget.tracker,
     rowKey: selectionRowKey(widget.sourceIndex, widget.hunkIndex, index),
-    child: DiffLineView(
-      softWrap: widget.softWrap,
-      line: widget.hunk.lines[index],
-      staged: widget.staged,
-      selectionCount: widget.scope.changedLineIndices.length,
-      onStageLine: widget.onStage,
-      onDiscardLine: widget.onDiscard,
-      touched: widget.touched.contains(
-        selectionRowKey(widget.sourceIndex, widget.hunkIndex, index),
+    child: SyncCodeRowMarker(
+      child: DiffLineView(
+        softWrap: widget.softWrap,
+        line: widget.hunk.lines[index],
+        staged: widget.staged,
+        selectionCount: widget.scope.changedLineIndices.length,
+        onStageLine: widget.onStage,
+        onDiscardLine: widget.onDiscard,
+        touched: widget.touched.contains(
+          selectionRowKey(widget.sourceIndex, widget.hunkIndex, index),
+        ),
       ),
     ),
   );

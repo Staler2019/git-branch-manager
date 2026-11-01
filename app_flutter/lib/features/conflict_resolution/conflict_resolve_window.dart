@@ -243,7 +243,8 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
               SyncHeightReporter(
-                onHeight: (double height) => h.report(column, k, height),
+                onReport: (double height, double? _) =>
+                    h.report(column, k, height),
                 child: blocks[k],
               ),
               SyncSlotSpacer(

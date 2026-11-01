@@ -395,8 +395,9 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
       ],
       compareIndexPositions,
     );
-    // Each column's own height per segment, estimated the way its view's
-    // model estimates its items, until the view measures them.
+    // Each column's own height and lead per segment, estimated the way its
+    // view's model estimates its items, until the view measures them.
+    final List<List<double?>> leads = <List<double?>>[];
     final List<List<double>> estimate = <List<double>>[
       for (int c = 0; c < 2; c++)
         () {
@@ -410,12 +411,23 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
               segmentOfUnit: segments.segmentOf[c],
               segmentCount: segments.count,
               spacerExtentOf: (_) => 0,
+              leadExtentOf: (_) => 0,
             ),
           );
           final List<double> run = List<double>.filled(segments.count, 0);
+          final List<double?> lead = List<double?>.filled(segments.count, null);
           for (int i = 0; i < model.items.length; i++) {
-            run[model.segmentOfItem(i)] += model.extentOf(i);
+            final int k = model.segmentOfItem(i);
+            run[k] += model.extentOf(i);
+            if (i == 0 || model.segmentOfItem(i - 1) != k) {
+              lead[k] = model.segmentLeadFrom(
+                i,
+                heightOf: model.extentOf,
+                leadOf: model.leadEstimateOf,
+              );
+            }
           }
+          leads.add(lead);
           return run;
         }(),
     ];
@@ -425,6 +437,7 @@ class _WorkingCopyDiffPaneState extends State<WorkingCopyDiffPane> {
         columns: 2,
         segments: segments.count,
         estimate: (int c, int k) => estimate[c][k],
+        estimateLead: (int c, int k) => leads[c][k],
       ),
     );
   }

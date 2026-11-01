@@ -90,6 +90,7 @@ const DiffListMetrics _metrics = (
   rowExtent: 10,
   headingExtent: 7,
   cardChromeExtent: 30,
+  cardLeadExtent: 25,
   gapChromeExtent: 3,
   charsPerLine: 0,
 );
@@ -109,7 +110,8 @@ String _shape(DiffListItem item) => switch (item) {
   },
   DiffFillItem(:final DiffFillRow row) =>
     'fill ${row.sourceIndex}:${row.indexLine}',
-  DiffSpacerItem(:final int segment) => 'spacer $segment',
+  DiffSpacerItem(:final int segment, :final bool atStart) =>
+    atStart ? 'start $segment' : 'spacer $segment',
 };
 
 /// The painted row keys of [blocks], walked independently of the model:
@@ -348,6 +350,7 @@ void main() {
             rowExtent: 10,
             headingExtent: 7,
             cardChromeExtent: 30,
+            cardLeadExtent: 25,
             gapChromeExtent: 3,
             charsPerLine: charsPerLine,
           ),
@@ -448,6 +451,7 @@ void main() {
           rowExtent: 10,
           headingExtent: 7,
           cardChromeExtent: 30,
+          cardLeadExtent: 25,
           gapChromeExtent: 3,
           charsPerLine: rng.nextInt(3) * 4,
         ),
@@ -499,44 +503,71 @@ void main() {
           segmentOfUnit: const <int>[1, 1, 2, 2, 2, 3, 4],
           segmentCount: 6,
           spacerExtentOf: (int segment) => 100.0 + segment,
+          leadExtentOf: (int segment) => 200.0 + segment,
         ),
       );
 
+      // Slice H: every segment after 0 also opens with a start spacer.
       expect(model.items.map(_shape).toList(), <String>[
         'leading 0',
         'spacer 0',
+        'start 1',
         'fill 0:1',
         'fill 0:2',
         'spacer 1',
+        'start 2',
         'gap 0:0:0',
         'card 0:0:1',
         'gap 0:0:2',
         'spacer 2',
+        'start 3',
         'fill 0:5',
         'spacer 3',
+        'start 4',
         'fill 0:6',
         'spacer 4',
+        'start 5',
         'spacer 5',
       ]);
       expect(model.rowKeys, plain.rowKeys);
       expect(model.changedRows, plain.changedRows);
-      expect(model.cardItems, <int>[6]);
-      expect(model.items[6], isA<DiffBlockItem>());
+      expect(model.cardItems, <int>[8]);
+      expect(model.items[8], isA<DiffBlockItem>());
       expect(
         <int>[
           for (int i = 0; i < model.items.length; i++) model.segmentOfItem(i),
         ],
-        <int>[0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 4, 4, 5],
+        <int>[0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5],
       );
-      for (final int spacer in <int>[1, 4, 8, 10, 12, 13]) {
+      for (final int spacer in <int>[1, 2, 5, 6, 10, 11, 13, 14, 16, 17, 18]) {
         expect(model.rowCountOf(spacer), 0, reason: 'item $spacer');
       }
-      expect(model.firstRowOf(4), 2, reason: 'after fill 1 and 2');
-      expect(model.firstRowOf(13), model.rowKeys.length);
+      expect(model.firstRowOf(5), 2, reason: 'after fill 1 and 2');
+      expect(model.firstRowOf(18), model.rowKeys.length);
       expect(model.extentOf(1), 100);
-      expect(model.extentOf(13), 105);
+      expect(model.extentOf(2), 201);
+      expect(model.extentOf(18), 105);
       // A fill run's dashed rule carries across a spacer it is cut by.
-      expect(model.fillRunOffsetOf(11), 1);
+      expect(model.fillRunOffsetOf(15), 1);
+      // Leads: a run's first fill row draws its top margin, half a gap's
+      // chrome; a later one none; a card its head; a spacer no code row.
+      expect(model.leadEstimateOf(3), 1.5);
+      expect(model.leadEstimateOf(4), 0);
+      expect(model.leadEstimateOf(7), 1.5);
+      expect(model.leadEstimateOf(8), 25);
+      expect(model.leadEstimateOf(2), isNull);
+      expect(model.leadEstimateOf(5), isNull);
+      // Segment 2's lead: nothing above the gap's first row but the start
+      // spacer, which counts only its frame edges (plan: Slice H, HB2).
+      expect(
+        model.segmentLeadFrom(
+          6,
+          heightOf: (int i) =>
+              model.items[i] is DiffSpacerItem ? 0 : model.extentOf(i),
+          leadOf: model.leadEstimateOf,
+        ),
+        1.5,
+      );
       _expectConsistent(model);
     });
 
@@ -556,22 +587,36 @@ void main() {
           segmentOfUnit: const <int>[1, 1, 1, 2, 2, 2],
           segmentCount: 3,
           spacerExtentOf: (_) => 0,
+          leadExtentOf: (_) => 0,
         ),
       );
       expect(model.items.map(_shape).toList(), <String>[
         'spacer 0',
+        'start 1',
         'heading 0:0',
         'gap 0:0:0,1,2',
         'card 0:0:3',
         'gap 0:0:4,5,6',
         'spacer 1',
+        'start 2',
         'heading 0:1',
         'gap 0:1:0,1',
         'card 0:1:2',
         'gap 0:1:3',
         'spacer 2',
       ]);
-      expect(model.segmentOfItem(6), 2);
+      expect(model.segmentOfItem(8), 2);
+      // A heading draws no code row: its segment's lead is the heading and
+      // then the gap's top margin.
+      expect(
+        model.segmentLeadFrom(
+          1,
+          heightOf: (int i) =>
+              model.items[i] is DiffSpacerItem ? 0 : model.extentOf(i),
+          leadOf: model.leadEstimateOf,
+        ),
+        7 + 1.5,
+      );
       _expectConsistent(model);
     });
 

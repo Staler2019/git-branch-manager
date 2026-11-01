@@ -33,7 +33,13 @@ typedef _Call = ({bool staged, int hunkIndex, List<int> lines});
 late List<_Call> _calls;
 late void Function()? _submit;
 
-Future<void> _pump(WidgetTester tester, {int generation = 0}) async {
+Future<void> _pump(
+  WidgetTester tester, {
+  int generation = 0,
+  Set<int> unstagedEdits = _unstagedEdits,
+  Set<int> stagedEdits = _stagedEdits,
+  int unstagedContext = 0,
+}) async {
   _calls = <_Call>[];
   _submit = null;
   tester.view.physicalSize = const Size(900, 500);
@@ -46,8 +52,12 @@ Future<void> _pump(WidgetTester tester, {int generation = 0}) async {
       key: ValueKey<int>(generation),
       softWrap: false,
       displayPath: 'lib/a.dart',
-      unstagedFile: replacementsDiff(_lines, _unstagedEdits, context: 0),
-      stagedFile: replacementsDiff(_lines, _stagedEdits, context: 0),
+      unstagedFile: replacementsDiff(
+        _lines,
+        unstagedEdits,
+        context: unstagedContext,
+      ),
+      stagedFile: replacementsDiff(_lines, stagedEdits, context: 0),
       unstagedFullFile: null,
       stagedFullFile: null,
       fullFile: false,
@@ -290,12 +300,14 @@ typedef _Gesture = Future<(List<_Call>, List<_Call>)> Function();
 Future<void> _everyPath(
   WidgetTester tester,
   int column,
-  _Gesture gesture,
-) async {
+  _Gesture gesture, {
+  Future<void> Function(int generation)? pump,
+}) async {
   int generation = 0;
   for (final _Path path in _Path.values) {
     if (path == _Path.submitter && column != 0) continue;
-    await _pump(tester, generation: generation++);
+    final int g = generation++;
+    await (pump?.call(g) ?? _pump(tester, generation: g));
     final (List<_Call> expected, List<_Call> grown) = await gesture();
     _calls.clear();
     switch (path) {
@@ -425,6 +437,76 @@ void main() {
           _expected(file, column == 1, start.$2, _nextRow(file, last)),
         );
       });
+    });
+  }
+
+  // Plan: Slice H. Unstaged (two lines of context) replaces 10 and 14 in
+  // one hunk; staged replaces 12. The segment of the unstaged gap 11..13
+  // opens in staged with that hunk's `@@` heading and card head, so the
+  // unstaged column pads its start, right below the changed edited L10.
+  for (final (String half, double at) in <(String, double)>[
+    ('upper', 0.25),
+    ('lower', 0.75),
+  ]) {
+    testWidgets('L3-s5: a press on the $half half of a start spacer starts at '
+        'the row after it', (WidgetTester tester) async {
+      await _everyPath(
+        tester,
+        0,
+        pump: (int g) => _pump(
+          tester,
+          generation: g,
+          unstagedEdits: <int>{10, 14, 290},
+          stagedEdits: <int>{12, 290},
+          unstagedContext: 2,
+        ),
+        () async {
+          await _scrollTo(tester, 0, 11);
+          final double rowTop = _rows(
+            tester,
+            0,
+          ).firstWhere(((Rect, DiffLine) r) => r.$2.text == 'L11').$1.top;
+          final List<Rect> starts = <Rect>[
+            for (final SyncSlotSpacer s in tester.widgetList<SyncSlotSpacer>(
+              find.descendant(
+                of: _view(0),
+                matching: find.byType(SyncSlotSpacer),
+              ),
+            ))
+              if (s.atStart) tester.getRect(find.byWidget(s)),
+          ]..retainWhere((Rect r) => r.bottom <= rowTop);
+          starts.sort((Rect a, Rect b) => a.top.compareTo(b.top));
+          final Rect spacer = starts.last;
+          expect(spacer.height, greaterThan(8), reason: 'premise: padded');
+          final DiffFile file = _file(tester, 0);
+          final DiffLine before = _rows(
+            tester,
+            0,
+          ).lastWhere(((Rect, DiffLine) r) => r.$1.bottom <= spacer.top).$2;
+          expect(before.kind, isNot(DiffLineKind.context), reason: 'premise');
+          final DiffLine first = _nextRow(file, before);
+          late DiffLine last;
+          await _drag(
+            tester,
+            0,
+            Offset(_textX(tester, 0), spacer.top + spacer.height * at),
+            () {
+              final (Rect, DiffLine) row = _lastChangedOnScreen(tester, 0);
+              last = row.$2;
+              return Offset(_textX(tester, 0), row.$1.center.dy);
+            },
+            frames: 20,
+          );
+          expect(
+            _paintIndex(file, last),
+            greaterThan(_paintIndex(file, first)),
+          );
+          return (
+            _expected(file, false, first, last),
+            _expected(file, false, first, _nextRow(file, last)),
+          );
+        },
+      );
     });
   }
 

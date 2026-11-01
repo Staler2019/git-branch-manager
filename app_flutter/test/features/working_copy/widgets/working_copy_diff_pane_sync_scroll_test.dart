@@ -125,18 +125,14 @@ SyncScrollController _sync(WidgetTester tester) =>
 void _expectAligned(WidgetTester tester) {
   final Map<int, Rect> left = <int, Rect>{};
   for (final Element e
-      in find
-          .descendant(of: _view(0), matching: find.byType(SyncSlotSpacer))
-          .evaluate()) {
+      in find.descendant(of: _view(0), matching: _endSpacers).evaluate()) {
     left[(e.widget as SyncSlotSpacer).segment] = tester.getRect(
       find.byWidget(e.widget),
     );
   }
   int compared = 0;
   for (final Element e
-      in find
-          .descendant(of: _view(1), matching: find.byType(SyncSlotSpacer))
-          .evaluate()) {
+      in find.descendant(of: _view(1), matching: _endSpacers).evaluate()) {
     final Rect? l = left[(e.widget as SyncSlotSpacer).segment];
     if (l == null) continue;
     compared++;
@@ -167,6 +163,12 @@ Future<void> _wheel(WidgetTester tester, int column, double dy) async {
   await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
   await _settle(tester);
 }
+
+/// A segment's end spacer; its start one (plan: Slice H) pads the column's
+/// own first code row and so differs between columns by design.
+final Finder _endSpacers = find.byWidgetPredicate(
+  (Widget w) => w is SyncSlotSpacer && !w.atStart,
+);
 
 void main() {
   testWidgets('the wheel on the unstaged column moves the staged one to '
@@ -278,6 +280,49 @@ void main() {
         matching: find.text('edited L280', findRichText: true),
       ),
       findsOneWidget,
+    );
+    _expectAligned(tester);
+  });
+
+  // Plan: Slice H, HB1. A ruler jump seeds the list at the target's
+  // offset, so that offset has to count the start pads: the unstaged card
+  // at 150 opens its segment with its head, the staged column with its fill
+  // row L150, padded down to it.
+  testWidgets('a ruler jump to a segment padded at its start lands with its '
+      'first code rows level', (WidgetTester tester) async {
+    await _pump(tester);
+    final Finder mark = find.descendant(
+      of: _view(1),
+      matching: find.byKey(const ValueKey<String>('ruler-mark-2')),
+    );
+    await tester.tap(mark);
+    await _settle(tester);
+    expect(_position(tester, 1).pixels, greaterThan(1000));
+    // The jump brings the card to the top; its segment opens a few rows
+    // above it.
+    await _wheel(tester, 1, -120);
+    Finder row(int c) => find.descendant(
+      of: _view(c),
+      matching: find.text('L150', findRichText: true),
+    );
+    final SyncSlotSpacer start = tester
+        .widgetList<SyncSlotSpacer>(
+          find.descendant(of: _view(1), matching: find.byType(SyncSlotSpacer)),
+        )
+        .lastWhere(
+          (SyncSlotSpacer s) =>
+              s.atStart &&
+              tester.getRect(find.byWidget(s)).bottom <=
+                  tester.getRect(row(1)).top,
+        );
+    expect(
+      start.heights.topPad(1, start.segment),
+      greaterThan(10),
+      reason: 'premise: the staged column pads this segment at its start',
+    );
+    expect(
+      tester.getRect(row(1)).top,
+      moreOrLessEquals(tester.getRect(row(0)).top, epsilon: 0.5),
     );
     _expectAligned(tester);
   });

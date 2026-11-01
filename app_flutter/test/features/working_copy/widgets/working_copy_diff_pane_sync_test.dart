@@ -64,12 +64,15 @@ Future<void> _pump(
 
 Finder _spacer(int column, int segment) => find.byWidgetPredicate(
   (Widget w) =>
-      w is SyncSlotSpacer && w.column == column && w.segment == segment,
+      w is SyncSlotSpacer &&
+      !w.atStart &&
+      w.column == column &&
+      w.segment == segment,
 );
 
 int _segmentCount(WidgetTester tester, int column) => tester
     .widgetList<SyncSlotSpacer>(find.byType(SyncSlotSpacer))
-    .where((SyncSlotSpacer s) => s.column == column)
+    .where((SyncSlotSpacer s) => s.column == column && !s.atStart)
     .length;
 
 /// Every segment ends at the same height in both columns: the bottom of its
@@ -136,7 +139,7 @@ void main() {
     final List<Rect> padding =
         tester
             .widgetList<SyncSlotSpacer>(find.byType(SyncSlotSpacer))
-            .where((SyncSlotSpacer s) => s.column == 1)
+            .where((SyncSlotSpacer s) => s.column == 1 && !s.atStart)
             .map((SyncSlotSpacer s) => tester.getRect(find.byWidget(s)))
             .toList()
           ..sort((Rect a, Rect b) => b.height.compareTo(a.height));

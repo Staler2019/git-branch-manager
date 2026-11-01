@@ -95,9 +95,7 @@ Map<int, double> _spacerBottoms(
   int column,
 ) => <int, double>{
   for (final Element e
-      in find
-          .descendant(of: _view(column), matching: find.byType(SyncSlotSpacer))
-          .evaluate())
+      in find.descendant(of: _view(column), matching: _endSpacers).evaluate())
     (e.widget as SyncSlotSpacer).segment: tester
         .getRect(find.byWidget(e.widget))
         .bottom,
@@ -136,6 +134,12 @@ Future<void> _wheel(WidgetTester tester, int column, double dy) async {
   await tester.sendEventToBinding(pointer.scroll(Offset(0, dy)));
   await _settle(tester);
 }
+
+/// A segment's end spacer; its start one (plan: Slice H) pads the column's
+/// own first code row and so differs between columns by design.
+final Finder _endSpacers = find.byWidgetPredicate(
+  (Widget w) => w is SyncSlotSpacer && !w.atStart,
+);
 
 void main() {
   for (final int lead in <int>[0, 1]) {

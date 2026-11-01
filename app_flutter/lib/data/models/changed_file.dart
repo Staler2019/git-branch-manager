@@ -53,4 +53,10 @@ class ChangedFile {
   /// the honest rendering for something that has no lines.
   final int addedLines;
   final int removedLines;
+
+  /// The name this file had before the commit when the commit renamed it,
+  /// else `''` -- what a per-file diff request passes as its old path, so git
+  /// can pair the two halves instead of diffing a whole-file add. A copy is
+  /// not included: its source still exists, and `-M` does not detect copies.
+  String get renamedFrom => kind == FileChangeKind.renamed ? oldPath : '';
 }

@@ -11,6 +11,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_diff_header_bar.dart';
 import '../diff/diff_page.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -102,15 +103,18 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
 
   void _select(FileHistoryEntry entry) {
     setState(() => _selectedOid = entry.oid);
-    // The path this commit touched is the *renamed-from* path when this
-    // entry is a rename, otherwise the tab's own path -- asking for the
-    // current name inside a commit that predates the rename returns
-    // nothing.
-    _session.requestCommitFileDiff(entry.oid, _pathAt(entry));
+    // Ask under the name the file had in that commit -- the tab's current
+    // name finds nothing in a commit older than a rename -- and give a rename
+    // both of its names, or git draws one half as a whole-file add or delete.
+    _session.requestCommitFileDiff(
+      entry.oid,
+      _pathAt(entry),
+      oldPath: entry.status.startsWith('R') ? entry.renamedFrom : '',
+    );
   }
 
   String _pathAt(FileHistoryEntry entry) =>
-      entry.renamedFrom.isEmpty ? widget.path : entry.renamedFrom;
+      entry.path.isEmpty ? widget.path : entry.path;
 
   @override
   Widget build(BuildContext context) {
@@ -216,7 +220,24 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
           ? const SizedBox.shrink()
           : diff == null
           ? const Center(child: CircularProgressIndicator())
-          : DiffPage(diff: diff),
+          // Spec: docs/claude-design-demo/rename-diff-display-spec.html,
+          // 畫面 2 -- `old → new` for a rename.
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                GbmDiffHeaderBar(
+                  text:
+                      diff.files
+                          .where(
+                            (DiffFile f) => f.displayPath == _pathAt(selected),
+                          )
+                          .firstOrNull
+                          ?.headerText ??
+                      _pathAt(selected),
+                ),
+                Expanded(child: DiffPage(diff: diff)),
+              ],
+            ),
     );
   }
 }

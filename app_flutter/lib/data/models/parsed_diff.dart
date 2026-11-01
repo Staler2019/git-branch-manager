@@ -73,6 +73,10 @@ class DiffHunk {
   final List<DiffLine> lines;
 }
 
+/// What a diff surface says about a [DiffFile.isPureRename] file. Shared,
+/// like `kDiffTooLargeLabel`, so no two surfaces word it differently.
+const String kPureRenameNote = 'Renamed \u2014 content unchanged';
+
 /// Mirrors `gbm::DiffFile`.
 class DiffFile {
   const DiffFile({
@@ -124,6 +128,23 @@ class DiffFile {
   final int removedLines;
   final String displayPath;
   final List<DiffHunk> hunks;
+
+  /// [oldPath] when this file was renamed, else `''` -- what a per-file diff
+  /// request passes as its old path. Same rule as `ChangedFile.renamedFrom`.
+  String get renamedFrom => kind == FileChangeKind.renamed ? oldPath : '';
+
+  /// What a diff header names this file as: `old → new` for a rename, its
+  /// display path otherwise. Spec:
+  /// docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+  String get headerText =>
+      kind == FileChangeKind.renamed ? '$oldPath \u2192 $newPath' : displayPath;
+
+  /// A rename with nothing else to show: no hunk, and not binary, which keeps
+  /// its own `(binary file)` notice because that branch is checked first.
+  /// Every diff surface draws [kPureRenameNote] for it instead of an empty
+  /// body. Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 3.
+  bool get isPureRename =>
+      kind == FileChangeKind.renamed && !binary && hunks.isEmpty;
 }
 
 /// Mirrors `gbm::ParsedDiff` as serialized by `capi::toJson(const

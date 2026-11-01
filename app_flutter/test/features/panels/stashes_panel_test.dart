@@ -18,6 +18,9 @@ import 'package:gbm_flutter/features/panels/panel_file_diff_detail.dart';
 import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
 import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/features/panels/stashes_panel.dart';
+import 'package:gbm_flutter/features/diff/diff_page.dart';
+import 'package:gbm_flutter/widgets/file_list_mode_switcher.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 
 import '../../support/fake_repo_session.dart';
 import 'panel_test_support.dart';
@@ -170,8 +173,82 @@ void main() {
         hasLength(1),
       );
       expect(find.byType(PanelFileDiffDetail), findsOneWidget);
-      // 檔案清單: the diff carries its own per-file header.
-      expect(find.text('lib/main.dart'), findsOneWidget);
+      // 檔案清單: the list names the file. Counted inside the list, because
+      // the diff header below it names the same file.
+      expect(
+        find.descendant(
+          of: find.byType(FileListModeSwitcher<DiffFile>),
+          matching: find.text('lib/main.dart'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2 --
+    // 「Stash 的標頭放在 diff 那一格的頂端 ok」.
+    testWidgets('the selected file\'s diff is headed by its path', (
+      tester,
+    ) async {
+      await _pump(tester, diff: _diffOfStash1);
+      await tester.tap(find.text('stash@{1}: debug logging'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/main.dart',
+      );
+      // At the top of the diff cell. The file list is the split's fixed
+      // pane and sits at its trailing (bottom) end, so the header is the
+      // detail column's first row, directly above the diff and clear of
+      // the list.
+      final Rect header = tester.getRect(find.byType(GbmDiffHeaderBar));
+      expect(header.top, tester.getRect(find.byType(PanelFileDiffDetail)).top);
+      expect(header.bottom, tester.getRect(find.byType(DiffPage)).top);
+      expect(
+        header.bottom,
+        lessThanOrEqualTo(
+          tester.getRect(find.byType(FileListModeSwitcher<DiffFile>)).top,
+        ),
+      );
+    });
+
+    testWidgets('a renamed file\'s diff is headed by both of its paths', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        diff: const StashDiffReply(
+          index: 1,
+          diff: ParsedDiff(
+            files: <DiffFile>[
+              DiffFile(
+                oldPath: 'lib/old.dart',
+                newPath: 'lib/new.dart',
+                kind: FileChangeKind.renamed,
+                oldMode: '100644',
+                newMode: '100644',
+                oldBlob: 'aaa',
+                newBlob: 'aaa',
+                binary: false,
+                similarity: 100,
+                addedLines: 0,
+                removedLines: 0,
+                displayPath: 'lib/new.dart',
+                hunks: <DiffHunk>[],
+              ),
+            ],
+            truncated: false,
+            inputBytes: 0,
+          ),
+        ),
+      );
+      await tester.tap(find.text('stash@{1}: debug logging'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/old.dart → lib/new.dart',
+      );
     });
 
     // Drop is now *absent* rather than disabled with nothing selected, and

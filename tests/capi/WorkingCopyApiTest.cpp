@@ -26,6 +26,7 @@ namespace gbm::capi {
 namespace {
 
 using ::gbm::testing::GitCli;
+using ::gbm::testing::GitCliResult;
 using ::gbm::testing::PoolBlockade;
 
 struct EventLog {
@@ -128,12 +129,14 @@ protected:
     /// Triggers gbm_working_copy_diff() and returns the JSON payload of the
     /// next GBM_EVENT_WORKING_COPY_DIFF_READY, cleared from the log first so
     /// a later call in the same test can't see a stale earlier reply.
-    std::string requestDiffJson(const std::string& path, bool staged) {
+    std::string requestDiffJson(const std::string& path,
+                                bool staged,
+                                const std::string& oldPath = "") {
         {
             std::lock_guard<std::mutex> lock(log_.mutex);
             log_.events.clear();
         }
-        gbm_working_copy_diff(session_, path.c_str(), staged ? 1 : 0);
+        gbm_working_copy_diff(session_, path.c_str(), oldPath.c_str(), staged ? 1 : 0);
         const bool arrived = log_.waitFor([](const auto& events) {
             for (const auto& [type, payload] : events) {
                 if (type == GBM_EVENT_WORKING_COPY_DIFF_READY) return true;
@@ -309,7 +312,7 @@ TEST_F(WorkingCopyApiTest, StatusJsonCarriesUntrackedSizeAndMtimeForARealFile) {
 }
 
 TEST_F(WorkingCopyApiTest, WorkingCopyDiffReportsAddedLine) {
-    gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0);
+    gbm_working_copy_diff(session_, "committed.txt", /*oldPath=*/nullptr, /*staged=*/0);
 
     // Waits specifically for GBM_EVENT_WORKING_COPY_DIFF_READY, not just "any
     // event": the session now also emits GBM_EVENT_OPERATION_LOG_RECORD for
@@ -497,6 +500,52 @@ TEST_F(WorkingCopyApiTest, StageHunkStagesOnlyThatHunkLeavingTheOtherUnstaged) {
     EXPECT_NE(unstagedDiff.find("\"L29-changed\""), std::string::npos) << unstagedDiff;
 }
 
+// A staged `git mv` diffed with only its new path is a whole-file add: git
+// never sees the deleted half, so it cannot pair them. The old path joins the
+// pathspec to make the rename visible.
+TEST_F(WorkingCopyApiTest, StagedDiffOfAPureRenameIsARenameWithNoHunks) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+
+    const std::string json = requestDiffJson("after.txt", /*staged=*/true, "before.txt");
+    EXPECT_NE(json.find("\"oldPath\":\"before.txt\",\"newPath\":\"after.txt\",\"kind\":3"),
+              std::string::npos)
+        << json;
+    EXPECT_NE(json.find("\"hunks\":[]"), std::string::npos) << json;
+}
+
+TEST_F(WorkingCopyApiTest, StagedDiffOfAnEditedRenameHoldsOnlyTheEdit) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "after.txt") << "one\ntwo\nTHREE\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "after.txt"}), 0);
+
+    const std::string json = requestDiffJson("after.txt", /*staged=*/true, "before.txt");
+    EXPECT_NE(json.find("\"kind\":3"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"addedLines\":1,\"removedLines\":1"), std::string::npos) << json;
+}
+
+// Two pathspecs can answer with two files -- here a new `before.txt` was
+// staged behind the rename's back -- and the reply must still describe the
+// one path it was asked about, not whichever sorts first.
+TEST_F(WorkingCopyApiTest, StagedRenameDiffRepliesWithOnlyTheRequestedPath) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "before.txt") << "unrelated\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+
+    const std::string json = requestDiffJson("after.txt", /*staged=*/true, "before.txt");
+    EXPECT_NE(json.find("\"newPath\":\"after.txt\""), std::string::npos) << json;
+    EXPECT_EQ(json.find("\"unrelated\""), std::string::npos) << json;
+    EXPECT_EQ(json.find("\"newPath\":\"before.txt\""), std::string::npos) << json;
+}
+
 TEST_F(WorkingCopyApiTest, UnstageHunkReversesAFullyStagedSingleHunkFile) {
     std::ofstream(repo_ / "single.txt") << "a\nb\nc\n";
     ASSERT_EQ(runGit({"add", "single.txt"}), 0);
@@ -508,13 +557,81 @@ TEST_F(WorkingCopyApiTest, UnstageHunkReversesAFullyStagedSingleHunkFile) {
     const std::string stagedDiff = requestDiffJson("single.txt", /*staged=*/true);
     ASSERT_NE(stagedDiff.find("\"d\""), std::string::npos) << stagedDiff;
 
-    gbm_unstage_hunk(session_, "single.txt", /*hunkIndex=*/0);
+    gbm_unstage_hunk(session_, "single.txt", /*oldPath=*/nullptr, /*hunkIndex=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
 
     const std::string stagedAfter = requestDiffJson("single.txt", /*staged=*/true);
     EXPECT_EQ(stagedAfter.find("\"files\":[{"), std::string::npos) << stagedAfter;
     const std::string unstagedAfter = requestDiffJson("single.txt", /*staged=*/false);
     EXPECT_NE(unstagedAfter.find("\"d\""), std::string::npos) << unstagedAfter;
+}
+
+TEST_F(WorkingCopyApiTest, UnstageLinesOfAStagedRenameRevertsOnlyTheSelectedLines) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "after.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "after.txt"}), 0);
+
+    // Hunk 0: context one,two (0-1), -three,-four (2-3), +THREE,+FOUR (4-5),
+    // context five,six (6-7). These are the indices the pane draws.
+    const std::string before = requestDiffJson("after.txt", /*staged=*/true, "before.txt");
+    ASSERT_NE(before.find("\"kind\":3"), std::string::npos) << before;
+    ASSERT_NE(before.find("\"kind\":2,\"oldLine\":3,\"newLine\":0,\"text\":\"three\""),
+              std::string::npos)
+        << before;
+
+    const int32_t lineIndices[] = {2, 4};  // three -> THREE only
+    gbm_unstage_lines(session_, "after.txt", "before.txt", /*hunkIndex=*/0, lineIndices, 2);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    const GitCliResult staged = GitCli::capture(repo_, {"show", ":after.txt"});
+    EXPECT_EQ(staged.out, "one\ntwo\nthree\nFOUR\nfive\nsix") << staged.out;
+    const GitCliResult names = GitCli::capture(repo_, {"diff", "--cached", "-M", "--name-status"});
+    EXPECT_EQ(names.out.rfind("R", 0), 0u) << names.out;
+}
+
+TEST_F(WorkingCopyApiTest, UnstageHunkOfAStagedRenameKeepsTheRenameStaged) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "after.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "after.txt"}), 0);
+
+    gbm_unstage_hunk(session_, "after.txt", "before.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    // The content edit leaves the index; the move does not.
+    const GitCliResult staged = GitCli::capture(repo_, {"show", ":after.txt"});
+    EXPECT_EQ(staged.out, "one\ntwo\nthree\nfour\nfive\nsix") << staged.out;
+    const GitCliResult names = GitCli::capture(repo_, {"diff", "--cached", "-M", "--name-status"});
+    EXPECT_EQ(names.out, "R100\tbefore.txt\tafter.txt") << names.out;
+}
+
+// The status said `a-old.txt -> z-new.txt`, but a new `a-old.txt` has been
+// staged since, so the two-path rebuild answers with two files sorted by path
+// -- the stale one first, which is the order these names were picked for. The
+// unstage must not land on that file, and its index entry must survive.
+TEST_F(WorkingCopyApiTest, UnstageOfAStaleRenameLeavesTheOtherPathAlone) {
+    std::ofstream(repo_ / "a-old.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "a-old.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add a-old.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "a-old.txt", "z-new.txt"}), 0);
+    std::ofstream(repo_ / "z-new.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "z-new.txt"}), 0);
+    std::ofstream(repo_ / "a-old.txt") << "alpha\nbeta\n";
+    ASSERT_EQ(runGit({"add", "a-old.txt"}), 0);
+
+    // The whole hunk, not a line: reversing all of a-old.txt's hunk would
+    // apply cleanly, so landing on the wrong file cannot hide behind a patch
+    // that happens not to fit.
+    gbm_unstage_hunk(session_, "z-new.txt", "a-old.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const GitCliResult other = GitCli::capture(repo_, {"show", ":a-old.txt"});
+    EXPECT_EQ(other.out, "alpha\nbeta") << other.out;
 }
 
 TEST_F(WorkingCopyApiTest, StageLinesStagesOnlyTheSelectedAddedLines) {
@@ -630,7 +747,9 @@ TEST_F(WorkingCopyApiTest, StageHunkFailsCleanlyWhenTheHunkIndexNoLongerExists) 
 
 TEST_F(WorkingCopyApiTest, DiffRequestJumpsAheadOfAlreadyQueuedReadWork) {
     expectRequestJumpsAheadOfQueuedWork(
-        [this] { gbm_working_copy_diff(session_, "committed.txt", /*staged=*/0); },
+        [this] {
+            gbm_working_copy_diff(session_, "committed.txt", /*oldPath=*/nullptr, /*staged=*/0);
+        },
         [](const auto& events) {
             for (const auto& [type, payload] : events) {
                 if (type == GBM_EVENT_WORKING_COPY_DIFF_READY) return true;
@@ -684,7 +803,7 @@ TEST_F(WorkingCopyApiTest, FullDiffIsOneHunkOfTheWholeFile) {
     }
     ASSERT_EQ(runGit({"add", "long.txt"}), 0);
 
-    gbm_working_copy_full_diff(session_, "long.txt", /*staged=*/1);
+    gbm_working_copy_full_diff(session_, "long.txt", /*oldPath=*/nullptr, /*staged=*/1);
     ASSERT_TRUE(log_.waitFor(hasFullDiffReply));
     const std::vector<std::string> replies =
         log_.payloadsOfType(GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
@@ -704,7 +823,10 @@ TEST_F(WorkingCopyApiTest, FullDiffIsOneHunkOfTheWholeFile) {
 // must not jump ahead of already-queued work.
 TEST_F(WorkingCopyApiTest, FullDiffRequestWaitsBehindAlreadyQueuedReadWork) {
     expectRequestJumpsAheadOfQueuedWork(
-        [this] { gbm_working_copy_full_diff(session_, "committed.txt", /*staged=*/0); },
+        [this] {
+            gbm_working_copy_full_diff(
+                session_, "committed.txt", /*oldPath=*/nullptr, /*staged=*/0);
+        },
         hasFullDiffReply,
         /*shouldJump=*/false);
 }

@@ -13,6 +13,7 @@ import '../../../routing/route_paths.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_button.dart';
+import '../../../widgets/gbm_diff_header_bar.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../diff/diff_page.dart';
 import '../../diff/side_by_side_diff_view.dart';
@@ -151,7 +152,14 @@ class CommitDetailPanelCore extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _DiffTitleBar(
-          displayPath: selectedFilePath!,
+          // `old → new` for a rename (DiffFile.headerText); the selected
+          // path until the file is found in the reply.
+          displayPath:
+              diff.files
+                  .where((DiffFile f) => f.displayPath == selectedFilePath)
+                  .firstOrNull
+                  ?.headerText ??
+              selectedFilePath!,
           mode: diffViewMode,
           onModeChanged: onDiffViewModeChanged,
         ),
@@ -191,53 +199,29 @@ class _DiffTitleBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final GbmColors colors = context.gbmColors;
-
-    return Container(
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
-      decoration: BoxDecoration(
-        color: colors.surfacePanelRaised,
-        border: Border(bottom: BorderSide(color: colors.borderDefault)),
-      ),
-      child: Row(
-        children: <Widget>[
-          // Flexible, not Expanded: RenderFlex lays non-flex children out
-          // first, so a path insisting on its full width would push the
-          // switch off the end of the bar instead of eliding itself.
-          Flexible(
-            child: Text(
-              displayPath,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-              ),
+    return GbmDiffHeaderBar(
+      text: displayPath,
+      trailing: <Widget>[
+        const SizedBox(width: GbmSpacing.space2),
+        GbmSegmentedControl<DiffViewMode>(
+          value: mode,
+          onChanged: onModeChanged,
+          options: const <GbmSegmentedOption<DiffViewMode>>[
+            GbmSegmentedOption<DiffViewMode>(
+              value: DiffViewMode.sideBySide,
+              label: 'side by side',
+              icon: Icons.vertical_split,
+              showLabel: true,
             ),
-          ),
-          const Spacer(),
-          const SizedBox(width: GbmSpacing.space2),
-          GbmSegmentedControl<DiffViewMode>(
-            value: mode,
-            onChanged: onModeChanged,
-            options: const <GbmSegmentedOption<DiffViewMode>>[
-              GbmSegmentedOption<DiffViewMode>(
-                value: DiffViewMode.sideBySide,
-                label: 'side by side',
-                icon: Icons.vertical_split,
-                showLabel: true,
-              ),
-              GbmSegmentedOption<DiffViewMode>(
-                value: DiffViewMode.unified,
-                label: 'unified',
-                icon: Icons.view_stream,
-                showLabel: true,
-              ),
-            ],
-          ),
-        ],
-      ),
+            GbmSegmentedOption<DiffViewMode>(
+              value: DiffViewMode.unified,
+              label: 'unified',
+              icon: Icons.view_stream,
+              showLabel: true,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

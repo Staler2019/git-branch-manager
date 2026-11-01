@@ -487,13 +487,14 @@ void main() {
   test('FileHistoryEntry.listFromJson decodes an array', () {
     final List<dynamic> json = jsonDecode(
       '[{"oid":"aa","author":{"name":"A","email":"a@x","when":1,"tzOffsetMinutes":0},'
-      '"subject":"init","status":"A","renamedFrom":""}]',
+      '"subject":"init","status":"A","renamedFrom":"","path":"init.txt"}]',
     );
     final List<FileHistoryEntry> entries = FileHistoryEntry.listFromJson(json);
 
     expect(entries, hasLength(1));
     expect(entries.single.status, 'A');
     expect(entries.single.author.name, 'A');
+    expect(entries.single.path, 'init.txt');
   });
 
   test('LineHistoryChunk.listFromJson decodes an array', () {

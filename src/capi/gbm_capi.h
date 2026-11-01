@@ -467,9 +467,15 @@ GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid)
 /// Requests the full diff for a specific file in a commit. Async: fires
 /// GBM_EVENT_COMMIT_FILE_DIFF_READY with a ParsedDiff JSON payload, or
 /// GBM_EVENT_ERROR_OCCURRED on failure.
+///
+/// `oldPath` (NULL or empty for none) is the file's name before the commit
+/// when the commit renamed it -- the changed-files list's `oldPath`. It joins
+/// the pathspec so git can pair the rename; the reply still holds only the
+/// file whose new path is `path`.
 GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
                                           const char* oid,
-                                          const char* path);
+                                          const char* path,
+                                          const char* oldPath);
 
 // --- Compare (M6) ----------------------------------------------------------
 // Two-ref comparison queries backing the Compare tab (spec page 12): unlike
@@ -493,11 +499,17 @@ GBM_API void gbm_request_compare_refs(GbmSessionHandle session,
 /// Requests one file's full diff between two refs. Async: fires
 /// GBM_EVENT_COMPARE_FILE_DIFF_READY, or GBM_EVENT_ERROR_OCCURRED on
 /// failure.
+///
+/// `oldPath` (NULL or empty for none) is the file's left-side name when the
+/// range renamed it -- the compare file list's `oldPath`. It joins the
+/// pathspec so git can pair the rename; the reply holds only the file whose
+/// new path is `path`.
 GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                            const char* leftRef,
                                            const char* rightRef,
                                            int32_t threeDot,
-                                           const char* path);
+                                           const char* path,
+                                           const char* oldPath);
 
 /// Requests the diff between `ref` and the live working tree (uncommitted
 /// changes included) -- the "compare a ref with Working Copy" side of the
@@ -750,15 +762,27 @@ GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session);
 
 /// Diff of one path: work tree vs index (staged=0) or index vs HEAD
 /// (staged=1). Async: fires GBM_EVENT_WORKING_COPY_DIFF_READY.
-GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, int32_t staged);
+///
+/// `oldPath` (NULL or empty for none) is a staged rename's original path. It
+/// joins the pathspec so git can pair the two halves: with the new path alone
+/// a staged `git mv` diffs as a whole-file add. Ignored when staged=0 -- git
+/// does no rename detection between the index and the work tree.
+GBM_API void gbm_working_copy_diff(GbmSessionHandle session,
+                                   const char* path,
+                                   const char* oldPath,
+                                   int32_t staged);
 
 /// The same diff as gbm_working_copy_diff() with unlimited context, so its one
 /// hunk holds every line of the file (DiffOptions::fullFile()). For display
 /// only: line staging keeps resolving against the -U3 diff, which StageOps
 /// recomputes. Queued behind other reads rather than in front of them -- it
 /// fills rows around the -U3 diff the user is already looking at. Async:
-/// fires GBM_EVENT_WORKING_COPY_FULL_DIFF_READY.
-GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session, const char* path, int32_t staged);
+/// fires GBM_EVENT_WORKING_COPY_FULL_DIFF_READY. `oldPath` as for
+/// gbm_working_copy_diff().
+GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
+                                        const char* path,
+                                        const char* oldPath,
+                                        int32_t staged);
 
 /// `git add -- <paths>`. `paths`/`pathCount` describe a plain C array of
 /// UTF-8 C strings. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
@@ -783,7 +807,16 @@ GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t 
 /// The reverse of gbm_stage_hunk(): recomputes `path`'s *staged* diff (index
 /// vs HEAD), locates hunk `hunkIndex` there, and applies it with `git apply
 /// --cached --reverse`. Same event/refresh contract as gbm_stage_files().
-GBM_API void gbm_unstage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex);
+///
+/// `oldPath` (NULL or empty for none) is a staged rename's original path,
+/// exactly as passed to gbm_working_copy_diff(): the staged diff is rebuilt
+/// with the same pathspec the pane was drawn from, so `hunkIndex` means the
+/// same hunk. If the rebuilt file is no longer that rename, the operation
+/// fails as a stale index does rather than applying anything.
+GBM_API void gbm_unstage_hunk(GbmSessionHandle session,
+                              const char* path,
+                              const char* oldPath,
+                              int32_t hunkIndex);
 
 /// Like gbm_stage_hunk(), but stages only a subset of that hunk's added/
 /// removed lines -- `lineIndices`/`lineIndexCount` index into the hunk's
@@ -798,9 +831,10 @@ GBM_API void gbm_stage_lines(GbmSessionHandle session,
 
 /// The reverse of gbm_stage_lines(): recomputes `path`'s *staged* diff,
 /// applied with `git apply --cached --reverse`. Same event/refresh contract
-/// as gbm_stage_files().
+/// as gbm_stage_files(). `oldPath` as for gbm_unstage_hunk().
 GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                const char* path,
+                               const char* oldPath,
                                int32_t hunkIndex,
                                const int32_t* lineIndices,
                                int32_t lineIndexCount);

@@ -601,41 +601,65 @@ WorkingCopyStatusPtr Session::currentWorkingCopyStatus() const {
     return workingCopyStatus_;
 }
 
-void Session::requestWorkingCopyDiff(std::string path, bool staged) {
+void Session::requestWorkingCopyDiff(std::string path, std::string oldPath, bool staged) {
     // postFront, like requestBlame(): the user is looking at this exact file
     // right now, and the diff pane must not sit behind a refreshRepoStatus()
     // sweep's other members -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().postFront([this, path = std::move(path), staged]() {
-        emitWorkingCopyDiff(path, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
-    });
+    sharedReadPool().postFront(
+        [this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
+            emitWorkingCopyDiff(
+                path, oldPath, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
+        });
 }
 
-void Session::requestWorkingCopyFullDiff(std::string path, bool staged) {
+void Session::requestWorkingCopyFullDiff(std::string path, std::string oldPath, bool staged) {
     // post, not postFront: this only fills the rows between the -U3 cards the
     // user is already looking at, so it must not take an interactive read's
     // place in the queue -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().post([this, path = std::move(path), staged]() {
+    sharedReadPool().post([this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
         emitWorkingCopyDiff(
-            path, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
+            path, oldPath, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
     });
 }
 
 void Session::emitWorkingCopyDiff(const std::string& path,
+                                  const std::string& oldPath,
                                   bool staged,
                                   const DiffOptions& options,
                                   int32_t eventType) {
+    // A staged rename's old path joins the pathspec: with the new path alone
+    // git never sees the deleted half and reports the whole file as added.
+    // Index vs HEAD only -- git does no rename detection against the work
+    // tree, and the unstaged side's untracked fallback needs exactly one path.
+    std::vector<std::string> pathspec{path};
+    const bool pairsARename = staged && !oldPath.empty() && oldPath != path;
+    if (pairsARename) {
+        pathspec.insert(pathspec.begin(), oldPath);
+    }
     const GitResult<DiffService::ParsedDiffPtr> result =
-        diffs_->workingTreeDiff(staged, {path}, options, readCancel_.token());
+        diffs_->workingTreeDiff(staged, pathspec, options, readCancel_.token());
     if (!result) {
         callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
         return;
+    }
+    // Two pathspecs can answer with two files -- a new file staged at the old
+    // path since the status was read -- and git sorts them by path, so
+    // either may come first. The reply describes the one path it names, so
+    // keep only that.
+    ParsedDiff onlyRequested;
+    const ParsedDiff* reply = result.value().get();
+    if (pairsARename) {
+        onlyRequested = *reply;
+        std::erase_if(onlyRequested.files,
+                      [&path](const DiffFile& file) { return file.newPath != path; });
+        reply = &onlyRequested;
     }
     std::string payload = "{\"path\":";
     jsonAppendEscaped(payload, path);
     payload += ",\"staged\":";
     jsonAppendBool(payload, staged);
     payload += ",\"diff\":";
-    payload += toJson(*result.value());
+    payload += toJson(*reply);
     payload += '}';
     callbacks_.emit(eventType, payload);
 }
@@ -690,9 +714,10 @@ void Session::stageHunk(std::string path, std::size_t hunkIndex) {
                                [this]() { refreshWorkingCopy(); });
 }
 
-void Session::unstageHunk(std::string path, std::size_t hunkIndex) {
+void Session::unstageHunk(std::string path, std::string oldPath, std::size_t hunkIndex) {
     PartialStageRequest request;
     request.path = std::move(path);
+    request.oldPath = std::move(oldPath);
     request.staged = true;
     request.hunkIndex = hunkIndex;
     submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
@@ -712,10 +737,12 @@ void Session::stageLines(std::string path,
 }
 
 void Session::unstageLines(std::string path,
+                           std::string oldPath,
                            std::size_t hunkIndex,
                            std::vector<std::size_t> lineIndices) {
     PartialStageRequest request;
     request.path = std::move(path);
+    request.oldPath = std::move(oldPath);
     request.staged = true;
     request.hunkIndex = hunkIndex;
     request.lineIndices = std::move(lineIndices);
@@ -1478,24 +1505,33 @@ void Session::requestCommitFiles(std::string oid) {
     });
 }
 
-void Session::requestCommitFileDiff(std::string oid, std::string path) {
-    sharedReadPool().postFront([this, oid = std::move(oid), path = std::move(path)]() {
-        const ObjectId commitOid = ObjectId::fromHex(oid);
-        const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->commitFileDiff(commitOid, path, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"oid\":";
-        jsonAppendEscaped(payload, oid);
-        payload += ",\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"diff\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
-    });
+void Session::requestCommitFileDiff(std::string oid, std::string path, std::string oldPath) {
+    sharedReadPool().postFront(
+        [this, oid = std::move(oid), path = std::move(path), oldPath = std::move(oldPath)]() {
+            const ObjectId commitOid = ObjectId::fromHex(oid);
+            const GitResult<DiffService::ParsedDiffPtr> result = diffs_->commitFileDiff(
+                commitOid, path, oldPath, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            // Same as emitWorkingCopyDiff: two pathspecs can answer with two
+            // files (the commit also added a new file at the old name), and the
+            // reply describes only the one it names.
+            ParsedDiff onlyRequested = *result.value();
+            if (!oldPath.empty() && oldPath != path) {
+                std::erase_if(onlyRequested.files,
+                              [&path](const DiffFile& file) { return file.newPath != path; });
+            }
+            std::string payload = "{\"oid\":";
+            jsonAppendEscaped(payload, oid);
+            payload += ",\"path\":";
+            jsonAppendEscaped(payload, path);
+            payload += ",\"diff\":";
+            payload += toJson(onlyRequested);
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
+        });
 }
 
 void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot) {
@@ -1531,22 +1567,31 @@ void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool
 void Session::requestCompareFileDiff(std::string leftRef,
                                      std::string rightRef,
                                      bool threeDot,
-                                     std::string path) {
+                                     std::string path,
+                                     std::string oldPath) {
     sharedReadPool().postFront([this,
                                 leftRef = std::move(leftRef),
                                 rightRef = std::move(rightRef),
                                 threeDot,
-                                path = std::move(path)]() {
+                                path = std::move(path),
+                                oldPath = std::move(oldPath)]() {
         CompareFileDiffRequest request;
         request.leftRef = leftRef;
         request.rightRef = rightRef;
         request.threeDot = threeDot;
         request.path = path;
-        const GitResult<ParsedDiff> result =
+        request.oldPath = oldPath;
+        GitResult<ParsedDiff> result =
             compareStore_->compareFileDiff(std::move(request), readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
+        }
+        // Same as emitWorkingCopyDiff: two pathspecs can answer with two
+        // files, and the reply describes only the one it names.
+        if (!oldPath.empty() && oldPath != path) {
+            std::erase_if(result->files,
+                          [&path](const DiffFile& file) { return file.newPath != path; });
         }
         std::string payload = "{\"left\":";
         jsonAppendEscaped(payload, leftRef);

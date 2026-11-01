@@ -19,6 +19,7 @@ import 'package:gbm_flutter/features/panels/file_history_panel.dart';
 import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
 import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -37,6 +38,7 @@ const FileHistoryEntry _latest = FileHistoryEntry(
   subject: 'tidy the header',
   status: 'M',
   renamedFrom: '',
+  path: 'lib/main.dart',
 );
 
 const FileHistoryEntry _renamed = FileHistoryEntry(
@@ -45,6 +47,25 @@ const FileHistoryEntry _renamed = FileHistoryEntry(
   subject: 'rename it',
   status: 'R100',
   renamedFrom: 'lib/old_main.dart',
+  path: 'lib/main.dart',
+);
+
+const FileHistoryEntry _copied = FileHistoryEntry(
+  oid: 'ddddddd',
+  author: _who,
+  subject: 'copy it',
+  status: 'C090',
+  renamedFrom: 'lib/template.dart',
+  path: 'lib/main.dart',
+);
+
+const FileHistoryEntry _beforeRename = FileHistoryEntry(
+  oid: 'ccccccc',
+  author: _who,
+  subject: 'edit before the move',
+  status: 'M',
+  renamedFrom: '',
+  path: 'lib/old_main.dart',
 );
 
 const ParsedDiff _diff = ParsedDiff(
@@ -177,9 +198,10 @@ void main() {
       expect(find.byType(DiffPage), findsOneWidget);
     });
 
-    // Asking for the current name inside a commit that predates the rename
-    // returns nothing, so the request has to use the old path.
-    testWidgets('a renamed entry asks for the diff under its old path', (
+    // Asked with only one of its names, git cannot pair the two halves of a
+    // rename: the old name alone is a whole-file delete, the new one alone a
+    // whole-file add.
+    testWidgets('a renamed entry asks for the diff under both of its names', (
       tester,
     ) async {
       final PumpedPanel pumped = await _pump(tester, diff: _diff);
@@ -189,7 +211,93 @@ void main() {
       final FakeCommand cmd = pumped.fake.commandLog.lastWhere(
         (FakeCommand c) => c.name == 'requestCommitFileDiff',
       );
+      expect(cmd.args['path'], 'lib/main.dart');
+      expect(cmd.args['oldPath'], 'lib/old_main.dart');
+    });
+
+    // A commit older than the rename touched the file under its old name;
+    // asking it for the tab's current name finds nothing.
+    testWidgets('an entry older than the rename asks under the name it had '
+        'then', (tester) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        diff: _diff,
+        entries: const <FileHistoryEntry>[_latest, _renamed, _beforeRename],
+      );
+      await tester.tap(find.text('edit before the move'));
+      await tester.pumpAndSettle();
+
+      final FakeCommand cmd = pumped.fake.commandLog.lastWhere(
+        (FakeCommand c) => c.name == 'requestCommitFileDiff',
+      );
       expect(cmd.args['path'], 'lib/old_main.dart');
+      expect(cmd.args['oldPath'], '');
+    });
+
+    // A copy's source still exists, so it is not this file's old name: the
+    // same rule as ChangedFile.renamedFrom.
+    testWidgets('a copied entry sends no old path', (tester) async {
+      final PumpedPanel pumped = await _pump(
+        tester,
+        diff: _diff,
+        entries: const <FileHistoryEntry>[_latest, _copied],
+      );
+      await tester.tap(find.text('copy it'));
+      await tester.pumpAndSettle();
+
+      final FakeCommand cmd = pumped.fake.commandLog.lastWhere(
+        (FakeCommand c) => c.name == 'requestCommitFileDiff',
+      );
+      expect(cmd.args['path'], 'lib/main.dart');
+      expect(cmd.args['oldPath'], '');
+    });
+
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+    testWidgets('the diff is headed by the file it shows', (tester) async {
+      await _pump(tester, diff: _diff);
+      await tester.tap(find.text('tidy the header'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/main.dart',
+      );
+    });
+
+    testWidgets('a rename\'s diff is headed by both of its paths', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        diff: const ParsedDiff(
+          files: <DiffFile>[
+            DiffFile(
+              oldPath: 'lib/old_main.dart',
+              newPath: 'lib/main.dart',
+              kind: FileChangeKind.renamed,
+              oldMode: '100644',
+              newMode: '100644',
+              oldBlob: 'a',
+              newBlob: 'a',
+              binary: false,
+              similarity: 100,
+              addedLines: 0,
+              removedLines: 0,
+              displayPath: 'lib/main.dart',
+              hunks: <DiffHunk>[],
+            ),
+          ],
+          truncated: false,
+          inputBytes: 0,
+        ),
+      );
+      await tester.tap(find.text('rename it'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/old_main.dart → lib/main.dart',
+      );
     });
 
     testWidgets('Compare… is disabled until a commit is selected', (

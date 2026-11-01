@@ -129,6 +129,24 @@ TEST_F(FileHistoryApiTest, FileHistoryFollowsRenamesAcrossCommits) {
     EXPECT_NE(payload.find("\"renamedFrom\":\"old.txt\""), std::string::npos) << payload;
 }
 
+TEST_F(FileHistoryApiTest, FileHistoryEntriesCarryThePathAsOfTheirOwnCommit) {
+    gbm_request_file_history(session_, "new.txt", "");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_FILE_HISTORY_READY) return true;
+        }
+        return false;
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_FILE_HISTORY_READY);
+    EXPECT_NE(payload.find("\"renamedFrom\":\"old.txt\",\"path\":\"new.txt\""), std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"status\":\"A\",\"renamedFrom\":\"\",\"path\":\"old.txt\""),
+              std::string::npos)
+        << payload;
+}
+
 TEST_F(FileHistoryApiTest, LineHistoryReturnsTheHunkThatTouchedTheRange) {
     gbm_request_line_history(session_, "new.txt", /*startLine=*/1, /*endLine=*/1, "");
 

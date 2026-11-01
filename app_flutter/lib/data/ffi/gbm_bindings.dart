@@ -429,11 +429,13 @@ typedef WorkingCopyStatusJsonDart = int Function(Pointer<Void> session);
 typedef _WorkingCopyDiffNative = Void Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
   Int32 staged,
 );
 typedef WorkingCopyDiffDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
   int staged,
 );
 
@@ -493,6 +495,39 @@ typedef _StageLinesNative = Void Function(
 typedef StageLinesDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
+  int hunkIndex,
+  Pointer<Int32> lineIndices,
+  int lineIndexCount,
+);
+
+/// The unstage halves take a staged rename's old path as well -- see
+/// gbm_unstage_hunk()'s doc comment -- so they no longer share the stage
+/// halves' shapes.
+typedef _UnstageHunkNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
+  Int32 hunkIndex,
+);
+typedef UnstageHunkDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
+  int hunkIndex,
+);
+
+typedef _UnstageLinesNative = Void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
+  Int32 hunkIndex,
+  Pointer<Int32> lineIndices,
+  Int32 lineIndexCount,
+);
+typedef UnstageLinesDart = void Function(
+  Pointer<Void> session,
+  Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
   int hunkIndex,
   Pointer<Int32> lineIndices,
   int lineIndexCount,
@@ -775,11 +810,13 @@ typedef _RequestCommitFileDiffNative = Void Function(
   Pointer<Void> session,
   Pointer<Utf8> oid,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 typedef RequestCommitFileDiffDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> oid,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 
 typedef _RequestCompareRefsNative = Void Function(
@@ -801,6 +838,7 @@ typedef _RequestCompareFileDiffNative = Void Function(
   Pointer<Utf8> rightRef,
   Int32 threeDot,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 typedef RequestCompareFileDiffDart = void Function(
   Pointer<Void> session,
@@ -808,6 +846,7 @@ typedef RequestCompareFileDiffDart = void Function(
   Pointer<Utf8> rightRef,
   int threeDot,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 
 typedef _RequestRemotePrunePreviewNative = Void Function(
@@ -1584,15 +1623,16 @@ class GbmBindings {
       stageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>(
         'gbm_stage_hunk',
       ),
-      unstageHunk = library.lookupFunction<_StageHunkNative, StageHunkDart>(
+      unstageHunk = library.lookupFunction<_UnstageHunkNative, UnstageHunkDart>(
         'gbm_unstage_hunk',
       ),
       stageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
         'gbm_stage_lines',
       ),
-      unstageLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
-        'gbm_unstage_lines',
-      ),
+      unstageLines = library
+          .lookupFunction<_UnstageLinesNative, UnstageLinesDart>(
+            'gbm_unstage_lines',
+          ),
       discardLines = library.lookupFunction<_StageLinesNative, StageLinesDart>(
         'gbm_discard_lines',
       ),
@@ -2054,9 +2094,9 @@ class GbmBindings {
   final StageFilesDart stageFiles;
   final UnstageFilesDart unstageFiles;
   final StageHunkDart stageHunk;
-  final StageHunkDart unstageHunk;
+  final UnstageHunkDart unstageHunk;
   final StageLinesDart stageLines;
-  final StageLinesDart unstageLines;
+  final UnstageLinesDart unstageLines;
 
   /// Same signature as the two above, but rewrites the work tree instead of
   /// the index -- `git apply --reverse` without `--cached`. Destructive; see

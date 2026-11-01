@@ -122,6 +122,8 @@ GitResult<std::vector<FileHistoryEntry>> FileHistoryStore::fileHistory(
         }
         const std::string_view status = line.substr(0, tab);
         entries.back().status = std::string(status);
+        // The last field is the name in this commit, the new one on an R/C line.
+        entries.back().path = std::string(line.substr(line.rfind('\t') + 1));
         if (!status.empty() && (status.front() == 'R' || status.front() == 'C')) {
             const std::string_view rest = line.substr(tab + 1);
             const std::size_t tab2 = rest.find('\t');

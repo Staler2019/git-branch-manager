@@ -2,6 +2,7 @@
 
 #include "core/git/DiffService.h"
 
+#include <algorithm>
 #include <utility>
 
 namespace gbm {
@@ -111,9 +112,10 @@ private:
 /// paths: a Modified or Deleted file's index entry is *restored to its HEAD
 /// content* by either the reverse patch or `restore --staged`, rather than
 /// emptied, so there is no orphan for this rule to clean up. A rename is not
-/// a counter-example either -- workingTreeDiff is called with a single-path
-/// pathspec, so git cannot pair the two halves and reports the new side as
-/// Added anyway.
+/// a counter-example either: a staged one is rebuilt with both of its paths
+/// and arrives as Renamed, and its reverse patch rewrites only the new path's
+/// content (appendPatchHeader drops the rename lines when unstaging), so the
+/// rename itself stays staged and nothing is left empty.
 ///
 /// They stay because a narrowing that costs one `&&` is worth more than the
 /// generality: this special case exists for exactly one measured shape, and
@@ -249,7 +251,17 @@ public:
 
         DiffService diffs(runner, paths);
         const DiffOptions options;
-        auto diffResult = diffs.workingTreeDiff(request_.staged, {request_.path}, options, token);
+        // A staged rename is rebuilt with both of its paths, the pathspec the
+        // pane's diff came from (Session::emitWorkingCopyDiff); with `path`
+        // alone git reports a whole-file add and every index below would
+        // address a different hunk.
+        const bool pairsARename =
+            request_.staged && !request_.oldPath.empty() && request_.oldPath != request_.path;
+        std::vector<std::string> pathspec{request_.path};
+        if (pairsARename) {
+            pathspec.insert(pathspec.begin(), request_.oldPath);
+        }
+        auto diffResult = diffs.workingTreeDiff(request_.staged, pathspec, options, token);
         if (!diffResult) {
             outcome.error = std::move(diffResult).error();
             outcome.summary = outcome.error->message;
@@ -261,7 +273,26 @@ public:
                                      "No pending changes found for \"" + request_.path + "\"");
             return outcome;
         }
-        const DiffFile& file = diff.files.front();
+        const DiffFile* found = &diff.files.front();
+        if (pairsARename) {
+            // Two pathspecs can answer with two files, sorted by path, so pick
+            // by name. And the rebuilt file must still be the rename
+            // the indices were read from: if the index moved on since the
+            // pane was drawn, the selection describes a diff that is gone.
+            const auto match =
+                std::find_if(diff.files.begin(), diff.files.end(), [this](const DiffFile& f) {
+                    return f.newPath == request_.path;
+                });
+            if (match == diff.files.end() || match->kind != FileChangeKind::Renamed ||
+                match->oldPath != request_.oldPath) {
+                outcome.error =
+                    GitError(GitError::Code::InvalidArgument,
+                             "That change no longer exists -- the file may have changed");
+                return outcome;
+            }
+            found = &*match;
+        }
+        const DiffFile& file = *found;
         if (request_.hunkIndex >= file.hunks.size()) {
             outcome.error = GitError(GitError::Code::InvalidArgument,
                                      "That change no longer exists -- the file may have changed");

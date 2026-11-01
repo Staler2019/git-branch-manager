@@ -12,7 +12,9 @@ GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid)
 
 GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
                                           const char* oid,
-                                          const char* path) {
+                                          const char* path,
+                                          const char* oldPath) {
     toSession(session)->requestCommitFileDiff(oid != nullptr ? std::string(oid) : "",
-                                              path != nullptr ? std::string(path) : "");
+                                              path != nullptr ? std::string(path) : "",
+                                              oldPath != nullptr ? std::string(oldPath) : "");
 }

@@ -53,6 +53,10 @@ struct CompareFileDiffRequest {
     std::string rightRef;
     bool threeDot = true;
     std::string path;
+    /// The file's name on the left side when the range renamed it (the
+    /// compare file list's `oldPath`), or empty. It joins the pathspec so git
+    /// can pair the rename instead of reporting a whole-file add.
+    std::string oldPath;
 };
 
 /// Runs the read-only two-ref comparison queries backing the M6 Compare tab

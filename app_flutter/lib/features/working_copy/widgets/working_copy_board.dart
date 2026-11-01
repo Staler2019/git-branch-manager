@@ -10,6 +10,7 @@ import '../../../widgets/file_list_mode_switcher.dart';
 import '../../../widgets/file_tree_folder_row.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_badge.dart';
+import '../../../widgets/file_change_glyph.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/lucide_icon.dart';
 import '../../../widgets/split_pane.dart';
@@ -500,6 +501,13 @@ class _WorkingCopyBoardState extends State<WorkingCopyBoard> {
       padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space2),
       child: Row(
         children: <Widget>[
+          // Each column draws its own side: the index for staged, the work
+          // tree for unstaged -- a rename staged then edited is a move here
+          // and a plain edit there.
+          FileChangeGlyph(
+            kind: fromStaged ? entry.indexStatus : entry.worktreeStatus,
+            untracked: !fromStaged && entry.untracked,
+          ),
           Expanded(
             // `label`, not `entry.path`: in tree mode the folder rows above
             // already carry the prefix. `FileListModeSwitcher` decides which

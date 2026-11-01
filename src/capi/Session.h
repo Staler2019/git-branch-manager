@@ -195,10 +195,10 @@ public:
     WorkingCopyStatusPtr currentWorkingCopyStatus() const;
 
     /// Async: see gbm_working_copy_diff()'s doc comment in gbm_capi.h.
-    void requestWorkingCopyDiff(std::string path, bool staged);
+    void requestWorkingCopyDiff(std::string path, std::string oldPath, bool staged);
 
     /// Async: see gbm_working_copy_full_diff()'s doc comment in gbm_capi.h.
-    void requestWorkingCopyFullDiff(std::string path, bool staged);
+    void requestWorkingCopyFullDiff(std::string path, std::string oldPath, bool staged);
 
     /// Async: see gbm_stage_files()/gbm_unstage_files()'s doc comments.
     void stageFiles(std::vector<std::string> paths);
@@ -207,9 +207,10 @@ public:
     /// Async: see gbm_stage_hunk()/gbm_unstage_hunk()/gbm_stage_lines()/
     /// gbm_unstage_lines()'s doc comments in gbm_capi.h.
     void stageHunk(std::string path, std::size_t hunkIndex);
-    void unstageHunk(std::string path, std::size_t hunkIndex);
+    void unstageHunk(std::string path, std::string oldPath, std::size_t hunkIndex);
     void stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
     void unstageLines(std::string path,
+                      std::string oldPath,
                       std::size_t hunkIndex,
                       std::vector<std::size_t> lineIndices);
 
@@ -359,7 +360,7 @@ public:
     void requestCommitFiles(std::string oid);
 
     /// Async: see gbm_request_commit_file_diff()'s doc comment.
-    void requestCommitFileDiff(std::string oid, std::string path);
+    void requestCommitFileDiff(std::string oid, std::string path, std::string oldPath);
 
     /// Async: see gbm_request_compare_refs()'s doc comment. left/right/
     /// threeDot are echoed back in the event payload so a caller with
@@ -371,7 +372,8 @@ public:
     void requestCompareFileDiff(std::string leftRef,
                                 std::string rightRef,
                                 bool threeDot,
-                                std::string path);
+                                std::string path,
+                                std::string oldPath);
 
     /// Async: see gbm_request_compare_with_working_copy()'s doc comment.
     void requestCompareWithWorkingCopy(std::string ref);
@@ -534,6 +536,7 @@ private:
     /// emitted as {path, staged, diff} on `eventType`. The body both
     /// requestWorkingCopyDiff() and requestWorkingCopyFullDiff() post.
     void emitWorkingCopyDiff(const std::string& path,
+                             const std::string& oldPath,
                              bool staged,
                              const DiffOptions& options,
                              int32_t eventType);

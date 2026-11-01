@@ -172,6 +172,21 @@ class _DiffFileSection extends StatelessWidget {
       );
     }
 
+    // Drawn like the binary notice above. Spec:
+    // docs/claude-design-demo/rename-diff-display-spec.html, 畫面 3.
+    if (file.isPureRename) {
+      return Padding(
+        padding: const EdgeInsets.all(GbmSpacing.space3),
+        child: Text(
+          kPureRenameNote,
+          style: TextStyle(
+            color: colors.textTertiary,
+            fontSize: GbmTypography.textSm,
+          ),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[

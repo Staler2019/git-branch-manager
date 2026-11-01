@@ -9,6 +9,8 @@ import 'package:gbm_flutter/features/diff/diff_page.dart';
 import 'package:gbm_flutter/features/diff/side_by_side_diff_view.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_detail_panel.dart';
 import 'package:gbm_flutter/widgets/gbm_segmented_control.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 
 import '../../../support/pump_app.dart';
 
@@ -254,6 +256,68 @@ void main() {
 
       expect(find.text('a.dart'), findsOneWidget);
       expect(find.byType(GbmSegmentedControl<DiffViewMode>), findsOneWidget);
+    });
+
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+    testWidgets('a renamed file\'s title bar names both of its paths', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          selectedFilePath: 'moved.dart',
+          hasSelectedCommit: true,
+          meta: _meta,
+          diff: const ParsedDiff(
+            files: <DiffFile>[
+              DiffFile(
+                oldPath: 'origin.dart',
+                newPath: 'moved.dart',
+                kind: FileChangeKind.renamed,
+                oldMode: '100644',
+                newMode: '100644',
+                oldBlob: 'aaa',
+                newBlob: 'aaa',
+                binary: false,
+                similarity: 100,
+                addedLines: 0,
+                removedLines: 0,
+                displayPath: 'moved.dart',
+                hunks: <DiffHunk>[],
+              ),
+            ],
+            truncated: false,
+            inputBytes: 0,
+          ),
+        ),
+      );
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'origin.dart → moved.dart',
+      );
+    });
+
+    testWidgets('the title bar is the shared diff header, its switch at the '
+        'right end', (tester) async {
+      // Its own Flexible + Spacer once split the free space in two, so a
+      // short path left the switch stranded mid-bar.
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          selectedFilePath: 'a.dart',
+          hasSelectedCommit: true,
+          meta: _meta,
+          diff: _diff(),
+        ),
+      );
+
+      final Finder bar = find.byType(GbmDiffHeaderBar);
+      expect(bar, findsOneWidget);
+      expect(
+        tester.getRect(find.byType(GbmSegmentedControl<DiffViewMode>)).right,
+        tester.getRect(bar).right - GbmSpacing.space3,
+      );
     });
 
     testWidgets('unified renders DiffPage and not the side-by-side view', (

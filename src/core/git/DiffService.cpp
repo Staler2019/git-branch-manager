@@ -453,12 +453,14 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitDiff(const ObjectId& co
 
 GitResult<DiffService::ParsedDiffPtr> DiffService::commitFileDiff(const ObjectId& commit,
                                                                   const std::string& path,
+                                                                  const std::string& oldPath,
                                                                   const DiffOptions& options,
                                                                   CancellationToken token) {
     GBM_ASSERT_NOT_UI_THREAD();
 
+    // Both paths: see the key's doc comment in DiffService.h.
     const std::string cacheKey =
-        commit.hex() + ":file:" + path + ":" + std::to_string(options.hash());
+        commit.hex() + ":file:" + oldPath + "->" + path + ":" + std::to_string(options.hash());
     if (auto cached = diffCache_.get(cacheKey)) {
         return ParsedDiffPtr(cached);
     }
@@ -473,6 +475,9 @@ GitResult<DiffService::ParsedDiffPtr> DiffService::commitFileDiff(const ObjectId
     }
     args.push_back(commit.hex());
     args.emplace_back("--");
+    if (!oldPath.empty() && oldPath != path) {
+        args.push_back(oldPath);
+    }
     args.push_back(path);
 
     GitCommand command(paths_.commandDir(), std::move(args));

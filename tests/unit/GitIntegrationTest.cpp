@@ -650,15 +650,62 @@ TEST_F(RealRepoTest, ProducesChangedFilesAndDiffs) {
     EXPECT_EQ((*files)->at(0).path, "a.txt");
     EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Modified);
 
-    auto diff = diffs.commitFileDiff(oid, "a.txt", options, CancellationToken{});
+    auto diff = diffs.commitFileDiff(oid, "a.txt", "", options, CancellationToken{});
     ASSERT_TRUE(diff) << diff.error().message;
     ASSERT_EQ((*diff)->files.size(), 1u);
     EXPECT_EQ((*diff)->files[0].addedLines, 1u);
 
     // The second identical request must be served from cache, not re-run git.
-    auto cached = diffs.commitFileDiff(oid, "a.txt", options, CancellationToken{});
+    auto cached = diffs.commitFileDiff(oid, "a.txt", "", options, CancellationToken{});
     ASSERT_TRUE(cached);
     EXPECT_EQ(cached->get(), diff->get()) << "the diff cache should return the same object";
+}
+
+// A commit that renamed a file, asked for by its new name alone, is a whole-
+// file add -- git never sees the deleted half. With the old name in the
+// pathspec it is the rename the changed-files list already reported.
+TEST_F(RealRepoTest, CommitFileDiffOfARenameWithItsOldPathIsARename) {
+    commitFile("old-name.txt", "one\ntwo\nthree\nfour\nfive\nsix\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "one\ntwo\nTHREE\nfour\nfive\nsix\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "c2"}));
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    DiffService diffs(*runner_, paths_);
+    auto diff = diffs.commitFileDiff(
+        oid, "new-name.txt", "old-name.txt", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    ASSERT_EQ((*diff)->files.size(), 1u);
+    EXPECT_EQ((*diff)->files[0].kind, FileChangeKind::Renamed);
+    EXPECT_EQ((*diff)->files[0].oldPath, "old-name.txt");
+    EXPECT_EQ((*diff)->files[0].addedLines, 1u);
+    EXPECT_EQ((*diff)->files[0].removedLines, 1u);
+}
+
+// The cache must not answer a rename request with the add it stored for the
+// same file asked for by its new name alone.
+TEST_F(RealRepoTest, CommitFileDiffCacheKeepsARenameApartFromAnAdd) {
+    commitFile("old-name.txt", "one\ntwo\nthree\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "c2"}));
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    DiffService diffs(*runner_, paths_);
+    auto added = diffs.commitFileDiff(oid, "new-name.txt", "", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(added) << added.error().message;
+    ASSERT_EQ((*added)->files.size(), 1u);
+    ASSERT_EQ((*added)->files[0].kind, FileChangeKind::Added);
+
+    auto renamed = diffs.commitFileDiff(
+        oid, "new-name.txt", "old-name.txt", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(renamed) << renamed.error().message;
+    ASSERT_EQ((*renamed)->files.size(), 1u);
+    EXPECT_EQ((*renamed)->files[0].kind, FileChangeKind::Renamed);
 }
 
 TEST_F(RealRepoTest, HandlesAddedAndDeletedFilesInDiffs) {
@@ -867,7 +914,7 @@ TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
     // The other half. Listing the files while every one of them opens an
     // empty diff would be worse than honestly reporting nothing, so the list
     // and the patch are fixed together and asserted together.
-    auto diff = diffs.commitFileDiff(oid, "side.txt", options, CancellationToken{});
+    auto diff = diffs.commitFileDiff(oid, "side.txt", "", options, CancellationToken{});
     ASSERT_TRUE(diff) << diff.error().message;
     ASSERT_EQ((*diff)->files.size(), 1u);
     EXPECT_EQ((*diff)->files[0].addedLines, 1u);
@@ -3169,6 +3216,65 @@ TEST_F(RealRepoTest, UnstagesOnlySelectedLinesWithinAHunk) {
     EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
 }
 
+// Selecting only unchanged lines used to reach `git apply` as a patch of
+// context alone, which it rejects as "corrupt patch at <stdin>:N" -- the user
+// saw a git parse error, reported as a failed process. All three directions
+// (stage, unstage, discard) must answer with the plain "nothing selected"
+// refusal and leave the index and the work tree as they were.
+TEST_F(RealRepoTest, SelectingOnlyUnchangedLinesIsRefusedAsNothingSelected) {
+    commitFile("f.txt", "one\ntwo\nthree\nfour\nfive\n", "c1");
+    writeFile("f.txt", "one\ntwo\nTHREE\nfour\nfive\n");
+    ASSERT_TRUE(run({"add", "f.txt"}));
+    writeFile("f.txt", "one\ntwo\nTHREE\nfour\nFIVE\n");
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+    auto snapshot = [this]() {
+        auto index = run({"diff", "--cached"});
+        auto tree = run({"diff"});
+        return (index ? index->out : std::string("?")) + "\n--\n" + (tree ? tree->out : "?");
+    };
+    const std::string before = snapshot();
+
+    // Index 0 is the first context line ("one") in both hunks.
+    PartialStageRequest unstage;
+    unstage.path = "f.txt";
+    unstage.staged = true;
+    unstage.lineIndices = {0, 1};
+    auto unstaged = submitAndWait(makePartialStageOperation(unstage));
+    EXPECT_FALSE(unstaged.succeeded);
+    ASSERT_TRUE(unstaged.error.has_value());
+    EXPECT_EQ(unstaged.error->code, GitError::Code::InvalidArgument) << unstaged.error->message;
+    EXPECT_EQ(unstaged.error->message, "Nothing selected to apply");
+
+    PartialStageRequest stage;
+    stage.path = "f.txt";
+    stage.staged = false;
+    stage.lineIndices = {0, 1};
+    auto staged = submitAndWait(makePartialStageOperation(stage));
+    EXPECT_FALSE(staged.succeeded);
+    ASSERT_TRUE(staged.error.has_value());
+    EXPECT_EQ(staged.error->code, GitError::Code::InvalidArgument) << staged.error->message;
+    EXPECT_EQ(staged.error->message, "Nothing selected to apply");
+
+    DiscardLinesRequest discard;
+    discard.path = "f.txt";
+    discard.lineIndices = {0, 1};
+    auto discarded = submitAndWait(makeDiscardLinesOperation(discard));
+    EXPECT_FALSE(discarded.succeeded);
+    ASSERT_TRUE(discarded.error.has_value());
+    EXPECT_EQ(discarded.error->code, GitError::Code::InvalidArgument) << discarded.error->message;
+    EXPECT_EQ(discarded.error->message, "Nothing selected to discard");
+
+    EXPECT_EQ(snapshot(), before);
+}
+
 // Regression coverage for appendPatchHeader's rename branch. A staged
 // rename-plus-edit is diffed, then a subset of the added lines is unstaged by
 // line selection. The first version of this test asserted the reconstructed
@@ -3243,6 +3349,69 @@ TEST_F(RealRepoTest, UnstagesSelectedLinesOfARenamedAndModifiedFile) {
     ASSERT_TRUE(status);
     EXPECT_FALSE((*status)->staged().empty()) << "the rename plus \"beta\" should still be staged";
     EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
+}
+
+// The same rename as above, but end to end through PartialStageOperation:
+// the operation rebuilds the staged diff itself, and it has to rebuild it with
+// the same two-path pathspec the pane drew from, or the indices the user
+// picked address the whole-file-add diff instead and the wrong lines go.
+TEST_F(RealRepoTest, PartialUnstageOfAStagedRenameUsesTheRenamesOwnHunk) {
+    commitFile("old-name.txt", "one\ntwo\nthree\nfour\nfive\nsix\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+
+    DiffService diffs(*runner_, paths_);
+    auto shown = diffs.workingTreeDiff(
+        true, {"old-name.txt", "new-name.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(shown) << shown.error().message;
+    ASSERT_EQ((*shown)->files.size(), 1u);
+    const DiffHunk& hunk = (*shown)->files[0].hunks.at(0);
+    ASSERT_EQ(hunk.lines.at(2).text, "three");
+    ASSERT_EQ(hunk.lines.at(4).text, "THREE");
+
+    PartialStageRequest unstage;
+    unstage.path = "new-name.txt";
+    unstage.oldPath = "old-name.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {2, 4};
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makePartialStageOperation(unstage));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto index = run({"show", ":new-name.txt"});
+    ASSERT_TRUE(index);
+    EXPECT_EQ(index->out, "one\ntwo\nthree\nFOUR\nfive\nsix");
+    EXPECT_FALSE(run({"cat-file", "-e", ":old-name.txt"}))
+        << "the rename itself must still be staged under the new name";
+}
+
+// The request names a rename the index no longer holds: a new old-name.txt was
+// staged after the pane was drawn, so the two-path rebuild answers with two
+// files. The selection must not be applied to either.
+TEST_F(RealRepoTest, PartialUnstageOfARenameThatMovedOnIsRefused) {
+    commitFile("old-name.txt", "one\ntwo\nthree\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    ASSERT_TRUE(run({"rm", "--cached", "--quiet", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "completely\ndifferent\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+    std::ofstream(repo_ / "old-name.txt") << "one\ntwo\nthree\n";
+    ASSERT_TRUE(run({"add", "old-name.txt"}));
+
+    PartialStageRequest unstage;
+    unstage.path = "new-name.txt";
+    unstage.oldPath = "old-name.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {0};
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makePartialStageOperation(unstage));
+    EXPECT_FALSE(outcome.succeeded);
+
+    auto index = run({"show", ":new-name.txt"});
+    ASSERT_TRUE(index);
+    EXPECT_EQ(index->out, "completely\ndifferent");
 }
 
 // Same hazard as above, but through buildHunkPatch/"Unstage Hunk" -- the path
@@ -5005,6 +5174,27 @@ TEST_F(RealRepoTest, FileHistoryFollowsARenameAcrossHistory) {
     EXPECT_EQ((*entries)[1].subject, "rename to new.txt");
     EXPECT_EQ((*entries)[1].renamedFrom, "old.txt");
     EXPECT_EQ((*entries)[2].subject, "add old.txt");
+}
+
+// `--follow` keeps walking under the old name, so a commit older than the
+// rename touched old.txt, not new.txt; asking that commit for new.txt finds
+// nothing. Each entry carries the path the file had in its own commit.
+TEST_F(RealRepoTest, FileHistoryEntriesCarryThePathAsOfTheirOwnCommit) {
+    commitFile("old.txt", "content\n", "add old.txt");
+    commitFile("old.txt", "content\nedit\n", "edit old.txt");
+    ASSERT_TRUE(run({"mv", "old.txt", "new.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename to new.txt"}));
+    commitFile("new.txt", "content\nedit\nmore\n", "edit new.txt");
+
+    FileHistoryStore history(*runner_, paths_);
+    auto entries = history.fileHistory("new.txt", "", CancellationToken{});
+    ASSERT_TRUE(entries) << entries.error().message;
+    ASSERT_EQ(entries->size(), 4u);
+    EXPECT_EQ((*entries)[0].path, "new.txt");
+    EXPECT_EQ((*entries)[1].path, "new.txt");
+    EXPECT_EQ((*entries)[1].renamedFrom, "old.txt");
+    EXPECT_EQ((*entries)[2].path, "old.txt");
+    EXPECT_EQ((*entries)[3].path, "old.txt");
 }
 
 TEST_F(RealRepoTest, LineHistoryReturnsAChunkPerCommitTouchingTheRange) {

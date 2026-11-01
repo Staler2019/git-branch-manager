@@ -1166,11 +1166,35 @@ class FakeRepoSessionController extends RepoSessionController {
   }
 
   @override
-  void requestCommitFileDiff(String oid, String path) {
+  void requestCompareFileDiff(
+    String leftRef,
+    String rightRef,
+    String path, {
+    required String oldPath,
+    bool threeDot = true,
+  }) {
+    commandLog.add(
+      FakeCommand('requestCompareFileDiff', <String, Object?>{
+        'left': leftRef,
+        'right': rightRef,
+        'path': path,
+        'oldPath': oldPath,
+        'threeDot': threeDot,
+      }),
+    );
+  }
+
+  @override
+  void requestCommitFileDiff(
+    String oid,
+    String path, {
+    required String oldPath,
+  }) {
     commandLog.add(
       FakeCommand('requestCommitFileDiff', <String, Object?>{
         'oid': oid,
         'path': path,
+        'oldPath': oldPath,
       }),
     );
   }

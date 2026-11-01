@@ -26,14 +26,20 @@ GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session) {
     return 0;
 }
 
-GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, int32_t staged) {
-    toSession(session)->requestWorkingCopyDiff(path != nullptr ? path : "", staged != 0);
+GBM_API void gbm_working_copy_diff(GbmSessionHandle session,
+                                   const char* path,
+                                   const char* oldPath,
+                                   int32_t staged) {
+    toSession(session)->requestWorkingCopyDiff(
+        path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 }
 
 GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
                                         const char* path,
+                                        const char* oldPath,
                                         int32_t staged) {
-    toSession(session)->requestWorkingCopyFullDiff(path != nullptr ? path : "", staged != 0);
+    toSession(session)->requestWorkingCopyFullDiff(
+        path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 }
 
 namespace {
@@ -80,8 +86,12 @@ GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t 
     toSession(session)->stageHunk(path != nullptr ? path : "", static_cast<std::size_t>(hunkIndex));
 }
 
-GBM_API void gbm_unstage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex) {
+GBM_API void gbm_unstage_hunk(GbmSessionHandle session,
+                              const char* path,
+                              const char* oldPath,
+                              int32_t hunkIndex) {
     toSession(session)->unstageHunk(path != nullptr ? path : "",
+                                    oldPath != nullptr ? oldPath : "",
                                     static_cast<std::size_t>(hunkIndex));
 }
 
@@ -97,10 +107,12 @@ GBM_API void gbm_stage_lines(GbmSessionHandle session,
 
 GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                const char* path,
+                               const char* oldPath,
                                int32_t hunkIndex,
                                const int32_t* lineIndices,
                                int32_t lineIndexCount) {
     toSession(session)->unstageLines(path != nullptr ? path : "",
+                                     oldPath != nullptr ? oldPath : "",
                                      static_cast<std::size_t>(hunkIndex),
                                      toIndexVector(lineIndices, lineIndexCount));
 }

@@ -7,6 +7,7 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/file_list_mode_switcher.dart';
 import '../../widgets/file_list_mode_toggle_button.dart';
+import '../../widgets/gbm_diff_header_bar.dart';
 import '../../widgets/gbm_row.dart';
 import '../../widgets/split_pane.dart';
 import '../diff/diff_page.dart';
@@ -132,15 +133,27 @@ class _PanelFileDiffDetailState extends ConsumerState<PanelFileDiffDetail> {
             ],
           ),
         ),
-        DiffPage(
-          // Keyed by path so switching files resets DiffPage's own scroll
-          // and line-selection State instead of carrying it across.
-          key: ValueKey<String>(selected.displayPath),
-          diff: ParsedDiff(
-            files: <DiffFile>[selected],
-            truncated: widget.diff.truncated,
-            inputBytes: widget.diff.inputBytes,
-          ),
+        // The diff cell's own header, at its top below the list's divider.
+        // Spec: docs/claude-design-demo/rename-diff-display-spec.html,
+        // 畫面 2 -- `old → new` for a rename.
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: <Widget>[
+            GbmDiffHeaderBar(text: selected.headerText),
+            Expanded(
+              child: DiffPage(
+                // Keyed by path so switching files resets DiffPage's own
+                // scroll and line-selection State instead of carrying it
+                // across.
+                key: ValueKey<String>(selected.displayPath),
+                diff: ParsedDiff(
+                  files: <DiffFile>[selected],
+                  truncated: widget.diff.truncated,
+                  inputBytes: widget.diff.inputBytes,
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

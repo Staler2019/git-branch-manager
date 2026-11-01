@@ -111,11 +111,12 @@ void requestCommitFileDiff(
   WidgetRef ref,
   RepoIdentity identity,
   String oid,
-  String path,
-) {
+  String path, {
+  required String oldPath,
+}) {
   ref
       .read(repoSessionProvider(identity).notifier)
-      .requestCommitFileDiff(oid, path);
+      .requestCommitFileDiff(oid, path, oldPath: oldPath);
 }
 
 /// The History commit list's multi-selection, per repository -- family-scoped

@@ -3565,16 +3565,42 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _bindings.workingCopyRefresh(_session);
   }
 
+  /// The original path of a staged rename whose new path is [path], or `''`.
+  ///
+  /// Every staged request that the core answers by diffing the index --
+  /// [requestDiff], [requestFullDiff], [unstageHunk], [unstageLines] -- needs
+  /// it: with only the new path in the pathspec, git cannot pair the two
+  /// halves and a staged `git mv` reads as a whole-file add. Looked up here
+  /// rather than passed in because none of their callers holds the entry,
+  /// only its path, and one lookup cannot disagree with itself
+  /// ([CULT-single-source-of-truth]).
+  ///
+  /// A rename only: a staged copy (`status.renames=copies`) also carries its
+  /// source in `oldPath`, but the source still exists, so a rebuild over both
+  /// paths finds an Added file and the core refuses every line or hunk
+  /// unstage as "no longer exists". Same rule as `ChangedFile.renamedFrom`.
+  String _stagedOldPath(String path) {
+    for (final WorkingCopyEntry entry in state.workingCopyStatus.staged) {
+      if (entry.path == path) {
+        return entry.indexStatus == FileChangeKind.renamed ? entry.oldPath : '';
+      }
+    }
+    return '';
+  }
+
   /// Diff of one path: work tree vs index (staged=false) or index vs HEAD
   /// (staged=true). Async: [state].workingCopyDiffs gains an entry under
   /// [workingCopyDiffKey] when GBM_EVENT_WORKING_COPY_DIFF_READY arrives.
   void requestDiff(String path, {bool staged = false}) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = (staged ? _stagedOldPath(path) : '')
+        .toNativeUtf8();
     try {
-      _bindings.workingCopyDiff(_session, pathPtr, staged ? 1 : 0);
+      _bindings.workingCopyDiff(_session, pathPtr, oldPathPtr, staged ? 1 : 0);
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -3584,10 +3610,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void requestFullDiff(String path, {bool staged = false}) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = (staged ? _stagedOldPath(path) : '')
+        .toNativeUtf8();
     try {
-      _bindings.workingCopyFullDiff(_session, pathPtr, staged ? 1 : 0);
+      _bindings.workingCopyFullDiff(
+        _session,
+        pathPtr,
+        oldPathPtr,
+        staged ? 1 : 0,
+      );
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -3676,10 +3710,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void unstageHunk(String path, int hunkIndex) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = _stagedOldPath(path).toNativeUtf8();
     try {
-      _bindings.unstageHunk(_session, pathPtr, hunkIndex);
+      _bindings.unstageHunk(_session, pathPtr, oldPathPtr, hunkIndex);
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -3714,6 +3750,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void unstageLines(String path, int hunkIndex, List<int> lineIndices) {
     if (_session == nullptr || lineIndices.isEmpty) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = _stagedOldPath(path).toNativeUtf8();
     final Pointer<Int32> indices = malloc<Int32>(lineIndices.length);
     try {
       for (int i = 0; i < lineIndices.length; i++) {
@@ -3722,12 +3759,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       _bindings.unstageLines(
         _session,
         pathPtr,
+        oldPathPtr,
         hunkIndex,
         indices,
         lineIndices.length,
       );
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
       malloc.free(indices);
     }
   }
@@ -4219,15 +4258,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Async: fires GBM_EVENT_COMMIT_FILE_DIFF_READY into
   /// [RepoSessionState.selectedCommitFileDiff].
-  void requestCommitFileDiff(String oid, String path) {
+  ///
+  /// [oldPath] is the file's name before the commit when the commit renamed
+  /// it (`''` otherwise): without it git sees only the new name and diffs the
+  /// rename as a whole-file add. Required, so a caller cannot forget it.
+  void requestCommitFileDiff(
+    String oid,
+    String path, {
+    required String oldPath,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = oldPath.toNativeUtf8();
     try {
-      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr);
+      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr, oldPathPtr);
     } finally {
       malloc.free(oidPtr);
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -4262,16 +4311,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// GBM_EVENT_COMPARE_FILE_DIFF_READY into
   /// [RepoSessionState.compareFileDiffResults], keyed by
   /// [CompareFileDiffResult.key].
+  ///
+  /// [oldPath] is the file's left-side name when the range renamed it (`''`
+  /// otherwise) -- see [requestCommitFileDiff]'s, which it mirrors.
   void requestCompareFileDiff(
     String leftRef,
     String rightRef,
     String path, {
+    required String oldPath,
     bool threeDot = true,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> leftPtr = leftRef.toNativeUtf8();
     final Pointer<Utf8> rightPtr = rightRef.toNativeUtf8();
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = oldPath.toNativeUtf8();
     try {
       _bindings.requestCompareFileDiff(
         _session,
@@ -4279,11 +4333,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         rightPtr,
         threeDot ? 1 : 0,
         pathPtr,
+        oldPathPtr,
       );
     } finally {
       malloc.free(leftPtr);
       malloc.free(rightPtr);
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 

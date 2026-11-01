@@ -542,6 +542,18 @@ std::string UnifiedDiffParser::buildLineSelectionPatch(const DiffFile& file,
         }
     }
 
+    // A body of context alone changes nothing, and `git apply` rejects it as
+    // "corrupt patch" -- a git parse error is not what a selection of
+    // unchanged lines should report. Empty is every caller's "nothing
+    // selected" (StageOps answers it as such).
+    const bool changesSomething =
+        std::any_of(body.begin(), body.end(), [](const EmittedLine& emitted) {
+            return emitted.marker == '+' || emitted.marker == '-';
+        });
+    if (!changesSomething) {
+        return {};
+    }
+
     // Counts are derived from what was actually emitted, not recomputed from
     // `DiffLineKind` in a second pass that could drift out of sync with the
     // selection logic above -- that mismatch is exactly the bug class that

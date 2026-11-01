@@ -218,9 +218,19 @@ public:
                                                              const DiffOptions& options,
                                                              CancellationToken token);
 
-    /// Diff of one file within a commit.
+    /// Diff of one file within a commit. `oldPath` (empty for none) is the
+    /// file's name before the commit when the commit renamed it: it joins
+    /// the pathspec, or git never sees the deleted half and reports the new
+    /// name as a whole-file add.
+    ///
+    /// Cached. Key: commit, `oldPath`, `path` and `options.hash()` -- the
+    /// same file asked for with and without its old path is two different
+    /// diffs (a rename vs an add), so both paths are in the key. Invalidated
+    /// by nothing: a commit's content never changes. Missing `oldPath` from
+    /// the key would hand a rename request the cached whole-file add.
     GitResult<ParsedDiffPtr> commitFileDiff(const ObjectId& commit,
                                             const std::string& path,
+                                            const std::string& oldPath,
                                             const DiffOptions& options,
                                             CancellationToken token);
 

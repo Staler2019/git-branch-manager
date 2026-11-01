@@ -1,5 +1,6 @@
 // 使用者裁定：「新增檔案為:+，刪除檔案為：-。其他檔案都是照目前這樣，沒有trailing
-// icon，除非有移動屬性，就需要有move icon」，以及「+ and - use icon, not font」。
+// icon，除非有移動屬性，就需要有move icon」，以及「+ and - use icon, not font」、
+// 「+ - 移動icon固定占位，file name固定縮排」、移動 icon 選「b,不換顏色」。
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
@@ -59,7 +60,7 @@ void main() {
         'colour', (tester) async {
       await _pump(tester, FileChangeKind.renamed);
 
-      expect(_icon(tester).name, 'move-right');
+      expect(_icon(tester).name, 'arrow-right');
       expect(_icon(tester).color, same(_colors.textSecondary));
     });
 
@@ -69,17 +70,20 @@ void main() {
       FileChangeKind.typeChanged,
       FileChangeKind.modeChanged,
     ]) {
-      testWidgets('a ${kind.name} file draws nothing and takes no space', (
+      testWidgets('a ${kind.name} file draws no icon but keeps its place', (
         tester,
       ) async {
         await _pump(tester, kind);
 
         expect(find.byType(LucideIcon), findsNothing);
-        expect(tester.getSize(find.byType(FileChangeGlyph)), Size.zero);
+        expect(
+          tester.getSize(find.byType(FileChangeGlyph)),
+          const Size(14 + GbmSpacing.space1, 14),
+        );
       });
     }
 
-    testWidgets('every glyph is 14 across in a 14-wide box, then a 4 gap', (
+    testWidgets('every icon is 14 across in a 14-wide box, then a 4 gap', (
       tester,
     ) async {
       for (final FileChangeKind kind in <FileChangeKind>[

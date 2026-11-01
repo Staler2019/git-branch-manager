@@ -106,7 +106,7 @@ void main() {
       'and a plain edit in the unstaged one', (tester) async {
     await _pump(tester);
 
-    expect(_glyphIn(tester, 'wc-file-staged-lib/b.dart'), 'move-right');
+    expect(_glyphIn(tester, 'wc-file-staged-lib/b.dart'), 'arrow-right');
     expect(_glyphIn(tester, 'wc-file-unstaged-lib/b.dart'), isNull);
   });
 
@@ -143,6 +143,26 @@ void main() {
             .getRect(find.descendant(of: row, matching: find.text('new.dart')))
             .left,
       ),
+    );
+  });
+
+  // 「+ - 移動icon固定占位，file name固定縮排」
+  testWidgets('a row with no icon indents its name like a row with one', (
+    tester,
+  ) async {
+    await _pump(tester);
+
+    double nameLeft(String rowKey, String name) => tester
+        .getRect(
+          find.descendant(
+            of: find.byKey(Key(rowKey)),
+            matching: find.text(name),
+          ),
+        )
+        .left;
+    expect(
+      nameLeft('wc-file-unstaged-lib/b.dart', 'lib/b.dart'),
+      nameLeft('wc-file-unstaged-scratch.txt', 'scratch.txt'),
     );
   });
 }

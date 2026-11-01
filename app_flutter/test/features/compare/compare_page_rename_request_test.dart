@@ -155,7 +155,7 @@ void main() {
         'its name', (tester) async {
       await _pump(tester, againstWorkingCopy: againstWorkingCopy);
 
-      expect(glyphIn(tester, 'moved.dart'), 'move-right');
+      expect(glyphIn(tester, 'moved.dart'), 'arrow-right');
       expect(glyphIn(tester, 'gone.dart'), 'minus');
       expect(glyphIn(tester, 'edited.dart'), isNull);
     });

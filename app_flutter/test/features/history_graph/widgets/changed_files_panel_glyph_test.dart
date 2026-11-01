@@ -60,7 +60,7 @@ void main() {
 
     expect(_glyphIn(tester, 'added.dart'), 'plus');
     expect(_glyphIn(tester, 'gone.dart'), 'minus');
-    expect(_glyphIn(tester, 'moved.dart'), 'move-right');
+    expect(_glyphIn(tester, 'moved.dart'), 'arrow-right');
     expect(_glyphIn(tester, 'edited.dart'), isNull);
   });
 }

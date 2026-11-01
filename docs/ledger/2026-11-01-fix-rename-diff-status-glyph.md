@@ -68,4 +68,7 @@ per-file diff 只把一個路徑當 pathspec，git 只看到半邊，rename 偵�
 - **更正了錯的註解。** `Session::emitWorkingCopyDiff` 與 `selectionCoversWholeAddedFile` 原本寫「舊路徑在前」，實際上 git 依路徑排序；rename 也不會再以 Added 出現。
 - **數個 Dart mutation 寫成了編譯失敗。** slice 4 一個，slice 6 三個。這些都作廢、改成能編譯的形式重做，不計入上表。
 - **verifier 第一輪判 REFUTED，抓到本輪自己引入的 P2。** `_stagedOldPath` 沒有檢查 `indexStatus`。設了 `status.renames=copies` 時，staged 的 copy 在 `oldPath` 也帶著來源路徑，core 用兩個路徑重建後得到一個 Added 檔，形狀檢查不通過，於是 copy 的逐行／逐 hunk unstage 每次都回「That change no longer exists」。verifier 用 capi probe 在真 repo 重現：帶 oldPath 失敗，不帶 oldPath 成功。修正方式是只有 `renamed` 才帶舊路徑，與 `ChangedFile.renamedFrom` 同一規則。補了 copy 的測試，mutation 跑 2 個、紅 7 個測試。
+- **複驗 verifier 判 CONFIRMED，另報兩個 P4，使用者裁定「p4修掉」。**
+  - **只選到未變更行時，逐行操作回的是 git 的 parse error。** 只選 context 行時，`buildLineSelectionPatch` 產生只有 context 的 patch，`git apply` 以 "corrupt patch" 拒絕，畫面顯示 "Git reported an error"。stage、unstage、discard 三個方向都一樣，不是 rename 才有的問題。修正後選取裡沒有 `+`/`-` 行就回傳空字串，StageOps 既有的檢查改回 "Nothing selected to …"。兩個以「空選取產生全 context patch」為前提的測試改寫成新的斷言。mutation 跑 3 個、紅 15 個測試；另有 2 個 mutation 因腳本的分隔字元寫壞、沒有編譯成功，已作廢重做。
+  - **staged copy 按逐 hunk unstage 會把整檔移出 index。** 經使用者裁定「維持現狀」，不改程式。copy 依裁定照現狀顯示成整檔新增、只有一個 hunk，unstage 這個 hunk 就是 unstage 整個新增，結果和畫面一致，也是 git 原本的語意。
 - 新規則：[GIT-rename-pathspec-needs-both-paths]。

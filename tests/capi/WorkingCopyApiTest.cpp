@@ -26,6 +26,7 @@ namespace gbm::capi {
 namespace {
 
 using ::gbm::testing::GitCli;
+using ::gbm::testing::GitCliResult;
 using ::gbm::testing::PoolBlockade;
 
 struct EventLog {
@@ -556,13 +557,81 @@ TEST_F(WorkingCopyApiTest, UnstageHunkReversesAFullyStagedSingleHunkFile) {
     const std::string stagedDiff = requestDiffJson("single.txt", /*staged=*/true);
     ASSERT_NE(stagedDiff.find("\"d\""), std::string::npos) << stagedDiff;
 
-    gbm_unstage_hunk(session_, "single.txt", /*hunkIndex=*/0);
+    gbm_unstage_hunk(session_, "single.txt", /*oldPath=*/nullptr, /*hunkIndex=*/0);
     ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
 
     const std::string stagedAfter = requestDiffJson("single.txt", /*staged=*/true);
     EXPECT_EQ(stagedAfter.find("\"files\":[{"), std::string::npos) << stagedAfter;
     const std::string unstagedAfter = requestDiffJson("single.txt", /*staged=*/false);
     EXPECT_NE(unstagedAfter.find("\"d\""), std::string::npos) << unstagedAfter;
+}
+
+TEST_F(WorkingCopyApiTest, UnstageLinesOfAStagedRenameRevertsOnlyTheSelectedLines) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "after.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "after.txt"}), 0);
+
+    // Hunk 0: context one,two (0-1), -three,-four (2-3), +THREE,+FOUR (4-5),
+    // context five,six (6-7). These are the indices the pane draws.
+    const std::string before = requestDiffJson("after.txt", /*staged=*/true, "before.txt");
+    ASSERT_NE(before.find("\"kind\":3"), std::string::npos) << before;
+    ASSERT_NE(before.find("\"kind\":2,\"oldLine\":3,\"newLine\":0,\"text\":\"three\""),
+              std::string::npos)
+        << before;
+
+    const int32_t lineIndices[] = {2, 4};  // three -> THREE only
+    gbm_unstage_lines(session_, "after.txt", "before.txt", /*hunkIndex=*/0, lineIndices, 2);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    const GitCliResult staged = GitCli::capture(repo_, {"show", ":after.txt"});
+    EXPECT_EQ(staged.out, "one\ntwo\nthree\nFOUR\nfive\nsix") << staged.out;
+    const GitCliResult names = GitCli::capture(repo_, {"diff", "--cached", "-M", "--name-status"});
+    EXPECT_EQ(names.out.rfind("R", 0), 0u) << names.out;
+}
+
+TEST_F(WorkingCopyApiTest, UnstageHunkOfAStagedRenameKeepsTheRenameStaged) {
+    std::ofstream(repo_ / "before.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "before.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add before.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "before.txt", "after.txt"}), 0);
+    std::ofstream(repo_ / "after.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "after.txt"}), 0);
+
+    gbm_unstage_hunk(session_, "after.txt", "before.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationSucceeded());
+
+    // The content edit leaves the index; the move does not.
+    const GitCliResult staged = GitCli::capture(repo_, {"show", ":after.txt"});
+    EXPECT_EQ(staged.out, "one\ntwo\nthree\nfour\nfive\nsix") << staged.out;
+    const GitCliResult names = GitCli::capture(repo_, {"diff", "--cached", "-M", "--name-status"});
+    EXPECT_EQ(names.out, "R100\tbefore.txt\tafter.txt") << names.out;
+}
+
+// The status said `a-old.txt -> z-new.txt`, but a new `a-old.txt` has been
+// staged since, so the two-path rebuild answers with two files sorted by path
+// -- the stale one first, which is the order these names were picked for. The
+// unstage must not land on that file, and its index entry must survive.
+TEST_F(WorkingCopyApiTest, UnstageOfAStaleRenameLeavesTheOtherPathAlone) {
+    std::ofstream(repo_ / "a-old.txt") << "one\ntwo\nthree\nfour\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "a-old.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add a-old.txt"}), 0);
+    ASSERT_EQ(runGit({"mv", "a-old.txt", "z-new.txt"}), 0);
+    std::ofstream(repo_ / "z-new.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_EQ(runGit({"add", "z-new.txt"}), 0);
+    std::ofstream(repo_ / "a-old.txt") << "alpha\nbeta\n";
+    ASSERT_EQ(runGit({"add", "a-old.txt"}), 0);
+
+    // The whole hunk, not a line: reversing all of a-old.txt's hunk would
+    // apply cleanly, so landing on the wrong file cannot hide behind a patch
+    // that happens not to fit.
+    gbm_unstage_hunk(session_, "z-new.txt", "a-old.txt", /*hunkIndex=*/0);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished());
+
+    const GitCliResult other = GitCli::capture(repo_, {"show", ":a-old.txt"});
+    EXPECT_EQ(other.out, "alpha\nbeta") << other.out;
 }
 
 TEST_F(WorkingCopyApiTest, StageLinesStagesOnlyTheSelectedAddedLines) {

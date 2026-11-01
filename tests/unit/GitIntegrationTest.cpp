@@ -3245,6 +3245,69 @@ TEST_F(RealRepoTest, UnstagesSelectedLinesOfARenamedAndModifiedFile) {
     EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
 }
 
+// The same rename as above, but end to end through PartialStageOperation:
+// the operation rebuilds the staged diff itself, and it has to rebuild it with
+// the same two-path pathspec the pane drew from, or the indices the user
+// picked address the whole-file-add diff instead and the wrong lines go.
+TEST_F(RealRepoTest, PartialUnstageOfAStagedRenameUsesTheRenamesOwnHunk) {
+    commitFile("old-name.txt", "one\ntwo\nthree\nfour\nfive\nsix\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "one\ntwo\nTHREE\nFOUR\nfive\nsix\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+
+    DiffService diffs(*runner_, paths_);
+    auto shown = diffs.workingTreeDiff(
+        true, {"old-name.txt", "new-name.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(shown) << shown.error().message;
+    ASSERT_EQ((*shown)->files.size(), 1u);
+    const DiffHunk& hunk = (*shown)->files[0].hunks.at(0);
+    ASSERT_EQ(hunk.lines.at(2).text, "three");
+    ASSERT_EQ(hunk.lines.at(4).text, "THREE");
+
+    PartialStageRequest unstage;
+    unstage.path = "new-name.txt";
+    unstage.oldPath = "old-name.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {2, 4};
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makePartialStageOperation(unstage));
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    auto index = run({"show", ":new-name.txt"});
+    ASSERT_TRUE(index);
+    EXPECT_EQ(index->out, "one\ntwo\nthree\nFOUR\nfive\nsix");
+    EXPECT_FALSE(run({"cat-file", "-e", ":old-name.txt"}))
+        << "the rename itself must still be staged under the new name";
+}
+
+// The request names a rename the index no longer holds: a new old-name.txt was
+// staged after the pane was drawn, so the two-path rebuild answers with two
+// files. The selection must not be applied to either.
+TEST_F(RealRepoTest, PartialUnstageOfARenameThatMovedOnIsRefused) {
+    commitFile("old-name.txt", "one\ntwo\nthree\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    ASSERT_TRUE(run({"rm", "--cached", "--quiet", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "completely\ndifferent\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+    std::ofstream(repo_ / "old-name.txt") << "one\ntwo\nthree\n";
+    ASSERT_TRUE(run({"add", "old-name.txt"}));
+
+    PartialStageRequest unstage;
+    unstage.path = "new-name.txt";
+    unstage.oldPath = "old-name.txt";
+    unstage.staged = true;
+    unstage.hunkIndex = 0;
+    unstage.lineIndices = {0};
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = submitAndWait(operations, makePartialStageOperation(unstage));
+    EXPECT_FALSE(outcome.succeeded);
+
+    auto index = run({"show", ":new-name.txt"});
+    ASSERT_TRUE(index);
+    EXPECT_EQ(index->out, "completely\ndifferent");
+}
+
 // Same hazard as above, but through buildHunkPatch/"Unstage Hunk" -- the path
 // DiffView::contextMenuEvent and SideBySideDiffView::showLineContextMenu both
 // use, unlike the line-selection path above. Whole-hunk unstage of a rename's

@@ -49,6 +49,12 @@ struct ApplyPatchRequest {
 /// rather than silently staging the wrong lines.
 struct PartialStageRequest {
     std::string path;
+    /// A staged rename's original path, or empty. Only read when `staged`:
+    /// the index diff is rebuilt with `{oldPath, path}` -- the pathspec the
+    /// pane's diff came from -- so `hunkIndex` and `lineIndices` address the
+    /// same hunk. With `path` alone git reports the new side as a whole-file
+    /// add and the indices would point into a different hunk.
+    std::string oldPath;
     bool staged = false;
     std::size_t hunkIndex = 0;
     /// Empty selects the whole hunk; otherwise these are indices into that

@@ -68,6 +68,36 @@ class _DiffRecordingBindings extends FakeGbmBindings {
   @override
   WorkingCopyDiffDart get workingCopyFullDiff =>
       _recorder('workingCopyFullDiff');
+
+  @override
+  UnstageHunkDart get unstageHunk =>
+      (
+        Pointer<Void> session,
+        Pointer<Utf8> path,
+        Pointer<Utf8> oldPath,
+        int hunkIndex,
+      ) => calls.add((
+        binding: 'unstageHunk',
+        path: path.toDartString(),
+        oldPath: oldPath.toDartString(),
+        staged: 1,
+      ));
+
+  @override
+  UnstageLinesDart get unstageLines =>
+      (
+        Pointer<Void> session,
+        Pointer<Utf8> path,
+        Pointer<Utf8> oldPath,
+        int hunkIndex,
+        Pointer<Int32> lineIndices,
+        int lineIndexCount,
+      ) => calls.add((
+        binding: 'unstageLines',
+        path: path.toDartString(),
+        oldPath: oldPath.toDartString(),
+        staged: 1,
+      ));
 }
 
 class _NoopRecents extends FakeRecentsRepository {
@@ -175,5 +205,31 @@ void main() {
     controller.requestDiff('plain.dart', staged: true);
 
     expect(callsOf('workingCopyDiff').single.oldPath, '');
+  });
+
+  test('unstaging a hunk of a staged rename sends its old path', () {
+    // The core rebuilds the staged diff with this pathspec; without the old
+    // path the hunk index the pane showed addresses a whole-file add.
+    controller.unstageHunk('lib/after.dart', 0);
+
+    final List<_DiffCall> calls = callsOf('unstageHunk');
+    expect(calls, hasLength(1));
+    expect(calls.single.path, 'lib/after.dart');
+    expect(calls.single.oldPath, 'lib/before.dart');
+  });
+
+  test('unstaging lines of a staged rename sends its old path', () {
+    controller.unstageLines('lib/after.dart', 0, <int>[2, 4]);
+
+    final List<_DiffCall> calls = callsOf('unstageLines');
+    expect(calls, hasLength(1));
+    expect(calls.single.oldPath, 'lib/before.dart');
+  });
+
+  test('unstaging lines of a staged file that is not a rename sends no old '
+      'path', () {
+    controller.unstageLines('plain.dart', 0, <int>[1]);
+
+    expect(callsOf('unstageLines').single.oldPath, '');
   });
 }

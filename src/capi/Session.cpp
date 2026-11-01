@@ -643,8 +643,9 @@ void Session::emitWorkingCopyDiff(const std::string& path,
         return;
     }
     // Two pathspecs can answer with two files -- a new file staged at the old
-    // path since the status was read -- and they sort with the old path
-    // first. The reply describes the one path it names, so keep only that.
+    // path since the status was read -- and git sorts them by path, so
+    // either may come first. The reply describes the one path it names, so
+    // keep only that.
     ParsedDiff onlyRequested;
     const ParsedDiff* reply = result.value().get();
     if (pairsARename) {
@@ -713,9 +714,10 @@ void Session::stageHunk(std::string path, std::size_t hunkIndex) {
                                [this]() { refreshWorkingCopy(); });
 }
 
-void Session::unstageHunk(std::string path, std::size_t hunkIndex) {
+void Session::unstageHunk(std::string path, std::string oldPath, std::size_t hunkIndex) {
     PartialStageRequest request;
     request.path = std::move(path);
+    request.oldPath = std::move(oldPath);
     request.staged = true;
     request.hunkIndex = hunkIndex;
     submitWorkingCopyOperation(makePartialStageOperation(std::move(request)),
@@ -735,10 +737,12 @@ void Session::stageLines(std::string path,
 }
 
 void Session::unstageLines(std::string path,
+                           std::string oldPath,
                            std::size_t hunkIndex,
                            std::vector<std::size_t> lineIndices) {
     PartialStageRequest request;
     request.path = std::move(path);
+    request.oldPath = std::move(oldPath);
     request.staged = true;
     request.hunkIndex = hunkIndex;
     request.lineIndices = std::move(lineIndices);

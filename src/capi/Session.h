@@ -207,9 +207,10 @@ public:
     /// Async: see gbm_stage_hunk()/gbm_unstage_hunk()/gbm_stage_lines()/
     /// gbm_unstage_lines()'s doc comments in gbm_capi.h.
     void stageHunk(std::string path, std::size_t hunkIndex);
-    void unstageHunk(std::string path, std::size_t hunkIndex);
+    void unstageHunk(std::string path, std::string oldPath, std::size_t hunkIndex);
     void stageLines(std::string path, std::size_t hunkIndex, std::vector<std::size_t> lineIndices);
     void unstageLines(std::string path,
+                      std::string oldPath,
                       std::size_t hunkIndex,
                       std::vector<std::size_t> lineIndices);
 

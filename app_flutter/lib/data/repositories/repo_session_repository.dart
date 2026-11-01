@@ -3703,10 +3703,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void unstageHunk(String path, int hunkIndex) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = _stagedOldPath(path).toNativeUtf8();
     try {
-      _bindings.unstageHunk(_session, pathPtr, hunkIndex);
+      _bindings.unstageHunk(_session, pathPtr, oldPathPtr, hunkIndex);
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -3741,6 +3743,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void unstageLines(String path, int hunkIndex, List<int> lineIndices) {
     if (_session == nullptr || lineIndices.isEmpty) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = _stagedOldPath(path).toNativeUtf8();
     final Pointer<Int32> indices = malloc<Int32>(lineIndices.length);
     try {
       for (int i = 0; i < lineIndices.length; i++) {
@@ -3749,12 +3752,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       _bindings.unstageLines(
         _session,
         pathPtr,
+        oldPathPtr,
         hunkIndex,
         indices,
         lineIndices.length,
       );
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
       malloc.free(indices);
     }
   }

@@ -795,7 +795,16 @@ GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t 
 /// The reverse of gbm_stage_hunk(): recomputes `path`'s *staged* diff (index
 /// vs HEAD), locates hunk `hunkIndex` there, and applies it with `git apply
 /// --cached --reverse`. Same event/refresh contract as gbm_stage_files().
-GBM_API void gbm_unstage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex);
+///
+/// `oldPath` (NULL or empty for none) is a staged rename's original path,
+/// exactly as passed to gbm_working_copy_diff(): the staged diff is rebuilt
+/// with the same pathspec the pane was drawn from, so `hunkIndex` means the
+/// same hunk. If the rebuilt file is no longer that rename, the operation
+/// fails as a stale index does rather than applying anything.
+GBM_API void gbm_unstage_hunk(GbmSessionHandle session,
+                              const char* path,
+                              const char* oldPath,
+                              int32_t hunkIndex);
 
 /// Like gbm_stage_hunk(), but stages only a subset of that hunk's added/
 /// removed lines -- `lineIndices`/`lineIndexCount` index into the hunk's
@@ -810,9 +819,10 @@ GBM_API void gbm_stage_lines(GbmSessionHandle session,
 
 /// The reverse of gbm_stage_lines(): recomputes `path`'s *staged* diff,
 /// applied with `git apply --cached --reverse`. Same event/refresh contract
-/// as gbm_stage_files().
+/// as gbm_stage_files(). `oldPath` as for gbm_unstage_hunk().
 GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                const char* path,
+                               const char* oldPath,
                                int32_t hunkIndex,
                                const int32_t* lineIndices,
                                int32_t lineIndexCount);

@@ -171,8 +171,8 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
     ],
   ),
 
-  // View (12 items -- 11 from the spec's MENUS table plus Refresh, which
-  // has no spec entry: see GbmActionId.viewRefresh's doc comment.)
+  // View (13 items -- 11 from the spec's MENUS table plus Refresh and Full
+  // file, which have no spec entry: see their GbmActionId doc comments.)
   GbmMenuModel(
     title: 'View',
     items: <GbmMenuItemModel>[
@@ -183,6 +183,7 @@ const List<GbmMenuModel> gbmMenus = <GbmMenuModel>[
         id: GbmActionId.viewFileListAsTree,
         label: 'File list as tree',
       ),
+      GbmMenuItemModel(id: GbmActionId.viewToggleFullFile, label: 'Full file'),
       GbmMenuItemModel(
         id: GbmActionId.viewGraphColumns,
         label: 'Graph columns',

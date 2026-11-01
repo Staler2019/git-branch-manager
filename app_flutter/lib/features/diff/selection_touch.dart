@@ -210,20 +210,6 @@ class SelectionTouchRow extends StatelessWidget {
   }
 }
 
-/// The key a diff row is tracked under.
-///
-/// Positional, so it is only valid for as long as the diff it was computed
-/// from is on screen. [sourceIndex] is the first component because one
-/// [ScopedDiffView] can now draw more than one diff at a time -- `unified`
-/// mode merges the unstaged and staged diffs into a single list -- and the
-/// two carry the same hunk and line numbers. Without it, row `0:0` of the
-/// unstaged diff and row `0:0` of the staged one are one key, so a
-/// [SelectionListener] registered for either would collide with the other's
-/// and the framework would assert on two listeners sharing one notifier
-/// ([FLU-selectionarea-gives-a-string]'s trap 1).
-String selectionRowKey(int sourceIndex, int hunkIndex, int lineIndex) =>
-    '$sourceIndex:$hunkIndex:$lineIndex';
-
 /// A one-shot selection, resolved to exactly one source.
 ///
 /// One, because git has no action that stages and unstages at the same time

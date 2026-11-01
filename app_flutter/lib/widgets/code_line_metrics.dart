@@ -72,3 +72,76 @@ class CodeWidthMemo {
     return _width;
   }
 }
+
+double _measureText(String text, TextStyle style) {
+  final TextPainter painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  final double width = painter.width;
+  painter.dispose();
+  return width;
+}
+
+/// The width of one CJK character in a code style -- the unit of
+/// `AppPreferences.maxCodeLineChars` (「最長200字中文」).
+///
+/// **Key**: the [TextStyle] alone; a CJK glyph's width depends on nothing
+/// else. **Invalidation**: none -- a style is a value, so a theme or font
+/// change arrives as a different key. **Symptom if it goes stale**: lines are
+/// cut at the wrong place.
+///
+/// [measure] is injectable because the test font draws '中' and '0' the same
+/// width, so only a recording measurer can show which one was measured.
+class CjkCharWidthMemo {
+  CjkCharWidthMemo({double Function(String text, TextStyle style)? measure})
+    : _measure = measure ?? _measureText;
+
+  final double Function(String text, TextStyle style) _measure;
+  TextStyle? _style;
+  double _width = 0;
+  int _hits = 0;
+  int _misses = 0;
+
+  int get hits => _hits;
+  int get misses => _misses;
+
+  double widthOf(TextStyle style) {
+    if (_style == style) {
+      _hits++;
+      return _width;
+    }
+    _misses++;
+    _style = style;
+    _width = _measure('中', style);
+    return _width;
+  }
+}
+
+/// What [capCodeWidth] decides: the scroll extent to hand `GbmCodeHScroll`,
+/// and the width each row's code text is cut at.
+class CappedCodeWidth {
+  const CappedCodeWidth({required this.totalWidth, required this.clipWidth});
+
+  final double totalWidth;
+  final double clipWidth;
+}
+
+/// Caps a code view at [maxChars] CJK characters of code per column, the
+/// gutter not counted. [columns] is 2 for side-by-side, whose two halves are
+/// capped each on its own (「每一欄各 N 字」) with [columnGap] between them.
+CappedCodeWidth capCodeWidth({
+  required double naturalWidth,
+  required int maxChars,
+  required double charWidth,
+  required double gutterWidth,
+  int columns = 1,
+  double columnGap = 0,
+}) {
+  final double clip = maxChars * charWidth;
+  final double cap = columns * (gutterWidth + clip) + (columns - 1) * columnGap;
+  return CappedCodeWidth(
+    totalWidth: naturalWidth < cap ? naturalWidth : cap,
+    clipWidth: clip,
+  );
+}

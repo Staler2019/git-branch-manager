@@ -40,7 +40,7 @@ import 'widgets/side_by_side_cell.dart';
 /// true the moment `DiffPage` gained the preference: the two branches were
 /// developed in parallel and met at a merge.
 ///
-/// Both columns scroll on **one** [GbmCodeScrollWell]-style shared
+/// Both columns scroll on **one** shared vertical
 /// controller, so a pair stays aligned while the content moves. With
 /// wrapping off, alignment is in fact easier than with it on — every cell is
 /// exactly one line tall, so the [IntrinsicHeight] below has nothing to
@@ -74,6 +74,7 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
   /// Keyed on the `ParsedDiff` on screen. See [CodeWidthMemo] for what the
   /// key distinguishes and what a stale entry would look like.
   final CodeWidthMemo _widthMemo = CodeWidthMemo();
+  final CjkCharWidthMemo _cjkMemo = CjkCharWidthMemo();
 
   /// Owned here so [GbmCodeHScroll] can paint the vertical scrollbar on the
   /// pane's box instead of on the content's; the same instance drives the
@@ -112,6 +113,18 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     final bool softWrap = ref.watch(appPreferencesProvider).softWrapEnabled;
+    // 「每一欄各 N 字」: each half is capped on its own, the 1px divider
+    // between them kept.
+    final CappedCodeWidth? cap = softWrap
+        ? null
+        : capCodeWidth(
+            naturalWidth: _contentWidth(softWrap),
+            maxChars: ref.watch(appPreferencesProvider).maxCodeLineChars,
+            charWidth: _cjkMemo.widthOf(kSideBySideCodeTextStyle),
+            gutterWidth: sideBySideColumnWidth(0),
+            columns: 2,
+            columnGap: 1,
+          );
 
     if (widget.diff.files.isEmpty) {
       return Center(
@@ -123,7 +136,8 @@ class _SideBySideDiffViewState extends ConsumerState<SideBySideDiffView> {
     // per-line SelectableText, so a drag can cross rows.
     return SelectionArea(
       child: GbmCodeHScroll(
-        contentWidth: _contentWidth(softWrap),
+        contentWidth: cap?.totalWidth ?? 0,
+        codeClipWidth: cap?.clipWidth,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView(

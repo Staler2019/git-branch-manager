@@ -51,6 +51,20 @@ struct CommitFileCount {
 };
 
 struct DiffOptions {
+    /// Options for a diff whose single hunk is the whole file: context lines
+    /// set to git's largest accepted `-U` value. The full-file view fills the
+    /// rows between the -U3 cards from it; every stage/unstage/discard still
+    /// resolves against the -U3 diff (StageOps recomputes that one).
+    ///
+    /// INT32_MAX rather than UINT32_MAX: git parses `-U` into an int. Measured
+    /// on git 2.56.0: `-U2147483647` on a 50-line file with edits at lines 5
+    /// and 45 prints one `@@ -1,50 +1,50 @@` hunk.
+    static DiffOptions fullFile() {
+        DiffOptions options;
+        options.contextLines = 2147483647u;
+        return options;
+    }
+
     std::uint32_t contextLines = 3;
     bool ignoreWhitespace = false;
     bool ignoreEolOnly = false;  ///< Hides CRLF-only noise, common on Windows.

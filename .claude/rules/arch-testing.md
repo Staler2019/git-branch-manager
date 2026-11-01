@@ -31,7 +31,8 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 
 ## [TEST-mutation-check-every-test] Mutation-check every new test, and check the red is narrow
 
-- **Do**: have the mutation script assert `count(old) == 1` before writing; a reflowed or non-unique anchor (`JsonCodec.cpp`'s `addedLines`) matches nothing or the wrong thing, so REDS=0 proves nothing.
+- **Do**: have the mutation script assert `count(old) == 1` before writing; a reflowed or non-unique anchor matches nothing or the wrong thing, so REDS=0 proves nothing.
+- **Do**: parse failures from the whole `... [E]` line, never a length-bounded name (a bounded regex scored a long-named red as a survivor).
 
 ## [TEST-count-dont-any] Count, don't `any`
 
@@ -49,7 +50,7 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 ## [TEST-no-pumpandsettle-with-spinner] Never `pumpAndSettle()` while an indeterminate progress indicator is on screen
 
 - **Rule**: a `CircularProgressIndicator`, or a `LinearProgressIndicator` with no `value:`, schedules frames forever, so `pumpAndSettle` can only time out; this is the confirmed mechanism of the device-tier batch flake (**#101**), not **#70**.
-- **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib` (`commit_graph_view.dart` while `isRefreshing`, ~~`welcome_screen.dart` while scanning~~ (no indicator, 2026-10-23)); ~~`StatusBar`'s bars take `value: task.progress`, a non-null `double`, so they settle.~~ `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`, `status_bar.dart`), so they too never settle while one runs — a static empty track was the reported 「不知道有沒有在跑」 (2026-10-15).
+- **Do**: find the sites with `grep -rnE '(Circular|Linear)ProgressIndicator\(' app_flutter/lib`; `StatusBar`'s bars are indeterminate while a task's `total <= 0` (`_barValue`), so they never settle while one runs.
 
 ## [TEST-runasync-for-real-async] Real async inside `testWidgets` needs `tester.runAsync()`
 

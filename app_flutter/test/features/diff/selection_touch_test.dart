@@ -2,6 +2,7 @@
 // row keys are covered" back into the per-hunk line lists `gbm_stage_lines`
 // takes. The widget half is in `scoped_diff_view_test.dart`.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/features/diff/diff_row_keys.dart';
 import 'package:gbm_flutter/features/diff/selection_touch.dart';
 
 void main() {

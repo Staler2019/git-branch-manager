@@ -13,10 +13,14 @@ import 'package:gbm_flutter/widgets/split_pane.dart';
 
 import '../../../support/pump_app.dart';
 
-DiffFile _file(String text, {required bool added}) => DiffFile(
+DiffFile _file(
+  String text, {
+  required bool added,
+  FileChangeKind kind = FileChangeKind.modified,
+}) => DiffFile(
   oldPath: 'lib/a.dart',
   newPath: 'lib/a.dart',
-  kind: FileChangeKind.modified,
+  kind: kind,
   oldMode: '',
   newMode: '',
   oldBlob: '',
@@ -323,6 +327,106 @@ void main() {
       expect(find.text('Staged'), findsOneWidget);
     });
 
+    // 使用者裁定 2026-10-31：「2 file 下，如果一邊是全空，不需要顯示nothing
+    // to stage/ unstage」. The column head and the pane's own counts already
+    // say the side is empty.
+    for (final bool stagedEmpty in <bool>[true, false]) {
+      final String side = stagedEmpty ? 'staged' : 'unstaged';
+      testWidgets('2 file with nothing $side: that column draws no '
+          'placeholder, only its head', (WidgetTester tester) async {
+        await pump(
+          tester,
+          unstaged: stagedEmpty ? _file('still editing', added: true) : null,
+          staged: stagedEmpty ? null : _file('already staged', added: true),
+        );
+        await tester.tap(find.text('2 file'));
+        await tester.pump();
+
+        expect(find.text('Nothing staged'), findsNothing);
+        expect(find.text('Nothing unstaged'), findsNothing);
+        expect(find.text('Unstaged'), findsOneWidget);
+        expect(find.text('Staged'), findsOneWidget);
+        expect(
+          find.text(stagedEmpty ? 'still editing' : 'already staged'),
+          findsOneWidget,
+        );
+      });
+    }
+
+    // 使用者裁定 2026-10-31：「the unstage file, if the git have no this
+    // file, the stage panel should shows not exist」, text 「Not in Git」.
+    // An unstaged side that adds the whole file with nothing staged is a
+    // file the index does not hold.
+    testWidgets('2 file with an untracked file: the staged column says Not '
+        'in Git', (WidgetTester tester) async {
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+      );
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+
+      expect(find.text('Not in Git'), findsOneWidget);
+      expect(find.text('brand new'), findsOneWidget);
+      // 「Text only, no head or well」: the staged column is no diff view.
+      expect(find.text('Staged'), findsNothing);
+      expect(find.byType(ScopedDiffView), findsOneWidget);
+    });
+
+    testWidgets('2 file: an untracked unstaged side with a staged side that '
+        'exists, is loading or was refused is not Not in Git', (
+      WidgetTester tester,
+    ) async {
+      final DiffFile untracked = _file(
+        'brand new',
+        added: true,
+        kind: FileChangeKind.added,
+      );
+      Future<void> check(String what) async {
+        await tester.tap(find.text('2 file'));
+        await tester.pump();
+        expect(find.text('Not in Git'), findsNothing, reason: what);
+        expect(find.text('Staged'), findsOneWidget, reason: what);
+      }
+
+      await pump(
+        tester,
+        unstaged: untracked,
+        staged: _file('half staged', added: true, kind: FileChangeKind.added),
+      );
+      await check('staged exists');
+      await pump(tester, unstaged: untracked, stagedLoading: true);
+      await check('staged loading');
+      await pump(tester, unstaged: untracked, stagedTruncated: true);
+      await check('staged refused');
+    });
+
+    testWidgets('2 file with a tracked file all unstaged, or a staged side '
+        'still loading: no Not in Git', (WidgetTester tester) async {
+      await pump(tester, unstaged: _file('edited', added: true));
+      await tester.tap(find.text('2 file'));
+      await tester.pump();
+      expect(find.text('Not in Git'), findsNothing);
+
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+        stagedLoading: true,
+      );
+      await tester.pump();
+      expect(find.text('Not in Git'), findsNothing);
+    });
+
+    testWidgets('unified with an untracked file says nothing about Git', (
+      WidgetTester tester,
+    ) async {
+      await pump(
+        tester,
+        unstaged: _file('brand new', added: true, kind: FileChangeKind.added),
+      );
+      expect(find.text('Not in Git'), findsNothing);
+    });
+
     testWidgets('the left side is the unstaged one', (
       WidgetTester tester,
     ) async {
@@ -593,6 +697,64 @@ void main() {
 
       // Three cards -- two Stage, one Unstage -- so 2 · 1, not 1 · 1.
       expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
+    });
+
+    // 使用者裁定 ②: a staged deletion after index 11 sits inside what the gap
+    // rule would make one unstaged card (index 10 and 13 removed). The card
+    // splits, and the chip has to count the split -- through the same
+    // DiffBarrierMemo the list uses.
+    testWidgets('the counts follow a split caused by the other side\'s pure '
+        'deletion', (WidgetTester tester) async {
+      DiffFile sketched(String sketch, {required int start}) {
+        int oldLine = start;
+        int newLine = start;
+        return DiffFile(
+          oldPath: 'lib/a.dart',
+          newPath: 'lib/a.dart',
+          kind: FileChangeKind.modified,
+          oldMode: '',
+          newMode: '',
+          oldBlob: '',
+          newBlob: '',
+          binary: false,
+          similarity: 0,
+          addedLines: 0,
+          removedLines: 0,
+          displayPath: 'lib/a.dart',
+          hunks: <DiffHunk>[
+            DiffHunk(
+              oldStart: start,
+              oldCount: sketch.replaceAll('+', '').length,
+              newStart: start,
+              newCount: sketch.replaceAll('-', '').length,
+              heading: '',
+              lines: <DiffLine>[
+                for (int i = 0; i < sketch.length; i++)
+                  DiffLine(
+                    kind: switch (sketch[i]) {
+                      '+' => DiffLineKind.added,
+                      '-' => DiffLineKind.removed,
+                      _ => DiffLineKind.context,
+                    },
+                    oldLine: sketch[i] == '+' ? 0 : oldLine++,
+                    newLine: sketch[i] == '-' ? 0 : newLine++,
+                    text: 'row $i',
+                  ),
+              ],
+            ),
+          ],
+        );
+      }
+
+      await pump(
+        tester,
+        unstaged: sketched('-..-', start: 10),
+        staged: sketched('.-.', start: 11),
+      );
+
+      expect(find.text('2 未暫存 · 1 已暫存'), findsOneWidget);
+      expect(find.text('Stage 1 line'), findsNWidgets(2));
+      expect(find.text('Unstage 1 line'), findsOneWidget);
     });
 
     // U8, and it is the round's only change that crosses into `2 file`:

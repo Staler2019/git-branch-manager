@@ -606,22 +606,38 @@ void Session::requestWorkingCopyDiff(std::string path, bool staged) {
     // right now, and the diff pane must not sit behind a refreshRepoStatus()
     // sweep's other members -- [CPP-interactive-reads-go-to-the-front].
     sharedReadPool().postFront([this, path = std::move(path), staged]() {
-        const DiffOptions options;
-        const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->workingTreeDiff(staged, {path}, options, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"staged\":";
-        jsonAppendBool(payload, staged);
-        payload += ",\"diff\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_WORKING_COPY_DIFF_READY, payload);
+        emitWorkingCopyDiff(path, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
     });
+}
+
+void Session::requestWorkingCopyFullDiff(std::string path, bool staged) {
+    // post, not postFront: this only fills the rows between the -U3 cards the
+    // user is already looking at, so it must not take an interactive read's
+    // place in the queue -- [CPP-interactive-reads-go-to-the-front].
+    sharedReadPool().post([this, path = std::move(path), staged]() {
+        emitWorkingCopyDiff(
+            path, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
+    });
+}
+
+void Session::emitWorkingCopyDiff(const std::string& path,
+                                  bool staged,
+                                  const DiffOptions& options,
+                                  int32_t eventType) {
+    const GitResult<DiffService::ParsedDiffPtr> result =
+        diffs_->workingTreeDiff(staged, {path}, options, readCancel_.token());
+    if (!result) {
+        callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+        return;
+    }
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"staged\":";
+    jsonAppendBool(payload, staged);
+    payload += ",\"diff\":";
+    payload += toJson(*result.value());
+    payload += '}';
+    callbacks_.emit(eventType, payload);
 }
 
 void Session::submitWorkingCopyOperationReading(

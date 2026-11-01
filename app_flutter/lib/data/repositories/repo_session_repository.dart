@@ -523,6 +523,7 @@ class RepoSessionState {
     this.lastError,
     this.workingCopyStatus = WorkingCopyStatus.empty,
     this.workingCopyDiffs = const <String, WorkingCopyDiffReply>{},
+    this.workingCopyFullDiffs = const <String, WorkingCopyDiffReply>{},
     this.lastWorkingTreeContent,
     this.lastFileAtRevisionExport,
     this.stashes = const <StashEntry>[],
@@ -590,6 +591,13 @@ class RepoSessionState {
   /// meant one of the two was always the one you could not see. Same shape,
   /// and the same reason, as [gonePendingByRemote].
   final Map<String, WorkingCopyDiffReply> workingCopyDiffs;
+
+  /// The full-file view's second diff of the same (path, side): unlimited
+  /// context, so its one hunk holds every line (`gbm_working_copy_full_diff`).
+  /// Keyed, bounded and invalidated exactly like [workingCopyDiffs]. Display
+  /// only -- every stage/unstage/discard still resolves against
+  /// [workingCopyDiffs], whose hunk indices core recomputes at -U3.
+  final Map<String, WorkingCopyDiffReply> workingCopyFullDiffs;
   final WorkingTreeContentReply? lastWorkingTreeContent;
   final FileAtRevisionExport? lastFileAtRevisionExport;
   final List<StashEntry> stashes;
@@ -842,6 +850,7 @@ class RepoSessionState {
     bool clearError = false,
     WorkingCopyStatus? workingCopyStatus,
     Map<String, WorkingCopyDiffReply>? workingCopyDiffs,
+    Map<String, WorkingCopyDiffReply>? workingCopyFullDiffs,
     WorkingTreeContentReply? lastWorkingTreeContent,
     FileAtRevisionExport? lastFileAtRevisionExport,
     List<StashEntry>? stashes,
@@ -904,6 +913,7 @@ class RepoSessionState {
       lastError: clearError ? null : (lastError ?? this.lastError),
       workingCopyStatus: workingCopyStatus ?? this.workingCopyStatus,
       workingCopyDiffs: workingCopyDiffs ?? this.workingCopyDiffs,
+      workingCopyFullDiffs: workingCopyFullDiffs ?? this.workingCopyFullDiffs,
       lastWorkingTreeContent:
           lastWorkingTreeContent ?? this.lastWorkingTreeContent,
       lastFileAtRevisionExport:
@@ -1460,33 +1470,29 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
           // Merged, never replaced wholesale: the other side of the same
           // file is usually in flight at the same moment and dropping it
-          // here is exactly the race the map exists to end. Bounded to
-          // [kMaxCachedWorkingCopyDiffs] -- removing the key before
-          // re-inserting it moves it to the end of the (insertion-ordered)
-          // map, so the eviction below drops the *least recently answered*
-          // entry rather than an arbitrary one.
+          // here is exactly the race the map exists to end. Bounded, least
+          // recently answered first -- see [_mergedDiffReply].
           final bool isFirstStampOfSweep =
               state.refreshTimings.firstDiffAt == null;
           final RefreshTimings timings = state.refreshTimings
               .stampFirstDiffIfAbsent(DateTime.now());
-          final String key = workingCopyDiffKey(
-            reply.path,
-            staged: reply.staged,
-          );
-          final Map<String, WorkingCopyDiffReply> updatedDiffs =
-              <String, WorkingCopyDiffReply>{...state.workingCopyDiffs}
-                ..remove(key)
-                ..[key] = reply;
-          while (updatedDiffs.length > kMaxCachedWorkingCopyDiffs) {
-            updatedDiffs.remove(updatedDiffs.keys.first);
-          }
           state = state.copyWith(
-            workingCopyDiffs: updatedDiffs,
+            workingCopyDiffs: _mergedDiffReply(state.workingCopyDiffs, reply),
             refreshTimings: timings,
           );
           if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
             debugPrint('refresh timings: ${refreshTimingsLabel(timings)}');
           }
+        }
+      case GbmEventType.workingCopyFullDiffReady:
+        final Object? payload = decodeEventPayload(event.payload);
+        if (payload is Map<String, dynamic>) {
+          state = state.copyWith(
+            workingCopyFullDiffs: _mergedDiffReply(
+              state.workingCopyFullDiffs,
+              WorkingCopyDiffReply.fromJson(payload),
+            ),
+          );
         }
       case GbmEventType.fileAtRevisionExported:
         final Object? payload = decodeEventPayload(event.payload);
@@ -1858,16 +1864,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     final RefreshTimings timings = state.refreshTimings.stampStatusIfAbsent(
       DateTime.now(),
     );
-    final Map<String, WorkingCopyDiffReply> retainedDiffs =
-        refreshFlags.keepDiffDuringRefresh
+    Map<String, WorkingCopyDiffReply> retained(
+      Map<String, WorkingCopyDiffReply> current,
+    ) => refreshFlags.keepDiffDuringRefresh
         ? _retainedWorkingCopyDiffs(
+            current,
             previous: state.workingCopyStatus,
             next: next,
           )
         : const <String, WorkingCopyDiffReply>{};
     state = state.copyWith(
       workingCopyStatus: next,
-      workingCopyDiffs: retainedDiffs,
+      workingCopyDiffs: retained(state.workingCopyDiffs),
+      // Same key, same fingerprint, same rule: a full diff whose -U3 sibling
+      // went stale is stale too.
+      workingCopyFullDiffs: retained(state.workingCopyFullDiffs),
       refreshTimings: timings,
     );
     if (isFirstStampOfSweep && refreshTimingsLabel(timings).isNotEmpty) {
@@ -1887,17 +1898,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  /// Which entries of `state.workingCopyDiffs` survive a status transition
+  /// Which entries of [current] (`state.workingCopyDiffs` or
+  /// `state.workingCopyFullDiffs`) survive a status transition
   /// from [previous] to [next] -- every key whose fingerprint (see
   /// [workingCopyDiffFingerprints]) is present and identical in both. A key
   /// absent from either side's fingerprint map is dropped rather than
   /// treated as "no evidence of change": the untracked-both-zero case in
   /// particular means "not measured", never "unchanged".
-  Map<String, WorkingCopyDiffReply> _retainedWorkingCopyDiffs({
+  Map<String, WorkingCopyDiffReply> _retainedWorkingCopyDiffs(
+    Map<String, WorkingCopyDiffReply> current, {
     required WorkingCopyStatus previous,
     required WorkingCopyStatus next,
   }) {
-    final Map<String, WorkingCopyDiffReply> current = state.workingCopyDiffs;
     if (current.isEmpty) return current;
     final Map<String, String> oldFingerprints = workingCopyDiffFingerprints(
       previous,
@@ -3564,6 +3576,63 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     } finally {
       malloc.free(pathPtr);
     }
+  }
+
+  /// [requestDiff] with unlimited context. Async: [state].workingCopyFullDiffs
+  /// gains an entry under [workingCopyDiffKey] when
+  /// GBM_EVENT_WORKING_COPY_FULL_DIFF_READY arrives.
+  void requestFullDiff(String path, {bool staged = false}) {
+    if (_session == nullptr) return;
+    final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    try {
+      _bindings.workingCopyFullDiff(_session, pathPtr, staged ? 1 : 0);
+    } finally {
+      malloc.free(pathPtr);
+    }
+  }
+
+  /// Asks again for both diffs of one side -- the -U3 one and the full one,
+  /// together -- because the two disagree on which lines changed (the file
+  /// moved between the two git invocations). Returns whether it asked.
+  ///
+  /// At most once per (path, side, fingerprint): a file that keeps changing
+  /// would otherwise refetch in a loop. A disagreement that survives the one
+  /// refetch waits for the next fingerprint change; until then the pane
+  /// stays in excerpt mode.
+  bool refetchDisagreeingDiffs(String path, {required bool staged}) {
+    final String key = workingCopyDiffKey(path, staged: staged);
+    final String fingerprint =
+        workingCopyDiffFingerprints(state.workingCopyStatus)[key] ?? '';
+    if (_disagreementRefetchedAt[key] == fingerprint) return false;
+    _disagreementRefetchedAt[key] = fingerprint;
+    requestDiff(path, staged: staged);
+    requestFullDiff(path, staged: staged);
+    return true;
+  }
+
+  /// The fingerprint each (path, side) key was last refetched under by
+  /// [refetchDisagreeingDiffs]. Never cleared: a stale entry only ever
+  /// compares unequal to a newer fingerprint, which is the case it allows.
+  final Map<String, String> _disagreementRefetchedAt = <String, String>{};
+
+  /// [current] with [reply] merged in under its [workingCopyDiffKey], never
+  /// replaced wholesale, bounded to [kMaxCachedWorkingCopyDiffs]. Removing
+  /// the key before re-inserting it moves it to the end of the
+  /// insertion-ordered map, so the eviction drops the least recently
+  /// answered entry.
+  static Map<String, WorkingCopyDiffReply> _mergedDiffReply(
+    Map<String, WorkingCopyDiffReply> current,
+    WorkingCopyDiffReply reply,
+  ) {
+    final String key = workingCopyDiffKey(reply.path, staged: reply.staged);
+    final Map<String, WorkingCopyDiffReply> merged =
+        <String, WorkingCopyDiffReply>{...current}
+          ..remove(key)
+          ..[key] = reply;
+    while (merged.length > kMaxCachedWorkingCopyDiffs) {
+      merged.remove(merged.keys.first);
+    }
+    return merged;
   }
 
   /// `git add -- <paths>`. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED

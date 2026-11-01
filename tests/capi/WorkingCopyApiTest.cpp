@@ -157,8 +157,11 @@ protected:
     /// this relies on, decisively and without any of this machinery.
     using EventList = const std::vector<std::pair<int32_t, std::string>>&;
 
+    /// With `shouldJump` false it asserts the opposite: a request that goes
+    /// through post() is answered only after the marker queued before it.
     void expectRequestJumpsAheadOfQueuedWork(const std::function<void()>& fire,
-                                             const std::function<bool(EventList)>& eventArrived) {
+                                             const std::function<bool(EventList)>& eventArrived,
+                                             bool shouldJump = true) {
         ThreadPool& pool = sharedReadPool();
         PoolBlockade blockade(pool.threadCount());
         blockade.fill(pool);
@@ -183,9 +186,15 @@ protected:
         pool.drain();
 
         ASSERT_TRUE(log_.waitFor(eventArrived)) << "the request must still get its reply";
-        EXPECT_TRUE(requestAlreadyAnsweredWhenMarkerRan.load())
-            << "postFront() must let this request jump ahead of the marker "
-               "that was already queued behind a full pool";
+        if (shouldJump) {
+            EXPECT_TRUE(requestAlreadyAnsweredWhenMarkerRan.load())
+                << "postFront() must let this request jump ahead of the marker "
+                   "that was already queued behind a full pool";
+        } else {
+            EXPECT_FALSE(requestAlreadyAnsweredWhenMarkerRan.load())
+                << "post() must leave this request behind the marker that was "
+                   "already queued -- it must not take an interactive read's place";
+        }
     }
 
     bool waitForWorkingCopyOperationFinished() {
@@ -639,6 +648,65 @@ TEST_F(WorkingCopyApiTest, WorkingTreeContentRequestJumpsAheadOfAlreadyQueuedRea
             }
             return false;
         });
+}
+
+// --- Full-file diff (feat/wc-full-file-view) --------------------------------
+
+namespace {
+
+bool hasFullDiffReply(const std::vector<std::pair<int32_t, std::string>>& events) {
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_WORKING_COPY_FULL_DIFF_READY) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+// The reply echoes path and staged like GBM_EVENT_WORKING_COPY_DIFF_READY, and
+// its diff is one hunk of the whole file: lines 1..50 edited at 5 and 45 are
+// two hunks at -U3 and one `-1,50 +1,50` hunk here.
+TEST_F(WorkingCopyApiTest, FullDiffIsOneHunkOfTheWholeFile) {
+    {
+        std::ofstream out(repo_ / "long.txt");
+        for (int i = 1; i <= 50; ++i) out << i << "\n";
+    }
+    ASSERT_EQ(runGit({"add", "long.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "long"}), 0);
+    {
+        std::ofstream out(repo_ / "long.txt");
+        for (int i = 1; i <= 50; ++i) {
+            if (i == 5 || i == 45)
+                out << "edited " << i << "\n";
+            else
+                out << i << "\n";
+        }
+    }
+    ASSERT_EQ(runGit({"add", "long.txt"}), 0);
+
+    gbm_working_copy_full_diff(session_, "long.txt", /*staged=*/1);
+    ASSERT_TRUE(log_.waitFor(hasFullDiffReply));
+    const std::vector<std::string> replies =
+        log_.payloadsOfType(GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
+    ASSERT_EQ(replies.size(), 1u);
+    const std::string& json = replies[0];
+    EXPECT_NE(json.find("\"path\":\"long.txt\""), std::string::npos) << json;
+    EXPECT_NE(json.find("\"staged\":true"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"oldStart\":1,\"oldCount\":50"), std::string::npos) << json;
+    EXPECT_EQ(json.find("\"oldCount\":", json.find("\"oldCount\":") + 1), std::string::npos)
+        << "exactly one hunk: " << json;
+    EXPECT_TRUE(log_.payloadsOfType(GBM_EVENT_WORKING_COPY_DIFF_READY).empty())
+        << "the full diff answers on its own event, never the -U3 one";
+}
+
+// [CPP-interactive-reads-go-to-the-front]: the -U3 diff is the read the user is
+// waiting on and takes postFront(); the full diff only fills rows around it and
+// must not jump ahead of already-queued work.
+TEST_F(WorkingCopyApiTest, FullDiffRequestWaitsBehindAlreadyQueuedReadWork) {
+    expectRequestJumpsAheadOfQueuedWork(
+        [this] { gbm_working_copy_full_diff(session_, "committed.txt", /*staged=*/0); },
+        hasFullDiffReply,
+        /*shouldJump=*/false);
 }
 
 }  // namespace

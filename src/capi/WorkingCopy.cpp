@@ -30,6 +30,12 @@ GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, i
     toSession(session)->requestWorkingCopyDiff(path != nullptr ? path : "", staged != 0);
 }
 
+GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
+                                        const char* path,
+                                        int32_t staged) {
+    toSession(session)->requestWorkingCopyFullDiff(path != nullptr ? path : "", staged != 0);
+}
+
 namespace {
 
 std::vector<std::string> toPathVector(const char* const* paths, int32_t pathCount) {

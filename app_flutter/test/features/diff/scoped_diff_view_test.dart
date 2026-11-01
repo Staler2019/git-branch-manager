@@ -451,8 +451,10 @@ void main() {
         2,
         reason: 'a range spanning two hunks is one stageLines call per hunk',
       );
-      expect(staged[0].hunkIndex, 0);
-      expect(staged[1].hunkIndex, 1);
+      // Last hunk first: see 「… one stageLines call per hunk, last hunk
+      // first」 below for why.
+      expect(staged[0].hunkIndex, 1);
+      expect(staged[1].hunkIndex, 0);
     });
 
     testWidgets('the head counts the cards below it', (
@@ -692,6 +694,30 @@ void main() {
       );
     });
 
+    // The published submitter is what `repositoryStageSelectedLines` (the
+    // keyboard and menu path) calls, and it is published only when a scope
+    // starts or ends existing -- so it must read the scope when called, not
+    // the one it was published with. Captured instead, a range grown by
+    // Shift+Down after its first row staged only that first row.
+    testWidgets('the published submitter stages the range as it is now, not '
+        'as it was when first published', (WidgetTester tester) async {
+      await pump(tester, _file(<String>['.+..-.']));
+      await clickThen(tester, 'h0 l0');
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      expect(temporaryLabel('Stage 1 line'), findsOneWidget);
+      for (int i = 0; i < 3; i++) {
+        await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      }
+      expect(temporaryLabel('Stage 4 lines (2 changed)'), findsOneWidget);
+
+      submitters.last!();
+      await tester.pump();
+
+      expect(staged, hasLength(1));
+      expect(staged.single.hunkIndex, 0);
+      expect(staged.single.lines, <int>[1, 4]);
+    });
+
     // The demo's 變體 B nests `.variant-B-temp` **inside**
     // `.variant-B-card`, wrapping the selected rows in place; the card goes
     // `.variant-B-card-muted` and its own button `.variant-B-btn-off`. This
@@ -875,9 +901,15 @@ void main() {
     });
 
     testWidgets('a selection crossing two hunks makes one stageLines call per '
-        'hunk, in file order', (WidgetTester tester) async {
+        'hunk, last hunk first', (WidgetTester tester) async {
       // gbm_stage_lines takes one hunk index. Counting, not `any`: a single
       // merged call and a double dispatch both look like "it fired".
+      //
+      // **Last hunk first**, and this fake cannot show why: it never
+      // restages, so its diff never changes. The core re-reads the -U3 diff
+      // for every call, so after hunk 0 is staged the old hunk 1 is hunk 0
+      // and file order staged the *next* card's line instead
+      // (`full_file_stage_flow_test.dart` caught it on the device tier).
       await pump(tester, _file(<String>['.+', '+.']));
 
       await dragSelect(tester, 'h0 l1', 'h1 l0');
@@ -897,10 +929,27 @@ void main() {
       );
 
       expect(staged.length, 2);
-      expect(staged[0].hunkIndex, 0);
-      expect(staged[0].lines, <int>[1]);
-      expect(staged[1].hunkIndex, 1);
-      expect(staged[1].lines, <int>[0]);
+      expect(staged[0].hunkIndex, 1);
+      expect(staged[0].lines, <int>[0]);
+      expect(staged[1].hunkIndex, 0);
+      expect(staged[1].lines, <int>[1]);
+    });
+
+    // 使用者裁定（2026-10-25）：「跨 2 個 hunk 這文字不需要顯示出來」，追問後
+    // 「兩處都拿掉」 -- the head and its sticky copy say the same thing.
+    testWidgets('a selection crossing two hunks is labelled 臨時選取 alone', (
+      WidgetTester tester,
+    ) async {
+      await pump(tester, _file(<String>['.+', '+.']));
+      await dragSelect(tester, 'h0 l1', 'h1 l0');
+      final Finder head = find.byKey(
+        const ValueKey<String>('temporary-scope-card'),
+      );
+      expect(
+        find.descendant(of: head, matching: find.text('臨時選取')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('hunk'), findsNothing);
     });
 
     testWidgets('Ctrl+Shift+Enter stages the selection without touching the '
@@ -1325,6 +1374,162 @@ void main() {
           GbmEffects.shadowMd(GbmThemeVariant.darkTechnical),
         );
       });
+    });
+  });
+
+  group('ScopedDiffView -- merged list draws each index line once', () {
+    late List<({bool staged, int hunkIndex, List<int> lines})> pressed;
+
+    setUp(() => pressed = <({bool staged, int hunkIndex, List<int> lines})>[]);
+
+    /// A one-hunk file from a sketch with real line numbers. A context row's
+    /// text is `ctx <index line>` -- the same in both diffs, as git would
+    /// print it -- so a duplicate is two widgets with one text.
+    DiffFile sketched(
+      String sketch, {
+      required int start,
+      required bool staged,
+      required String tag,
+    }) {
+      int oldLine = start;
+      int newLine = start;
+      final List<DiffLine> lines = <DiffLine>[];
+      for (int i = 0; i < sketch.length; i++) {
+        final String c = sketch[i];
+        final int o = c == '+' ? 0 : oldLine++;
+        final int n = c == '-' ? 0 : newLine++;
+        lines.add(
+          DiffLine(
+            kind: switch (c) {
+              '+' => DiffLineKind.added,
+              '-' => DiffLineKind.removed,
+              _ => DiffLineKind.context,
+            },
+            oldLine: o,
+            newLine: n,
+            text: c == '.' ? 'ctx ${staged ? n : o}' : '$tag $c$i',
+          ),
+        );
+      }
+      return DiffFile(
+        oldPath: 'lib/a.dart',
+        newPath: 'lib/a.dart',
+        kind: FileChangeKind.modified,
+        oldMode: '',
+        newMode: '',
+        oldBlob: '',
+        newBlob: '',
+        binary: false,
+        similarity: 0,
+        addedLines: 0,
+        removedLines: 0,
+        displayPath: 'lib/a.dart',
+        hunks: <DiffHunk>[
+          DiffHunk(
+            oldStart: start,
+            oldCount: oldLine - start,
+            newStart: start,
+            newCount: newLine - start,
+            heading: '',
+            lines: lines,
+          ),
+        ],
+      );
+    }
+
+    /// Case (b): the staged card adds index 10 and 12 and holds context 11;
+    /// the unstaged hunk's leading context is 11-13 before it removes 14.
+    Future<void> pump(WidgetTester tester) => pumpGbmWidget(
+      tester,
+      child: SizedBox(
+        width: 600,
+        child: ScopedDiffView(
+          softWrap: false,
+          showColumnHeads: false,
+          sources: <ScopedDiffSource>[
+            ScopedDiffSource(
+              title: 'Unstaged',
+              file: sketched('...-', start: 11, staged: false, tag: 'un'),
+              staged: false,
+              onStageScope: (int h, List<int> l) =>
+                  pressed.add((staged: false, hunkIndex: h, lines: l)),
+            ),
+            ScopedDiffSource(
+              title: 'Staged',
+              file: sketched('+.+', start: 10, staged: true, tag: 'st'),
+              staged: true,
+              onStageScope: (int h, List<int> l) =>
+                  pressed.add((staged: true, hunkIndex: h, lines: l)),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    testWidgets('a context line inside the staged card is not drawn again by '
+        'the unstaged gap', (tester) async {
+      await pump(tester);
+
+      expect(find.text('ctx 11'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('scope-card-1')),
+          matching: find.text('ctx 11'),
+        ),
+        findsOneWidget,
+        reason: 'the card keeps its own copy; the gap row is the one dropped',
+      );
+      // 12 was already hidden by ruling B (the staged side changes it); 13
+      // belongs to nobody else and stays.
+      expect(find.text('ctx 12'), findsNothing);
+      expect(find.text('ctx 13'), findsOneWidget);
+    });
+
+    testWidgets('Shift+down steps through the staged card\'s own context row '
+        'and unstages only its changes', (tester) async {
+      await pump(tester);
+
+      // Nothing selected: the first press seeds on the first *painted*
+      // changed row, the staged `+` at index 10. Two more rows -- the card's
+      // context 11 (the copy that survived) and the `+` at 12.
+      await clickThen(tester, 'ctx 13');
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+      await shiftArrow(tester, LogicalKeyboardKey.arrowDown);
+
+      await tester.tap(temporaryLabel('Unstage 3 lines (2 changed)'));
+      await tester.pump();
+
+      expect(pressed, hasLength(1));
+      expect(pressed.single.staged, isTrue);
+      expect(pressed.single.lines, <int>[0, 2]);
+    });
+
+    testWidgets('a drag across the surviving context stages only the framed '
+        'change', (tester) async {
+      await pump(tester);
+
+      final Rect fromRect = tester.getRect(find.text('ctx 13'));
+      final Rect toRect = tester.getRect(find.text('un -3'));
+      final TestGesture gesture = await tester.startGesture(
+        Offset(fromRect.left + 1, fromRect.center.dy),
+        kind: PointerDeviceKind.mouse,
+      );
+      addTearDown(gesture.removePointer);
+      await tester.pump();
+      await gesture.moveTo(Offset(toRect.right - 1, toRect.center.dy));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+      await tester.pump();
+
+      await tester.tap(temporaryLabel('Stage 2 lines (1 changed)'));
+      await tester.pump();
+
+      expect(pressed, hasLength(1));
+      expect(pressed.single.staged, isFalse);
+      expect(pressed.single.hunkIndex, 0);
+      expect(pressed.single.lines, <int>[3]);
     });
   });
 

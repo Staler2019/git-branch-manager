@@ -5,9 +5,9 @@ import '../theme/tokens.dart';
 
 /// `.gbm-iconbtn`/`.gbm-iconbtn.active` (docs/design/tokens-reference.md's
 /// components.css): a 28x28 square icon button, transparent by default,
-/// `surfaceHover` on hover, and a persistent `accentSubtle`/`accent` fill
-/// when [active] -- used for things like the current theme swatch or an
-/// open menu's trigger.
+/// `surfaceHover` with a `textPrimary` icon on hover, and a persistent
+/// `accentSubtle`/`accent` fill when [active] -- used for things like the
+/// current theme swatch or an open menu's trigger.
 class GbmIconButton extends StatelessWidget {
   const GbmIconButton({
     super.key,
@@ -46,9 +46,16 @@ class GbmIconButton extends StatelessWidget {
             }
             return Colors.transparent;
           }),
-          iconColor: WidgetStatePropertyAll<Color>(
-            active ? colors.accent : colors.textSecondary,
-          ),
+          // `.gbm-iconbtn:hover` also sets `color: var(--text-primary)`;
+          // `.active` comes after it at the same specificity, so it wins.
+          iconColor: WidgetStateProperty.resolveWith((states) {
+            if (active) return colors.accent;
+            if (states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.pressed)) {
+              return colors.textPrimary;
+            }
+            return colors.textSecondary;
+          }),
           overlayColor: const WidgetStatePropertyAll<Color>(Colors.transparent),
         ),
       ),

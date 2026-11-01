@@ -265,12 +265,21 @@ class _NumberField extends StatefulWidget {
     required this.value,
     required this.onChanged,
     this.suffix = '',
+    this.fieldKey,
+    this.range,
   });
 
   final String label;
+  final Key? fieldKey;
   final int value;
   final String suffix;
   final ValueChanged<int> onChanged;
+
+  /// The values that may be written, both ends included. A number outside
+  /// it is not written, and the field says so under the box, the way
+  /// External apps refuses an edit (wc-full-file-line-cap-spec.html, ruling
+  /// B). Null: any positive number.
+  final ({int min, int max})? range;
 
   @override
   State<_NumberField> createState() => _NumberFieldState();
@@ -278,6 +287,9 @@ class _NumberField extends StatefulWidget {
 
 class _NumberFieldState extends State<_NumberField> {
   late final TextEditingController _controller;
+
+  /// The last parsed number fell outside [_NumberField.range].
+  bool _outOfRange = false;
 
   @override
   void initState() {
@@ -310,21 +322,40 @@ class _NumberFieldState extends State<_NumberField> {
           width: 200,
           height: GbmSpacing.inputHeight,
           child: TextField(
+            key: widget.fieldKey,
             controller: _controller,
             keyboardType: TextInputType.number,
             decoration: gbmInputDecoration(
               colors: colors,
               suffixText: widget.suffix.isEmpty ? null : widget.suffix,
+              hasError: _outOfRange,
             ),
             // Only a parseable positive value is committed -- a half-typed
             // field must not momentarily persist 0 and change behaviour
             // mid-keystroke.
             onChanged: (String text) {
               final int? parsed = int.tryParse(text.trim());
-              if (parsed != null && parsed > 0) widget.onChanged(parsed);
+              final ({int min, int max})? range = widget.range;
+              final bool outOfRange =
+                  parsed != null &&
+                  range != null &&
+                  (parsed < range.min || parsed > range.max);
+              if (outOfRange != _outOfRange) {
+                setState(() => _outOfRange = outOfRange);
+              }
+              if (parsed != null && parsed > 0 && !outOfRange) {
+                widget.onChanged(parsed);
+              }
             },
           ),
         ),
+        if (widget.range case final ({int min, int max}) range when _outOfRange)
+          gbmFieldError(
+            colors: colors,
+            error:
+                '請填 ${range.min} 到 ${range.max}，這次修改沒有存檔'
+                '（仍是 ${widget.value}）',
+          ),
       ],
     );
   }
@@ -905,6 +936,51 @@ class _AppearanceSection extends ConsumerWidget {
           value: prefs.softWrapEnabled,
           onChanged: (bool v) => notifier.update(
             (AppPreferences p) => p.copyWith(softWrapEnabled: v),
+          ),
+        ),
+        // code-line-width-cap-spec.html screen 1.
+        const SizedBox(height: GbmSpacing.space2),
+        _NumberField(
+          fieldKey: const Key('maxCodeLineCharsField'),
+          label: '每行最多顯示',
+          suffix: '字',
+          value: prefs.maxCodeLineChars,
+          onChanged: (int v) => notifier.update(
+            (AppPreferences p) => p.copyWith(maxCodeLineChars: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '以中文字寬計算，超過的部分不顯示；開啟自動換行時不套用。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+            height: GbmTypography.leadingNormal,
+          ),
+        ),
+        // wc-full-file-line-cap-spec.html screen 1, ruled 「照稿」 and range
+        // 「B. 500–20000」 2026-10-31.
+        const SizedBox(height: GbmSpacing.space4),
+        _NumberField(
+          fieldKey: const Key('fullFileViewMaxLinesField'),
+          label: '全檔檢視最多',
+          suffix: '行',
+          value: prefs.fullFileViewMaxLines,
+          range: (
+            min: AppPreferences.fullFileViewMaxLinesFloor,
+            max: AppPreferences.fullFileViewMaxLinesCeiling,
+          ),
+          onChanged: (int v) => notifier.update(
+            (AppPreferences p) => p.copyWith(fullFileViewMaxLines: v),
+          ),
+        ),
+        const SizedBox(height: GbmSpacing.space2),
+        Text(
+          '超過的檔案只顯示變更附近的片段，全檔按鈕停用。',
+          style: TextStyle(
+            fontSize: GbmTypography.textXs,
+            color: colors.textTertiary,
+            height: GbmTypography.leadingNormal,
           ),
         ),
       ],

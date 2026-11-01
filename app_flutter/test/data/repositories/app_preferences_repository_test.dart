@@ -35,6 +35,15 @@ void main() {
       // before this field existed, because a bare `Text` defaults to
       // `softWrap: true`. See the field's own doc comment.
       expect(p.softWrapEnabled, isFalse);
+      // Full-file view (wc-full-file-view-spec.html): off, so the diff opens
+      // on the -U3 cards it always showed until the user asks for the file.
+      expect(p.fullFileViewEnabled, isFalse);
+      // 「最長200字中文」「是上限」: every code view shows at most 200 CJK
+      // character widths per column before it cuts the line off.
+      expect(p.maxCodeLineChars, 200);
+      // 「except file over 5000 lines (lines limit was set in preference
+      // settings)」: the full-file view stops at 5,000 lines.
+      expect(p.fullFileViewMaxLines, 5000);
       // Developer flags (fix/refresh-ui-first-tiering): the two behaviour
       // flags default to the new behaviour so a fresh profile gets it
       // without visiting Preferences; the timing readout defaults off since
@@ -66,6 +75,8 @@ void main() {
         autoUpdateCheckEnabled: false,
         skippedVersion: '9.9.9',
         softWrapEnabled: true,
+        fullFileViewEnabled: true,
+        maxCodeLineChars: 80,
         showRefreshTimings: true,
         keepDiffDuringRefresh: false,
         tieredRefresh: false,
@@ -85,12 +96,30 @@ void main() {
       expect(read.autoUpdateCheckEnabled, isFalse);
       expect(read.skippedVersion, '9.9.9');
       expect(read.softWrapEnabled, isTrue);
+      expect(read.fullFileViewEnabled, isTrue);
+      expect(read.maxCodeLineChars, 80);
       expect(read.showRefreshTimings, isTrue);
       expect(read.keepDiffDuringRefresh, isFalse);
       expect(read.tieredRefresh, isFalse);
       expect(read.showLogTimeouts, isTrue);
       expect(read.showLogColumnHeaders, isTrue);
       expect(read.overwriteWithPreparedMessage, isFalse);
+    });
+
+    // Set opposite to soft wrap, its neighbour in both the store and the
+    // diff pane: with both true a key read from the other's slot still
+    // reads true.
+    test('full-file view is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(const AppPreferences(fullFileViewEnabled: true));
+      expect(repo.read().fullFileViewEnabled, isTrue);
+      expect(repo.read().softWrapEnabled, isFalse);
+
+      await repo.write(const AppPreferences(softWrapEnabled: true));
+      expect(repo.read().fullFileViewEnabled, isFalse);
     });
 
     // Written with the two LOG flags set differently, each way round: with
@@ -117,6 +146,86 @@ void main() {
       );
       expect(repo.read().showLogTimeouts, isFalse);
       expect(repo.read().showLogColumnHeaders, isTrue);
+    });
+
+    // Its neighbour in the store is the timeout multiplier, the other int:
+    // set to different values so a key read from the other's slot shows.
+    test('the line width cap is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(
+        const AppPreferences(maxCodeLineChars: 50, gitTimeoutMultiplier: 3),
+      );
+      expect(repo.read().maxCodeLineChars, 50);
+      expect(repo.read().gitTimeoutMultiplier, 3);
+      expect(prefs.getInt('appPrefs.maxCodeLineChars'), 50);
+    });
+
+    test('the full-file line cap is stored under its own key', () async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SharedPreferences prefs = await SharedPreferences.getInstance();
+      final AppPreferencesRepository repo = AppPreferencesRepository(prefs);
+
+      await repo.write(
+        const AppPreferences(
+          fullFileViewMaxLines: 8000,
+          maxCodeLineChars: 50,
+          gitTimeoutMultiplier: 3,
+        ),
+      );
+      expect(repo.read().fullFileViewMaxLines, 8000);
+      expect(repo.read().maxCodeLineChars, 50);
+      expect(prefs.getInt('appPrefs.fullFileViewMaxLines'), 8000);
+    });
+
+    // wc-full-file-line-cap-spec.html, ruling B「500–20000」: the field never
+    // writes outside it, and a store edited by hand is read back inside it.
+    test('the full-file line cap is read back inside 500-20000', () async {
+      for (final (int stored, int read) in <(int, int)>[
+        (100, 500),
+        (500, 500),
+        (20000, 20000),
+        (999999, 20000),
+      ]) {
+        SharedPreferences.setMockInitialValues(<String, Object>{
+          'appPrefs.fullFileViewMaxLines': stored,
+        });
+        final SharedPreferences prefs = await SharedPreferences.getInstance();
+        expect(
+          AppPreferencesRepository(prefs).read().fullFileViewMaxLines,
+          read,
+          reason: '$stored',
+        );
+      }
+    });
+
+    test('copyWith carries the full-file line cap', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences next = base.copyWith(fullFileViewMaxLines: 8000);
+      expect(next.fullFileViewMaxLines, 8000);
+      expect(next.copyWith(maxCodeLineChars: 50).fullFileViewMaxLines, 8000);
+    });
+
+    test('copyWith carries the line width cap', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences next = base.copyWith(maxCodeLineChars: 50);
+      expect(next.maxCodeLineChars, 50);
+      expect(next.copyWith(softWrapEnabled: true).maxCodeLineChars, 50);
+    });
+
+    // The toggle writes through copyWith, so a field copyWith forgets is a
+    // button that flips nothing.
+    test('copyWith carries the full-file view both ways', () {
+      const AppPreferences base = AppPreferences();
+      final AppPreferences on = base.copyWith(fullFileViewEnabled: true);
+      expect(on.fullFileViewEnabled, isTrue);
+      expect(on.copyWith(softWrapEnabled: true).fullFileViewEnabled, isTrue);
+      expect(
+        on.copyWith(fullFileViewEnabled: false).fullFileViewEnabled,
+        isFalse,
+      );
     });
 
     test('copyWith changes one field and leaves the rest alone', () {

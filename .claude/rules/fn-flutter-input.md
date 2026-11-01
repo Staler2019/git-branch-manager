@@ -7,7 +7,8 @@ paths:
 
 Pin prefix `FLU-`. Format: [README.md](../../docs/rules/README.md). Rules a site comment and a
 test already carry (dialog single-entry push, platform-provided menu items, the macOS bundle
-name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
+name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping, the lazy diff list's scrolled-drag geometry, the
+last-hunk-first stage order) live there.
 
 ## [FLU-inkwell-tap-gives-no-focus] Tapping an `InkWell` does not give it focus
 
@@ -44,7 +45,7 @@ name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
 ## [FLU-clear-selection-before-dispatch] The submit path is a diff-change path, one dispatch later
 
 - **Do**: call `clearSelection()` synchronously **before** dispatching a stage; deferred, it lands inside the restructure it caused and throws `ConcurrentModificationError` from `handleClearSelection` (`scoped_diff_view.dart`'s `_submitTemporary`).
-- **Note**: **no test pins it.** ~~Moving the clear after the dispatch left `stage_lines_flow_test.dart` green on macOS (7/7): its tap collapses the selection by itself, and the keyboard path (`repositoryStageSelectedLines`) has no device test.~~ The keyboard path has a device test now and stays green under both a synchronous and a post-frame late clear; the pre-fix shape does not crash at the fixing commit 45ebc2f either (Flutter 3.47.4), so the crash is unreproduced, not the tap's doing.
+- **Note**: no test pins it and the crash is unreproduced; the site comment holds the history.
 - **Evidence**: [ledger: L1 第九片](../../docs/ledger/2026-10-04-chore-s3-l1-flutter-input.md); [ledger: #167](../../docs/ledger/2026-10-05-test-issue-167-missing-tests.md)
 
 ## [FLU-routed-dialog-is-a-page-route] A routed dialog is a non-opaque `PageRoute`, not a `PopupRoute`
@@ -52,4 +53,3 @@ name, `showGbmMenu`'s barrier, hit-test gotchas, select-all scoping) live there.
 - **Rule**: `dialogRoute`'s `CustomTransitionPage` builds a `PageRoute` with `opaque: false`; `showDialog`/`showGeneralDialog` build a `RawDialogRoute`; `showMenu` builds a `PopupRoute` that is neither.
 - **Do**: "is a dialog open" is `RawDialogRoute || (PageRoute && !opaque)` (`DialogOpenObserver`); counting `PopupRoute`s misses every routed dialog and counts context menus.
 - **Evidence**: [ledger: feature/auto-fetch-implementation](../../docs/ledger/2026-10-24-feature-auto-fetch-implementation.md)
-

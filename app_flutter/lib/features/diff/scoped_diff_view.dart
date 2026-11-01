@@ -1164,6 +1164,15 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         message: '${file.displayPath} (binary file)',
       );
     }
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 3
+    // -- 「完全比照 binary」.
+    if (file != null && file.isPureRename) {
+      return _Notice(
+        title: source.title,
+        staged: source.staged,
+        message: kPureRenameNote,
+      );
+    }
     // Plain 「nothing on this side」 is deliberately silent here: the pane's
     // own 「N 未暫存 · M 已暫存」 already says it, and a placeholder line in
     // the middle of the other side's cards would read as a section that
@@ -1197,6 +1206,9 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         .firstOrNull;
     if (binary != null) {
       return _placeholder(colors, '${binary.file!.displayPath} (binary file)');
+    }
+    if (sources.any((ScopedDiffSource s) => s.file?.isPureRename ?? false)) {
+      return _placeholder(colors, kPureRenameNote);
     }
     final String? label = sources.first.emptyLabel;
     return label == null

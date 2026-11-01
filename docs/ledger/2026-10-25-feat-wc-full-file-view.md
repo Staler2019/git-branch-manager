@@ -449,3 +449,42 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
   - A2（P4，這個 slice 引入的註解漂移：`_columnScopes` 的 doc 與 sync_test 檔頭）：FIX，就地改寫。
   - A1（P4，既有行為）：2 file 的 staged 欄不發布 submitter（`onTemporaryScopeChanged: staged ? null : …`），所以在 staged 欄做的選取按 Ctrl/Cmd+Alt+S 不會有反應，只能按 block 上的按鈕。這是 f269f1ef 之前就有的行為，不在本 slice 範圍內，回報給使用者決定。
   - A3（P4，覆蓋缺口）：「卡片被切開」與 Shift+Down／one-shot 組合的情況，repo 內沒有測試，只有探針證實。DEFER，回報。
+
+## Slice H：每段兩欄的第一個程式碼行對齊（c2ea77f6 … 1529a228，2026-11-01）
+
+### Situation
+使用者回報：「變更1變更2等等那行，也需要留空行，不然左右一樣對不齊」。同步捲動只在段尾補高，所以段頂相同，但一欄在第一個程式碼行之前畫了卡片標題、`@@` 標題或一次性 block 的標題，另一欄沒有，兩欄的第一行就差了那段高度。裁定「所有非程式碼列」，conflict resolve「也套用」。
+
+### Task／Action
+- **H1**（c2ea77f6）：`SyncSlotHeights` 每欄每段多記一個 lead（NaN 表示沒有程式碼行），`topPad = L − lead`，槽高改為 max(topPad + own)。Mutation 5 個，變紅的測試數依序為 2、1、2、3、1。
+- **H2**（18cacecf）：`SyncCodeRowMarker` 標記程式碼列；`SyncHeightReporter` 在高度或 lead 任一改變時回報（HB4：一次性 block 在卡片內移動時只有 lead 變）；`DiffListModel` 在 segment ≥ 1 的段首加 `DiffSpacerItem(atStart)`（HB3：segment 0 只有 leading item）。
+  - plan-verifier 第一輪指出的關鍵區分（HB1／HB2）：**本欄 run**（`_ownHeightOf`，spacer 只算框邊）用來累加 run 與 lead；**放置高度**（`_placedHeightOf`，spacer 加上自己的補高）用於播種、`_seedIndexAt` 與 ruler。兩者混用時，播種會落在錯的位置；或者補高流回 lead，造成震盪。
+  - 期望值變更只有 `diff_list_model_test` 的兩個序列測試，由核准的設計造成。其餘 4 個 sync 測試檔只把 spacer finder 改成只取段尾，期望值未改。stop ① 沒有觸發。
+  - Mutation 7 個，變紅的測試數依序為 28、9、2、5、2、2、17。與 plan 的預期不同：「lead 累加含段首補高」沒有讓穩定性測試變紅，變紅的是對齊測試與 L3-s5。
+  - 寫 L3-s5 時發現第一版 fixture 的前提是錯的：Slice B 切開的卡片與對側的變更共用位置，所以會被分在同一段，那裡根本沒有段首 spacer（實測高度 0）。改用 unstaged 2 行 context 的 hunk，讓 gap L11–13 自成一段。
+- **H3**（a35a90a8）：conflict 每段 item 改為「段首 spacer + reporter(block) + 段尾 spacer」，三種程式碼列都加上 marker，並新增 `conflictSegmentLeadEstimate`。先紅：take 之後 result 的第一行在 345，theirs 在 319。Mutation 4 個，變紅的測試數依序為 2、1、2、3。
+- **H4**（1529a228）：device 斷言 staged 與 unstaged 的 L1、L5 同高。在 H 之前的 build（scratchpad worktree，cb5f08b5）上是紅的：L1 staged 221 vs unstaged 183；H 之後是綠的。`conflict_flow_test` 1/1、`sync_scroll_flow_test` 3/3 綠。
+
+### Result：H5 前後成對量測（macOS profile，同一個 session，依序 before → after → before → after）
+- before = cb5f08b5（H1 的 parent，scratchpad worktree），after = 1529a228。
+- 同步門檻：`2file-unstaged-80px` 與 `2file-staged-80px` 的 buildP90 平均。
+
+  | run | 版本 | unstaged | staged | 平均 |
+  |---|---|---|---|---|
+  | 1 | before | 3.0 | 3.1 | 3.05 |
+  | 2 | after | 3.1 | 3.4 | 3.25 |
+  | 3 | before | 2.9 | 3.1 | 3.00 |
+  | 4 | after | 2.9 | 3.7 | 3.30 |
+
+  before 平均 3.03、after 平均 3.28，差 +0.25 ms，在 +2 ms 以內，**PASS**。
+- 遠跳門檻（≤ 同 run、同模式的對照幀 × 1.5）。after 的最差值（ms）：unified 25.5（預算 42.2）、31.1（預算 43.2）；2 file 52.4（預算 71.4）、56.6（預算 66.2）。全部 **PASS**。
+- conflict 遠跳只記錄數字，不設門檻。依 `conflict_scroll_perf_test.dart` 檔頭的使用者裁定「接受現況，記錄數字」：對照幀只有 1.2 ms，因為一段 text 是一個 item，壓力步多半什麼都不建，所以 × 1.5 的預算本來就達不到。最差值 before 56.9 / 55.6、after 40.7 / 59.8，沒有退步。plan 的 HD1 曾把 conflict 列為門檻，這是錯的，已在 plan 就地更正。
+- **S7 基準無法重現**（照實補記）：S7 記錄的「同步 +1.6–1.8 ms」，在 repo 裡找不到它的不同步基準是怎麼量出來的。`wc_scroll_perf_test` 沒有關閉同步的開關，也沒有任何一組是「2 file 不同步」。所以這一輪改用 H 前後的成對量測，不再與 S7 的數字比較。
+- 全套 4434 綠、8 skip，analyzer 0。
+
+### Verifier（Slice H，HEAD 1529a228）：CONFIRMED
+- 驗證方式：全套 4434 綠、analyzer 0。另寫一支探針（scratchpad，不進 repo）：220 行、unstaged 改 12 處、staged 改 7 處；excerpt 與全檔 × soft wrap 關與開，每種組合兩欄輪流各滾 30 步，最後遠跳回頂。每步停穩後比對所有兩欄都已建出的段，第一個程式碼行、段頂、段尾三項的最大差都是 0.0 px。停穩後 `SyncSlotHeights` 的通知數為 0；unified 沒有 spacer。
+- Advisories 的處置：
+  - A1（P3，H 之前就有的行為）：staged 沒有任何變更時，在 staged 欄滾動，unstaged 欄不跟著動。cb5f08b5 的探針結果相同。不在本 slice 範圍，回報給使用者決定。
+  - A2（P4）：reporter 每次 layout 都會排一個 post-frame，用來接住只有 lead 改變的情況。H5 的同步門檻 +0.25 ms，所以不處理。
+  - A3（環境）：驗證期間 ledger 有修改，是主 session 在寫這一節；lib/ 與 test/ 都沒有動過。

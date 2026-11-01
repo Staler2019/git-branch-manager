@@ -795,6 +795,8 @@ std::string toJson(const FileHistoryEntry& entry) {
     jsonAppendEscaped(out, entry.status);
     out += ",\"renamedFrom\":";
     jsonAppendEscaped(out, entry.renamedFrom);
+    out += ",\"path\":";
+    jsonAppendEscaped(out, entry.path);
     out += '}';
     return out;
 }

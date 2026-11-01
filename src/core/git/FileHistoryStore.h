@@ -23,6 +23,10 @@ struct FileHistoryEntry {
     /// The path this file had before the commit, set only when `status` starts
     /// with R or C -- `git log --follow` keeps walking under the old name.
     std::string renamedFrom;
+    /// The path this file had *in this commit*: the name-status line's last
+    /// field. Older than a rename it is the old name, which is the only name
+    /// a per-file diff of that commit can find.
+    std::string path;
 };
 
 /// One commit's hunk from `git log -L`, covering a specific line range rather

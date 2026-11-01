@@ -102,15 +102,18 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
 
   void _select(FileHistoryEntry entry) {
     setState(() => _selectedOid = entry.oid);
-    // The path this commit touched is the *renamed-from* path when this
-    // entry is a rename, otherwise the tab's own path -- asking for the
-    // current name inside a commit that predates the rename returns
-    // nothing.
-    _session.requestCommitFileDiff(entry.oid, _pathAt(entry), oldPath: '');
+    // Ask under the name the file had in that commit -- the tab's current
+    // name finds nothing in a commit older than a rename -- and give a rename
+    // both of its names, or git draws one half as a whole-file add or delete.
+    _session.requestCommitFileDiff(
+      entry.oid,
+      _pathAt(entry),
+      oldPath: entry.status.startsWith('R') ? entry.renamedFrom : '',
+    );
   }
 
   String _pathAt(FileHistoryEntry entry) =>
-      entry.renamedFrom.isEmpty ? widget.path : entry.renamedFrom;
+      entry.path.isEmpty ? widget.path : entry.path;
 
   @override
   Widget build(BuildContext context) {

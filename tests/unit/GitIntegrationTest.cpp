@@ -5117,6 +5117,27 @@ TEST_F(RealRepoTest, FileHistoryFollowsARenameAcrossHistory) {
     EXPECT_EQ((*entries)[2].subject, "add old.txt");
 }
 
+// `--follow` keeps walking under the old name, so a commit older than the
+// rename touched old.txt, not new.txt; asking that commit for new.txt finds
+// nothing. Each entry carries the path the file had in its own commit.
+TEST_F(RealRepoTest, FileHistoryEntriesCarryThePathAsOfTheirOwnCommit) {
+    commitFile("old.txt", "content\n", "add old.txt");
+    commitFile("old.txt", "content\nedit\n", "edit old.txt");
+    ASSERT_TRUE(run({"mv", "old.txt", "new.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "rename to new.txt"}));
+    commitFile("new.txt", "content\nedit\nmore\n", "edit new.txt");
+
+    FileHistoryStore history(*runner_, paths_);
+    auto entries = history.fileHistory("new.txt", "", CancellationToken{});
+    ASSERT_TRUE(entries) << entries.error().message;
+    ASSERT_EQ(entries->size(), 4u);
+    EXPECT_EQ((*entries)[0].path, "new.txt");
+    EXPECT_EQ((*entries)[1].path, "new.txt");
+    EXPECT_EQ((*entries)[1].renamedFrom, "old.txt");
+    EXPECT_EQ((*entries)[2].path, "old.txt");
+    EXPECT_EQ((*entries)[3].path, "old.txt");
+}
+
 TEST_F(RealRepoTest, LineHistoryReturnsAChunkPerCommitTouchingTheRange) {
     {
         std::ofstream out(repo_ / "a.txt");

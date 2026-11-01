@@ -485,6 +485,28 @@ HEAD／index／worktree 的 fuzz（1200 情境、22,580 次隨機範圍的 paylo
 ### Verifier（Slice H，HEAD 1529a228）：CONFIRMED
 - 驗證方式：全套 4434 綠、analyzer 0。另寫一支探針（scratchpad，不進 repo）：220 行、unstaged 改 12 處、staged 改 7 處；excerpt 與全檔 × soft wrap 關與開，每種組合兩欄輪流各滾 30 步，最後遠跳回頂。每步停穩後比對所有兩欄都已建出的段，第一個程式碼行、段頂、段尾三項的最大差都是 0.0 px。停穩後 `SyncSlotHeights` 的通知數為 0；unified 沒有 spacer。
 - Advisories 的處置：
-  - A1（P3，H 之前就有的行為）：staged 沒有任何變更時，在 staged 欄滾動，unstaged 欄不跟著動。cb5f08b5 的探針結果相同。不在本 slice 範圍，回報給使用者決定。
+  - A1（P3，H 之前就有的行為）：staged 沒有任何變更時，在 staged 欄滾動，unstaged 欄不跟著動。cb5f08b5 的探針結果相同。不在本 slice 範圍，回報給使用者決定。使用者裁定修正，見下節「空欄的捲動不帶動對側」。
   - A2（P4）：reporter 每次 layout 都會排一個 post-frame，用來接住只有 lead 改變的情況。H5 的同步門檻 +0.25 ms，所以不處理。
   - A3（環境）：驗證期間 ledger 有修改，是主 session 在寫這一節；lib/ 與 test/ 都沒有動過。
+
+## 空欄的捲動不帶動對側（verifier A1）與快捷鍵盤點
+
+### Situation
+- 使用者原文：「1 跟2 都修，雖然2我測不出來，需要你看看」。#1 是 Ctrl/Cmd+Alt+S 在 staged 欄沒有作用，#2 是 verifier 的 A1。
+- 之後 #1 改為：「這個short cut其實不好用，先移除好了」。主 session 查到這個鍵是 P16 REVISIONS 指定的，#75 曾裁定它與 diff 內的 Ctrl/Cmd+Shift+Enter 並存，移除就偏離 spec。所以先請使用者裁定移除範圍。使用者裁定：「這次先不處理shortcut問題，先開個issue列出所有目前shortcut＋生效/失效。之後再來研究。然後推commit上去PR」。
+
+### Task
+- 修 #2；開 issue 盤點快捷鍵；推上 PR #201。
+
+### Action
+- 根因：`ScopedDiffView` 在沒有任何內容時（`!anyContent`）提早 `return list`，沒有包上內容路徑的 `NotificationListener(onNotification: _onScrollNotification)`。所以空欄的使用者捲動從來不呼叫 `sync.scroll.lead(column)`。全檔模式下空側會畫 index 預覽（Slice E），不算空，所以只在片段模式、超過行數上限或 binary 時出現。這就是使用者手動測不出來的原因。
+- 修法（85484e65）：空路徑的 list 包上同一個 `NotificationListener`。內容路徑另外還有一個 pointer-down 的 `Listener`，那是給 SelectionArea 邊緣自動捲動用的（`animateTo` 不會送出使用者捲動通知）。空欄沒有東西可選，所以不加；滾輪與捲軸 thumb 的拖曳都會經由 `userScrollAxis` 被認成使用者捲動。第一版有加 `Listener`，但沒有測試涵蓋它，所以拿掉了。
+- 測試：`working_copy_diff_pane_sync_scroll_test.dart` 新增「the wheel on a column with no change of its own still leads」：片段模式、staged 沒有變更，兩欄輪流滾動，另一欄都跟到同一個 offset。修正前紅（Expected 500.0，Actual 250.0）。
+- Mutation：跑 1 個（拿掉包裝），紅 1 個測試，只有新測試紅。
+- 快捷鍵盤點：[#202](https://github.com/Staler2019/git-branch-manager/issues/202)，列出 39 個全域綁定與各區域綁定，每一個都附上 handler 與測試數。生效狀態是靜態讀碼的結果，沒有實機逐一按過，issue 裡寫明了。標出的待研究項目：Ctrl/Cmd+Alt+S 在 staged 欄沒有作用；Cmd+Tab 在 macOS 是否被系統攔走；Cmd+W 全域與區域綁定重疊。
+
+### Result
+- 全套 4435 綠、8 skip，analyzer 0，format 乾淨。`integration_test/sync_scroll_flow_test.dart` 3/3 綠。
+- 推到 PR #201（27 個 commit，head 85484e65），CI 13 項全綠。
+- 快捷鍵的修改（包括 #1）留給 #202，依使用者裁定之後再研究。
+

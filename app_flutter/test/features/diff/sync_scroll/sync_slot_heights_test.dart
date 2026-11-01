@@ -153,4 +153,87 @@ void main() {
       expect(h.prefixBuilds, 2);
     });
   });
+
+  // Slice H: each segment's first code row lines up across the columns
+  // (使用者回報「變更1變更2等等那行，也需要留空行」, ruled 「所有非程式碼
+  // 列」): a column whose first code row sits higher pads the difference at
+  // the start of its run; the rest still pads at the end.
+  group('lead', () {
+    test(
+      'equal leads pad nothing at the start, and the ends are as before',
+      () {
+        final SyncSlotHeights h = _heights(<List<double>>[
+          <double>[10, 40],
+          <double>[30, 15],
+        ]);
+        h.report(0, 1, 40, lead: 8);
+        h.report(1, 1, 15, lead: 8);
+        expect(h.topPad(0, 1), 0);
+        expect(h.topPad(1, 1), 0);
+        expect(h.slotHeight(1), 40);
+        expect(h.spacerHeight(1, 1), 25);
+      },
+    );
+
+    test('the column whose code starts higher pads the difference first', () {
+      final SyncSlotHeights h = _heights(<List<double>>[
+        <double>[100],
+        <double>[90],
+      ]);
+      h.report(0, 0, 100, lead: 30);
+      h.report(1, 0, 90, lead: 0);
+      expect(<double>[h.topPad(0, 0), h.topPad(1, 0)], <double>[0, 30]);
+      // Column 1 is 30 + 90 tall once padded: the slot.
+      expect(h.slotHeight(0), 120);
+      expect(
+        <double>[h.spacerHeight(0, 0), h.spacerHeight(1, 0)],
+        <double>[20, 0],
+      );
+      expect(h.totalHeight, 120);
+    });
+
+    test('a column with no code row in the segment pads nothing first', () {
+      final SyncSlotHeights h = _heights(<List<double>>[
+        <double>[50],
+        <double>[20],
+      ]);
+      h.report(0, 0, 50, lead: 10);
+      h.report(1, 0, 20);
+      expect(h.topPad(1, 0), 0);
+      expect(h.topPad(0, 0), 0);
+      expect(h.slotHeight(0), 50);
+      expect(h.spacerHeight(1, 0), 30);
+    });
+
+    test('an estimate seeds the leads', () {
+      final SyncSlotHeights h = SyncSlotHeights.forSegments(
+        columns: 2,
+        segments: 1,
+        estimate: (int c, int k) => 60,
+        estimateLead: (int c, int k) => c == 0 ? 22 : 2,
+      );
+      expect(h.topPad(1, 0), 20);
+      expect(h.slotHeight(0), 80);
+    });
+
+    test('a lead that changes alone notifies and moves the slot tops; an '
+        'unchanged one does neither', () {
+      final SyncSlotHeights h = _heights(<List<double>>[
+        <double>[40, 10],
+        <double>[40, 10],
+      ]);
+      h.report(0, 0, 40, lead: 0);
+      h.report(1, 0, 40, lead: 0);
+      int notified = 0;
+      h.addListener(() => notified++);
+      expect(h.offsetOf(1), 40);
+      final int builds = h.prefixBuilds;
+      h.report(0, 0, 40, lead: 0);
+      expect(notified, 0);
+      expect(h.prefixBuilds, builds);
+      h.report(0, 0, 40, lead: 12);
+      expect(notified, 1);
+      expect(h.offsetOf(1), 52);
+    });
+  });
 }

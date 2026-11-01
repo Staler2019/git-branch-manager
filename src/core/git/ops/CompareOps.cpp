@@ -312,11 +312,17 @@ GitResult<ParsedDiff> CompareStore::compareFileDiff(CompareFileDiffRequest reque
         return fail(GitError::Code::InvalidArgument, "Compare file diff needs two refs and a path");
     }
 
-    GitCommand command(paths_.commandDir(),
-                       {"diff",
-                        rangeExpr(request.leftRef, request.rightRef, request.threeDot),
-                        "--",
-                        request.path});
+    // -M as readFiles() passes it ([GIT-output-format-single-slot]): left to
+    // `diff.renames`, a user who turned it off would see R in the list and a
+    // whole-file add here. The old path joins the pathspec so git can pair
+    // the two halves at all.
+    std::vector<std::string> args{
+        "diff", "-M", rangeExpr(request.leftRef, request.rightRef, request.threeDot), "--"};
+    if (!request.oldPath.empty() && request.oldPath != request.path) {
+        args.push_back(request.oldPath);
+    }
+    args.push_back(request.path);
+    GitCommand command(paths_.commandDir(), std::move(args));
     command.timeout = std::chrono::seconds(60);
 
     auto result = runner_.run(command, token);

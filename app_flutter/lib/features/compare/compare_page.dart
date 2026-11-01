@@ -412,6 +412,12 @@ class _ComparePageState extends ConsumerState<ComparePage> {
                     spec.left,
                     spec.right!,
                     path,
+                    oldPath:
+                        result.files
+                            .where((DiffFile f) => f.displayPath == path)
+                            .firstOrNull
+                            ?.renamedFrom ??
+                        '',
                     threeDot: spec.threeDot,
                   );
             },

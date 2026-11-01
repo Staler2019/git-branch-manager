@@ -1567,22 +1567,31 @@ void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool
 void Session::requestCompareFileDiff(std::string leftRef,
                                      std::string rightRef,
                                      bool threeDot,
-                                     std::string path) {
+                                     std::string path,
+                                     std::string oldPath) {
     sharedReadPool().postFront([this,
                                 leftRef = std::move(leftRef),
                                 rightRef = std::move(rightRef),
                                 threeDot,
-                                path = std::move(path)]() {
+                                path = std::move(path),
+                                oldPath = std::move(oldPath)]() {
         CompareFileDiffRequest request;
         request.leftRef = leftRef;
         request.rightRef = rightRef;
         request.threeDot = threeDot;
         request.path = path;
-        const GitResult<ParsedDiff> result =
+        request.oldPath = oldPath;
+        GitResult<ParsedDiff> result =
             compareStore_->compareFileDiff(std::move(request), readCancel_.token());
         if (!result) {
             callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
             return;
+        }
+        // Same as emitWorkingCopyDiff: two pathspecs can answer with two
+        // files, and the reply describes only the one it names.
+        if (!oldPath.empty() && oldPath != path) {
+            std::erase_if(result->files,
+                          [&path](const DiffFile& file) { return file.newPath != path; });
         }
         std::string payload = "{\"left\":";
         jsonAppendEscaped(payload, leftRef);

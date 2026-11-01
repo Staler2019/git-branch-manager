@@ -372,7 +372,8 @@ public:
     void requestCompareFileDiff(std::string leftRef,
                                 std::string rightRef,
                                 bool threeDot,
-                                std::string path);
+                                std::string path,
+                                std::string oldPath);
 
     /// Async: see gbm_request_compare_with_working_copy()'s doc comment.
     void requestCompareWithWorkingCopy(std::string ref);

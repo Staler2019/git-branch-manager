@@ -124,6 +124,10 @@ class DiffFile {
   final int removedLines;
   final String displayPath;
   final List<DiffHunk> hunks;
+
+  /// [oldPath] when this file was renamed, else `''` -- what a per-file diff
+  /// request passes as its old path. Same rule as `ChangedFile.renamedFrom`.
+  String get renamedFrom => kind == FileChangeKind.renamed ? oldPath : '';
 }
 
 /// Mirrors `gbm::ParsedDiff` as serialized by `capi::toJson(const

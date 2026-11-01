@@ -499,11 +499,17 @@ GBM_API void gbm_request_compare_refs(GbmSessionHandle session,
 /// Requests one file's full diff between two refs. Async: fires
 /// GBM_EVENT_COMPARE_FILE_DIFF_READY, or GBM_EVENT_ERROR_OCCURRED on
 /// failure.
+///
+/// `oldPath` (NULL or empty for none) is the file's left-side name when the
+/// range renamed it -- the compare file list's `oldPath`. It joins the
+/// pathspec so git can pair the rename; the reply holds only the file whose
+/// new path is `path`.
 GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                            const char* leftRef,
                                            const char* rightRef,
                                            int32_t threeDot,
-                                           const char* path);
+                                           const char* path,
+                                           const char* oldPath);
 
 /// Requests the diff between `ref` and the live working tree (uncommitted
 /// changes included) -- the "compare a ref with Working Copy" side of the

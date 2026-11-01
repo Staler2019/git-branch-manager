@@ -6,6 +6,7 @@
 #include "core/git/ops/CompareOps.h"
 #include "support/FakeProcessRunner.h"
 
+#include <algorithm>
 #include <gtest/gtest.h>
 #include <string>
 
@@ -234,6 +235,32 @@ TEST(CompareStore, CompareFileDiffParsesGitDiffOutputForOneFile) {
     EXPECT_EQ(result->files[0].newPath, "src/app.cpp");
     ASSERT_EQ(result->files[0].hunks.size(), 1u);
     EXPECT_EQ(result->files[0].hunks[0].lines.size(), 3u);
+}
+
+// The file list passes -M explicitly ([GIT-output-format-single-slot]); the
+// file diff has to as well, and it has to name both paths, or a renamed file
+// opens as a whole-file add.
+TEST(CompareStore, CompareFileDiffOfARenameAsksWithMAndBothPaths) {
+    FakeProcessRunner runner;
+    FakeProcessRunner::Response diffResponse;
+    diffResponse.exitCode = 0;
+    runner.whenArgsContain({"diff"}, diffResponse);
+
+    CompareStore store(runner, testPaths());
+    CompareFileDiffRequest request;
+    request.leftRef = "main";
+    request.rightRef = "feature";
+    request.path = "src/new.cpp";
+    request.oldPath = "src/old.cpp";
+    ASSERT_TRUE(store.compareFileDiff(request, CancellationToken{}));
+
+    ASSERT_EQ(runner.invocationCount(), 1u);
+    const std::vector<std::string>& args = runner.invocations()[0].args;
+    EXPECT_NE(std::find(args.begin(), args.end(), "-M"), args.end());
+    const auto dashes = std::find(args.begin(), args.end(), "--");
+    ASSERT_NE(dashes, args.end());
+    EXPECT_EQ(std::vector<std::string>(dashes + 1, args.end()),
+              (std::vector<std::string>{"src/old.cpp", "src/new.cpp"}));
 }
 
 TEST(CompareStore, CompareFileDiffFailsWithInvalidArgumentWhenPathIsEmpty) {

@@ -154,13 +154,58 @@ TEST_F(CompareApiTest, CompareRefsReportsMergeBaseCommitsAndFilesForBothBranches
 }
 
 TEST_F(CompareApiTest, CompareFileDiffReportsTheDiffForOneFile) {
-    gbm_request_compare_file_diff(session_, "main", "feature", /*threeDot=*/1, "shared.txt");
+    gbm_request_compare_file_diff(
+        session_, "main", "feature", /*threeDot=*/1, "shared.txt", /*oldPath=*/nullptr);
     ASSERT_TRUE(log_.waitFor(
         [](const auto& events) { return anyEventOfType(events, GBM_EVENT_COMPARE_FILE_DIFF_READY); }));
 
     const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMPARE_FILE_DIFF_READY);
     EXPECT_NE(payload.find("\"path\":\"shared.txt\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("feature change"), std::string::npos) << payload;
+}
+
+// With `diff.renames` off -- a user's own config -- the file list still pairs
+// the rename (it passes -M), so the file diff has to as well, or the list says
+// R and the pane draws a whole-file add.
+TEST_F(CompareApiTest, CompareFileDiffOfARenameIsARenameEvenWithDiffRenamesOff) {
+    ASSERT_EQ(runGit({"config", "diff.renames", "false"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "mover", "main"}), 0);
+    ASSERT_EQ(runGit({"mv", "shared.txt", "moved.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Move shared.txt"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+
+    gbm_request_compare_file_diff(
+        session_, "main", "mover", /*threeDot=*/1, "moved.txt", "shared.txt");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_COMPARE_FILE_DIFF_READY);
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMPARE_FILE_DIFF_READY);
+    EXPECT_NE(payload.find("\"oldPath\":\"shared.txt\",\"newPath\":\"moved.txt\",\"kind\":3"),
+              std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"hunks\":[]"), std::string::npos) << payload;
+}
+
+// The range both moved shared.txt and added a new shared.txt: two files
+// answer the two-path pathspec, and the reply holds only the requested one.
+TEST_F(CompareApiTest, CompareFileDiffRepliesWithOnlyTheRequestedPath) {
+    ASSERT_EQ(runGit({"checkout", "--quiet", "-b", "mover", "main"}), 0);
+    ASSERT_EQ(runGit({"mv", "shared.txt", "moved.txt"}), 0);
+    std::ofstream(repo_ / "shared.txt") << "unrelated\n";
+    ASSERT_EQ(runGit({"add", "shared.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Move and replace"}), 0);
+    ASSERT_EQ(runGit({"checkout", "--quiet", "main"}), 0);
+
+    gbm_request_compare_file_diff(
+        session_, "main", "mover", /*threeDot=*/1, "moved.txt", "shared.txt");
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        return anyEventOfType(events, GBM_EVENT_COMPARE_FILE_DIFF_READY);
+    }));
+
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMPARE_FILE_DIFF_READY);
+    EXPECT_NE(payload.find("\"newPath\":\"moved.txt\""), std::string::npos) << payload;
+    EXPECT_EQ(payload.find("\"unrelated\""), std::string::npos) << payload;
 }
 
 TEST_F(CompareApiTest, CompareRefsReportsAnErrorWhenARefIsEmpty) {

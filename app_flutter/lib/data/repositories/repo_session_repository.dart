@@ -4304,16 +4304,21 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// GBM_EVENT_COMPARE_FILE_DIFF_READY into
   /// [RepoSessionState.compareFileDiffResults], keyed by
   /// [CompareFileDiffResult.key].
+  ///
+  /// [oldPath] is the file's left-side name when the range renamed it (`''`
+  /// otherwise) -- see [requestCommitFileDiff]'s, which it mirrors.
   void requestCompareFileDiff(
     String leftRef,
     String rightRef,
     String path, {
+    required String oldPath,
     bool threeDot = true,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> leftPtr = leftRef.toNativeUtf8();
     final Pointer<Utf8> rightPtr = rightRef.toNativeUtf8();
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = oldPath.toNativeUtf8();
     try {
       _bindings.requestCompareFileDiff(
         _session,
@@ -4321,11 +4326,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         rightPtr,
         threeDot ? 1 : 0,
         pathPtr,
+        oldPathPtr,
       );
     } finally {
       malloc.free(leftPtr);
       malloc.free(rightPtr);
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 

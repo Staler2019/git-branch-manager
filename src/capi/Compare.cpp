@@ -19,11 +19,13 @@ GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                            const char* leftRef,
                                            const char* rightRef,
                                            int32_t threeDot,
-                                           const char* path) {
+                                           const char* path,
+                                           const char* oldPath) {
     toSession(session)->requestCompareFileDiff(leftRef != nullptr ? std::string(leftRef) : "",
                                                rightRef != nullptr ? std::string(rightRef) : "",
                                                threeDot != 0,
-                                               path != nullptr ? std::string(path) : "");
+                                               path != nullptr ? std::string(path) : "",
+                                               oldPath != nullptr ? std::string(oldPath) : "");
 }
 
 GBM_API void gbm_request_compare_with_working_copy(GbmSessionHandle session, const char* ref) {

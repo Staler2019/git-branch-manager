@@ -838,6 +838,7 @@ typedef _RequestCompareFileDiffNative = Void Function(
   Pointer<Utf8> rightRef,
   Int32 threeDot,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 typedef RequestCompareFileDiffDart = void Function(
   Pointer<Void> session,
@@ -845,6 +846,7 @@ typedef RequestCompareFileDiffDart = void Function(
   Pointer<Utf8> rightRef,
   int threeDot,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 
 typedef _RequestRemotePrunePreviewNative = Void Function(

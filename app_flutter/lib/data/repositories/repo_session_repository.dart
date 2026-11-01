@@ -3574,9 +3574,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// rather than passed in because none of their callers holds the entry,
   /// only its path, and one lookup cannot disagree with itself
   /// ([CULT-single-source-of-truth]).
+  ///
+  /// A rename only: a staged copy (`status.renames=copies`) also carries its
+  /// source in `oldPath`, but the source still exists, so a rebuild over both
+  /// paths finds an Added file and the core refuses every line or hunk
+  /// unstage as "no longer exists". Same rule as `ChangedFile.renamedFrom`.
   String _stagedOldPath(String path) {
     for (final WorkingCopyEntry entry in state.workingCopyStatus.staged) {
-      if (entry.path == path) return entry.oldPath;
+      if (entry.path == path) {
+        return entry.indexStatus == FileChangeKind.renamed ? entry.oldPath : '';
+      }
     }
     return '';
   }

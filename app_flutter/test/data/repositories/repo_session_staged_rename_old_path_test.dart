@@ -154,6 +154,16 @@ void main() {
             hasUnstagedChange: true,
           ),
           _entry(path: 'plain.dart', staged: true),
+          // `status.renames=copies` reports a staged copy with its source in
+          // oldPath. The source still exists, so there is no rename to pair:
+          // the core's rebuild over both paths finds an Added file, refuses
+          // the shape, and every line/hunk unstage of a copy would fail.
+          _entry(
+            path: 'lib/copy.dart',
+            oldPath: 'lib/source.dart',
+            staged: true,
+            indexStatus: FileChangeKind.copied,
+          ),
         ],
       ),
     );
@@ -231,5 +241,17 @@ void main() {
     controller.unstageLines('plain.dart', 0, <int>[1]);
 
     expect(callsOf('unstageLines').single.oldPath, '');
+  });
+
+  test('a staged copy sends no old path on any staged request', () {
+    controller.requestDiff('lib/copy.dart', staged: true);
+    controller.requestFullDiff('lib/copy.dart', staged: true);
+    controller.unstageHunk('lib/copy.dart', 0);
+    controller.unstageLines('lib/copy.dart', 0, <int>[1]);
+
+    expect(bindings.calls, hasLength(4));
+    for (final _DiffCall call in bindings.calls) {
+      expect(call.oldPath, '', reason: call.binding);
+    }
   });
 }

@@ -67,4 +67,5 @@ per-file diff 只把一個路徑當 pathspec，git 只看到半邊，rename 偵�
 - **ctest 的 `index.lock` 紅燈是兩次 ctest 同時跑造成的。** 兩次執行共用以測試命名的 temp repo，形狀和 #194 相同。單獨重跑 962/962 全綠，那個 flaky 測試連跑 3 次也是 3/3。
 - **更正了錯的註解。** `Session::emitWorkingCopyDiff` 與 `selectionCoversWholeAddedFile` 原本寫「舊路徑在前」，實際上 git 依路徑排序；rename 也不會再以 Added 出現。
 - **數個 Dart mutation 寫成了編譯失敗。** slice 4 一個，slice 6 三個。這些都作廢、改成能編譯的形式重做，不計入上表。
+- **verifier 第一輪判 REFUTED，抓到本輪自己引入的 P2。** `_stagedOldPath` 沒有檢查 `indexStatus`。設了 `status.renames=copies` 時，staged 的 copy 在 `oldPath` 也帶著來源路徑，core 用兩個路徑重建後得到一個 Added 檔，形狀檢查不通過，於是 copy 的逐行／逐 hunk unstage 每次都回「That change no longer exists」。verifier 用 capi probe 在真 repo 重現：帶 oldPath 失敗，不帶 oldPath 成功。修正方式是只有 `renamed` 才帶舊路徑，與 `ChangedFile.renamedFrom` 同一規則。補了 copy 的測試，mutation 跑 2 個、紅 7 個測試。
 - 新規則：[GIT-rename-pathspec-needs-both-paths]。

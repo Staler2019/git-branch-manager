@@ -821,7 +821,17 @@ class _ScopedDiffViewState extends State<ScopedDiffView> {
         ],
       ),
     );
-    if (!anyContent) return list;
+    // Nothing to select, but a synced column with nothing of its own still
+    // scrolls through its spacers, and moving it has to lead as any other
+    // column's does (verifier advisory A1, Slice H): the wheel and a thumb
+    // drag both reach it as a user scroll, and with nothing to select there
+    // is no edge auto-scroll that the content path's pointer-down hook is for.
+    if (!anyContent) {
+      return NotificationListener<Notification>(
+        onNotification: _onScrollNotification,
+        child: list,
+      );
+    }
 
     // One SelectionArea for the whole view. In `2 file` mode that
     // is one per side, because each side is its own view and a

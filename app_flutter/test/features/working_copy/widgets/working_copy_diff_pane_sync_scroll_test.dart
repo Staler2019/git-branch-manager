@@ -186,6 +186,20 @@ void main() {
     _expectAligned(tester);
   });
 
+  // A column with nothing of its own (excerpts, no staged change) draws
+  // only its head and spacers, but scrolls all the same; it leads too.
+  // Verifier advisory A1 (Slice H): the unstaged column stayed put.
+  testWidgets('the wheel on a column with no change of its own still leads', (
+    WidgetTester tester,
+  ) async {
+    await _pump(tester, fullFile: false, stagedEdits: const <int>{});
+    await _wheel(tester, 0, 250);
+    expect(_position(tester, 1).pixels, _position(tester, 0).pixels);
+    await _wheel(tester, 1, 250);
+    expect(_position(tester, 1).pixels, greaterThan(400));
+    expect(_position(tester, 0).pixels, _position(tester, 1).pixels);
+  });
+
   testWidgets('the wheel on the staged column leads the other way', (
     WidgetTester tester,
   ) async {

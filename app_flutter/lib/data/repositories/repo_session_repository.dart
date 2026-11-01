@@ -4251,15 +4251,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Async: fires GBM_EVENT_COMMIT_FILE_DIFF_READY into
   /// [RepoSessionState.selectedCommitFileDiff].
-  void requestCommitFileDiff(String oid, String path) {
+  ///
+  /// [oldPath] is the file's name before the commit when the commit renamed
+  /// it (`''` otherwise): without it git sees only the new name and diffs the
+  /// rename as a whole-file add. Required, so a caller cannot forget it.
+  void requestCommitFileDiff(
+    String oid,
+    String path, {
+    required String oldPath,
+  }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> oidPtr = oid.toNativeUtf8();
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = oldPath.toNativeUtf8();
     try {
-      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr);
+      _bindings.requestCommitFileDiff(_session, oidPtr, pathPtr, oldPathPtr);
     } finally {
       malloc.free(oidPtr);
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 

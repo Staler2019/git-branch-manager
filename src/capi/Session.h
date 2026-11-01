@@ -360,7 +360,7 @@ public:
     void requestCommitFiles(std::string oid);
 
     /// Async: see gbm_request_commit_file_diff()'s doc comment.
-    void requestCommitFileDiff(std::string oid, std::string path);
+    void requestCommitFileDiff(std::string oid, std::string path, std::string oldPath);
 
     /// Async: see gbm_request_compare_refs()'s doc comment. left/right/
     /// threeDot are echoed back in the event payload so a caller with

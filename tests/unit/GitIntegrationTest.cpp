@@ -650,15 +650,62 @@ TEST_F(RealRepoTest, ProducesChangedFilesAndDiffs) {
     EXPECT_EQ((*files)->at(0).path, "a.txt");
     EXPECT_EQ((*files)->at(0).kind, FileChangeKind::Modified);
 
-    auto diff = diffs.commitFileDiff(oid, "a.txt", options, CancellationToken{});
+    auto diff = diffs.commitFileDiff(oid, "a.txt", "", options, CancellationToken{});
     ASSERT_TRUE(diff) << diff.error().message;
     ASSERT_EQ((*diff)->files.size(), 1u);
     EXPECT_EQ((*diff)->files[0].addedLines, 1u);
 
     // The second identical request must be served from cache, not re-run git.
-    auto cached = diffs.commitFileDiff(oid, "a.txt", options, CancellationToken{});
+    auto cached = diffs.commitFileDiff(oid, "a.txt", "", options, CancellationToken{});
     ASSERT_TRUE(cached);
     EXPECT_EQ(cached->get(), diff->get()) << "the diff cache should return the same object";
+}
+
+// A commit that renamed a file, asked for by its new name alone, is a whole-
+// file add -- git never sees the deleted half. With the old name in the
+// pathspec it is the rename the changed-files list already reported.
+TEST_F(RealRepoTest, CommitFileDiffOfARenameWithItsOldPathIsARename) {
+    commitFile("old-name.txt", "one\ntwo\nthree\nfour\nfive\nsix\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    std::ofstream(repo_ / "new-name.txt") << "one\ntwo\nTHREE\nfour\nfive\nsix\n";
+    ASSERT_TRUE(run({"add", "new-name.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "c2"}));
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    DiffService diffs(*runner_, paths_);
+    auto diff = diffs.commitFileDiff(
+        oid, "new-name.txt", "old-name.txt", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    ASSERT_EQ((*diff)->files.size(), 1u);
+    EXPECT_EQ((*diff)->files[0].kind, FileChangeKind::Renamed);
+    EXPECT_EQ((*diff)->files[0].oldPath, "old-name.txt");
+    EXPECT_EQ((*diff)->files[0].addedLines, 1u);
+    EXPECT_EQ((*diff)->files[0].removedLines, 1u);
+}
+
+// The cache must not answer a rename request with the add it stored for the
+// same file asked for by its new name alone.
+TEST_F(RealRepoTest, CommitFileDiffCacheKeepsARenameApartFromAnAdd) {
+    commitFile("old-name.txt", "one\ntwo\nthree\n", "c1");
+    ASSERT_TRUE(run({"mv", "old-name.txt", "new-name.txt"}));
+    ASSERT_TRUE(run({"commit", "--quiet", "-m", "c2"}));
+    auto head = run({"rev-parse", "HEAD"});
+    ASSERT_TRUE(head);
+    const ObjectId oid = ObjectId::fromHex(head->out);
+
+    DiffService diffs(*runner_, paths_);
+    auto added = diffs.commitFileDiff(oid, "new-name.txt", "", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(added) << added.error().message;
+    ASSERT_EQ((*added)->files.size(), 1u);
+    ASSERT_EQ((*added)->files[0].kind, FileChangeKind::Added);
+
+    auto renamed = diffs.commitFileDiff(
+        oid, "new-name.txt", "old-name.txt", DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(renamed) << renamed.error().message;
+    ASSERT_EQ((*renamed)->files.size(), 1u);
+    EXPECT_EQ((*renamed)->files[0].kind, FileChangeKind::Renamed);
 }
 
 TEST_F(RealRepoTest, HandlesAddedAndDeletedFilesInDiffs) {
@@ -867,7 +914,7 @@ TEST_F(RealRepoTest, ReportsAMergeCommitAgainstItsFirstParent) {
     // The other half. Listing the files while every one of them opens an
     // empty diff would be worse than honestly reporting nothing, so the list
     // and the patch are fixed together and asserted together.
-    auto diff = diffs.commitFileDiff(oid, "side.txt", options, CancellationToken{});
+    auto diff = diffs.commitFileDiff(oid, "side.txt", "", options, CancellationToken{});
     ASSERT_TRUE(diff) << diff.error().message;
     ASSERT_EQ((*diff)->files.size(), 1u);
     EXPECT_EQ((*diff)->files[0].addedLines, 1u);

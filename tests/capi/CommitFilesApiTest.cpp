@@ -171,7 +171,7 @@ TEST_F(CommitFilesApiTest, RequestCommitFilesReportsAsymmetricLineCounts) {
 }
 
 TEST_F(CommitFilesApiTest, RequestCommitFileDiffReturnsFileDiff) {
-    gbm_request_commit_file_diff(session_, headOid_.c_str(), "file.txt");
+    gbm_request_commit_file_diff(session_, headOid_.c_str(), "file.txt", /*oldPath=*/nullptr);
 
     ASSERT_TRUE(log_.waitFor([](const auto& events) {
         for (const auto& [type, payload] : events) {
@@ -184,6 +184,50 @@ TEST_F(CommitFilesApiTest, RequestCommitFileDiffReturnsFileDiff) {
     EXPECT_NE(payload.find("\"oid\":\"" + headOid_ + "\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"path\":\"file.txt\""), std::string::npos) << payload;
     EXPECT_NE(payload.find("\"diff\":{"), std::string::npos) << payload;
+}
+
+TEST_F(CommitFilesApiTest, RequestCommitFileDiffOfARenameWithItsOldPathIsARename) {
+    ASSERT_EQ(runGit({"mv", "file.txt", "moved.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "move file"}), 0);
+    const std::string oid = revParseHead();
+    ASSERT_FALSE(oid.empty());
+
+    gbm_request_commit_file_diff(session_, oid.c_str(), "moved.txt", "file.txt");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_COMMIT_FILE_DIFF_READY) return true;
+        }
+        return false;
+    }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMMIT_FILE_DIFF_READY);
+    EXPECT_NE(payload.find("\"oldPath\":\"file.txt\",\"newPath\":\"moved.txt\",\"kind\":3"),
+              std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"hunks\":[]"), std::string::npos) << payload;
+}
+
+// The commit both moved file.txt away and added a new file.txt, so the two-path
+// pathspec answers with two files; the reply holds only the one asked for.
+TEST_F(CommitFilesApiTest, RequestCommitFileDiffRepliesWithOnlyTheRequestedPath) {
+    ASSERT_EQ(runGit({"mv", "file.txt", "moved.txt"}), 0);
+    std::ofstream(repo_ / "file.txt") << "unrelated\n";
+    ASSERT_EQ(runGit({"add", "file.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "move and replace"}), 0);
+    const std::string oid = revParseHead();
+    ASSERT_FALSE(oid.empty());
+
+    gbm_request_commit_file_diff(session_, oid.c_str(), "moved.txt", "file.txt");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_COMMIT_FILE_DIFF_READY) return true;
+        }
+        return false;
+    }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_COMMIT_FILE_DIFF_READY);
+    EXPECT_NE(payload.find("\"newPath\":\"moved.txt\""), std::string::npos) << payload;
+    EXPECT_EQ(payload.find("\"unrelated\""), std::string::npos) << payload;
 }
 
 TEST_F(CommitFilesApiTest, UnknownOidEmitsError) {

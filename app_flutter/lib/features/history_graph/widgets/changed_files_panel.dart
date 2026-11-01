@@ -203,7 +203,18 @@ class _ChangedFilesPanelState extends ConsumerState<ChangedFilesPanel> {
                       .read(selectedCommitFilePathProvider(identity).notifier)
                       .state =
                   path;
-              requestCommitFileDiff(ref, identity, selectedCommitOid, path);
+              requestCommitFileDiff(
+                ref,
+                identity,
+                selectedCommitOid,
+                path,
+                oldPath:
+                    files
+                        .where((ChangedFile f) => f.path == path)
+                        .firstOrNull
+                        ?.renamedFrom ??
+                    '',
+              );
             },
       // Both became tabs in Tier 6c (spec page 14 `IAMAP`), so these
       // register the tab and `go` rather than pushing a dialog -- see

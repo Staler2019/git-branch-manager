@@ -810,11 +810,13 @@ typedef _RequestCommitFileDiffNative = Void Function(
   Pointer<Void> session,
   Pointer<Utf8> oid,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 typedef RequestCommitFileDiffDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> oid,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
 );
 
 typedef _RequestCompareRefsNative = Void Function(

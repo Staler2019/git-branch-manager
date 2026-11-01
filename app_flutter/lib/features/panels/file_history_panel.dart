@@ -106,7 +106,7 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
     // entry is a rename, otherwise the tab's own path -- asking for the
     // current name inside a commit that predates the rename returns
     // nothing.
-    _session.requestCommitFileDiff(entry.oid, _pathAt(entry));
+    _session.requestCommitFileDiff(entry.oid, _pathAt(entry), oldPath: '');
   }
 
   String _pathAt(FileHistoryEntry entry) =>

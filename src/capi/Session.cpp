@@ -1505,24 +1505,33 @@ void Session::requestCommitFiles(std::string oid) {
     });
 }
 
-void Session::requestCommitFileDiff(std::string oid, std::string path) {
-    sharedReadPool().postFront([this, oid = std::move(oid), path = std::move(path)]() {
-        const ObjectId commitOid = ObjectId::fromHex(oid);
-        const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->commitFileDiff(commitOid, path, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"oid\":";
-        jsonAppendEscaped(payload, oid);
-        payload += ",\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"diff\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
-    });
+void Session::requestCommitFileDiff(std::string oid, std::string path, std::string oldPath) {
+    sharedReadPool().postFront(
+        [this, oid = std::move(oid), path = std::move(path), oldPath = std::move(oldPath)]() {
+            const ObjectId commitOid = ObjectId::fromHex(oid);
+            const GitResult<DiffService::ParsedDiffPtr> result = diffs_->commitFileDiff(
+                commitOid, path, oldPath, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            // Same as emitWorkingCopyDiff: two pathspecs can answer with two
+            // files (the commit also added a new file at the old name), and the
+            // reply describes only the one it names.
+            ParsedDiff onlyRequested = *result.value();
+            if (!oldPath.empty() && oldPath != path) {
+                std::erase_if(onlyRequested.files,
+                              [&path](const DiffFile& file) { return file.newPath != path; });
+            }
+            std::string payload = "{\"oid\":";
+            jsonAppendEscaped(payload, oid);
+            payload += ",\"path\":";
+            jsonAppendEscaped(payload, path);
+            payload += ",\"diff\":";
+            payload += toJson(onlyRequested);
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
+        });
 }
 
 void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot) {

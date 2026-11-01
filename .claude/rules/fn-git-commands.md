@@ -35,3 +35,9 @@ Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 - **Do**: a non-background submit cancels queued background units only (`OperationRunner::submit`); a running one finishes — 「會產生 gitlock 的動作都不能取消」.
 - **Evidence**: [ledger: feature/auto-fetch-implementation](../../docs/ledger/2026-10-24-feature-auto-fetch-implementation.md)
 
+## [GIT-rename-pathspec-needs-both-paths] A per-file diff of a rename must name both paths
+
+- **Rule**: git pairs a rename only inside the pathspec; `git diff --cached -M -- new` sees half of it and reports a whole-file add (a range diff, a whole-file delete).
+- **Consequence**: anything rebuilt from that diff's hunk indexes (partial unstage) points at the wrong hunk; a reply for `{old, new}` can carry two files, since git sorts by path and a new file may sit at `old`.
+- **Do**: pass `{oldPath, path}` and the same rename flag (`-M`, never the user's `diff.renames`) at every per-file diff and every rebuild, then keep only the file whose `newPath == path` (`Session::emitWorkingCopyDiff`, `PartialStageOperation::run`, `DiffService::commitFileDiff`, `CompareOps.cpp`).
+- **Evidence**: [ledger: fix/rename-diff-status-glyph](../../docs/ledger/2026-11-01-fix-rename-diff-status-glyph.md)

@@ -14,6 +14,7 @@ import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../widgets/file_list_mode_switcher.dart';
+import '../../widgets/file_change_glyph.dart';
 import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_badge.dart';
 import '../../widgets/gbm_row.dart';
@@ -584,6 +585,7 @@ class _RefCompareFileList extends StatelessWidget {
       onTap: () => onSelect(file.displayPath),
       child: Row(
         children: <Widget>[
+          FileChangeGlyph(kind: file.kind),
           Expanded(
             // `label`, not the path: in tree mode the folder rows above
             // already carry the prefix. `FileListModeSwitcher` decides
@@ -745,6 +747,7 @@ class _WorkingCopyFileList extends StatelessWidget {
       onTap: () => onSelect(file.displayPath),
       child: Row(
         children: <Widget>[
+          FileChangeGlyph(kind: file.kind),
           Expanded(
             // `label`, not the path: in tree mode the folder rows above
             // already carry the prefix. `FileListModeSwitcher` decides

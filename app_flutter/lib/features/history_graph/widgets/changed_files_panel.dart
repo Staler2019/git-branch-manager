@@ -23,6 +23,7 @@ import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/gbm_row.dart';
 import '../../../widgets/file_list_mode_switcher.dart';
+import '../../../widgets/file_change_glyph.dart';
 import '../../../widgets/file_list_mode_toggle_button.dart';
 import '../../../widgets/gbm_badge.dart';
 import '../../../widgets/gbm_menu.dart';
@@ -479,6 +480,7 @@ class ChangedFilesPanelCore extends StatelessWidget {
       // measurement that was never made.
       child: Row(
         children: <Widget>[
+          FileChangeGlyph(kind: file.kind),
           Expanded(
             // `label`, not the path: in tree mode the folder rows above
             // already carry the prefix. `FileListModeSwitcher` decides

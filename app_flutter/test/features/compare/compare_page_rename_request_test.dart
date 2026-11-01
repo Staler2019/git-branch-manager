@@ -1,6 +1,6 @@
 // A range that renamed a file lists it once, under its new name. Selecting it
 // has to ask for the diff with the old name too, or git sees only the new
-// half and the pane draws the whole file as added.
+// half and the pane draws the whole file as added; and the row says it moved.
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -14,6 +14,9 @@ import 'package:gbm_flutter/features/compare/compare_page.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/file_change_glyph.dart';
+import 'package:gbm_flutter/widgets/gbm_row.dart';
+import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -37,7 +40,16 @@ DiffFile _file(String path, {String oldPath = '', FileChangeKind? kind}) =>
       hunks: const <DiffHunk>[],
     );
 
-Future<FakeRepoSessionController> _pump(WidgetTester tester) async {
+final List<DiffFile> _files = <DiffFile>[
+  _file('moved.dart', oldPath: 'origin.dart', kind: FileChangeKind.renamed),
+  _file('edited.dart'),
+  _file('gone.dart', kind: FileChangeKind.deleted),
+];
+
+Future<FakeRepoSessionController> _pump(
+  WidgetTester tester, {
+  bool againstWorkingCopy = false,
+}) async {
   SharedPreferences.setMockInitialValues(<String, Object>{
     'fileListViewMode': 'list',
   });
@@ -52,20 +64,23 @@ Future<FakeRepoSessionController> _pump(WidgetTester tester) async {
           threeDot: true,
           mergeBase: 'abc123',
           commits: const <CompareCommitEntry>[],
-          files: <DiffFile>[
-            _file(
-              'moved.dart',
-              oldPath: 'origin.dart',
-              kind: FileChangeKind.renamed,
-            ),
-            _file('edited.dart'),
-          ],
+          files: _files,
+        ),
+      },
+      compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
+        CompareWithWorkingCopyResult.key('main'): CompareWithWorkingCopyResult(
+          ref: 'main',
+          diff: ParsedDiff(files: _files, truncated: false, inputBytes: 0),
         ),
       },
     ),
   );
   final CompareTabsNotifier tabs = CompareTabsNotifier();
-  tabs.open(left: 'main', right: 'feature', threeDot: true);
+  tabs.open(
+    left: 'main',
+    right: againstWorkingCopy ? null : 'feature',
+    threeDot: true,
+  );
   final ProviderContainer container = ProviderContainer(
     overrides: <Override>[
       sharedPreferencesProvider.overrideWithValue(prefs),
@@ -118,4 +133,31 @@ void main() {
 
     expect(_requests(fake).single.args['oldPath'], '');
   });
+
+  String? glyphIn(WidgetTester tester, String name) {
+    final Finder glyph = find.descendant(
+      of: find.ancestor(of: find.text(name), matching: find.byType(GbmRow)),
+      matching: find.byType(FileChangeGlyph),
+    );
+    expect(glyph, findsOneWidget, reason: name);
+    final Finder icon = find.descendant(
+      of: glyph,
+      matching: find.byType(LucideIcon),
+    );
+    return icon.evaluate().isEmpty
+        ? null
+        : tester.widget<LucideIcon>(icon).name;
+  }
+
+  for (final bool againstWorkingCopy in <bool>[false, true]) {
+    final String side = againstWorkingCopy ? 'the working copy' : 'a ref';
+    testWidgets('a compare against $side draws each file kind in front of '
+        'its name', (tester) async {
+      await _pump(tester, againstWorkingCopy: againstWorkingCopy);
+
+      expect(glyphIn(tester, 'moved.dart'), 'move-right');
+      expect(glyphIn(tester, 'gone.dart'), 'minus');
+      expect(glyphIn(tester, 'edited.dart'), isNull);
+    });
+  }
 }

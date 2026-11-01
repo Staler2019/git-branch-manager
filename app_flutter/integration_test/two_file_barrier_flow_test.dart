@@ -64,6 +64,16 @@ void main() {
       tester.getRect(row(1, 'L5')).top,
       greaterThanOrEqualTo(tester.getRect(row(0, 'L4')).bottom),
     );
+    // Slice H: the staged card's head is padded beside the unstaged L1, so
+    // the two first lines are level (使用者回報「變更1變更2等等那行，也需要
+    // 留空行」).
+    for (final String line in <String>['L1', 'L5']) {
+      expect(
+        tester.getRect(row(1, line)).top,
+        moreOrLessEquals(tester.getRect(row(0, line)).top, epsilon: 0.5),
+        reason: line,
+      );
+    }
 
     await tester.tap(unstage.at(1));
     await tester.pumpAndSettle(const Duration(seconds: 2));

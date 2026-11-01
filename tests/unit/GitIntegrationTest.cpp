@@ -3216,16 +3216,6 @@ TEST_F(RealRepoTest, UnstagesOnlySelectedLinesWithinAHunk) {
     EXPECT_FALSE((*status)->unstaged().empty()) << "\"alpha\" should be back in the work tree";
 }
 
-// Regression coverage for appendPatchHeader's rename branch. A staged
-// rename-plus-edit is diffed, then a subset of the added lines is unstaged by
-// line selection. The first version of this test asserted the reconstructed
-// patch carried `rename from`/`rename to` headers, matching the staging-side
-// behaviour -- and that turned out to be wrong for unstaging: `git apply
-// --cached --reverse` reverses the whole patch record, so a rename header
-// here undid the rename itself (leaving `old-name.txt` staged again) instead
-// of only reverting "alpha". The fix drops the rename header for `unstaging`
-// and points both sides at `new-name.txt`, since the rename is already staged
-// by the time its content is being partially unstaged.
 // Selecting only unchanged lines used to reach `git apply` as a patch of
 // context alone, which it rejects as "corrupt patch at <stdin>:N" -- the user
 // saw a git parse error, reported as a failed process. All three directions
@@ -3285,6 +3275,16 @@ TEST_F(RealRepoTest, SelectingOnlyUnchangedLinesIsRefusedAsNothingSelected) {
     EXPECT_EQ(snapshot(), before);
 }
 
+// Regression coverage for appendPatchHeader's rename branch. A staged
+// rename-plus-edit is diffed, then a subset of the added lines is unstaged by
+// line selection. The first version of this test asserted the reconstructed
+// patch carried `rename from`/`rename to` headers, matching the staging-side
+// behaviour -- and that turned out to be wrong for unstaging: `git apply
+// --cached --reverse` reverses the whole patch record, so a rename header
+// here undid the rename itself (leaving `old-name.txt` staged again) instead
+// of only reverting "alpha". The fix drops the rename header for `unstaging`
+// and points both sides at `new-name.txt`, since the rename is already staged
+// by the time its content is being partially unstaged.
 TEST_F(RealRepoTest, UnstagesSelectedLinesOfARenamedAndModifiedFile) {
     std::string original;
     for (int i = 1; i <= 10; ++i) {

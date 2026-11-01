@@ -7,6 +7,7 @@ import '../../../data/models/working_copy_status.dart';
 import '../../../theme/gbm_theme.dart';
 import '../../../theme/tokens.dart';
 import '../../../widgets/code_line_metrics.dart';
+import '../../../widgets/gbm_diff_header_bar.dart';
 import '../../../widgets/gbm_icon_button.dart';
 import '../../../widgets/gbm_segmented_control.dart';
 import '../../../widgets/split_pane.dart';
@@ -705,74 +706,52 @@ class _TitleBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
 
-    return Container(
-      height: 38,
-      padding: const EdgeInsets.symmetric(horizontal: GbmSpacing.space3),
-      decoration: BoxDecoration(
-        color: colors.surfacePanelRaised,
-        border: Border(bottom: BorderSide(color: colors.borderDefault)),
-      ),
-      child: Row(
-        children: <Widget>[
-          // Flexible, not Expanded: RenderFlex lays the non-flex children
-          // out first, so a path that insists on its full width would push
-          // the switch off the end of the bar instead of eliding itself.
-          Flexible(
-            child: Text(
-              displayPath,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontFamily: GbmTypography.fontMono,
-                fontSize: GbmTypography.textSm,
-                color: colors.textPrimary,
-              ),
-            ),
-          ),
-          const Spacer(),
-          if (scopeCounts != null) ...<Widget>[
-            const SizedBox(width: GbmSpacing.space2),
-            // One line, both directions, in the same order the list draws
-            // them -- 「2 未暫存 · 1 已暫存」. Not a pill per side: two pills
-            // here would be the two column heads again, in a narrower place.
-            Text(
-              '${scopeCounts!.unstaged} 未暫存 · ${scopeCounts!.staged} 已暫存',
-              style: TextStyle(
-                fontSize: GbmTypography.textXs,
-                color: colors.textTertiary,
-              ),
-            ),
-          ],
+    return GbmDiffHeaderBar(
+      text: displayPath,
+      trailing: <Widget>[
+        if (scopeCounts != null) ...<Widget>[
           const SizedBox(width: GbmSpacing.space2),
-          // Disabled with its reason rather than hidden over the cap
-          // ([FLU-menu-enabled-is-visual-only]), and not pressed then: this
-          // file is drawn in excerpts whatever the preference says.
-          GbmIconButton(
-            icon: const Icon(Icons.expand, size: 16),
-            tooltip: tooLarge ? 'File too large for full view' : 'Full file',
-            active: fullFile && !tooLarge,
-            onPressed: tooLarge ? null : onToggleFullFile,
-          ),
-          const SizedBox(width: GbmSpacing.space2),
-          GbmSegmentedControl<WorkingCopyDiffMode>(
-            value: mode,
-            onChanged: onModeChanged,
-            options: const <GbmSegmentedOption<WorkingCopyDiffMode>>[
-              GbmSegmentedOption<WorkingCopyDiffMode>(
-                value: WorkingCopyDiffMode.twoFile,
-                label: '2 file',
-                icon: Icons.vertical_split,
-                showLabel: true,
-              ),
-              GbmSegmentedOption<WorkingCopyDiffMode>(
-                value: WorkingCopyDiffMode.unified,
-                label: 'unified',
-                icon: Icons.view_stream,
-                showLabel: true,
-              ),
-            ],
+          // One line, both directions, in the same order the list draws
+          // them -- 「2 未暫存 · 1 已暫存」. Not a pill per side: two pills
+          // here would be the two column heads again, in a narrower place.
+          Text(
+            '${scopeCounts!.unstaged} 未暫存 · ${scopeCounts!.staged} 已暫存',
+            style: TextStyle(
+              fontSize: GbmTypography.textXs,
+              color: colors.textTertiary,
+            ),
           ),
         ],
-      ),
+        const SizedBox(width: GbmSpacing.space2),
+        // Disabled with its reason rather than hidden over the cap
+        // ([FLU-menu-enabled-is-visual-only]), and not pressed then: this
+        // file is drawn in excerpts whatever the preference says.
+        GbmIconButton(
+          icon: const Icon(Icons.expand, size: 16),
+          tooltip: tooLarge ? 'File too large for full view' : 'Full file',
+          active: fullFile && !tooLarge,
+          onPressed: tooLarge ? null : onToggleFullFile,
+        ),
+        const SizedBox(width: GbmSpacing.space2),
+        GbmSegmentedControl<WorkingCopyDiffMode>(
+          value: mode,
+          onChanged: onModeChanged,
+          options: const <GbmSegmentedOption<WorkingCopyDiffMode>>[
+            GbmSegmentedOption<WorkingCopyDiffMode>(
+              value: WorkingCopyDiffMode.twoFile,
+              label: '2 file',
+              icon: Icons.vertical_split,
+              showLabel: true,
+            ),
+            GbmSegmentedOption<WorkingCopyDiffMode>(
+              value: WorkingCopyDiffMode.unified,
+              label: 'unified',
+              icon: Icons.view_stream,
+              showLabel: true,
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

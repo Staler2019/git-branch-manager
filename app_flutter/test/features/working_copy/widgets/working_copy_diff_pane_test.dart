@@ -9,6 +9,8 @@ import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/features/diff/scoped_diff_view.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/features/working_copy/widgets/working_copy_diff_pane.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
+import 'package:gbm_flutter/widgets/gbm_segmented_control.dart';
 import 'package:gbm_flutter/widgets/split_pane.dart';
 
 import '../../../support/pump_app.dart';
@@ -823,6 +825,22 @@ void main() {
       await pump(tester, displayPath: 'old.dart → new.dart');
 
       expect(find.text('old.dart → new.dart'), findsOneWidget);
+    });
+
+    testWidgets('the title bar is the shared diff header, its switch at the '
+        'right end', (WidgetTester tester) async {
+      // Its own Flexible + Spacer once split the free space in two, so a
+      // short path left the switch stranded mid-bar.
+      await pump(tester, unstaged: _file('x', added: true));
+
+      final Finder bar = find.byType(GbmDiffHeaderBar);
+      expect(bar, findsOneWidget);
+      expect(
+        tester
+            .getRect(find.byType(GbmSegmentedControl<WorkingCopyDiffMode>))
+            .right,
+        tester.getRect(bar).right - GbmSpacing.space3,
+      );
     });
 
     testWidgets('a side still waiting spins while the other one renders', (

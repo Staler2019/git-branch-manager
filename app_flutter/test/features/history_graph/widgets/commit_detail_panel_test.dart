@@ -9,6 +9,8 @@ import 'package:gbm_flutter/features/diff/diff_page.dart';
 import 'package:gbm_flutter/features/diff/side_by_side_diff_view.dart';
 import 'package:gbm_flutter/features/history_graph/widgets/commit_detail_panel.dart';
 import 'package:gbm_flutter/widgets/gbm_segmented_control.dart';
+import 'package:gbm_flutter/theme/tokens.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 
 import '../../../support/pump_app.dart';
 
@@ -254,6 +256,28 @@ void main() {
 
       expect(find.text('a.dart'), findsOneWidget);
       expect(find.byType(GbmSegmentedControl<DiffViewMode>), findsOneWidget);
+    });
+
+    testWidgets('the title bar is the shared diff header, its switch at the '
+        'right end', (tester) async {
+      // Its own Flexible + Spacer once split the free space in two, so a
+      // short path left the switch stranded mid-bar.
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          selectedFilePath: 'a.dart',
+          hasSelectedCommit: true,
+          meta: _meta,
+          diff: _diff(),
+        ),
+      );
+
+      final Finder bar = find.byType(GbmDiffHeaderBar);
+      expect(bar, findsOneWidget);
+      expect(
+        tester.getRect(find.byType(GbmSegmentedControl<DiffViewMode>)).right,
+        tester.getRect(bar).right - GbmSpacing.space3,
+      );
     });
 
     testWidgets('unified renders DiffPage and not the side-by-side view', (

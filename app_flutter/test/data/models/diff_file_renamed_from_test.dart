@@ -33,4 +33,22 @@ void main() {
   test('a modified file reports nothing, whatever oldPath holds', () {
     expect(_file('a.dart', 'a.dart', FileChangeKind.modified).renamedFrom, '');
   });
+
+  test('a renamed file\'s header names both of its paths', () {
+    expect(
+      _file('lib/b.dart', 'lib/a.dart', FileChangeKind.renamed).headerText,
+      'lib/a.dart → lib/b.dart',
+    );
+  });
+
+  test('any other file\'s header is its display path', () {
+    expect(
+      _file('b.dart', 'a.dart', FileChangeKind.copied).headerText,
+      'b.dart',
+    );
+    expect(
+      _file('a.dart', 'a.dart', FileChangeKind.modified).headerText,
+      'a.dart',
+    );
+  });
 }

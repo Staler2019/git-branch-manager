@@ -128,6 +128,12 @@ class DiffFile {
   /// [oldPath] when this file was renamed, else `''` -- what a per-file diff
   /// request passes as its old path. Same rule as `ChangedFile.renamedFrom`.
   String get renamedFrom => kind == FileChangeKind.renamed ? oldPath : '';
+
+  /// What a diff header names this file as: `old → new` for a rename, its
+  /// display path otherwise. Spec:
+  /// docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+  String get headerText =>
+      kind == FileChangeKind.renamed ? '$oldPath \u2192 $newPath' : displayPath;
 }
 
 /// Mirrors `gbm::ParsedDiff` as serialized by `capi::toJson(const

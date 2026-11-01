@@ -258,6 +258,46 @@ void main() {
       expect(find.byType(GbmSegmentedControl<DiffViewMode>), findsOneWidget);
     });
 
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+    testWidgets('a renamed file\'s title bar names both of its paths', (
+      tester,
+    ) async {
+      await pumpGbmWidget(
+        tester,
+        child: _panel(
+          selectedFilePath: 'moved.dart',
+          hasSelectedCommit: true,
+          meta: _meta,
+          diff: const ParsedDiff(
+            files: <DiffFile>[
+              DiffFile(
+                oldPath: 'origin.dart',
+                newPath: 'moved.dart',
+                kind: FileChangeKind.renamed,
+                oldMode: '100644',
+                newMode: '100644',
+                oldBlob: 'aaa',
+                newBlob: 'aaa',
+                binary: false,
+                similarity: 100,
+                addedLines: 0,
+                removedLines: 0,
+                displayPath: 'moved.dart',
+                hunks: <DiffHunk>[],
+              ),
+            ],
+            truncated: false,
+            inputBytes: 0,
+          ),
+        ),
+      );
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'origin.dart → moved.dart',
+      );
+    });
+
     testWidgets('the title bar is the shared diff header, its switch at the '
         'right end', (tester) async {
       // Its own Flexible + Spacer once split the free space in two, so a

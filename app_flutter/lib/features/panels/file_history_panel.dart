@@ -11,6 +11,7 @@ import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_diff_header_bar.dart';
 import '../diff/diff_page.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -219,7 +220,24 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
           ? const SizedBox.shrink()
           : diff == null
           ? const Center(child: CircularProgressIndicator())
-          : DiffPage(diff: diff),
+          // Spec: docs/claude-design-demo/rename-diff-display-spec.html,
+          // 畫面 2 -- `old → new` for a rename.
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                GbmDiffHeaderBar(
+                  text:
+                      diff.files
+                          .where(
+                            (DiffFile f) => f.displayPath == _pathAt(selected),
+                          )
+                          .firstOrNull
+                          ?.headerText ??
+                      _pathAt(selected),
+                ),
+                Expanded(child: DiffPage(diff: diff)),
+              ],
+            ),
     );
   }
 }

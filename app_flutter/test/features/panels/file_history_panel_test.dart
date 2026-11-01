@@ -19,6 +19,7 @@ import 'package:gbm_flutter/features/panels/file_history_panel.dart';
 import 'package:gbm_flutter/features/panels/panel_filter_field.dart';
 import 'package:gbm_flutter/features/panels/panel_widgets.dart';
 import 'package:gbm_flutter/routing/route_paths.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../support/fake_repo_session.dart';
@@ -249,6 +250,54 @@ void main() {
       );
       expect(cmd.args['path'], 'lib/main.dart');
       expect(cmd.args['oldPath'], '');
+    });
+
+    // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+    testWidgets('the diff is headed by the file it shows', (tester) async {
+      await _pump(tester, diff: _diff);
+      await tester.tap(find.text('tidy the header'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/main.dart',
+      );
+    });
+
+    testWidgets('a rename\'s diff is headed by both of its paths', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        diff: const ParsedDiff(
+          files: <DiffFile>[
+            DiffFile(
+              oldPath: 'lib/old_main.dart',
+              newPath: 'lib/main.dart',
+              kind: FileChangeKind.renamed,
+              oldMode: '100644',
+              newMode: '100644',
+              oldBlob: 'a',
+              newBlob: 'a',
+              binary: false,
+              similarity: 100,
+              addedLines: 0,
+              removedLines: 0,
+              displayPath: 'lib/main.dart',
+              hunks: <DiffHunk>[],
+            ),
+          ],
+          truncated: false,
+          inputBytes: 0,
+        ),
+      );
+      await tester.tap(find.text('rename it'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'lib/old_main.dart → lib/main.dart',
+      );
     });
 
     testWidgets('Compare… is disabled until a commit is selected', (

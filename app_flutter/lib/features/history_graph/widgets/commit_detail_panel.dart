@@ -152,7 +152,14 @@ class CommitDetailPanelCore extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: <Widget>[
         _DiffTitleBar(
-          displayPath: selectedFilePath!,
+          // `old → new` for a rename (DiffFile.headerText); the selected
+          // path until the file is found in the reply.
+          displayPath:
+              diff.files
+                  .where((DiffFile f) => f.displayPath == selectedFilePath)
+                  .firstOrNull
+                  ?.headerText ??
+              selectedFilePath!,
           mode: diffViewMode,
           onModeChanged: onDiffViewModeChanged,
         ),

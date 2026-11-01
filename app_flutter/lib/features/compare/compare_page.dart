@@ -13,10 +13,11 @@ import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
-import '../../widgets/file_list_mode_switcher.dart';
 import '../../widgets/file_change_glyph.dart';
+import '../../widgets/file_list_mode_switcher.dart';
 import '../../widgets/file_list_mode_toggle_button.dart';
 import '../../widgets/gbm_badge.dart';
+import '../../widgets/gbm_diff_header_bar.dart';
 import '../../widgets/gbm_row.dart';
 import '../diff/diff_page.dart';
 import 'widgets/compare_ref_picker.dart';
@@ -460,12 +461,25 @@ class _ComparePageState extends ConsumerState<ComparePage> {
     final List<DiffFile> filtered = diff.files
         .where((DiffFile f) => f.displayPath == _selectedPath)
         .toList(growable: false);
-    return DiffPage(
-      diff: ParsedDiff(
-        files: filtered,
-        truncated: diff.truncated,
-        inputBytes: diff.inputBytes,
-      ),
+    // One file is on screen now, so it gets a header; before a pick the
+    // pane holds every file and has none. Spec:
+    // docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        GbmDiffHeaderBar(
+          text: filtered.firstOrNull?.headerText ?? _selectedPath!,
+        ),
+        Expanded(
+          child: DiffPage(
+            diff: ParsedDiff(
+              files: filtered,
+              truncated: diff.truncated,
+              inputBytes: diff.inputBytes,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

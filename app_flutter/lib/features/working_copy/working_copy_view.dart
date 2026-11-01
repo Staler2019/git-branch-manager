@@ -476,7 +476,7 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
       // the old name while the index already calls it the new one, and
       // showing only one of them would make the pane look like it is
       // describing a file the board is not selecting.
-      displayPath: _displayPath(sides),
+      displayPath: _displayPath(sides, status),
       unstagedFile: _fileOf(unstagedReply),
       stagedFile: _fileOf(stagedReply),
       // Pending means the side exists but its reply has not landed. A side
@@ -515,12 +515,27 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     );
   }
 
-  /// What the diff titlebar names for the current selection.
-  String _displayPath(({String? unstaged, String? staged}) sides) {
+  /// What the diff titlebar names for the current selection. A rename the
+  /// index holds names its old path too, edited since or not: the work tree
+  /// side of such a file already goes by the new name, so the two sides
+  /// alone cannot say where it came from.
+  String _displayPath(
+    ({String? unstaged, String? staged}) sides,
+    WorkingCopyStatus status,
+  ) {
     final String? unstaged = sides.unstaged;
     final String? staged = sides.staged;
     if (unstaged != null && staged != null && unstaged != staged) {
       return '$unstaged \u2192 $staged';
+    }
+    if (staged != null) {
+      for (final WorkingCopyEntry entry in status.staged) {
+        if (entry.path == staged &&
+            entry.indexStatus == FileChangeKind.renamed &&
+            entry.oldPath.isNotEmpty) {
+          return '${entry.oldPath} \u2192 $staged';
+        }
+      }
     }
     return unstaged ?? staged ?? _selectedPath ?? '';
   }

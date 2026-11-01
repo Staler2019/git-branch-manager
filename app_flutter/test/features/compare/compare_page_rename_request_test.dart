@@ -15,6 +15,7 @@ import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/theme_mode_provider.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 import 'package:gbm_flutter/widgets/file_change_glyph.dart';
+import 'package:gbm_flutter/widgets/gbm_diff_header_bar.dart';
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:gbm_flutter/widgets/lucide_icon.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -65,6 +66,24 @@ Future<FakeRepoSessionController> _pump(
           mergeBase: 'abc123',
           commits: const <CompareCommitEntry>[],
           files: _files,
+        ),
+      },
+      compareFileDiffResults: <String, CompareFileDiffResult>{
+        CompareFileDiffResult.key(
+          'main',
+          'feature',
+          true,
+          'moved.dart',
+        ): CompareFileDiffResult(
+          left: 'main',
+          right: 'feature',
+          threeDot: true,
+          path: 'moved.dart',
+          diff: ParsedDiff(
+            files: <DiffFile>[_files.first],
+            truncated: false,
+            inputBytes: 0,
+          ),
         ),
       },
       compareWithWorkingCopyResults: <String, CompareWithWorkingCopyResult>{
@@ -158,6 +177,27 @@ void main() {
       expect(glyphIn(tester, 'moved.dart'), 'arrow-right');
       expect(glyphIn(tester, 'gone.dart'), 'minus');
       expect(glyphIn(tester, 'edited.dart'), isNull);
+    });
+  }
+
+  // Spec: docs/claude-design-demo/rename-diff-display-spec.html, 畫面 2 --
+  // 「Compare 還沒選檔時不畫標頭 ok」.
+  for (final bool againstWorkingCopy in <bool>[false, true]) {
+    final String side = againstWorkingCopy ? 'the working copy' : 'a ref';
+    testWidgets('a compare against $side heads the selected file\'s diff '
+        'with both of a rename\'s paths, and nothing before a pick', (
+      tester,
+    ) async {
+      await _pump(tester, againstWorkingCopy: againstWorkingCopy);
+      expect(find.byType(GbmDiffHeaderBar), findsNothing);
+
+      await tester.tap(find.text('moved.dart'));
+      await tester.pump();
+
+      expect(
+        tester.widget<GbmDiffHeaderBar>(find.byType(GbmDiffHeaderBar)).text,
+        'origin.dart → moved.dart',
+      );
     });
   }
 }

@@ -601,41 +601,64 @@ WorkingCopyStatusPtr Session::currentWorkingCopyStatus() const {
     return workingCopyStatus_;
 }
 
-void Session::requestWorkingCopyDiff(std::string path, bool staged) {
+void Session::requestWorkingCopyDiff(std::string path, std::string oldPath, bool staged) {
     // postFront, like requestBlame(): the user is looking at this exact file
     // right now, and the diff pane must not sit behind a refreshRepoStatus()
     // sweep's other members -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().postFront([this, path = std::move(path), staged]() {
-        emitWorkingCopyDiff(path, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
-    });
+    sharedReadPool().postFront(
+        [this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
+            emitWorkingCopyDiff(
+                path, oldPath, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
+        });
 }
 
-void Session::requestWorkingCopyFullDiff(std::string path, bool staged) {
+void Session::requestWorkingCopyFullDiff(std::string path, std::string oldPath, bool staged) {
     // post, not postFront: this only fills the rows between the -U3 cards the
     // user is already looking at, so it must not take an interactive read's
     // place in the queue -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().post([this, path = std::move(path), staged]() {
+    sharedReadPool().post([this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
         emitWorkingCopyDiff(
-            path, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
+            path, oldPath, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
     });
 }
 
 void Session::emitWorkingCopyDiff(const std::string& path,
+                                  const std::string& oldPath,
                                   bool staged,
                                   const DiffOptions& options,
                                   int32_t eventType) {
+    // A staged rename's old path joins the pathspec: with the new path alone
+    // git never sees the deleted half and reports the whole file as added.
+    // Index vs HEAD only -- git does no rename detection against the work
+    // tree, and the unstaged side's untracked fallback needs exactly one path.
+    std::vector<std::string> pathspec{path};
+    const bool pairsARename = staged && !oldPath.empty() && oldPath != path;
+    if (pairsARename) {
+        pathspec.insert(pathspec.begin(), oldPath);
+    }
     const GitResult<DiffService::ParsedDiffPtr> result =
-        diffs_->workingTreeDiff(staged, {path}, options, readCancel_.token());
+        diffs_->workingTreeDiff(staged, pathspec, options, readCancel_.token());
     if (!result) {
         callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
         return;
+    }
+    // Two pathspecs can answer with two files -- a new file staged at the old
+    // path since the status was read -- and they sort with the old path
+    // first. The reply describes the one path it names, so keep only that.
+    ParsedDiff onlyRequested;
+    const ParsedDiff* reply = result.value().get();
+    if (pairsARename) {
+        onlyRequested = *reply;
+        std::erase_if(onlyRequested.files,
+                      [&path](const DiffFile& file) { return file.newPath != path; });
+        reply = &onlyRequested;
     }
     std::string payload = "{\"path\":";
     jsonAppendEscaped(payload, path);
     payload += ",\"staged\":";
     jsonAppendBool(payload, staged);
     payload += ",\"diff\":";
-    payload += toJson(*result.value());
+    payload += toJson(*reply);
     payload += '}';
     callbacks_.emit(eventType, payload);
 }

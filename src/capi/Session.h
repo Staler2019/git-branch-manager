@@ -195,10 +195,10 @@ public:
     WorkingCopyStatusPtr currentWorkingCopyStatus() const;
 
     /// Async: see gbm_working_copy_diff()'s doc comment in gbm_capi.h.
-    void requestWorkingCopyDiff(std::string path, bool staged);
+    void requestWorkingCopyDiff(std::string path, std::string oldPath, bool staged);
 
     /// Async: see gbm_working_copy_full_diff()'s doc comment in gbm_capi.h.
-    void requestWorkingCopyFullDiff(std::string path, bool staged);
+    void requestWorkingCopyFullDiff(std::string path, std::string oldPath, bool staged);
 
     /// Async: see gbm_stage_files()/gbm_unstage_files()'s doc comments.
     void stageFiles(std::vector<std::string> paths);
@@ -534,6 +534,7 @@ private:
     /// emitted as {path, staged, diff} on `eventType`. The body both
     /// requestWorkingCopyDiff() and requestWorkingCopyFullDiff() post.
     void emitWorkingCopyDiff(const std::string& path,
+                             const std::string& oldPath,
                              bool staged,
                              const DiffOptions& options,
                              int32_t eventType);

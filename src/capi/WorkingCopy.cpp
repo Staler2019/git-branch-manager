@@ -26,14 +26,20 @@ GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session) {
     return 0;
 }
 
-GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, int32_t staged) {
-    toSession(session)->requestWorkingCopyDiff(path != nullptr ? path : "", staged != 0);
+GBM_API void gbm_working_copy_diff(GbmSessionHandle session,
+                                   const char* path,
+                                   const char* oldPath,
+                                   int32_t staged) {
+    toSession(session)->requestWorkingCopyDiff(
+        path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 }
 
 GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
                                         const char* path,
+                                        const char* oldPath,
                                         int32_t staged) {
-    toSession(session)->requestWorkingCopyFullDiff(path != nullptr ? path : "", staged != 0);
+    toSession(session)->requestWorkingCopyFullDiff(
+        path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 }
 
 namespace {

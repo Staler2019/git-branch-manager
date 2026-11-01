@@ -525,9 +525,11 @@ class _WorkingCopyViewState extends ConsumerState<WorkingCopyView> {
     return unstaged ?? staged ?? _selectedPath ?? '';
   }
 
-  /// A working-copy diff describes exactly one path, because the request
-  /// that produced it named one path -- so the reply's single file is the
-  /// whole of it.
+  /// A working-copy diff describes exactly one path, so the reply's single
+  /// file is the whole of it. A staged rename's request names two paths, and
+  /// the core keeps only the file whose new path was asked for
+  /// (`Session::emitWorkingCopyDiff`) -- it filters there, once, rather than
+  /// here as well.
   ///
   /// **An empty `files` is not one condition.** It used to be read as "git
   /// reported no change on that side", and that reading is what made an

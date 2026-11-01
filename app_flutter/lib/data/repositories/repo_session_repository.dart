@@ -3565,16 +3565,35 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     _bindings.workingCopyRefresh(_session);
   }
 
+  /// The original path of a staged rename whose new path is [path], or `''`.
+  ///
+  /// Every staged request that the core answers by diffing the index --
+  /// [requestDiff], [requestFullDiff], [unstageHunk], [unstageLines] -- needs
+  /// it: with only the new path in the pathspec, git cannot pair the two
+  /// halves and a staged `git mv` reads as a whole-file add. Looked up here
+  /// rather than passed in because none of their callers holds the entry,
+  /// only its path, and one lookup cannot disagree with itself
+  /// ([CULT-single-source-of-truth]).
+  String _stagedOldPath(String path) {
+    for (final WorkingCopyEntry entry in state.workingCopyStatus.staged) {
+      if (entry.path == path) return entry.oldPath;
+    }
+    return '';
+  }
+
   /// Diff of one path: work tree vs index (staged=false) or index vs HEAD
   /// (staged=true). Async: [state].workingCopyDiffs gains an entry under
   /// [workingCopyDiffKey] when GBM_EVENT_WORKING_COPY_DIFF_READY arrives.
   void requestDiff(String path, {bool staged = false}) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = (staged ? _stagedOldPath(path) : '')
+        .toNativeUtf8();
     try {
-      _bindings.workingCopyDiff(_session, pathPtr, staged ? 1 : 0);
+      _bindings.workingCopyDiff(_session, pathPtr, oldPathPtr, staged ? 1 : 0);
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 
@@ -3584,10 +3603,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   void requestFullDiff(String path, {bool staged = false}) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
+    final Pointer<Utf8> oldPathPtr = (staged ? _stagedOldPath(path) : '')
+        .toNativeUtf8();
     try {
-      _bindings.workingCopyFullDiff(_session, pathPtr, staged ? 1 : 0);
+      _bindings.workingCopyFullDiff(
+        _session,
+        pathPtr,
+        oldPathPtr,
+        staged ? 1 : 0,
+      );
     } finally {
       malloc.free(pathPtr);
+      malloc.free(oldPathPtr);
     }
   }
 

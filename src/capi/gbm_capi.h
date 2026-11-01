@@ -750,15 +750,27 @@ GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session);
 
 /// Diff of one path: work tree vs index (staged=0) or index vs HEAD
 /// (staged=1). Async: fires GBM_EVENT_WORKING_COPY_DIFF_READY.
-GBM_API void gbm_working_copy_diff(GbmSessionHandle session, const char* path, int32_t staged);
+///
+/// `oldPath` (NULL or empty for none) is a staged rename's original path. It
+/// joins the pathspec so git can pair the two halves: with the new path alone
+/// a staged `git mv` diffs as a whole-file add. Ignored when staged=0 -- git
+/// does no rename detection between the index and the work tree.
+GBM_API void gbm_working_copy_diff(GbmSessionHandle session,
+                                   const char* path,
+                                   const char* oldPath,
+                                   int32_t staged);
 
 /// The same diff as gbm_working_copy_diff() with unlimited context, so its one
 /// hunk holds every line of the file (DiffOptions::fullFile()). For display
 /// only: line staging keeps resolving against the -U3 diff, which StageOps
 /// recomputes. Queued behind other reads rather than in front of them -- it
 /// fills rows around the -U3 diff the user is already looking at. Async:
-/// fires GBM_EVENT_WORKING_COPY_FULL_DIFF_READY.
-GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session, const char* path, int32_t staged);
+/// fires GBM_EVENT_WORKING_COPY_FULL_DIFF_READY. `oldPath` as for
+/// gbm_working_copy_diff().
+GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
+                                        const char* path,
+                                        const char* oldPath,
+                                        int32_t staged);
 
 /// `git add -- <paths>`. `paths`/`pathCount` describe a plain C array of
 /// UTF-8 C strings. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,

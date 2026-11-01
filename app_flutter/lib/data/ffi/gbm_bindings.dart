@@ -429,11 +429,13 @@ typedef WorkingCopyStatusJsonDart = int Function(Pointer<Void> session);
 typedef _WorkingCopyDiffNative = Void Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
   Int32 staged,
 );
 typedef WorkingCopyDiffDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
+  Pointer<Utf8> oldPath,
   int staged,
 );
 

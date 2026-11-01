@@ -1,0 +1,276 @@
+<title>Rename 顯示規則</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a spec sheet — each screen is a framed mock in the app tokens, with its value-source table below it. */
+/* App tokens: app_flutter/lib/theme/tokens.dart — light = _lightIde, dark = _darkTechnical (the app default). Token block copied verbatim from code-line-width-cap-spec.html. */
+:root {
+  --surface-panel: #FFFFFF; --surface-raised: #FFFFFF;
+  --surface-sunken: #F5F6F8;
+  --border-default: #DCDFE4;
+  --text-primary: #1C2128; --text-secondary: #57606A; --text-tertiary: #8B949E;
+  --accent: #2F81F7;
+  --success: #1A7F37; --warning: #9A6700;
+  --diff-add-bg: #E9FBEE; --diff-add-text: #116329; --diff-del-bg: #FFEBE9; --diff-del-text: #82241F;
+  /* page chrome (not app tokens): everything outside the .mock frames, plus the frames' own width/radius, is page layout, not a drawn value */
+  --page-bg: #F3F5F8; --page-ink: #1C2128; --page-muted: #57606A; --page-rule: #DCDFE4;
+  --tag-new-bg: #FFF4DB; --tag-new-ink: #7A5200; --tag-code-bg: #E4EDFD; --tag-code-ink: #1857B8; --tag-rule-bg: #E6F6EC; --tag-rule-ink: #136C37;
+  --font-ui: 'Inter', -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font-page: -apple-system, 'Segoe UI', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409;
+  --border-default: #30363D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681;
+  --accent: #2F81F7;
+  --success: #3FB950; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --surface-panel: #0D1117; --surface-raised: #161B22;
+  --surface-sunken: #010409;
+  --border-default: #30363D;
+  --text-primary: #E6EDF3; --text-secondary: #9198A1; --text-tertiary: #6E7681;
+  --accent: #2F81F7;
+  --success: #3FB950; --warning: #D29922;
+  --diff-add-bg: #0F2E1A; --diff-add-text: #7EE2A8; --diff-del-bg: #3A1414; --diff-del-text: #FF9B93;
+  --page-bg: #06090D; --page-ink: #E6EDF3; --page-muted: #9198A1; --page-rule: #21262D;
+  --tag-new-bg: #3A2A05; --tag-new-ink: #F2C366; --tag-code-bg: #0D2A4D; --tag-code-ink: #8DBBFF; --tag-rule-bg: #0F2E1A; --tag-rule-ink: #7EE2A8;
+  color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page-bg); color: var(--page-ink); font-family: var(--font-page); font-size: 14px; line-height: 1.6; }
+.wrap { max-width: 1080px; margin: 0 auto; padding-inline: 20px; padding-block: 32px 64px; display: grid; gap: 48px; }
+header.top { display: grid; gap: 10px; }
+.eyebrow { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: .06em; color: var(--page-muted); text-transform: uppercase; }
+h1 { font-size: 26px; line-height: 1.25; margin: 0; text-wrap: balance; }
+h2 { font-size: 19px; margin: 0; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; }
+.lede { color: var(--page-muted); }
+section.screen { display: grid; gap: 16px; }
+.screen-head { display: grid; gap: 6px; border-top: 1px solid var(--page-rule); padding-top: 18px; }
+.rulings { display: flex; flex-wrap: wrap; gap: 8px; }
+.ruling { font-size: 12.5px; padding: 3px 10px; border-radius: 999px; background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12.5px; color: var(--page-muted); align-items: center; }
+.tag { font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.tag.code { background: var(--tag-code-bg); color: var(--tag-code-ink); }
+.tag.new { background: var(--tag-new-bg); color: var(--tag-new-ink); }
+.tag.rule { background: var(--tag-rule-bg); color: var(--tag-rule-ink); }
+.callout { border-left: 3px solid var(--warning); padding: 8px 12px; background: var(--tag-new-bg); color: var(--tag-new-ink); border-radius: 0 6px 6px 0; font-size: 13px; max-width: 80ch; }
+.theme-btn { justify-self: start; font: inherit; font-size: 12.5px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--page-rule); background: transparent; color: var(--page-ink); cursor: pointer; }
+.stage { overflow-x: auto; padding: 20px; background: var(--surface-sunken); border: 1px solid var(--page-rule); border-radius: 8px; display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+.mock { font-family: var(--font-ui); color: var(--text-primary); background: var(--surface-panel); border: 1px solid var(--border-default); border-radius: 6px; overflow: hidden; }
+.cap { font-family: var(--font-page); font-size: 11.5px; color: var(--page-muted); padding: 4px 0 0; }
+
+/* ---------- file rows ---------- */
+.list { width: 300px; padding: 4px 0; } /* page layout: specimen frame, not a drawn value */
+.list-head { font-size: 11px; color: var(--text-tertiary); padding: 4px 8px; } /* page label only */
+.gbm-row { display: flex; align-items: center; height: 26px; padding: 0 12px; font-size: 12.5px; color: var(--text-primary); } /* gbm_row.dart:20 padding space3; height GbmSpacing.rowHeightCompact (tokens.dart:455) */
+.gbm-row.wc { padding: 0 8px; } /* working_copy_board.dart:500 horizontal: GbmSpacing.space2 */
+.gbm-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-change-glyph { width: 14px; height: 14px; margin-right: 4px; flex-shrink: 0; display: grid; place-items: center; } /* 裁定: 14 box, space1 gap, always reserved — 「+ - 移動icon固定占位，file name固定縮排」 */
+.file-change-glyph svg { width: 14px; height: 14px; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; } /* lucide-static 0.460.0 */
+.g-plus svg { stroke: var(--diff-add-text); } .g-minus svg { stroke: var(--diff-del-text); } .g-move svg { stroke: var(--text-secondary); }
+.accent-move .cand svg { stroke: var(--accent); } /* comparison only — not a ruled value */
+.cand-list { width: 220px; }  /* page layout: specimen frame */
+.gbm-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; display: inline-grid; place-items: center; font-family: var(--font-mono); font-size: 10.5px; font-weight: 600; margin-left: 4px; } /* gbm_badge.dart:31-46 */
+.gbm-badge.added { background: var(--diff-add-bg); color: var(--diff-add-text); } .gbm-badge.removed { background: var(--diff-del-bg); color: var(--diff-del-text); }
+
+/* ---------- diff title bar ---------- */
+.pane { width: 460px; } /* page layout: specimen frame */
+.diff-title-bar { height: 38px; padding: 0 12px; display: flex; align-items: center; background: var(--surface-raised); border-bottom: 1px solid var(--border-default); } /* commit_detail_panel.dart:196-202, working_copy_diff_pane.dart:709-713 */
+.diff-title-bar .path { font-family: var(--font-mono); font-size: 12.5px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* commit_detail_panel.dart:212-216 */
+.diff-title-bar .seg { margin-left: auto; font-size: 11px; color: var(--text-tertiary); border: 1px dashed var(--border-default); border-radius: 6px; padding: 2px 8px; } /* placeholder for the existing GbmSegmentedControl — not redrawn here */
+.body { min-height: 96px; background: var(--surface-panel); } /* page layout: specimen frame */
+.hunk { font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6; } /* illustrative hunk, not a value of this spec */
+.hunk div { padding: 0 12px; white-space: pre; color: var(--text-secondary); } /* illustrative hunk, unchanged by this spec */
+.hunk .add { background: var(--diff-add-bg); color: var(--diff-add-text); } .hunk .del { background: var(--diff-del-bg); color: var(--diff-del-text); }
+
+/* ---------- pure-rename note ---------- */
+.diff-file-notice { padding: 12px; font-size: 12.5px; color: var(--text-tertiary); } /* diff_page.dart:162-172 / side_by_side_diff_view.dart:165-175 binary branch */
+.scoped-placeholder { padding: 16px; text-align: center; font-size: 12.5px; color: var(--text-tertiary); } /* scoped_diff_view.dart:2082-2092 _placeholder */
+.scoped-notice { display: flex; align-items: center; gap: 8px; padding: 8px; } /* scoped_diff_view.dart:2289-2310 _Notice */
+.scoped-notice .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex-shrink: 0; } /* staged ? success : accent */
+.scoped-notice .dot.unstaged { background: var(--accent); } /* scoped_diff_view.dart:2299 staged ? success : accent */
+.scoped-notice .t { font-size: 11px; font-weight: 700; color: var(--text-secondary); } /* scoped_diff_view.dart:2303-2309 textXs bold */
+.scoped-notice .m { font-size: 12.5px; color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* scoped_diff_view.dart:2315-2324 */
+
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--page-rule); vertical-align: top; }
+th { font-weight: 600; color: var(--page-muted); font-size: 12px; }
+td code, p code, li code { font-family: var(--font-mono); font-size: 11.5px; }
+ul.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 75ch; }
+@media (max-width: 640px) { .wrap { padding-inline: 16px; } h1 { font-size: 22px; } .list, .pane { width: 100%; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">fix/rename-diff-status-glyph · G1 設計稿 · 2026-11-01</div>
+    <h1>Rename 顯示規則</h1>
+    <p class="lede">用 <code>git mv</code> 移動的檔案，在每個檔案清單前面標出它是新增、刪除還是移動；diff 區上方的路徑寫成 <code>舊路徑 → 新路徑</code>；只移動、內容沒變的檔案，diff 區畫一行說明，不是空白。</p>
+    <div class="legend">
+      <span><span class="tag code">code</span> 沿用現有程式（檔名:行）</span>
+      <span><span class="tag rule">裁定</span> 你的裁定</span>
+      <span><span class="tag new">新增</span> 沒有出處，等你裁定</span>
+    </div>
+    <button class="theme-btn" type="button" id="theme-btn">切換淺色／深色</button>
+  </header>
+
+  <section class="screen" id="glyph">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1 · 檔案列狀態 icon（四個清單）</div>
+      <h2>檔名前畫 + / − / 移動 icon；icon 欄固定佔位，檔名固定縮排</h2>
+      <div class="rulings">
+        <span class="ruling">「檔案前顯示+ - 或是移動檔案icon」</span>
+        <span class="ruling">「新增檔案為:+，刪除檔案為：-。其他檔案都是照目前這樣，沒有trailing icon，除非有移動屬性，就需要有move icon」</span>
+        <span class="ruling">「+ and - use icon, not font」</span>
+        <span class="ruling">move icon 14px、textSecondary；固定盒寬 14、間距 4</span>
+        <span class="ruling">「b,不換顏色」</span>
+        <span class="ruling">「+ - 移動icon固定占位，file name固定縮排」</span>
+      </div>
+    </div>
+    <div class="callout">照實記錄：這一畫面在本稿之前已經實作並 commit（<code>fd341aa7</code>）。值都來自你在對話裡的裁定，但順序上違反了「先出設計稿再實作」。這次補上設計稿，如果你改了任何值，會另開 commit 修正實作。</div>
+    <div class="stage">
+      <div><div class="mock list"><div class="list-head">Working Copy · Staged</div><div class="gbm-row wc"><span class="file-change-glyph g-move" data-move><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span><span class="name">lib/b.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div></div><div class="cap">staged 欄讀 indexStatus</div></div>
+      <div><div class="mock list"><div class="list-head">Working Copy · Unstaged</div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">lib/b.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">scratch.txt</span><span class="gbm-badge added">+4</span></div></div><div class="cap">unstaged 欄讀 worktreeStatus；untracked 畫 +</div></div>
+      <div><div class="mock list"><div class="list-head">History · Changed files / Compare</div><div class="gbm-row"><span class="file-change-glyph g-move" data-move><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">lib/added.dart</span><span class="gbm-badge added">+20</span></div><div class="gbm-row"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">lib/gone.dart</span><span class="gbm-badge removed">-14</span></div><div class="gbm-row"><span class="file-change-glyph"></span><span class="name">lib/edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-1</span></div></div><div class="cap">Compare 的 ref 與 working copy 兩種清單相同</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>畫成</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>added、untracked</td><td>lucide <code>plus</code>，<code>--diff-add-text</code></td><td><span class="tag rule">裁定</span> 顏色同行尾 badge <span class="tag code">gbm_badge.dart:27</span></td></tr>
+        <tr><td>deleted</td><td>lucide <code>minus</code>，<code>--diff-del-text</code></td><td><span class="tag rule">裁定</span> <span class="tag code">gbm_badge.dart:28</span></td></tr>
+        <tr><td>renamed</td><td>lucide <code>arrow-right</code>，<code>--text-secondary</code></td><td><span class="tag rule">裁定</span> 14px、textSecondary；候選 B「b,不換顏色」（取代 <code>move-right</code>）</td></tr>
+        <tr><td>modified、copied、typeChanged、modeChanged</td><td>不畫 icon，但保留 14 + 4 的空位，檔名與其他列對齊</td><td><span class="tag rule">裁定</span>「固定占位，file name固定縮排」（取代先前「不預留空位」）</td></tr>
+        <tr><td>icon 尺寸／盒寬／間距</td><td>14 / 14 / 4（<code>GbmSpacing.space1</code>）</td><td><span class="tag rule">裁定</span></td></tr>
+        <tr><td>SVG path</td><td>plus <code>M5 12h14</code> <code>M12 5v14</code>；minus <code>M5 12h14</code>；arrow-right <code>M5 12h14</code> <code>m12 5 7 7-7 7</code></td><td>lucide-static 0.460.0（ISC，<code>assets/icons/LUCIDE-ISC.txt</code>）</td></tr>
+        <tr><td>Working Copy 兩欄</td><td>staged 讀 <code>indexStatus</code>，unstaged 讀 <code>worktreeStatus</code> 與 <code>untracked</code></td><td><span class="tag rule">裁定</span>「照現狀就行」；未 stage 的 <code>mv</code> 照 git 畫兩列「不需要，照git判讀」</td></tr>
+        <tr><td>列高、padding、badge</td><td>不變</td><td><span class="tag code">gbm_row.dart:20</span> <span class="tag code">working_copy_board.dart:500</span> <span class="tag code">gbm_badge.dart:31-46</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="move-candidates">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 1b · 移動 icon 候選（已裁定：B）</div>
+      <h2>八個 lucide icon，同樣 14px、放在同一組清單裡比較</h2>
+      <div class="rulings"><span class="ruling">「移動icon有點難辯識，多給我看起個決定」</span><span class="ruling">「b,不換顏色」</span></div>
+    </div>
+    <div class="callout">八個都取自 lucide-static 0.460.0（與現有 icon 同一套、同一授權）。顏色預設照先前裁定用 <code>--text-secondary</code>；如果難辨識是顏色的問題，可以用下面的按鈕改成 <code>--accent</code>（藍）看看，這只是比較用，要不要換顏色由你決定。</div>
+    <button class="theme-btn" type="button" id="cand-color">移動 icon 顏色：text-secondary（點一下換 accent）</button>
+    <div class="stage">
+      <div><div class="mock list cand-list"><div class="list-head">A · <code>move-right</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="M18 8L22 12L18 16"/><path d="M2 12H22"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">現在用的：一條長橫線＋箭頭</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">B · <code>arrow-right</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">標準右箭頭，箭頭較大</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">C · <code>arrow-big-right</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="M6 9h6V5l7 7-7 7v-4H6V9z"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">實心粗箭頭，筆畫最粗</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">D · <code>corner-down-right</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><polyline points="15 10 20 15 15 20"/><path d="M4 4v7a4 4 0 0 0 4 4h12"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">轉角箭頭：「從上面移到這裡」</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">E · <code>forward</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><polyline points="15 17 20 12 15 7"/><path d="M4 18v-2a4 4 0 0 1 4-4h12"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">轉向箭頭，同 D 但往上彎</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">F · <code>arrow-right-left</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">雙向箭頭：「交換／移動」</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">G · <code>file-symlink</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="m10 18 3-3-3-3"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M4 11V4a2 2 0 0 1 2-2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h7"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">檔案＋箭頭：「檔案移到別處」</div></div>
+      <div><div class="mock list cand-list"><div class="list-head">H · <code>file-input</code></div><div class="gbm-row wc"><span class="file-change-glyph g-move cand"><svg viewBox="0 0 24 24"><path d="M4 22h14a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v4"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></svg></span><span class="name">lib/moved.dart</span></div><div class="gbm-row wc"><span class="file-change-glyph g-plus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg></span><span class="name">new.dart</span><span class="gbm-badge added">+12</span></div><div class="gbm-row wc"><span class="file-change-glyph g-minus"><svg viewBox="0 0 24 24"><path d="M5 12h14"/></svg></span><span class="name">old.dart</span><span class="gbm-badge removed">-8</span></div><div class="gbm-row wc"><span class="file-change-glyph"></span><span class="name">edited.dart</span><span class="gbm-badge added">+3</span><span class="gbm-badge removed">-2</span></div></div><div class="cap">檔案＋進入箭頭</div></div>
+    </div>
+  </section>
+
+  <section class="screen" id="header">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 2 · diff 標頭</div>
+      <h2>標頭寫成 <code>舊路徑 → 新路徑</code>；Compare、File History、Stash 新增同一條標頭</h2>
+      <div class="rulings">
+        <span class="ruling">「diff 標頭 old → new」</span>
+        <span class="ruling">「三處都新增 old → new 標頭」「要更新spec」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/a.dart → lib/b.dart</span><span class="seg">既有切換鈕</span></div><div class="body"><div class="hunk"><div>@@ -1,3 +1,3 @@</div><div>  one</div><div class="del">- three</div><div class="add">+ FOUR</div></div></div></div><div class="cap">Working Copy · 既有標頭。只 stage 了 rename 時，現在只寫新路徑，改成兩個</div></div>
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/origin.dart → lib/moved.dart</span><span class="seg">既有切換鈕</span></div><div class="body"><div class="hunk"><div>@@ -1,3 +1,3 @@</div><div>  one</div><div class="del">- three</div><div class="add">+ FOUR</div></div></div></div><div class="cap">History · 既有標頭（_DiffTitleBar）</div></div>
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/origin.dart → lib/moved.dart</span></div><div class="body"><div class="hunk"><div>@@ -1,3 +1,3 @@</div><div>  one</div><div class="del">- three</div><div class="add">+ FOUR</div></div></div></div><div class="cap">Compare / File History / Stash · <b>新增</b>，沒有切換鈕</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>畫成</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>文字</td><td>renamed：<code>舊路徑 → 新路徑</code>（U+2192 前後各一個空白）；其他：新路徑</td><td><span class="tag rule">裁定</span> 符號與空白同 <span class="tag code">working_copy_view.dart:523</span></td></tr>
+        <tr><td>高、padding、底色、底線</td><td>38；0 12；<code>--surface-raised</code>；1px <code>--border-default</code></td><td><span class="tag code">commit_detail_panel.dart:196-202</span> = <span class="tag code">working_copy_diff_pane.dart:709-713</span></td></tr>
+        <tr><td>路徑字樣</td><td>mono、12.5、<code>--text-primary</code>，太長時結尾截斷成 …</td><td><span class="tag code">commit_detail_panel.dart:207-217</span></td></tr>
+        <tr><td>新的三處</td><td>同一條標頭，沒有右側切換鈕（這三處沒有 side-by-side 切換）</td><td><span class="tag rule">裁定</span> 樣式抄 History 的 _DiffTitleBar</td></tr>
+        <tr><td>Compare 尚未選檔時</td><td>diff 區同時畫多個檔，<b>不畫</b>標頭</td><td><span class="tag rule">裁定</span>「Compare 還沒選檔時不畫標頭 ok」</td></tr>
+        <tr><td>Stash 的位置</td><td>畫在檔案清單（上）與 diff（下）之間，屬於 diff 那一格</td><td><span class="tag rule">裁定</span>「Stash 的標頭放在 diff 那一格的頂端 ok」</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="note">
+    <div class="screen-head">
+      <div class="eyebrow">畫面 3 · 只移動、內容沒變</div>
+      <h2>diff 區畫一行說明，跟 binary 檔的提示同一個畫法</h2>
+      <div class="rulings">
+        <span class="ruling">「純移動（0 hunk）body 畫一行說明，不畫 No changes」</span>
+        <span class="ruling">Working Copy「完全比照 binary」</span>
+      </div>
+    </div>
+    <div class="stage">
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/origin.dart → lib/moved.dart</span><span class="seg">既有切換鈕</span></div><div class="body"><div class="diff-file-notice">Renamed — content unchanged</div></div></div><div class="cap">History / Compare / File History / Stash（DiffPage 與 side by side）</div></div>
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/a.dart → lib/b.dart</span><span class="seg">既有切換鈕</span></div><div class="body"><div class="scoped-placeholder">Renamed — content unchanged</div></div></div><div class="cap">Working Copy · 只有 staged 一側，而且是純移動</div></div>
+      <div><div class="mock pane"><div class="diff-title-bar"><span class="path">lib/a.dart → lib/b.dart</span><span class="seg">既有切換鈕</span></div><div class="body"><div class="scoped-notice"><span class="dot unstaged"></span><span class="t">Unstaged</span></div><div class="hunk"><div>@@ -1,3 +1,3 @@</div><div>  one</div><div class="del">- three</div><div class="add">+ FOUR</div></div><div class="scoped-notice"><span class="dot"></span><span class="t">Staged</span><span class="m">Renamed — content unchanged</span></div></div></div><div class="cap">Working Copy · staged 是純移動，unstaged 有修改</div></div>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>值</th><th>畫成</th><th>出處</th></tr></thead>
+      <tbody>
+        <tr><td>條件</td><td><code>kind == renamed</code> 且沒有 hunk；有 hunk 的 rename 照常畫 hunk；binary 的 rename 照常畫 <code>(binary file)</code></td><td><span class="tag rule">裁定</span>（0 hunk）；binary 先判斷是既有分支順序 <span class="tag code">diff_page.dart:162</span></td></tr>
+        <tr><td>文案</td><td><code>Renamed — content unchanged</code>（U+2014）</td><td>計畫預設值，已隨計畫核准；spec 沒有相關文案</td></tr>
+        <tr><td>DiffPage / side by side</td><td>padding 12、12.5、<code>--text-tertiary</code></td><td><span class="tag code">diff_page.dart:162-172</span> <span class="tag code">side_by_side_diff_view.dart:165-175</span></td></tr>
+        <tr><td>WC 整個 pane 只有它</td><td>置中，padding 16、12.5、<code>--text-tertiary</code></td><td><span class="tag rule">裁定</span> 比照 binary <span class="tag code">scoped_diff_view.dart:1198-1199, 2082-2092</span></td></tr>
+        <tr><td>WC 另一側有內容</td><td>該側一列：8px 圓點（staged 綠／unstaged 藍）＋粗體側別標題 11px＋訊息 12.5</td><td><span class="tag rule">裁定</span> 比照 binary <span class="tag code">scoped_diff_view.dart:1159-1165, 2284-2329</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="screen" id="inferred">
+    <div class="screen-head">
+      <div class="eyebrow">已裁定</div>
+      <h2>原本沒有出處的兩點</h2>
+    </div>
+    <ul class="notes">
+      <li><span class="tag rule">裁定</span> 「ok」<b>Compare 尚未選檔時不畫標頭。</b>這時 diff 區同時列出多個檔，一條標頭寫不下；選了檔之後才出現。</li>
+      <li><span class="tag rule">裁定</span> 「ok」<b>Stash 的標頭放在 diff 那一格的頂端</b>，在上方檔案清單與 diff 的分隔線下面。</li>
+      <li>示範資料（檔名、hunk 內容）只是示範，不是畫進 app 的值。</li>
+    </ul>
+  </section>
+
+  <section class="screen" id="audit">
+    <div class="screen-head">
+      <div class="eyebrow">稽核</div>
+      <h2>機械檢查結果</h2>
+    </div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>檢查</th><th>結果</th></tr></thead>
+      <tbody>
+        <tr><td>每個畫出的值都有出處</td><td>0 個沒出處（頁面框架寬度標為 page layout）</td></tr>
+        <tr><td>token 覆蓋</td><td>淺／深兩組都沒有用了卻沒定義、沒有定義了卻沒用</td></tr>
+        <tr><td>HTML 結構</td><td>0 個不配對、0 個未關閉</td></tr>
+        <tr><td>對比（淺 / 深）</td><td>plus 7.39 / 12.01；minus 9.45 / 9.34；move 6.39 / 6.50；標頭 16.18 / 14.64；<b>說明列 3.08 / 4.12，低於 4.5</b>；候選 icon 改用 accent 時 3.75 / 5.05（淺色低於 4.5，icon 適用的非文字門檻是 3）。這是 <code>--text-tertiary</code>，和現有的 binary 提示、「No changes」同色，來自 <code>tokens.dart</code>，這份稿不改它，只回報</td></tr>
+        <tr><td>元件混淆</td><td>標頭是 app 的 38px diff 標題列，不是 spec mock 的 <code>.mkbar</code>（28px，mock 外框用）；說明列是 binary 提示，不是 <code>.gbm-banner</code></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+</div>
+
+<script>
+(function () {
+  var btn = document.getElementById('theme-btn');
+  var cb = document.getElementById('cand-color');
+  cb.addEventListener('click', function () {
+    var on = document.getElementById('move-candidates').classList.toggle('accent-move');
+    cb.textContent = on ? '移動 icon 顏色：accent（點一下換回 text-secondary）' : '移動 icon 顏色：text-secondary（點一下換 accent）';
+  });
+  btn.addEventListener('click', function () {
+    var root = document.documentElement;
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.hasAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+  });
+})();
+</script>

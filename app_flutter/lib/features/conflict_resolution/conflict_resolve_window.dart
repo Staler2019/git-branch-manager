@@ -30,6 +30,7 @@ import '../../widgets/gbm_row.dart';
 import '../../widgets/lucide_icon.dart';
 import '../../widgets/seeded_sliver_list.dart';
 import '../../widgets/split_pane.dart';
+import '../diff/sync_scroll/sync_code_row_marker.dart';
 import '../diff/sync_scroll/sync_height_reporter.dart';
 import '../diff/sync_scroll/sync_scroll_controller.dart';
 import '../diff/sync_scroll/sync_slot_heights.dart';
@@ -228,13 +229,20 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
         segment: parsed.segments[k],
         metrics: metrics,
       ),
+      estimateLead: (int c, int k) => conflictSegmentLeadEstimate(
+        column: c,
+        segment: parsed.segments[k],
+        metrics: metrics,
+      ),
     );
     _verticalSync.heights = heights;
     return _syncHeights = heights;
   }
 
-  /// [blocks] (one per segment) as synced items: each reports its height
-  /// and ends in its segment's spacer.
+  /// [blocks] (one per segment) as synced items: each opens with the pad
+  /// that brings its first code row level with the other columns' (plan:
+  /// Slice H), reports its height and that row's top, and ends in its
+  /// segment's spacer.
   List<Widget> _synced(int column, List<Widget> blocks, SyncSlotHeights h) =>
       <Widget>[
         for (int k = 0; k < blocks.length; k++)
@@ -242,9 +250,16 @@ class _ConflictResolveWindowState extends ConsumerState<ConflictResolveWindow> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
+              SyncSlotSpacer(
+                heights: h,
+                column: column,
+                segment: k,
+                atStart: true,
+                scroll: _verticalSync,
+              ),
               SyncHeightReporter(
-                onReport: (double height, double? _) =>
-                    h.report(column, k, height),
+                onReport: (double height, double? lead) =>
+                    h.report(column, k, height, lead: lead),
                 child: blocks[k],
               ),
               SyncSlotSpacer(
@@ -1974,10 +1989,12 @@ class _ResultLine extends StatelessWidget {
     ),
   );
 
-  Widget _content(GbmColors colors) => GbmCodeText(
-    entry.lineContent,
-    softWrap: softWrap,
-    style: kConflictCodeTextStyle.copyWith(color: colors.textPrimary),
+  Widget _content(GbmColors colors) => SyncCodeRowMarker(
+    child: GbmCodeText(
+      entry.lineContent,
+      softWrap: softWrap,
+      style: kConflictCodeTextStyle.copyWith(color: colors.textPrimary),
+    ),
   );
 
   Widget _deleteButton(GbmColors colors) => IconButton(
@@ -2001,10 +2018,12 @@ class _ContextBlock extends StatelessWidget {
     if (text.trim().isEmpty) return const SizedBox(height: GbmSpacing.space1);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 1),
-      child: GbmCodeText(
-        text,
-        softWrap: softWrap,
-        style: kConflictCodeTextStyle.copyWith(color: colors.textTertiary),
+      child: SyncCodeRowMarker(
+        child: GbmCodeText(
+          text,
+          softWrap: softWrap,
+          style: kConflictCodeTextStyle.copyWith(color: colors.textTertiary),
+        ),
       ),
     );
   }
@@ -2328,11 +2347,13 @@ class _SidePaneState extends State<_SidePane> {
                           padding: const EdgeInsets.symmetric(
                             vertical: GbmSpacing.space1,
                           ),
-                          child: GbmCodeText(
-                            line,
-                            softWrap: widget.softWrap,
-                            style: kConflictCodeTextStyle.copyWith(
-                              color: colors.textPrimary,
+                          child: SyncCodeRowMarker(
+                            child: GbmCodeText(
+                              line,
+                              softWrap: widget.softWrap,
+                              style: kConflictCodeTextStyle.copyWith(
+                                color: colors.textPrimary,
+                              ),
                             ),
                           ),
                         ),

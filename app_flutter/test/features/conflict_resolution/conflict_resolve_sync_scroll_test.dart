@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/parsed_conflict_file.dart';
 import 'package:gbm_flutter/features/conflict_resolution/conflict_resolve_window.dart';
 import 'package:gbm_flutter/features/conflict_resolution/conflict_sync_estimate.dart';
+import 'package:gbm_flutter/features/diff/sync_scroll/sync_code_row_marker.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_height_reporter.dart';
 import 'package:gbm_flutter/features/diff/sync_scroll/sync_slot_spacer.dart';
 import 'package:gbm_flutter/widgets/gbm_button.dart';
@@ -111,7 +112,12 @@ void _expectAligned(WidgetTester tester) {
   for (int c = 0; c < 3; c++) {
     for (final Element e
         in find
-            .descendant(of: _column(c), matching: find.byType(SyncSlotSpacer))
+            .descendant(
+              of: _column(c),
+              matching: find.byWidgetPredicate(
+                (Widget w) => w is SyncSlotSpacer && !w.atStart,
+              ),
+            )
             .evaluate()) {
       final int k = (e.widget as SyncSlotSpacer).segment;
       final double bottom = tester.getRect(find.byWidget(e.widget)).bottom;
@@ -172,6 +178,32 @@ void main() {
             lessThanOrEqualTo(metrics.line),
             reason: 'column $c segment $k: $laidOut vs $estimate',
           );
+          // Slice H: its first code row's top, or none.
+          final Finder markers = find.descendant(
+            of: find.byWidget(blocks[k].widget),
+            matching: find.byType(SyncCodeRowMarker),
+          );
+          final double? lead = markers.evaluate().isEmpty
+              ? null
+              : tester.getTopLeft(markers.first).dy -
+                    tester.getTopLeft(find.byWidget(blocks[k].widget)).dy;
+          final double? leadEstimate = conflictSegmentLeadEstimate(
+            column: c,
+            segment: parsed.segments[k],
+            metrics: metrics,
+          );
+          expect(
+            leadEstimate == null,
+            lead == null,
+            reason: 'column $c segment $k: lead $lead vs $leadEstimate',
+          );
+          if (lead != null) {
+            expect(
+              leadEstimate!,
+              moreOrLessEquals(lead, epsilon: 0.5),
+              reason: 'column $c segment $k lead',
+            );
+          }
         }
       }
     });
@@ -238,6 +270,23 @@ void main() {
       ),
       findsOneWidget,
     );
+    _expectAligned(tester);
+  });
+
+  // Plan: Slice H, 「也套用」. A taken result region draws its header above
+  // its first line, a side its Take row: each column pads the segment's
+  // start until the first lines are level.
+  testWidgets('a region\'s first line is level in all three columns, '
+      'taken or not', (WidgetTester tester) async {
+    await pumpConflictWindow(tester, _tall());
+    double top(int c, String text) => tester
+        .getRect(find.descendant(of: _column(c), matching: find.text(text)))
+        .top;
+    expect(top(2, 't0_0'), moreOrLessEquals(top(0, 'o0_0'), epsilon: 0.5));
+    await tester.tap(find.text('Take Theirs').hitTestable().first);
+    await _settle(tester);
+    expect(top(1, 't0_0'), moreOrLessEquals(top(2, 't0_0'), epsilon: 0.5));
+    expect(top(0, 'o0_0'), moreOrLessEquals(top(2, 't0_0'), epsilon: 0.5));
     _expectAligned(tester);
   });
 
@@ -337,9 +386,10 @@ void main() {
     _expectAligned(tester);
   });
 
-  // Slice JC: each segment item builds one SyncSlotSpacer, the first time
-  // through `rebuild()` (SyncHeightReporter is a render-object widget and
-  // never passes `debugOnRebuildDirtyWidget`).
+  // Slice JC: each segment item builds one end SyncSlotSpacer (and, since
+  // Slice H, one start spacer, not counted), the first time through
+  // `rebuild()` (SyncHeightReporter is a render-object widget and never
+  // passes `debugOnRebuildDirtyWidget`).
   testWidgets('a far jump in a 5,000-line file builds only the segments '
       'near where it lands, and the three columns stay aligned', (
     WidgetTester tester,
@@ -348,7 +398,9 @@ void main() {
     await _wheel(tester, 1, const Offset(0, 40));
     int built = 0;
     debugOnRebuildDirtyWidget = (Element e, bool builtOnce) {
-      if (e.widget is SyncSlotSpacer && !builtOnce) built++;
+      if (e.widget case SyncSlotSpacer(atStart: false) when !builtOnce) {
+        built++;
+      }
     };
     addTearDown(() => debugOnRebuildDirtyWidget = null);
     final Map<double, int> seen = <double, int>{};

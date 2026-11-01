@@ -77,3 +77,25 @@ double conflictSegmentEstimate({
       : side.length * (line + 2 * GbmSpacing.space1);
   return 2 * GbmSpacing.space1 + header + lines;
 }
+
+/// How far down [segment]'s block in [column] its first code row starts
+/// before it has been laid out (plan: Slice H); null where it draws none:
+/// a blank text segment, a side with no lines ('(nothing)'), or a result
+/// region not yet taken.
+double? conflictSegmentLeadEstimate({
+  required int column,
+  required ConflictSegment segment,
+  required ConflictSyncMetrics metrics,
+}) {
+  if (segment.kind == ConflictSegmentKind.text) {
+    // `_ContextBlock`'s 1 above.
+    return segment.lines.join().trim().isEmpty ? null : 1;
+  }
+  if (column == 1) return null;
+  final List<String> side = column == 0 ? segment.ours : segment.theirs;
+  if (side.isEmpty) return null;
+  // `_SidePane`'s 4 padding, its header row, then the line's own 4.
+  final double button = 20 > metrics.tapTarget ? 20 : metrics.tapTarget;
+  final double header = metrics.label > button ? metrics.label : button;
+  return GbmSpacing.space1 + header + GbmSpacing.space1;
+}

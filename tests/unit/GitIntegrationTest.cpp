@@ -3226,6 +3226,65 @@ TEST_F(RealRepoTest, UnstagesOnlySelectedLinesWithinAHunk) {
 // of only reverting "alpha". The fix drops the rename header for `unstaging`
 // and points both sides at `new-name.txt`, since the rename is already staged
 // by the time its content is being partially unstaged.
+// Selecting only unchanged lines used to reach `git apply` as a patch of
+// context alone, which it rejects as "corrupt patch at <stdin>:N" -- the user
+// saw a git parse error, reported as a failed process. All three directions
+// (stage, unstage, discard) must answer with the plain "nothing selected"
+// refusal and leave the index and the work tree as they were.
+TEST_F(RealRepoTest, SelectingOnlyUnchangedLinesIsRefusedAsNothingSelected) {
+    commitFile("f.txt", "one\ntwo\nthree\nfour\nfive\n", "c1");
+    writeFile("f.txt", "one\ntwo\nTHREE\nfour\nfive\n");
+    ASSERT_TRUE(run({"add", "f.txt"}));
+    writeFile("f.txt", "one\ntwo\nTHREE\nfour\nFIVE\n");
+
+    OperationRunner operations(*runner_, paths_);
+    auto submitAndWait = [&operations](std::unique_ptr<Operation> operation) {
+        OperationOutcome outcome;
+        operations.submit(std::move(operation),
+                          [&outcome](OperationOutcome result) { outcome = std::move(result); });
+        operations.drain();
+        return outcome;
+    };
+    auto snapshot = [this]() {
+        auto index = run({"diff", "--cached"});
+        auto tree = run({"diff"});
+        return (index ? index->out : std::string("?")) + "\n--\n" + (tree ? tree->out : "?");
+    };
+    const std::string before = snapshot();
+
+    // Index 0 is the first context line ("one") in both hunks.
+    PartialStageRequest unstage;
+    unstage.path = "f.txt";
+    unstage.staged = true;
+    unstage.lineIndices = {0, 1};
+    auto unstaged = submitAndWait(makePartialStageOperation(unstage));
+    EXPECT_FALSE(unstaged.succeeded);
+    ASSERT_TRUE(unstaged.error.has_value());
+    EXPECT_EQ(unstaged.error->code, GitError::Code::InvalidArgument) << unstaged.error->message;
+    EXPECT_EQ(unstaged.error->message, "Nothing selected to apply");
+
+    PartialStageRequest stage;
+    stage.path = "f.txt";
+    stage.staged = false;
+    stage.lineIndices = {0, 1};
+    auto staged = submitAndWait(makePartialStageOperation(stage));
+    EXPECT_FALSE(staged.succeeded);
+    ASSERT_TRUE(staged.error.has_value());
+    EXPECT_EQ(staged.error->code, GitError::Code::InvalidArgument) << staged.error->message;
+    EXPECT_EQ(staged.error->message, "Nothing selected to apply");
+
+    DiscardLinesRequest discard;
+    discard.path = "f.txt";
+    discard.lineIndices = {0, 1};
+    auto discarded = submitAndWait(makeDiscardLinesOperation(discard));
+    EXPECT_FALSE(discarded.succeeded);
+    ASSERT_TRUE(discarded.error.has_value());
+    EXPECT_EQ(discarded.error->code, GitError::Code::InvalidArgument) << discarded.error->message;
+    EXPECT_EQ(discarded.error->message, "Nothing selected to discard");
+
+    EXPECT_EQ(snapshot(), before);
+}
+
 TEST_F(RealRepoTest, UnstagesSelectedLinesOfARenamedAndModifiedFile) {
     std::string original;
     for (int i = 1; i <= 10; ++i) {

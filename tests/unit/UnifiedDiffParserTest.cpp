@@ -466,29 +466,6 @@ TEST(UnifiedDiffParser, LineSelectionPatchTurnsUnselectedRemovalsIntoContext) {
     EXPECT_NE(patch.find("@@ -1,4 +1,3 @@"), std::string::npos) << patch;
 }
 
-TEST(UnifiedDiffParser, LineSelectionPatchWithNothingSelectedIsAllContext) {
-    const std::string diff =
-        "diff --git a/f.txt b/f.txt\n"
-        "--- a/f.txt\n"
-        "+++ b/f.txt\n"
-        "@@ -1,2 +1,3 @@\n"
-        " keep\n"
-        "+added\n"
-        " keep2\n";
-
-    const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
-    const DiffHunk& hunk = parsed.files[0].hunks[0];
-    const std::vector<bool> selected(hunk.lines.size(), false);
-
-    const std::string patch =
-        UnifiedDiffParser::buildLineSelectionPatch(parsed.files[0], hunk, selected);
-
-    // An unselected addition is dropped from the patch entirely, so "added"
-    // must not appear at all -- neither staged nor as manufactured context.
-    EXPECT_EQ(patch.find("added"), std::string::npos) << patch;
-    EXPECT_NE(patch.find("@@ -1,2 +1,2 @@"), std::string::npos) << patch;
-}
-
 // --- unstaging=true: the mirror image of the three staging cases above. ---
 // StageOps applies these with `git apply --cached --reverse`, which checks
 // the patch's *new* side against the index -- the opposite of the staging
@@ -561,30 +538,46 @@ TEST(UnifiedDiffParser, UnstagingPatchDropsUnselectedRemovals) {
     EXPECT_NE(patch.find("@@ -1,3 +1,2 @@"), std::string::npos) << patch;
 }
 
-TEST(UnifiedDiffParser, UnstagingPatchWithNothingSelectedKeepsAllAddedLinesAsContext) {
+// Replaces two tests whose premise this reverses: staging-side
+// ~~LineSelectionPatchWithNothingSelectedIsAllContext~~ (an all-context patch
+// for an empty selection) and the unstaging-side test below.
+// ~~Nothing selected kept every added line as context~~ -- a patch of context
+// alone changes nothing, and `git apply` rejects it as "corrupt patch", so
+// the user saw git's parse error for a selection of unchanged lines. A
+// selection with no changed line now builds no patch, and StageOps' empty
+// check answers "Nothing selected to ..." instead. That an *unselected*
+// addition becomes context when something else is selected is still pinned,
+// by UnstagingPatchKeepsUnselectedAdditionsAsContext.
+TEST(UnifiedDiffParser, ASelectionWithNoChangedLineBuildsNoPatch) {
     const std::string diff =
         "diff --git a/f.txt b/f.txt\n"
         "--- a/f.txt\n"
         "+++ b/f.txt\n"
-        "@@ -1,2 +1,3 @@\n"
+        "@@ -1,3 +1,3 @@\n"
         " keep\n"
+        "-old\n"
         "+added\n"
         " keep2\n";
 
     const ParsedDiff parsed = UnifiedDiffParser{}.parse(diff);
     const DiffHunk& hunk = parsed.files[0].hunks[0];
-    const std::vector<bool> selected(hunk.lines.size(), false);
+    ASSERT_EQ(hunk.lines.size(), 4u);
 
-    const std::string patch = UnifiedDiffParser::buildLineSelectionPatch(
-        parsed.files[0], hunk, selected, /*unstaging=*/true);
+    const std::vector<bool> nothing(hunk.lines.size(), false);
+    std::vector<bool> contextOnly(hunk.lines.size(), false);
+    contextOnly[0] = true;
+    contextOnly[3] = true;
 
-    // Nothing selected to unstage: the added line is already in the index
-    // and stays there, so it must appear as context, not be dropped (which
-    // is what the staging-mode equivalent of this test asserts instead).
-    EXPECT_NE(patch.find(" added"), std::string::npos) << patch;
-    EXPECT_EQ(patch.find("+added"), std::string::npos) << patch;
-    // Both sides now include "added" as context: old=3, new=3.
-    EXPECT_NE(patch.find("@@ -1,3 +1,3 @@"), std::string::npos) << patch;
+    for (const bool unstaging : {false, true}) {
+        EXPECT_EQ(
+            UnifiedDiffParser::buildLineSelectionPatch(parsed.files[0], hunk, nothing, unstaging),
+            "")
+            << "nothing selected, unstaging=" << unstaging;
+        EXPECT_EQ(UnifiedDiffParser::buildLineSelectionPatch(
+                      parsed.files[0], hunk, contextOnly, unstaging),
+                  "")
+            << "context only, unstaging=" << unstaging;
+    }
 }
 
 }  // namespace

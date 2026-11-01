@@ -156,6 +156,10 @@ public:
     /// a rename's content is being unstaged the rename is already in the
     /// index, so the reconstructed patch only needs to describe a same-path
     /// content change.
+    ///
+    /// Returns an empty string when the selection holds no changed line
+    /// (nothing, or context only): such a patch changes nothing and `git
+    /// apply` rejects it as corrupt.
     static std::string buildLineSelectionPatch(const DiffFile& file,
                                                const DiffHunk& hunk,
                                                const std::vector<bool>& selected,

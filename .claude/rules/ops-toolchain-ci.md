@@ -32,7 +32,8 @@ or test now enforces live at that site, with the reason in its comment; history 
 - **Rule**: `dart format` output differs across Dart SDKs; `clang-format` is pinned to v18 (`cq.yml`, `.pre-commit-config.yaml`) and a local v22 reformats lines v18 left alone. A local Flutter that differs from the pin also rewrites `pubspec.lock` and `analysis_options.yaml`.
 - **Do**: never run either formatter wholesale on a local version that differs from CI's pin; restore the file and re-apply only the intended edit. With `flutter --version` equal to the pin, `dart format .` is safe.
 - **Do**: check `.clang-format` first — a suggestion from the repo's own config applies to v18 too.
-- **Evidence**: ledger: Known gaps; [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md); [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)
+- **Do**: `.claude/hooks/format-cpp.sh` formats each file an agent edits under `src/` with v18, one file at a time; a resolver or formatter failure comes back as exit 2 and means CI would go red on that file.
+- **Evidence**: ledger: Known gaps; [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md); [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md); [ledger: chore/clang-format-post-edit-hook](../../docs/ledger/2026-11-04-chore-clang-format-post-edit-hook.md)
 
 ## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout
 

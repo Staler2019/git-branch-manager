@@ -241,6 +241,17 @@ void OperationRunner::workerLoop() {
             try {
                 const QueuedOperationScope scope(queued.id);
                 outcome = queued.operation->run(runner_, paths_, queued.source.token());
+                // Preflight saw no lock, but another process can take it before
+                // git does. Nothing has changed at that point for an operation
+                // that opted in, so it waits the holder out and runs again.
+                for (int retry = 0; retry < kLockRetries && !outcome.succeeded &&
+                                    queued.operation->retriesOnLockHeld() && outcome.error &&
+                                    outcome.error->code == GitError::Code::LockHeld &&
+                                    !queued.source.isCancelled();
+                     ++retry) {
+                    waitForLiveIndexLock(queued.source);
+                    outcome = queued.operation->run(runner_, paths_, queued.source.token());
+                }
             } catch (const std::exception& ex) {
                 // A throwing operation must not take the process down while the
                 // user has uncommitted work open.

@@ -6,6 +6,7 @@
 // no git and no timing race is involved beyond the wait being measured.
 #include "core/git/OperationRunner.h"
 #include "core/git/RepoPaths.h"
+#include "core/git/ops/StageOps.h"
 #include "support/FakeProcessRunner.h"
 
 #include <atomic>
@@ -38,6 +39,37 @@ public:
 
 private:
     std::atomic<int>& runs_;
+};
+
+/// Fails its first `lockHeldRuns` runs the way git's own "Unable to create
+/// '.git/index.lock'" does, which is what a lock taken after preflight looks like.
+class LockLosingOperation final : public Operation {
+public:
+    LockLosingOperation(std::atomic<int>& runs,
+                        int lockHeldRuns,
+                        bool retries,
+                        GitError::Code code = GitError::Code::LockHeld)
+        : runs_(runs), lockHeldRuns_(lockHeldRuns), retries_(retries), code_(code) {}
+
+    std::string describe() const override { return "Lock losing test operation"; }
+
+    bool retriesOnLockHeld() const override { return retries_; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        const int run = ++runs_;
+        OperationOutcome outcome;
+        outcome.succeeded = run > lockHeldRuns_;
+        if (!outcome.succeeded) {
+            outcome.error = GitError(code_, "Could not create a Git lock file");
+        }
+        return outcome;
+    }
+
+private:
+    std::atomic<int>& runs_;
+    int lockHeldRuns_;
+    bool retries_;
+    GitError::Code code_;
 };
 
 class OperationRunnerLockWaitTest : public ::testing::Test {
@@ -144,6 +176,57 @@ TEST_F(OperationRunnerLockWaitTest, ShuttingDownDuringTheWaitDoesNotSitOutTheLim
     }
     EXPECT_LT(std::chrono::steady_clock::now() - start, 5s);
     EXPECT_EQ(runs_, 0);
+}
+
+TEST_F(OperationRunnerLockWaitTest, AnOperationThatLostTheLockIsRunAgain) {
+    OperationRunner runner(process_, *paths_, 100ms);
+    std::promise<OperationOutcome> done;
+    runner.submit(std::make_unique<LockLosingOperation>(runs_, 1, /*retries=*/true),
+                  [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+
+    EXPECT_TRUE(done.get_future().get().succeeded);
+    EXPECT_EQ(runs_, 2);
+    EXPECT_EQ(runner.undoJournal().size(), 1u) << "a retry is one operation to undo";
+}
+
+TEST_F(OperationRunnerLockWaitTest, RetriesStopAtTheLimitAndReportLockHeld) {
+    OperationRunner runner(process_, *paths_, 100ms);
+    std::promise<OperationOutcome> done;
+    runner.submit(std::make_unique<LockLosingOperation>(runs_, 100, /*retries=*/true),
+                  [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+
+    const OperationOutcome outcome = done.get_future().get();
+    ASSERT_TRUE(outcome.error);
+    EXPECT_EQ(outcome.error->code, GitError::Code::LockHeld);
+    EXPECT_EQ(runs_, 1 + OperationRunner::kLockRetries);
+}
+
+TEST_F(OperationRunnerLockWaitTest, AnOperationThatDidNotOptInRunsOnce) {
+    OperationRunner runner(process_, *paths_, 100ms);
+    std::promise<OperationOutcome> done;
+    runner.submit(std::make_unique<LockLosingOperation>(runs_, 1, /*retries=*/false),
+                  [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+
+    EXPECT_FALSE(done.get_future().get().succeeded);
+    EXPECT_EQ(runs_, 1);
+}
+
+TEST_F(OperationRunnerLockWaitTest, AnotherErrorIsNotRetried) {
+    OperationRunner runner(process_, *paths_, 100ms);
+    std::promise<OperationOutcome> done;
+    runner.submit(
+        std::make_unique<LockLosingOperation>(runs_, 1, /*retries=*/true, GitError::Code::Unknown),
+        [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+
+    EXPECT_FALSE(done.get_future().get().succeeded);
+    EXPECT_EQ(runs_, 1);
+}
+
+TEST_F(OperationRunnerLockWaitTest, OnlyIdempotentIndexOperationsOptIn) {
+    EXPECT_TRUE(makeStageFilesOperation(StageFilesRequest{{"a"}})->retriesOnLockHeld());
+    EXPECT_TRUE(makeUnstageFilesOperation(UnstageFilesRequest{{"a"}})->retriesOnLockHeld());
+    EXPECT_TRUE(makePartialStageOperation(PartialStageRequest{})->retriesOnLockHeld());
+    EXPECT_FALSE(makeDiscardLinesOperation(DiscardLinesRequest{})->retriesOnLockHeld());
 }
 
 }  // namespace

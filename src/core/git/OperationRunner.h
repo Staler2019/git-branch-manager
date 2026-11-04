@@ -105,6 +105,12 @@ public:
     /// waits behind it. A running one is left alone -- it may hold ref locks.
     virtual bool isBackground() const { return false; }
 
+    /// Whether a run that lost `index.lock` to another process may simply run
+    /// again. Only for an operation that changes the index and nothing else and
+    /// whose second run lands in the same place: a multi-step operation such as
+    /// a merge can have changed something before the lock failure.
+    virtual bool retriesOnLockHeld() const { return false; }
+
     /// Runs the operation. Called on the repository's serial queue.
     virtual OperationOutcome run(IProcessRunner& runner,
                                  const RepoPaths& paths,
@@ -132,6 +138,10 @@ public:
     /// before reporting it: long enough for `git update-index --refresh` on a
     /// 100k-file repository (604 ms with 5000 stat-dirty files).
     static constexpr std::chrono::milliseconds kLockWait{2000};
+
+    /// How many times an operation that opted in is run again after losing the
+    /// lock between preflight() and git taking it.
+    static constexpr int kLockRetries = 2;
 
     OperationRunner(IProcessRunner& runner,
                     RepoPaths paths,

@@ -53,6 +53,8 @@ class StageFilesOperation final : public Operation {
 public:
     explicit StageFilesOperation(StageFilesRequest request) : request_(std::move(request)) {}
 
+    bool retriesOnLockHeld() const override { return true; }
+
     std::string describe() const override {
         return request_.paths.size() == 1
                    ? "Stage " + request_.paths.front()
@@ -167,6 +169,8 @@ class UnstageFilesOperation final : public Operation {
 public:
     explicit UnstageFilesOperation(UnstageFilesRequest request) : request_(std::move(request)) {}
 
+    bool retriesOnLockHeld() const override { return true; }
+
     std::string describe() const override {
         return request_.paths.size() == 1
                    ? "Unstage " + request_.paths.front()
@@ -233,6 +237,8 @@ private:
 class PartialStageOperation final : public Operation {
 public:
     explicit PartialStageOperation(PartialStageRequest request) : request_(std::move(request)) {}
+
+    bool retriesOnLockHeld() const override { return true; }
 
     std::string describe() const override {
         const char* verb = request_.staged ? "Unstage " : "Stage ";

@@ -718,7 +718,7 @@ private:
     WorkingCopyStatusPtr workingCopyStatus_;
 
     /// When maybeRefreshIndex() last submitted, under its own lock because
-    /// refreshWorkingCopy() is called from the FFI, operation and read threads.
+    /// refreshWorkingCopy() is called from both the FFI and the operation thread.
     std::mutex indexRefreshMutex_;
     std::optional<std::chrono::steady_clock::time_point> lastIndexRefresh_;
 

@@ -64,6 +64,9 @@ B 的等待、C 的重試、D 全部關閉）：
 
 `worktreeReadFlags()` 因此保留：鎖安全已不靠它，但刪掉不會更快。這是速度上的選擇，紀錄已就地改寫。
 
+`globalFlags()` 註解裡的 734 / 1065 / 11 ms 來自另一個探針（小 repo，5000 個 stat-dirty、約 200 行）：
+關掉 auto-refresh 後每次 diff 734 ms；開著時第一次 1065 ms，之後 11 ms。
+
 **D 的效能依據**（10 萬檔 synthetic repo，5000 個 stat-dirty、約 40 行，index 7827 KiB，global config 中性化）：
 
 | | status | diff --numstat | update-index --refresh |
@@ -88,18 +91,33 @@ B 的等待、C 的重試、D 全部關閉）：
 | D | 5 | 各 1 | `isHousekeeping` undo 分支、節流邊界、`isBackground`、Session 節流各紅 1 個；lock 等待是 60 秒逾時紅（`YieldsAtOnceToAHeldLockWithoutRunningGit`，該分支尚未實作時已看過同樣的紅）。未接線時 capi 兩個新測試都紅 |
 | 暫存目錄 | 1 | 1 | |
 
+**獨立驗證推翻了第一版 D 與 B（`verifier` 判定 REFUTED）**，全部測試當時是綠的：
+
+| 問題 | 量測 | 處置 |
+|---|---|---|
+| stash pop 衝突後是 UU、沒有 `MERGE_HEAD`，`update-index` 回 1，status bar 冒出無從處理的紅色錯誤 | capi 實際走流程，record 是 `exitCode:1`、`benignExit:false` | `benignExitCodes = {1, 128}` |
+| 寫入完成後讀 repo state 撞上 refresh 持鎖，status bar 留下假的 another Git process | 探針延遲 10 ms 讀取：小 repo 35/40、2 萬檔 repo 20/20；refresh 關閉對照 0/30 | `OperationRunner::state()` 比對 housekeeping 邊界，鎖是自己的就不回報；`Session::repoState` 改走它 |
+| `submitWorkingCopyOperation` 不在 `inFlight_`，close 時 `cancelOperations(0)` 碰不到；持鎖時每個排隊操作等滿 2 秒 | 3 個排隊 6261 ms，修正後 195 ms | `OperationRunner::prepareForShutdown()`，並取消排隊與之後送入的背景工作 |
+
+第一版把「silent: no event」寫得太滿。修正後 refresh 仍會發兩筆 `GBM_EVENT_OPERATION_LOG_RECORD`，Log 面板多一列。
+這是刻意保留：Log 記錄的是實際跑過的每個 git 指令，藏掉一個會拿鎖的指令反而不誠實。status bar 不會顯示它
+（`_taskKind` 對 `update-index` 回 null）。
+
 ## Result
 
-全套測試：`core-only` 985/985；`capi-only` 987/987（`LastTestsFailed.log` 是 00:08 的舊檔，當時只建了
-`gbm_capi_tests`，所以 `gbm_core_tests_NOT_BUILT` 和 `graph_matches_git_on_generated_history` 顯示失敗；
-全量建置後 `LastTest.log` 為 0 Failed）。沒有改動 Dart，因此未跑 Flutter 與 device tier。
+全套測試：`capi-only` 996/996（721 core、274 capi、1 integration）。修正後重跑 `verifier` 的探針：延遲 0–20 ms 讀 repo state，`indexLocked` 各 0/40（修正前 10 ms 為 35/40）；持鎖 close 3 個排隊操作 0 ms。`capi-only` 的 `LastTestsFailed.log` 可能留著舊內容（當時只建了 `gbm_capi_tests`，
+`gbm_core_tests_NOT_BUILT` 顯示失敗），以 `LastTest.log` 的 Failed 數為準。沒有改動 Dart，因此未跑 Flutter 與 device tier。
 
 **還沒解掉的部分**：
 
 - 外部程序持鎖超過 2 秒，使用者仍會看到現有的 Retry 對話框，這是刻意的。
+- 使用者寫入會排在執行中的 refresh 後面，大 repo 上最多延遲一次 refresh（106–604 ms），最多每 30 秒發生一次。
+- refresh 持鎖期間，使用者在終端機跑的 `git add` 可能失敗；窗口同上。這一輪修掉的 `git diff` auto-refresh 窗口更頻繁，每次背景 diff 都可能遇到。
+- 同一瞬間若外部程序也持鎖，`state()` 這一次不會回報，下一次讀取才會。
 - C 只涵蓋 stage、unstage、partial stage。其他寫入在 preflight 之後才失去鎖時仍回報 `LockHeld`，因為多步驟操作重跑不安全。
 - `ProcessTempDir` 和 D 的 Windows 行為只有 Windows CI 看得到，本機沒有驗證。
 - 100k repo 第一輪的 `diff`（auto-refresh 開啟）量到 10402 ms，只有一個樣本，原因沒查，沒有當成證據。
 
 **過程中改正的錯誤**：Slice D 的 commit message 一開始寫錯 mutation 次數，push 前已 amend。
+ledger 初版寫的 `core-only 985/985` 是當時那次 ctest 的輸出，`verifier` 在同一棵 build tree 量到 987（`GBM_BUILD_CAPI` 已是 ON），這裡改以最後一次為準。
 `worktreeReadFlags()` 文件裡「git reads never create `.git/index.lock`」與 holder never identified 都已就地劃掉改寫。

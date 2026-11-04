@@ -241,8 +241,8 @@ struct GitCommand {
     ///     mechanisms that would have explained everything are both dead~~ the
     ///     fsmonitor token is not a "required" index write. ~~`git diff`'s
     ///     end-of-run auto-refresh (`diff.autoRefreshIndex`) does not survive
-    ///     `--no-optional-locks` either.~~ It does survive, and it is the holder
-    ///     on machines without fsmonitor (#194).
+    ///     `--no-optional-locks` either.~~ It does survive, and it is the holder,
+    ///     with or without fsmonitor (#194).
     ///   * At the instant of failure no git process except `fsmonitor--daemon`
     ///     was alive and the lock file was already gone.
     ///   * The app is not the creator: RepoState::read() only `stat()`s the

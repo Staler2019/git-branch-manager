@@ -4,13 +4,14 @@
 // closes with.
 //
 // These are argv assertions, not a race reproduction, and that is deliberate.
-// The regression they guard (see GitCommand::worktreeReadFlags()' own comment)
+// ~~The regression they guard (see GitCommand::worktreeReadFlags()' own comment)
 // only fires on a machine with `core.fsmonitor=true`, is absent on CI, and is
 // suppressed by every observation technique tried -- GIT_TRACE2_EVENT, an exec
-// shim, even a shim doing a single write(). A test that tried to catch the
-// LockHeld failure itself would be green everywhere for the wrong reason. What
-// *is* checkable everywhere is that the flags are on the command at all, which
-// is the thing a later refactor would silently drop.
+// shim, even a shim doing a single write().~~ That regression is `git diff`'s
+// auto-refresh and is pinned without fsmonitor by GitIntegrationTest's
+// `WorkTreeDiffOfAStatDirtyFileDoesNotRewriteTheIndex`. These tests now keep the
+// flags where GitCommand::worktreeReadFlags() says they stay: on the command at
+// all, which is the thing a later refactor would silently drop.
 #include "core/git/DiffService.h"
 #include "core/git/WorkingCopyStatus.h"
 #include "core/git/ops/WorktreeOps.h"

@@ -62,3 +62,10 @@ Fifteen shapes, each green before and after a real fix; comments cite them by nu
 - **Rule**: `flutter-ci` runs the unit tier on `windows-latest` and `macos-26`; NTFS ignores `chmod`, so the test goes green having never met the failure.
 - **Do**: «cannot write» = a missing parent directory; age a directory by moving the injected clock, never its mtime; pick a failing delete per OS (`_makeUndeletable`) and prove it bites; cut a path with the simulated OS's separators.
 - **Evidence**: [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md)
+
+## [TEST-process-private-temp] A C++ test binary's `temp_directory_path()` is private to its process
+
+- **Rule**: `tests/support/TestMain.cpp` points the system temp directory at `gbm-proc-<pid>` and removes it on exit, so a fixture named only after its test is safe under parallel `ctest`.
+- **Consequence**: without it, 8 parallel runs of one test failed 37 of 40, as misleading `index.lock` reds.
+- **Do**: a new C++ test binary compiles `support/TestMain.cpp` instead of linking `GTest::gtest_main`.
+- **Evidence**: [ledger: diff auto-refresh 拿 index.lock](../../docs/ledger/2026-11-04-fix-diff-auto-refresh-takes-index-lock.md)

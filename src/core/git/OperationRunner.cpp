@@ -10,8 +10,10 @@
 
 namespace gbm {
 
-OperationRunner::OperationRunner(IProcessRunner& runner, RepoPaths paths)
-    : runner_(runner), paths_(std::move(paths)) {
+OperationRunner::OperationRunner(IProcessRunner& runner,
+                                 RepoPaths paths,
+                                 std::chrono::milliseconds lockWait)
+    : runner_(runner), paths_(std::move(paths)), lockWait_(lockWait) {
     worker_ = std::thread([this] { workerLoop(); });
 }
 
@@ -27,7 +29,16 @@ OperationRunner::~OperationRunner() {
 }
 
 RepoState OperationRunner::state() const {
-    return RepoState::read(paths_);
+    const std::uint64_t before = housekeepingEdges_.load();
+    RepoState current = RepoState::read(paths_);
+    // Housekeeping's git holds the lock only between its two edges, so a read that
+    // saw that lock either began inside them or has an edge after it. An outside
+    // lock in that same moment goes unreported until the first read after those edges.
+    if (current.indexLocked && (before % 2 != 0 || housekeepingEdges_.load() != before)) {
+        current.indexLocked = false;
+        current.indexLockAgeSeconds.reset();
+    }
+    return current;
 }
 
 const std::vector<OperationRunner::UndoEntry>& OperationRunner::undoJournal() const {
@@ -48,6 +59,9 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
                     waiting.source.cancel();
                 }
             }
+        }
+        if (preparingForShutdown_ && operation->isBackground()) {
+            handle.cancel.cancel();
         }
         handle.id = nextQueuedOperationId();
         QueuedOperation queued{handle.id, std::move(operation), std::move(onDone), handle.cancel};
@@ -113,7 +127,39 @@ bool OperationRunner::removeStaleIndexLock() {
     return !ec;
 }
 
-std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation) {
+void OperationRunner::waitForLiveIndexLock(const CancellationSource& source) {
+    constexpr auto kPoll = std::chrono::milliseconds(20);
+    const auto deadline = std::chrono::steady_clock::now() + lockWait_;
+    for (;;) {
+        const RepoState current = RepoState::read(paths_);
+        const bool stale =
+            current.indexLockAgeSeconds && *current.indexLockAgeSeconds > kStaleLockSeconds;
+        if (!current.indexLocked || stale || source.isCancelled() ||
+            std::chrono::steady_clock::now() >= deadline) {
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stopping_ || preparingForShutdown_) {
+                return;
+            }
+        }
+        std::this_thread::sleep_for(kPoll);
+    }
+}
+
+std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation,
+                                                           const CancellationSource& source) {
+    if (!operation.isHousekeeping()) {
+        waitForLiveIndexLock(source);
+    }
+    if (source.isCancelled()) {
+        OperationOutcome outcome;
+        outcome.succeeded = false;
+        outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
+        return outcome;
+    }
+
     const RepoState current = RepoState::read(paths_);
 
     if (current.indexLocked) {
@@ -201,20 +247,39 @@ void OperationRunner::workerLoop() {
         if (queued.source.isCancelled()) {
             outcome.succeeded = false;
             outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
-        } else if (auto blocked = preflight(*queued.operation)) {
+        } else if (auto blocked = preflight(*queued.operation, queued.source)) {
             outcome = std::move(*blocked);
         } else {
-            recordUndoPoint(*queued.operation);
-            logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
+            const bool housekeeping = queued.operation->isHousekeeping();
+            if (housekeeping) {
+                ++housekeepingEdges_;
+            } else {
+                recordUndoPoint(*queued.operation);
+                logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
+            }
             try {
                 const QueuedOperationScope scope(queued.id);
                 outcome = queued.operation->run(runner_, paths_, queued.source.token());
+                // Preflight saw no lock, but another process can take it before
+                // git does. Nothing has changed at that point for an operation
+                // that opted in, so it waits the holder out and runs again.
+                for (int retry = 0; retry < kLockRetries && !outcome.succeeded &&
+                                    queued.operation->retriesOnLockHeld() && outcome.error &&
+                                    outcome.error->code == GitError::Code::LockHeld &&
+                                    !queued.source.isCancelled();
+                     ++retry) {
+                    waitForLiveIndexLock(queued.source);
+                    outcome = queued.operation->run(runner_, paths_, queued.source.token());
+                }
             } catch (const std::exception& ex) {
                 // A throwing operation must not take the process down while the
                 // user has uncommitted work open.
                 outcome.succeeded = false;
                 outcome.error = GitError(
                     GitError::Code::Unknown, "The operation failed unexpectedly", ex.what());
+            }
+            if (housekeeping) {
+                ++housekeepingEdges_;
             }
         }
 
@@ -235,6 +300,16 @@ void OperationRunner::workerLoop() {
             if (queue_.empty()) {
                 idle_.notify_all();
             }
+        }
+    }
+}
+
+void OperationRunner::prepareForShutdown() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    preparingForShutdown_ = true;
+    for (auto& waiting : queue_) {
+        if (waiting.operation->isBackground()) {
+            waiting.source.cancel();
         }
     }
 }

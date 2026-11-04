@@ -8,6 +8,7 @@
 #include "core/git/RepoState.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -104,6 +105,17 @@ public:
     /// waits behind it. A running one is left alone -- it may hold ref locks.
     virtual bool isBackground() const { return false; }
 
+    /// Whether a run that lost `index.lock` to another process may simply run
+    /// again. Only for an operation that changes the index and nothing else and
+    /// whose second run lands in the same place: a multi-step operation such as
+    /// a merge can have changed something before the lock failure.
+    virtual bool retriesOnLockHeld() const { return false; }
+
+    /// Upkeep the user did not ask for; only the Log panel shows its git command.
+    /// It leaves no undo point and no "Starting:" log line, and gives way at once
+    /// to a held `index.lock` instead of waiting: skipping one round costs nothing.
+    virtual bool isHousekeeping() const { return false; }
+
     /// Runs the operation. Called on the repository's serial queue.
     virtual OperationOutcome run(IProcessRunner& runner,
                                  const RepoPaths& paths,
@@ -119,14 +131,26 @@ public:
 ///
 /// One queue per repository means we can never race ourselves for `index.lock`.
 /// Cross-process races (the user's terminal, an IDE, a hook) remain possible, so
-/// each operation still checks for the lock and reports it rather than stomping.
+/// each operation still checks for the lock, waits briefly for a live one, and
+/// reports it rather than stomping.
 class OperationRunner {
 public:
     /// A lock younger than this is assumed live: offering to delete it would
     /// invite users to break a running operation.
     static constexpr std::int64_t kStaleLockSeconds = 600;
 
-    OperationRunner(IProcessRunner& runner, RepoPaths paths);
+    /// How long preflight() waits for another process's live lock to go away
+    /// before reporting it: long enough for `git update-index --refresh` on a
+    /// 100k-file repository (604 ms with 5000 stat-dirty files).
+    static constexpr std::chrono::milliseconds kLockWait{2000};
+
+    /// How many times an operation that opted in is run again after losing the
+    /// lock between preflight() and git taking it.
+    static constexpr int kLockRetries = 2;
+
+    OperationRunner(IProcessRunner& runner,
+                    RepoPaths paths,
+                    std::chrono::milliseconds lockWait = kLockWait);
     ~OperationRunner();
 
     OperationRunner(const OperationRunner&) = delete;
@@ -184,7 +208,9 @@ public:
     /// runner this is may name the operation for a cancel.
     bool runs(std::uint64_t id) const;
 
-    /// Current on-disk state. Cheap; safe to call often.
+    /// Current on-disk state. Cheap; safe to call often. `indexLocked` leaves out
+    /// the lock of running housekeeping: it is ours and gone in moments, and a
+    /// reader would call it another Git process.
     RepoState state() const;
 
     /// Deletes `.git/index.lock`, but only after re-validating server-side
@@ -214,18 +240,30 @@ public:
 
     const std::vector<UndoEntry>& undoJournal() const;
 
+    /// The session is closing: end every lock wait, so a queued write that meets a
+    /// live lock fails instead of holding up the close, and cancel queued
+    /// background work. Called before drain(), which an
+    /// operation queued by a session must not make wait.
+    void prepareForShutdown();
+
     /// Blocks until the queue is empty. Tests and shutdown only.
     void drain();
 
 private:
     void workerLoop();
-    /// Refuses to start when a lock is held or an incompatible operation is in
-    /// progress, returning the choices that would unblock it.
-    std::optional<OperationOutcome> preflight(const Operation& operation);
+    /// Refuses to start when a lock is still held after waitForLiveIndexLock(),
+    /// or an incompatible operation is in progress, returning the choices that
+    /// would unblock it.
+    std::optional<OperationOutcome> preflight(const Operation& operation,
+                                              const CancellationSource& source);
+    /// Returns once the lock is gone, stale, past lockWait_, or waiting has
+    /// become pointless (cancelled, shutting down). Never touches the lock.
+    void waitForLiveIndexLock(const CancellationSource& source);
     void recordUndoPoint(const Operation& operation);
 
     IProcessRunner& runner_;
     RepoPaths paths_;
+    std::chrono::milliseconds lockWait_;
 
     struct QueuedOperation {
         std::uint64_t id;
@@ -248,6 +286,9 @@ private:
     CancellationSource runningSource_;
     bool busy_ = false;
     bool stopping_ = false;
+    bool preparingForShutdown_ = false;
+    /// Odd while a housekeeping operation runs; state() compares it around its read.
+    std::atomic<std::uint64_t> housekeepingEdges_{0};
 };
 
 }  // namespace gbm

@@ -26,7 +26,8 @@ Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 
 - **Rule**: prepend `GitCommand::worktreeReadFlags()` to every background work-tree-vs-index `git diff`; never to `git status` (including the per-worktree pending count), never into `globalFlags()`.
 - **Do**: a new call site needs its own case in `tests/unit/WorktreeReadFlagsTest.cpp` — CI has no fsmonitor, so only an argv assertion can see a missing flag.
-- **Evidence**: `GitCommand.h`'s `worktreeReadFlags()` doc (9 of 12 `index.lock` failures, holder never identified); ledger: Working Copy 重新設計
+- **Consequence**: since #194 this is a speed choice (90-95 ms against 105-110 ms in a 100k-file repository), not lock safety: `diff.autoRefreshIndex=false` in `globalFlags()` is what stops a read from taking `index.lock`, and it took the 27/30 failures to 0/30 with this flag off.
+- **Evidence**: `GitCommand.h`'s `worktreeReadFlags()` doc; ledger: Working Copy 重新設計; [ledger: diff auto-refresh 拿 index.lock](../../docs/ledger/2026-11-04-fix-diff-auto-refresh-takes-index-lock.md)
 
 ## [GIT-background-fetch-refuses-prompts] A background fetch refuses every credential prompt and never touches the askpass watch
 
@@ -41,3 +42,11 @@ Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 - **Consequence**: anything rebuilt from that diff's hunk indexes (partial unstage) points at the wrong hunk; a reply for `{old, new}` can carry two files, since git sorts by path and a new file may sit at `old`.
 - **Do**: pass `{oldPath, path}` and the same rename flag (`-M`, never the user's `diff.renames`) at every per-file diff and every rebuild, then keep only the file whose `newPath == path` (`Session::emitWorkingCopyDiff`, `PartialStageOperation::run`, `DiffService::commitFileDiff`, `CompareOps.cpp`).
 - **Evidence**: [ledger: fix/rename-diff-status-glyph](../../docs/ledger/2026-11-01-fix-rename-diff-status-glyph.md)
+
+## [GIT-reads-never-refresh-the-index] No read writes the index; one queued operation keeps the stat cache fresh
+
+- **Rule**: `globalFlags()` carries `--no-optional-locks` and `diff.autoRefreshIndex=false`, so the stat cache is refreshed only by `makeRefreshIndexOperation()`, at most every `kIndexRefreshMinInterval`, from `Session::refreshWorkingCopy()`.
+- **Consequence**: without the refresh, 5000 stat-dirty files in a 100k-file repository cost 3597 ms per status against 205 ms. With the auto-refresh back on, a background `git diff` takes `index.lock` and the next user write fails (27 of 30).
+- **Do**: never run a command that refreshes the index from `sharedReadPool()`; a race test for `index.lock` must turn this refresh off first, because it hides the race.
+- **Do**: an `index.lock` state reader goes through `OperationRunner::state()`, which leaves out the refresh's own lock; `RepoState::read()` alone reports it as another Git process.
+- **Evidence**: [ledger: diff auto-refresh 拿 index.lock](../../docs/ledger/2026-11-04-fix-diff-auto-refresh-takes-index-lock.md)

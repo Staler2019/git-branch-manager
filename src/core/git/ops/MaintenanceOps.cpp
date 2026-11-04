@@ -28,6 +28,11 @@ bool shouldOfferCommitGraph(bool hasGraph,
     return rowCount >= kCommitGraphAdviceMinRows;
 }
 
+bool shouldRefreshIndex(std::optional<std::chrono::steady_clock::time_point> last,
+                        std::chrono::steady_clock::time_point now) {
+    return !last || now - *last >= kIndexRefreshMinInterval;
+}
+
 namespace {
 
 class WriteCommitGraphOperation final : public Operation {
@@ -80,10 +85,45 @@ private:
     WriteCommitGraphRequest request_;
 };
 
+class RefreshIndexOperation final : public Operation {
+public:
+    std::string describe() const override { return "Refresh index"; }
+
+    bool isBackground() const override { return true; }
+
+    bool isHousekeeping() const override { return true; }
+
+    OperationOutcome run(IProcessRunner& runner,
+                         const RepoPaths& paths,
+                         CancellationToken /*token*/) override {
+        OperationOutcome outcome;
+        // No token: not killableMidFlight(), and closing the session cancels
+        // every operation's source, which must not reach a git holding the lock.
+        GitCommand command(paths.commandDir(), {"update-index", "-q", "--refresh"});
+        // 1: an unmerged entry, as after a stash pop conflict. 128: another process
+        // took the lock after preflight, or any other fatal error, such as a corrupt
+        // index. None of them is something the user asked about here.
+        command.benignExitCodes = {1, 128};
+        auto result = runner.run(command, CancellationToken{});
+        if (result) {
+            outcome.succeeded = true;
+            return outcome;
+        }
+        GitError error = std::move(result).error();
+        outcome.summary = error.message;
+        outcome.error = std::move(error);
+        return outcome;
+    }
+};
+
 }  // namespace
 
 std::unique_ptr<Operation> makeWriteCommitGraphOperation(WriteCommitGraphRequest request) {
     return std::make_unique<WriteCommitGraphOperation>(request);
+}
+
+std::unique_ptr<Operation> makeRefreshIndexOperation() {
+    return std::make_unique<RefreshIndexOperation>();
 }
 
 }  // namespace gbm

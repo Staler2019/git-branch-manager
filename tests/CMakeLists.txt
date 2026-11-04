@@ -1,17 +1,19 @@
 include(GoogleTest)
 
 # Test doubles live here rather than in the shipped library.
-add_library(gbm_test_support STATIC support/DirLink.cpp support/FakeProcessRunner.cpp support/GitCli.cpp)
+add_library(gbm_test_support STATIC support/DirLink.cpp support/FakeProcessRunner.cpp support/GitCli.cpp support/ProcessTempDir.cpp)
 target_include_directories(gbm_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(gbm_test_support PUBLIC gbm_core PRIVATE gbm_warnings)
 
 # --- core unit + integration tests -------------------------------------
 add_executable(gbm_core_tests
+    support/TestMain.cpp
     unit/BranchOpsTest.cpp
     unit/CompareOpsTest.cpp
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
+    unit/ProcessTempDirTest.cpp
     unit/DelayTimerTest.cpp
     unit/DiscoveryTest.cpp
     unit/DirLinkTest.cpp
@@ -24,6 +26,7 @@ add_executable(gbm_core_tests
     unit/MergeOpsTest.cpp
     unit/OperationLogScopeTest.cpp
     unit/OperationRunnerCancelTest.cpp
+    unit/OperationRunnerLockWaitTest.cpp
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp
@@ -46,7 +49,7 @@ add_executable(gbm_core_tests
     unit/UnifiedDiffParserTest.cpp
 )
 target_link_libraries(gbm_core_tests
-    PRIVATE gbm_core gbm_test_support GTest::gtest GTest::gtest_main gbm_warnings
+    PRIVATE gbm_core gbm_test_support GTest::gtest gbm_warnings
             gbm_sanitizers)
 
 # Labels let CI gate on the fast suites and run perf separately: runners are far
@@ -227,9 +230,10 @@ if(GBM_BUILD_CAPI)
         capi/UndoApiTest.cpp
         capi/WorkingCopyApiTest.cpp
         capi/WorktreeApiTest.cpp
+        support/TestMain.cpp
     )
     target_link_libraries(gbm_capi_tests
-        PRIVATE gbm_capi gbm_core gbm_test_support GTest::gtest GTest::gtest_main gbm_warnings gbm_sanitizers)
+        PRIVATE gbm_capi gbm_core gbm_test_support GTest::gtest gbm_warnings gbm_sanitizers)
 
     # --- a stand-in for the desktop runners' askpass interception ----------
     # Not a test: the subject of AskpassEntryTest. It loads gbm_capi at run

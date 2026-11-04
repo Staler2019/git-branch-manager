@@ -58,6 +58,9 @@ jobs:
           clang-format-version: '18'
           check-path: 'src'
 
+      - name: clang-format resolver
+        run: python3 scripts/test_resolve_clang_format.py
+
       # Claude Code loads CLAUDE.md, its @imports and unscoped .claude/rules/ at
       # session start, capped at 150k characters including the user's own
       # ~/.claude. The ceiling lives in CLAUDE.md's "Memory filing" section.

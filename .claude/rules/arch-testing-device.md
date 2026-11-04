@@ -16,7 +16,7 @@ Format: [README.md](../../docs/rules/README.md). Run steps and which native libr
 
 ## [TEST-stale-process-blocks-tier] A stale `gbm_flutter` process blocks the tier and looks exactly like a broken test
 
-- **Do**: `pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, then run one pre-existing test as a control; for a hang, also run the *parent commit*. A hang that does not reproduce after that is 「not reproducible」, not a cause.
+- **Do**: ~~`pkill -f "gbm_flutter.app/Contents/MacOS/gbm_flutter"`~~ `pgrep -lf "gbm_flutter.app/Contents/MacOS/gbm_flutter"`, confirm each match, then `kill <PID>` (a name-matching kill is refused by the user's `block-fuzzy-kill.py`), then run one pre-existing test as a control; for a hang, also run the *parent commit*. A hang that does not reproduce after that is 「not reproducible」, not a cause.
 - **Do**: a manual on-screen check has the same hazard: `/Applications/gbm_flutter.app` runs beside a fresh build and `osascript` fronts either. `ps aux | grep gbm_flutter`, front by PID, and confirm the binary carries the fix (`strings <dylib> | grep <string only the fix adds>`).
 
 ## [TEST-device-tier-not-in-ci] The device tier is in no CI job and is not part of `flutter test`

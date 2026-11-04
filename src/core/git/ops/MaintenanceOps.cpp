@@ -101,7 +101,8 @@ public:
         // every operation's source, which must not reach a git holding the lock.
         GitCommand command(paths.commandDir(), {"update-index", "-q", "--refresh"});
         // 1: an unmerged entry, as after a stash pop conflict. 128: another process
-        // took the lock after preflight. Neither is something the user asked about.
+        // took the lock after preflight, or any other fatal error, such as a corrupt
+        // index. None of them is something the user asked about here.
         command.benignExitCodes = {1, 128};
         auto result = runner.run(command, CancellationToken{});
         if (result) {

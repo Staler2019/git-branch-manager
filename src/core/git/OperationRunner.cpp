@@ -33,7 +33,7 @@ RepoState OperationRunner::state() const {
     RepoState current = RepoState::read(paths_);
     // Housekeeping's git holds the lock only between its two edges, so a read that
     // saw that lock either began inside them or has an edge after it. An outside
-    // lock in that same moment goes unreported until the next read.
+    // lock in that same moment goes unreported until the first read after those edges.
     if (current.indexLocked && (before % 2 != 0 || housekeepingEdges_.load() != before)) {
         current.indexLocked = false;
         current.indexLockAgeSeconds.reset();

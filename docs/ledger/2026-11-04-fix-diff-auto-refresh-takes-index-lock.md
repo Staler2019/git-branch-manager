@@ -105,7 +105,7 @@ B 的等待、C 的重試、D 全部關閉）：
 
 ## Result
 
-全套測試：`capi-only` 996/996（721 core、274 capi、1 integration）。修正後重跑 `verifier` 的探針：延遲 0–20 ms 讀 repo state，`indexLocked` 各 0/40（修正前 10 ms 為 35/40）；持鎖 close 3 個排隊操作 0 ms。`capi-only` 的 `LastTestsFailed.log` 可能留著舊內容（當時只建了 `gbm_capi_tests`，
+全套測試：`capi-only` 996/996（721 core、274 capi、1 integration）。修正後重跑 `verifier` 的探針：延遲 0–20 ms 讀 repo state，`indexLocked` 各 0/40（修正前 10 ms 為 35/40）；持鎖 close 3 個排隊操作，探針只計 close 本身是 0 ms，上表的 195 ms 是整個測試的時間。第二輪 fresh `verifier` 判定 CONFIRMED，並另外在 TSan 下跑過相關測試，無警告；P3、P4 建議依規則不再改動行為，列在下面。`capi-only` 的 `LastTestsFailed.log` 可能留著舊內容（當時只建了 `gbm_capi_tests`，
 `gbm_core_tests_NOT_BUILT` 顯示失敗），以 `LastTest.log` 的 Failed 數為準。沒有改動 Dart，因此未跑 Flutter 與 device tier。
 
 **還沒解掉的部分**：
@@ -113,7 +113,10 @@ B 的等待、C 的重試、D 全部關閉）：
 - 外部程序持鎖超過 2 秒，使用者仍會看到現有的 Retry 對話框，這是刻意的。
 - 使用者寫入會排在執行中的 refresh 後面，大 repo 上最多延遲一次 refresh（106–604 ms），最多每 30 秒發生一次。
 - refresh 持鎖期間，使用者在終端機跑的 `git add` 可能失敗；窗口同上。這一輪修掉的 `git diff` auto-refresh 窗口更頻繁，每次背景 diff 都可能遇到。
-- 同一瞬間若外部程序也持鎖，`state()` 這一次不會回報，下一次讀取才會。
+- 外部程序在 refresh 期間持鎖，`state()` 要到 refresh 結束後的第一次讀取才回報；stat-dirty 的 2 萬檔 repo 量到最多隱藏 517 ms。
+- 關閉 session 時若外部程序短暫持鎖，排隊中的寫入會失敗而不是等待（持鎖 30、100、500 ms 都是如此）。`main` 本來就不等，所以不是回歸。
+- `Session::repoState` 改走 `OperationRunner::state()` 這條接線沒有測試：改回 `RepoState::read` 時 274 個 capi 測試全綠，目前只有探針證明。
+- exit 128 一律視為 benign，損毀的 index 不會由 refresh 回報；status 讀取是否回報沒有查。
 - C 只涵蓋 stage、unstage、partial stage。其他寫入在 preflight 之後才失去鎖時仍回報 `LockHeld`，因為多步驟操作重跑不安全。
 - `ProcessTempDir` 和 D 的 Windows 行為只有 Windows CI 看得到，本機沒有驗證。
 - 100k repo 第一輪的 `diff`（auto-refresh 開啟）量到 10402 ms，只有一個樣本，原因沒查，沒有當成證據。

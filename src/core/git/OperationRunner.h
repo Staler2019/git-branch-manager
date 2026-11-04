@@ -111,9 +111,9 @@ public:
     /// a merge can have changed something before the lock failure.
     virtual bool retriesOnLockHeld() const { return false; }
 
-    /// Upkeep the user neither asked for nor can see. It leaves no undo point and
-    /// no "Starting:" log line, and gives way at once to a held `index.lock`
-    /// instead of waiting: skipping one round costs nothing.
+    /// Upkeep the user did not ask for; only the Log panel shows its git command.
+    /// It leaves no undo point and no "Starting:" log line, and gives way at once
+    /// to a held `index.lock` instead of waiting: skipping one round costs nothing.
     virtual bool isHousekeeping() const { return false; }
 
     /// Runs the operation. Called on the repository's serial queue.
@@ -240,8 +240,9 @@ public:
 
     const std::vector<UndoEntry>& undoJournal() const;
 
-    /// The session is closing: nobody is left to care about a lock wait, so end
-    /// them, and cancel queued background work. Called before drain(), which an
+    /// The session is closing: end every lock wait, so a queued write that meets a
+    /// live lock fails instead of holding up the close, and cancel queued
+    /// background work. Called before drain(), which an
     /// operation queued by a session must not make wait.
     void prepareForShutdown();
 

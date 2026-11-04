@@ -136,6 +136,17 @@ TEST_F(RefreshIndexOperation, RunsUpdateIndexRefreshAndAddsNoUndoPoint) {
     EXPECT_TRUE(runner.undoJournal().empty());
 }
 
+TEST_F(RefreshIndexOperation, TheExitCodesAnUnmergedOrLockedIndexGivesAreNotErrors) {
+    OperationRunner runner(process_, paths_);
+    runToCompletion(runner);
+
+    ASSERT_EQ(process_.invocationCount(), 1u);
+    const GitCommand& command = process_.invocations()[0];
+    EXPECT_TRUE(command.isBenignExitCode(1)) << "an unmerged entry after a stash pop conflict";
+    EXPECT_TRUE(command.isBenignExitCode(128)) << "another process took the lock first";
+    EXPECT_FALSE(command.isBenignExitCode(129)) << "a usage error is still our bug";
+}
+
 TEST_F(RefreshIndexOperation, YieldsAtOnceToAHeldLockWithoutRunningGit) {
     std::ofstream(paths_.indexLockFile()) << "";
     OperationRunner runner(process_, paths_, std::chrono::seconds(60));

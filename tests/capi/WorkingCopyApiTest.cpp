@@ -882,5 +882,31 @@ TEST_F(WorkingCopyApiTest, TheIndexStatCacheIsRefreshedAtMostOnceInTheInterval) 
     EXPECT_TRUE(isStatDirty("same.txt")) << "the second refresh is inside the interval";
 }
 
+TEST_F(WorkingCopyApiTest, TheIndexRefreshOnAnUnmergedIndexIsNotLoggedAsAnError) {
+    // A stash pop conflict: unmerged entries with no MERGE_HEAD, so no sequencer
+    // state stops the refresh, and update-index answers 1.
+    ASSERT_EQ(runGit({"stash", "push", "--quiet"}), 0);
+    std::ofstream(repo_ / "committed.txt") << "other\n";
+    ASSERT_EQ(runGit({"commit", "--quiet", "-am", "Conflicting change"}), 0);
+    ASSERT_NE(runGit({"stash", "pop", "--quiet"}), 0);
+
+    gbm_working_copy_refresh(session_);
+
+    const auto isRefreshResult = [](const std::string& payload) {
+        return payload.find("update-index") != std::string::npos &&
+               payload.find("\"exitCode\":1") != std::string::npos;
+    };
+    ASSERT_TRUE(log_.waitFor([&](const auto& events) {
+        return std::any_of(events.begin(), events.end(), [&](const auto& event) {
+            return event.first == GBM_EVENT_OPERATION_LOG_RECORD && isRefreshResult(event.second);
+        });
+    }));
+    for (const std::string& payload : log_.payloadsOfType(GBM_EVENT_OPERATION_LOG_RECORD)) {
+        if (isRefreshResult(payload)) {
+            EXPECT_NE(payload.find("\"benignExit\":true"), std::string::npos) << payload;
+        }
+    }
+}
+
 }  // namespace
 }  // namespace gbm::capi

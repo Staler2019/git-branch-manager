@@ -99,9 +99,11 @@ public:
         OperationOutcome outcome;
         // No token: not killableMidFlight(), and closing the session cancels
         // every operation's source, which must not reach a git holding the lock.
-        auto result =
-            runner.run(GitCommand(paths.commandDir(), {"update-index", "-q", "--refresh"}),
-                       CancellationToken{});
+        GitCommand command(paths.commandDir(), {"update-index", "-q", "--refresh"});
+        // 1: an unmerged entry, as after a stash pop conflict. 128: another process
+        // took the lock after preflight. Neither is something the user asked about.
+        command.benignExitCodes = {1, 128};
+        auto result = runner.run(command, CancellationToken{});
         if (result) {
             outcome.succeeded = true;
             return outcome;

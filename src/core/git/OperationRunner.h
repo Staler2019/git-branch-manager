@@ -208,7 +208,9 @@ public:
     /// runner this is may name the operation for a cancel.
     bool runs(std::uint64_t id) const;
 
-    /// Current on-disk state. Cheap; safe to call often.
+    /// Current on-disk state. Cheap; safe to call often. `indexLocked` leaves out
+    /// the lock of running housekeeping: it is ours and gone in moments, and a
+    /// reader would call it another Git process.
     RepoState state() const;
 
     /// Deletes `.git/index.lock`, but only after re-validating server-side
@@ -284,6 +286,8 @@ private:
     bool busy_ = false;
     bool stopping_ = false;
     bool preparingForShutdown_ = false;
+    /// Odd while a housekeeping operation runs; state() compares it around its read.
+    std::atomic<std::uint64_t> housekeepingEdges_{0};
 };
 
 }  // namespace gbm

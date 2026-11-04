@@ -29,7 +29,16 @@ OperationRunner::~OperationRunner() {
 }
 
 RepoState OperationRunner::state() const {
-    return RepoState::read(paths_);
+    const std::uint64_t before = housekeepingEdges_.load();
+    RepoState current = RepoState::read(paths_);
+    // Housekeeping's git holds the lock only between its two edges, so a read that
+    // saw that lock either began inside them or has an edge after it. An outside
+    // lock in that same moment goes unreported until the next read.
+    if (current.indexLocked && (before % 2 != 0 || housekeepingEdges_.load() != before)) {
+        current.indexLocked = false;
+        current.indexLockAgeSeconds.reset();
+    }
+    return current;
 }
 
 const std::vector<OperationRunner::UndoEntry>& OperationRunner::undoJournal() const {
@@ -241,7 +250,10 @@ void OperationRunner::workerLoop() {
         } else if (auto blocked = preflight(*queued.operation, queued.source)) {
             outcome = std::move(*blocked);
         } else {
-            if (!queued.operation->isHousekeeping()) {
+            const bool housekeeping = queued.operation->isHousekeeping();
+            if (housekeeping) {
+                ++housekeepingEdges_;
+            } else {
                 recordUndoPoint(*queued.operation);
                 logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
             }
@@ -265,6 +277,9 @@ void OperationRunner::workerLoop() {
                 outcome.succeeded = false;
                 outcome.error = GitError(
                     GitError::Code::Unknown, "The operation failed unexpectedly", ex.what());
+            }
+            if (housekeeping) {
+                ++housekeepingEdges_;
             }
         }
 

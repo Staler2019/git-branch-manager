@@ -265,6 +265,52 @@ TEST_F(OperationRunnerLockWaitTest, BackgroundWorkSubmittedAfterPreparingForShut
     EXPECT_EQ(process_.invocationCount(), 0u);
 }
 
+TEST_F(OperationRunnerLockWaitTest, TheLockOfRunningHousekeepingIsNotReportedAsAnotherProcess) {
+    std::promise<void> holding;
+    std::promise<void> release;
+    OperationRunner runner(process_, *paths_);
+    runner.submit(std::make_unique<LockHoldingOperation>(
+                      paths_->indexLockFile(), true, holding, release.get_future().share()),
+                  nullptr);
+    holding.get_future().wait();
+
+    const RepoState state = runner.state();
+
+    release.set_value();
+    EXPECT_FALSE(state.indexLocked);
+    EXPECT_FALSE(state.indexLockAgeSeconds.has_value());
+}
+
+TEST_F(OperationRunnerLockWaitTest, ALockHeldDuringAnyOtherOperationIsStillReported) {
+    std::promise<void> holding;
+    std::promise<void> release;
+    OperationRunner runner(process_, *paths_);
+    runner.submit(std::make_unique<LockHoldingOperation>(
+                      paths_->indexLockFile(), false, holding, release.get_future().share()),
+                  nullptr);
+    holding.get_future().wait();
+
+    const bool locked = runner.state().indexLocked;
+
+    release.set_value();
+    EXPECT_TRUE(locked);
+}
+
+TEST_F(OperationRunnerLockWaitTest, AnExternalLockIsReportedAfterHousekeepingFinished) {
+    std::promise<void> holding;
+    std::promise<void> release;
+    OperationRunner runner(process_, *paths_);
+    runner.submit(std::make_unique<LockHoldingOperation>(
+                      paths_->indexLockFile(), true, holding, release.get_future().share()),
+                  nullptr);
+    holding.get_future().wait();
+    release.set_value();
+    runner.drain();
+
+    holdLock();
+    EXPECT_TRUE(runner.state().indexLocked);
+}
+
 TEST_F(OperationRunnerLockWaitTest, AnOperationThatLostTheLockIsRunAgain) {
     OperationRunner runner(process_, *paths_, 100ms);
     std::promise<OperationOutcome> done;

@@ -290,7 +290,7 @@ void Session::registerCallback(GbmEventCallback callback, void* userData) {
 }
 
 RepoState Session::repoState() const {
-    return RepoState::read(paths_);
+    return operations_->state();
 }
 
 bool Session::removeStaleIndexLock() {

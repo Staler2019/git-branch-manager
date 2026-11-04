@@ -228,6 +228,30 @@ protected:
         return succeeded;
     }
 
+    /// A tracked file whose content is unchanged but whose stat no longer matches
+    /// the index -- what a tool rewriting identical bytes leaves behind.
+    void makeStatDirty(const std::string& file, std::chrono::hours age) {
+        std::filesystem::last_write_time(repo_ / file,
+                                         std::filesystem::file_time_type::clock::now() - age);
+    }
+
+    /// `diff-files` compares stat only and never writes the index, so it can tell
+    /// whether the entry has been refreshed without refreshing it.
+    bool isStatDirty(const std::string& file) {
+        return GitCli::capture(repo_, {"diff-files", "--name-only", "--", file}).out == file;
+    }
+
+    bool refreshUntilStatClean(const std::string& file) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (!isStatDirty(file)) {
+                return true;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return false;
+    }
+
     std::filesystem::path repo_;
     GbmSessionHandle session_ = nullptr;
     EventLog log_;
@@ -829,6 +853,33 @@ TEST_F(WorkingCopyApiTest, FullDiffRequestWaitsBehindAlreadyQueuedReadWork) {
         },
         hasFullDiffReply,
         /*shouldJump=*/false);
+}
+
+TEST_F(WorkingCopyApiTest, RefreshingTheWorkingCopyAlsoRefreshesTheIndexStatCache) {
+    std::ofstream(repo_ / "same.txt") << "same\n";
+    ASSERT_EQ(runGit({"add", "same.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add same"}), 0);
+    makeStatDirty("same.txt", std::chrono::hours(1));
+    ASSERT_TRUE(isStatDirty("same.txt"));
+
+    gbm_working_copy_refresh(session_);
+
+    EXPECT_TRUE(refreshUntilStatClean("same.txt"));
+}
+
+TEST_F(WorkingCopyApiTest, TheIndexStatCacheIsRefreshedAtMostOnceInTheInterval) {
+    std::ofstream(repo_ / "same.txt") << "same\n";
+    ASSERT_EQ(runGit({"add", "same.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add same"}), 0);
+    gbm_working_copy_refresh(session_);
+    makeStatDirty("same.txt", std::chrono::hours(1));
+    ASSERT_TRUE(refreshUntilStatClean("same.txt"));
+
+    makeStatDirty("same.txt", std::chrono::hours(2));
+    gbm_working_copy_refresh(session_);
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    EXPECT_TRUE(isStatDirty("same.txt")) << "the second refresh is inside the interval";
 }
 
 }  // namespace

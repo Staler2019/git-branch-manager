@@ -177,8 +177,9 @@ struct GitCommand {
     /// with this config). `git apply --cached` leaves exactly such an entry, so
     /// the refresh after a hunk stage could cost the next unstage its lock (#194).
     /// The cost is that a stat-dirty file is compared by content on every diff
-    /// until a write refreshes it: 734 ms per diff with 5000 such files, against
-    /// 1065 ms once and then 11 ms before.
+    /// until something refreshes it: 734 ms per diff with 5000 such files, against
+    /// 1065 ms once and then 11 ms before. makeRefreshIndexOperation() is that
+    /// something.
     ///
     /// It is not sufficient on its own. On a machine with `core.fsmonitor=true`
     /// a background work-tree-vs-index read still cost a concurrent user write

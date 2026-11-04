@@ -3,8 +3,10 @@
 #include "core/git/OperationRunner.h"
 #include "core/git/RepoPaths.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace gbm {
 
@@ -56,5 +58,24 @@ struct WriteCommitGraphRequest {
 /// state to leave behind, so this is the rare operation that is safe to kill
 /// mid-flight.
 std::unique_ptr<Operation> makeWriteCommitGraphOperation(WriteCommitGraphRequest request);
+
+/// How often the index's stat cache may be refreshed. 5000 stat-dirty files in a
+/// 100k-file repository cost 604 ms to refresh once and 3597 ms on every status
+/// until something does; a clean refresh costs 106 ms.
+inline constexpr std::chrono::seconds kIndexRefreshMinInterval{30};
+
+/// Whether enough time has passed since `last` to refresh the stat cache again.
+/// Pure for the same reason as shouldOfferCommitGraph().
+bool shouldRefreshIndex(std::optional<std::chrono::steady_clock::time_point> last,
+                        std::chrono::steady_clock::time_point now);
+
+/// `git update-index -q --refresh`.
+///
+/// `diff.autoRefreshIndex=false` and `--no-optional-locks` stop every read from
+/// writing the index (#194), so nothing would refresh its stat cache otherwise.
+/// This does it where writes are already serialised. A foreground operation
+/// cancels one still queued; a running one finishes, since killing git could
+/// strand its lock.
+std::unique_ptr<Operation> makeRefreshIndexOperation();
 
 }  // namespace gbm

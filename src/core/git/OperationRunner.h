@@ -111,6 +111,11 @@ public:
     /// a merge can have changed something before the lock failure.
     virtual bool retriesOnLockHeld() const { return false; }
 
+    /// Upkeep the user neither asked for nor can see. It leaves no undo point and
+    /// no "Starting:" log line, and gives way at once to a held `index.lock`
+    /// instead of waiting: skipping one round costs nothing.
+    virtual bool isHousekeeping() const { return false; }
+
     /// Runs the operation. Called on the repository's serial queue.
     virtual OperationOutcome run(IProcessRunner& runner,
                                  const RepoPaths& paths,

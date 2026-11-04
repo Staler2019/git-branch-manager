@@ -138,7 +138,9 @@ void OperationRunner::waitForLiveIndexLock(const CancellationSource& source) {
 
 std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation,
                                                            const CancellationSource& source) {
-    waitForLiveIndexLock(source);
+    if (!operation.isHousekeeping()) {
+        waitForLiveIndexLock(source);
+    }
     if (source.isCancelled()) {
         OperationOutcome outcome;
         outcome.succeeded = false;
@@ -236,8 +238,10 @@ void OperationRunner::workerLoop() {
         } else if (auto blocked = preflight(*queued.operation, queued.source)) {
             outcome = std::move(*blocked);
         } else {
-            recordUndoPoint(*queued.operation);
-            logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
+            if (!queued.operation->isHousekeeping()) {
+                recordUndoPoint(*queued.operation);
+                logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
+            }
             try {
                 const QueuedOperationScope scope(queued.id);
                 outcome = queued.operation->run(runner_, paths_, queued.source.token());

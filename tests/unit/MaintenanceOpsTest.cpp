@@ -1,8 +1,11 @@
 #include "core/git/RepoPaths.h"
 #include "core/git/ops/MaintenanceOps.h"
+#include "support/FakeProcessRunner.h"
 
+#include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <gtest/gtest.h>
 #include <string>
 
@@ -86,6 +89,68 @@ TEST_F(CommitGraphDetection, TrueForTheSingleFileForm) {
 TEST_F(CommitGraphDetection, TrueForTheSplitChainForm) {
     touch(paths_.commitGraphChainFile());
     EXPECT_TRUE(hasCommitGraph(paths_));
+}
+
+// --- shouldRefreshIndex -----------------------------------------------------
+
+TEST(MaintenanceOps, RefreshesTheIndexWhenItNeverHas) {
+    EXPECT_TRUE(shouldRefreshIndex(std::nullopt, std::chrono::steady_clock::now()));
+}
+
+TEST(MaintenanceOps, DoesNotRefreshTheIndexInsideTheInterval) {
+    const auto last = std::chrono::steady_clock::now();
+    EXPECT_FALSE(shouldRefreshIndex(last, last));
+    EXPECT_FALSE(
+        shouldRefreshIndex(last, last + kIndexRefreshMinInterval - std::chrono::milliseconds(1)));
+}
+
+TEST(MaintenanceOps, RefreshesTheIndexOnceTheIntervalHasPassed) {
+    const auto last = std::chrono::steady_clock::now();
+    EXPECT_TRUE(shouldRefreshIndex(last, last + kIndexRefreshMinInterval));
+}
+
+// --- makeRefreshIndexOperation ----------------------------------------------
+
+class RefreshIndexOperation : public CommitGraphDetection {
+protected:
+    OperationOutcome runToCompletion(OperationRunner& runner) {
+        std::promise<OperationOutcome> done;
+        auto future = done.get_future();
+        runner.submit(makeRefreshIndexOperation(),
+                      [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+        EXPECT_EQ(future.wait_for(std::chrono::seconds(5)), std::future_status::ready)
+            << "nobody asked for this work, so it must not sit out a lock";
+        return future.get();
+    }
+
+    testing::FakeProcessRunner process_;
+};
+
+TEST_F(RefreshIndexOperation, RunsUpdateIndexRefreshAndAddsNoUndoPoint) {
+    OperationRunner runner(process_, paths_);
+    EXPECT_TRUE(runToCompletion(runner).succeeded);
+
+    ASSERT_EQ(process_.invocationCount(), 1u);
+    EXPECT_EQ(process_.invokedArgs(0),
+              (std::vector<std::string>{"update-index", "-q", "--refresh"}));
+    EXPECT_TRUE(runner.undoJournal().empty());
+}
+
+TEST_F(RefreshIndexOperation, YieldsAtOnceToAHeldLockWithoutRunningGit) {
+    std::ofstream(paths_.indexLockFile()) << "";
+    OperationRunner runner(process_, paths_, std::chrono::seconds(60));
+
+    const OperationOutcome outcome = runToCompletion(runner);
+
+    EXPECT_FALSE(outcome.succeeded);
+    EXPECT_EQ(process_.invocationCount(), 0u);
+}
+
+TEST_F(RefreshIndexOperation, IsBackgroundWorkThatCannotBeKilled) {
+    const auto operation = makeRefreshIndexOperation();
+    EXPECT_TRUE(operation->isBackground());
+    EXPECT_TRUE(operation->isHousekeeping());
+    EXPECT_FALSE(operation->killableMidFlight());
 }
 
 }  // namespace

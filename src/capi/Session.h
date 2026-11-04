@@ -60,6 +60,7 @@
 #include "core/workers/RefreshCoalescer.h"
 #include "core/workers/ThreadPool.h"
 
+#include <chrono>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -613,6 +614,12 @@ private:
     /// Serializes `record` and emits it as GBM_EVENT_OPERATION_LOG_RECORD.
     void publishOperationLogRecord(const OperationRecord& record);
 
+    /// Queues a stat-cache refresh at most every kIndexRefreshMinInterval. Reads
+    /// never write the index (#194), so this is what keeps them fast. A foreground
+    /// operation can cancel the queued one; the next trigger after the interval
+    /// makes up for it. Nothing reads the result: the user asked for none of this.
+    void maybeRefreshIndex();
+
     /// Copies operations_->undoJournal() into undoJournalCache_ under
     /// undoMutex_. Called only from within submitOperation()'s/
     /// submitWorkingCopyOperation()'s completion callback -- i.e. only ever
@@ -709,6 +716,11 @@ private:
     /// no reason.
     mutable std::mutex workingCopyMutex_;
     WorkingCopyStatusPtr workingCopyStatus_;
+
+    /// When maybeRefreshIndex() last submitted, under its own lock because
+    /// refreshWorkingCopy() is called from the FFI, operation and read threads.
+    std::mutex indexRefreshMutex_;
+    std::optional<std::chrono::steady_clock::time_point> lastIndexRefresh_;
 
     /// Guards refreshCoalescer_ and historyCancel_ below. refreshHistory() is
     /// reached from at least two threads in the shipping app --

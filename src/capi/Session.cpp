@@ -580,7 +580,20 @@ void Session::resetTo(ResetRequest request) {
     submitOperation(makeResetOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
 }
 
+void Session::maybeRefreshIndex() {
+    {
+        const auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lock(indexRefreshMutex_);
+        if (!shouldRefreshIndex(lastIndexRefresh_, now)) {
+            return;
+        }
+        lastIndexRefresh_ = now;
+    }
+    operations_->submit(makeRefreshIndexOperation(), nullptr);
+}
+
 void Session::refreshWorkingCopy() {
+    maybeRefreshIndex();
     sharedReadPool().post([this]() {
         const GitResult<WorkingCopyStatusPtr> result =
             workingCopyStatusReader_->read(readCancel_.token());

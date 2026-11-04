@@ -24,6 +24,7 @@ add_executable(gbm_core_tests
     unit/MergeOpsTest.cpp
     unit/OperationLogScopeTest.cpp
     unit/OperationRunnerCancelTest.cpp
+    unit/OperationRunnerLockWaitTest.cpp
     unit/OriginalOperationMessageTest.cpp
     unit/PreparedCommitMessageTest.cpp
     unit/ProcessRunnerTest.cpp

@@ -10,8 +10,10 @@
 
 namespace gbm {
 
-OperationRunner::OperationRunner(IProcessRunner& runner, RepoPaths paths)
-    : runner_(runner), paths_(std::move(paths)) {
+OperationRunner::OperationRunner(IProcessRunner& runner,
+                                 RepoPaths paths,
+                                 std::chrono::milliseconds lockWait)
+    : runner_(runner), paths_(std::move(paths)), lockWait_(lockWait) {
     worker_ = std::thread([this] { workerLoop(); });
 }
 
@@ -113,7 +115,37 @@ bool OperationRunner::removeStaleIndexLock() {
     return !ec;
 }
 
-std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation) {
+void OperationRunner::waitForLiveIndexLock(const CancellationSource& source) {
+    constexpr auto kPoll = std::chrono::milliseconds(20);
+    const auto deadline = std::chrono::steady_clock::now() + lockWait_;
+    for (;;) {
+        const RepoState current = RepoState::read(paths_);
+        const bool stale =
+            current.indexLockAgeSeconds && *current.indexLockAgeSeconds > kStaleLockSeconds;
+        if (!current.indexLocked || stale || source.isCancelled() ||
+            std::chrono::steady_clock::now() >= deadline) {
+            return;
+        }
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stopping_) {
+                return;
+            }
+        }
+        std::this_thread::sleep_for(kPoll);
+    }
+}
+
+std::optional<OperationOutcome> OperationRunner::preflight(const Operation& operation,
+                                                           const CancellationSource& source) {
+    waitForLiveIndexLock(source);
+    if (source.isCancelled()) {
+        OperationOutcome outcome;
+        outcome.succeeded = false;
+        outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
+        return outcome;
+    }
+
     const RepoState current = RepoState::read(paths_);
 
     if (current.indexLocked) {
@@ -201,7 +233,7 @@ void OperationRunner::workerLoop() {
         if (queued.source.isCancelled()) {
             outcome.succeeded = false;
             outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
-        } else if (auto blocked = preflight(*queued.operation)) {
+        } else if (auto blocked = preflight(*queued.operation, queued.source)) {
             outcome = std::move(*blocked);
         } else {
             recordUndoPoint(*queued.operation);

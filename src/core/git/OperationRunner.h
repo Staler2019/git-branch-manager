@@ -8,6 +8,7 @@
 #include "core/git/RepoState.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
@@ -119,14 +120,22 @@ public:
 ///
 /// One queue per repository means we can never race ourselves for `index.lock`.
 /// Cross-process races (the user's terminal, an IDE, a hook) remain possible, so
-/// each operation still checks for the lock and reports it rather than stomping.
+/// each operation still checks for the lock, waits briefly for a live one, and
+/// reports it rather than stomping.
 class OperationRunner {
 public:
     /// A lock younger than this is assumed live: offering to delete it would
     /// invite users to break a running operation.
     static constexpr std::int64_t kStaleLockSeconds = 600;
 
-    OperationRunner(IProcessRunner& runner, RepoPaths paths);
+    /// How long preflight() waits for another process's live lock to go away
+    /// before reporting it: long enough for `git update-index --refresh` on a
+    /// 100k-file repository (604 ms with 5000 stat-dirty files).
+    static constexpr std::chrono::milliseconds kLockWait{2000};
+
+    OperationRunner(IProcessRunner& runner,
+                    RepoPaths paths,
+                    std::chrono::milliseconds lockWait = kLockWait);
     ~OperationRunner();
 
     OperationRunner(const OperationRunner&) = delete;
@@ -219,13 +228,19 @@ public:
 
 private:
     void workerLoop();
-    /// Refuses to start when a lock is held or an incompatible operation is in
-    /// progress, returning the choices that would unblock it.
-    std::optional<OperationOutcome> preflight(const Operation& operation);
+    /// Refuses to start when a lock is still held after waitForLiveIndexLock(),
+    /// or an incompatible operation is in progress, returning the choices that
+    /// would unblock it.
+    std::optional<OperationOutcome> preflight(const Operation& operation,
+                                              const CancellationSource& source);
+    /// Returns once the lock is gone, stale, past lockWait_, or waiting has
+    /// become pointless (cancelled, shutting down). Never touches the lock.
+    void waitForLiveIndexLock(const CancellationSource& source);
     void recordUndoPoint(const Operation& operation);
 
     IProcessRunner& runner_;
     RepoPaths paths_;
+    std::chrono::milliseconds lockWait_;
 
     struct QueuedOperation {
         std::uint64_t id;

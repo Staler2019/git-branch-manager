@@ -170,6 +170,16 @@ struct GitCommand {
     /// status may re-stat more files; that is the documented trade-off git
     /// itself names for this flag.
     ///
+    /// `diff.autoRefreshIndex=false` is the half that flag does not cover: at the
+    /// end of a `git diff` that met a stat-dirty entry whose content had not
+    /// changed, git refreshes the index and takes the lock, with or without
+    /// `--no-optional-locks` (measured on git 2.56: 5 of 5 index rewrites, 0 of 5
+    /// with this config). `git apply --cached` leaves exactly such an entry, so
+    /// the refresh after a hunk stage could cost the next unstage its lock (#194).
+    /// The cost is that a stat-dirty file is compared by content on every diff
+    /// until a write refreshes it: 734 ms per diff with 5000 such files, against
+    /// 1065 ms once and then 11 ms before.
+    ///
     /// It is not sufficient on its own. On a machine with `core.fsmonitor=true`
     /// a background work-tree-vs-index read still cost a concurrent user write
     /// its `.git/index.lock` -- reproducibly, with the creator never
@@ -183,6 +193,8 @@ struct GitCommand {
             "color.ui=false",
             "-c",
             "advice.detachedHead=false",
+            "-c",
+            "diff.autoRefreshIndex=false",
             "--no-pager",
             "--no-optional-locks",
         };
@@ -208,16 +220,19 @@ struct GitCommand {
     /// **The process that creates the lock was never identified, and this
     /// comment does not pretend otherwise.** What was ruled out, each by direct
     /// observation rather than argument:
-    ///   * git reads never create `.git/index.lock` at all. A tight poller that
+    ///   * ~~git reads never create `.git/index.lock` at all.~~ Wrong for a
+    ///     stat-dirty entry with unchanged content, which the fixtures below never
+    ///     built: see `diff.autoRefreshIndex` in globalFlags(). A tight poller that
     ///     positively catches `git add` taking it (8162 samples in one run) saw
     ///     zero for `status`, for both `--numstat` passes and for the `-U3`
     ///     work-tree diff -- warm fsmonitor daemon, cold daemon, stale stat
     ///     data and immediately after another process rewrote the index.
-    ///   * So `--no-optional-locks` is doing its job, and the two candidate
-    ///     mechanisms that would have explained everything are both dead: the
-    ///     fsmonitor token is not a "required" index write, and `git diff`'s
+    ///   * So `--no-optional-locks` is doing its job, and ~~the two candidate
+    ///     mechanisms that would have explained everything are both dead~~ the
+    ///     fsmonitor token is not a "required" index write. ~~`git diff`'s
     ///     end-of-run auto-refresh (`diff.autoRefreshIndex`) does not survive
-    ///     `--no-optional-locks` either.
+    ///     `--no-optional-locks` either.~~ It does survive, and it is the holder
+    ///     on machines without fsmonitor (#194).
     ///   * At the instant of failure no git process except `fsmonitor--daemon`
     ///     was alive and the lock file was already gone.
     ///   * The app is not the creator: RepoState::read() only `stat()`s the

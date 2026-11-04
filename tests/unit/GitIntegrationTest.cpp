@@ -2081,6 +2081,63 @@ TEST_F(RealRepoTest, StatusReadDoesNotRewriteTheIndex) {
            "LockHeld. See GitCommand::globalFlags()'s --no-optional-locks.";
 }
 
+/// `git diff` refreshes the index when it ends if it found a stat-dirty entry
+/// whose content had not changed, and `--no-optional-locks` does not stop it.
+/// `git apply --cached` leaves exactly that entry behind, which is how the
+/// refresh after a hunk stage cost the next unstage its index.lock (#194).
+TEST_F(RealRepoTest, WorkTreeDiffOfAStatDirtyFileDoesNotRewriteTheIndex) {
+    commitFile("single.txt", "a\nb\nc\n", "c1");
+    std::filesystem::last_write_time(
+        repo_ / "single.txt",
+        std::filesystem::file_time_type::clock::now() - std::chrono::hours(24 * 365));
+
+    const auto readIndexBytes = [this]() {
+        std::ifstream in(repo_ / ".git" / "index", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    };
+    const std::string before = readIndexBytes();
+    ASSERT_FALSE(before.empty());
+
+    DiffService diffs(*runner_, paths_);
+    const auto diff =
+        diffs.workingTreeDiff(/*staged=*/false, {"single.txt"}, DiffOptions{}, CancellationToken{});
+    ASSERT_TRUE(diff) << diff.error().message;
+    EXPECT_TRUE((*diff)->files.empty());
+
+    EXPECT_EQ(readIndexBytes(), before)
+        << "a work-tree diff rewrote .git/index, which means it took the index "
+           "lock. See GitCommand::globalFlags()'s diff.autoRefreshIndex.";
+}
+
+/// The same refresh through the status read's `--numstat` pass, which runs only
+/// when status lists an unstaged file: hence the second, really modified file.
+TEST_F(RealRepoTest, StatusReadWithAStatDirtyFileDoesNotRewriteTheIndex) {
+    commitFile("single.txt", "a\nb\nc\n", "c1");
+    commitFile("changed.txt", "one\n", "c2");
+    std::filesystem::last_write_time(
+        repo_ / "single.txt",
+        std::filesystem::file_time_type::clock::now() - std::chrono::hours(24 * 365));
+    std::ofstream(repo_ / "changed.txt") << "one\ntwo\n";
+
+    const auto readIndexBytes = [this]() {
+        std::ifstream in(repo_ / ".git" / "index", std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    };
+    const std::string before = readIndexBytes();
+    ASSERT_FALSE(before.empty());
+
+    WorkingCopyStatusReader reader(*runner_, paths_);
+    const auto status = reader.read(CancellationToken{});
+    ASSERT_TRUE(status) << status.error().message;
+    ASSERT_EQ((*status)->entries.size(), 1u);
+
+    EXPECT_EQ(readIndexBytes(), before)
+        << "a status read rewrote .git/index, which means it took the index "
+           "lock. See GitCommand::globalFlags()'s diff.autoRefreshIndex.";
+}
+
 TEST_F(RealRepoTest, WorkingCopyStatusDetectsARenameStagedForCommit) {
     commitFile("original.txt", "line1\nline2\nline3\nline4\nline5\n", "c1");
     ASSERT_TRUE(run({"mv", "original.txt", "renamed.txt"}));

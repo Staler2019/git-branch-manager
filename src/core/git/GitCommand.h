@@ -181,11 +181,12 @@ struct GitCommand {
     /// 1065 ms once and then 11 ms before. makeRefreshIndexOperation() is that
     /// something.
     ///
-    /// It is not sufficient on its own. On a machine with `core.fsmonitor=true`
+    /// ~~It is not sufficient on its own. On a machine with `core.fsmonitor=true`
     /// a background work-tree-vs-index read still cost a concurrent user write
     /// its `.git/index.lock` -- reproducibly, with the creator never
     /// identified. `worktreeReadFlags()` below carries the measured fix and the
-    /// evidence; every read of that shape must prepend it.
+    /// evidence; every read of that shape must prepend it.~~ It is sufficient, on
+    /// fsmonitor machines too: `worktreeReadFlags()` below has the measurement.
     static std::vector<std::string> globalFlags() {
         return {
             "-c",
@@ -218,8 +219,16 @@ struct GitCommand {
     /// absent on CI -- so CI cannot see this, and neither could a reviewer
     /// reading the diff.
     ///
-    /// **The process that creates the lock was never identified, and this
-    /// comment does not pretend otherwise.** What was ruled out, each by direct
+    /// The holder is that same diff's auto-refresh (#194), measured on that test
+    /// with the fsmonitor machine's config, and with the lock wait, the retry and
+    /// the stat refresh all off so that none of them could hide the race:
+    ///
+    ///                             flag on   flag off
+    ///   diff.autoRefreshIndex on   0/30      27/30
+    ///   diff.autoRefreshIndex off  0/30       0/30, 0/100 with the stat refresh on
+    ///
+    /// ~~**The process that creates the lock was never identified, and this
+    /// comment does not pretend otherwise.**~~ What was ruled out, each by direct
     /// observation rather than argument:
     ///   * ~~git reads never create `.git/index.lock` at all.~~ Wrong for a
     ///     stat-dirty entry with unchanged content, which the fixtures below never
@@ -252,8 +261,11 @@ struct GitCommand {
     /// of asking the daemon -- and the status read that just ran has already
     /// warmed that cache.
     ///
-    /// If a later round identifies the holder, this becomes deletable. Until
-    /// then, dropping it should reproduce the 9/12 above; see docs/ledger.md.
+    /// ~~If a later round identifies the holder, this becomes deletable. Until
+    /// then, dropping it should reproduce the 9/12 above; see docs/ledger.md.~~
+    /// The holder is identified and lock safety no longer depends on this flag.
+    /// It stays because deleting it buys nothing: `diff --numstat` in a 100k-file
+    /// repository took 90-95 ms with it and 105-110 ms through the daemon.
     static std::vector<std::string> worktreeReadFlags() { return {"-c", "core.fsmonitor=false"}; }
 };
 

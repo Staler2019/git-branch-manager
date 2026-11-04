@@ -26,7 +26,8 @@ Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 
 - **Rule**: prepend `GitCommand::worktreeReadFlags()` to every background work-tree-vs-index `git diff`; never to `git status` (including the per-worktree pending count), never into `globalFlags()`.
 - **Do**: a new call site needs its own case in `tests/unit/WorktreeReadFlagsTest.cpp` — CI has no fsmonitor, so only an argv assertion can see a missing flag.
-- **Evidence**: `GitCommand.h`'s `worktreeReadFlags()` doc (9 of 12 `index.lock` failures, holder never identified); ledger: Working Copy 重新設計
+- **Consequence**: since #194 this is a speed choice (90-95 ms against 105-110 ms in a 100k-file repository), not lock safety: `diff.autoRefreshIndex=false` in `globalFlags()` is what stops a read from taking `index.lock`, and it took the 27/30 failures to 0/30 with this flag off.
+- **Evidence**: `GitCommand.h`'s `worktreeReadFlags()` doc; ledger: Working Copy 重新設計; [ledger: diff auto-refresh 拿 index.lock](../../docs/ledger/2026-11-04-fix-diff-auto-refresh-takes-index-lock.md)
 
 ## [GIT-background-fetch-refuses-prompts] A background fetch refuses every credential prompt and never touches the askpass watch
 

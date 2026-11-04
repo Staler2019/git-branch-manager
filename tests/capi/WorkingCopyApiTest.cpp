@@ -908,5 +908,20 @@ TEST_F(WorkingCopyApiTest, TheIndexRefreshOnAnUnmergedIndexIsNotLoggedAsAnError)
     }
 }
 
+TEST_F(WorkingCopyApiTest, ClosingDoesNotWaitOutALiveLockForEachQueuedOperation) {
+    std::ofstream(repo_ / ".git" / "index.lock") << "";
+    const char* paths[] = {"committed.txt"};
+    gbm_stage_files(session_, paths, 1);
+    gbm_stage_files(session_, paths, 1);
+    gbm_stage_files(session_, paths, 1);
+
+    const auto start = std::chrono::steady_clock::now();
+    gbm_session_close(session_);
+    session_ = nullptr;
+
+    EXPECT_LT(std::chrono::steady_clock::now() - start, std::chrono::seconds(3))
+        << "each queued operation would otherwise wait the whole 2 s limit";
+}
+
 }  // namespace
 }  // namespace gbm::capi

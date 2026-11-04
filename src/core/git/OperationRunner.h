@@ -238,6 +238,11 @@ public:
 
     const std::vector<UndoEntry>& undoJournal() const;
 
+    /// The session is closing: nobody is left to care about a lock wait, so end
+    /// them, and cancel queued background work. Called before drain(), which an
+    /// operation queued by a session must not make wait.
+    void prepareForShutdown();
+
     /// Blocks until the queue is empty. Tests and shutdown only.
     void drain();
 
@@ -278,6 +283,7 @@ private:
     CancellationSource runningSource_;
     bool busy_ = false;
     bool stopping_ = false;
+    bool preparingForShutdown_ = false;
 };
 
 }  // namespace gbm

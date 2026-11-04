@@ -206,6 +206,11 @@ Session::~Session() {
     // again once its teardown has started.
     unregisterLiveSession(this);
 
+    // A working-copy operation is not in inFlight_, so cancelOperations(0) below
+    // does not reach it: without this, each queued one waits out a live
+    // index.lock in turn, on the thread closing the session.
+    operations_->prepareForShutdown();
+
     // Cancel before draining, not merely alongside it: cancelOperations(0)
     // trips every in-flight/queued operation's token, so operations_->drain()
     // below waits on work this session's own cancellation already told to

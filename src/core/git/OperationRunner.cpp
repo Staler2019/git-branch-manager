@@ -51,6 +51,9 @@ OperationRunner::Handle OperationRunner::submit(std::unique_ptr<Operation> opera
                 }
             }
         }
+        if (preparingForShutdown_ && operation->isBackground()) {
+            handle.cancel.cancel();
+        }
         handle.id = nextQueuedOperationId();
         QueuedOperation queued{handle.id, std::move(operation), std::move(onDone), handle.cancel};
         queue_.push_back(std::move(queued));
@@ -128,7 +131,7 @@ void OperationRunner::waitForLiveIndexLock(const CancellationSource& source) {
         }
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (stopping_) {
+            if (stopping_ || preparingForShutdown_) {
                 return;
             }
         }
@@ -282,6 +285,16 @@ void OperationRunner::workerLoop() {
             if (queue_.empty()) {
                 idle_.notify_all();
             }
+        }
+    }
+}
+
+void OperationRunner::prepareForShutdown() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    preparingForShutdown_ = true;
+    for (auto& waiting : queue_) {
+        if (waiting.operation->isBackground()) {
+            waiting.source.cancel();
         }
     }
 }

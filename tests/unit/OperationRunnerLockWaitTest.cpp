@@ -6,6 +6,7 @@
 // no git and no timing race is involved beyond the wait being measured.
 #include "core/git/OperationRunner.h"
 #include "core/git/RepoPaths.h"
+#include "core/git/ops/MaintenanceOps.h"
 #include "core/git/ops/StageOps.h"
 #include "support/FakeProcessRunner.h"
 
@@ -70,6 +71,37 @@ private:
     int lockHeldRuns_;
     bool retries_;
     GitError::Code code_;
+};
+
+/// Holds the lock the way a running git does, until the test lets it go.
+class LockHoldingOperation final : public Operation {
+public:
+    LockHoldingOperation(const std::filesystem::path& lock,
+                         bool housekeeping,
+                         std::promise<void>& holding,
+                         std::shared_future<void> release)
+        : lock_(lock), housekeeping_(housekeeping), holding_(holding), release_(std::move(release)) {
+    }
+
+    std::string describe() const override { return "Lock holding test operation"; }
+
+    bool isHousekeeping() const override { return housekeeping_; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        std::ofstream(lock_) << "";
+        holding_.set_value();
+        release_.wait();
+        std::filesystem::remove(lock_);
+        OperationOutcome outcome;
+        outcome.succeeded = true;
+        return outcome;
+    }
+
+private:
+    std::filesystem::path lock_;
+    bool housekeeping_;
+    std::promise<void>& holding_;
+    std::shared_future<void> release_;
 };
 
 class OperationRunnerLockWaitTest : public ::testing::Test {
@@ -176,6 +208,61 @@ TEST_F(OperationRunnerLockWaitTest, ShuttingDownDuringTheWaitDoesNotSitOutTheLim
     }
     EXPECT_LT(std::chrono::steady_clock::now() - start, 5s);
     EXPECT_EQ(runs_, 0);
+}
+
+TEST_F(OperationRunnerLockWaitTest, PreparingForShutdownEndsAWaitWithLockHeld) {
+    holdLock();
+    std::promise<OperationOutcome> done;
+    OperationRunner runner(process_, *paths_, 60s);
+    runner.submit(std::make_unique<RecordingOperation>(runs_),
+                  [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+    std::this_thread::sleep_for(50ms);
+
+    runner.prepareForShutdown();
+
+    auto future = done.get_future();
+    ASSERT_EQ(future.wait_for(5s), std::future_status::ready);
+    const OperationOutcome outcome = future.get();
+    ASSERT_TRUE(outcome.error);
+    EXPECT_EQ(outcome.error->code, GitError::Code::LockHeld);
+    EXPECT_EQ(runs_, 0);
+}
+
+TEST_F(OperationRunnerLockWaitTest, PreparingForShutdownCancelsQueuedBackgroundWorkOnly) {
+    std::promise<void> holding;
+    std::promise<void> release;
+    OperationRunner runner(process_, *paths_, 100ms);
+    runner.submit(std::make_unique<LockHoldingOperation>(
+                      paths_->indexLockFile(), false, holding, release.get_future().share()),
+                  nullptr);
+    holding.get_future().wait();
+    std::promise<OperationOutcome> refreshDone;
+    runner.submit(makeRefreshIndexOperation(), [&refreshDone](OperationOutcome outcome) {
+        refreshDone.set_value(std::move(outcome));
+    });
+
+    runner.prepareForShutdown();
+    release.set_value();
+
+    const OperationOutcome outcome = refreshDone.get_future().get();
+    ASSERT_TRUE(outcome.error);
+    EXPECT_EQ(outcome.error->code, GitError::Code::Cancelled);
+    for (std::size_t i = 0; i < process_.invocationCount(); ++i) {
+        EXPECT_NE(process_.invokedArgs(i).front(), "update-index");
+    }
+}
+
+TEST_F(OperationRunnerLockWaitTest, BackgroundWorkSubmittedAfterPreparingForShutdownIsCancelled) {
+    OperationRunner runner(process_, *paths_);
+    runner.prepareForShutdown();
+    std::promise<OperationOutcome> done;
+    runner.submit(makeRefreshIndexOperation(),
+                  [&done](OperationOutcome outcome) { done.set_value(std::move(outcome)); });
+
+    const OperationOutcome outcome = done.get_future().get();
+    ASSERT_TRUE(outcome.error);
+    EXPECT_EQ(outcome.error->code, GitError::Code::Cancelled);
+    EXPECT_EQ(process_.invocationCount(), 0u);
 }
 
 TEST_F(OperationRunnerLockWaitTest, AnOperationThatLostTheLockIsRunAgain) {

@@ -42,3 +42,10 @@ Pin prefix `GIT-`. Format: [README.md](../../docs/rules/README.md).
 - **Consequence**: anything rebuilt from that diff's hunk indexes (partial unstage) points at the wrong hunk; a reply for `{old, new}` can carry two files, since git sorts by path and a new file may sit at `old`.
 - **Do**: pass `{oldPath, path}` and the same rename flag (`-M`, never the user's `diff.renames`) at every per-file diff and every rebuild, then keep only the file whose `newPath == path` (`Session::emitWorkingCopyDiff`, `PartialStageOperation::run`, `DiffService::commitFileDiff`, `CompareOps.cpp`).
 - **Evidence**: [ledger: fix/rename-diff-status-glyph](../../docs/ledger/2026-11-01-fix-rename-diff-status-glyph.md)
+
+## [GIT-reads-never-refresh-the-index] No read writes the index; one queued operation keeps the stat cache fresh
+
+- **Rule**: `globalFlags()` carries `--no-optional-locks` and `diff.autoRefreshIndex=false`, so the stat cache is refreshed only by `makeRefreshIndexOperation()`, at most every `kIndexRefreshMinInterval`, from `Session::refreshWorkingCopy()`.
+- **Consequence**: without the refresh, 5000 stat-dirty files in a 100k-file repository cost 3597 ms per status against 205 ms. With the auto-refresh back on, a background `git diff` takes `index.lock` and the next user write fails (27 of 30).
+- **Do**: never run a command that refreshes the index from `sharedReadPool()`; a race test for `index.lock` must turn this refresh off first, because it hides the race.
+- **Evidence**: [ledger: diff auto-refresh 拿 index.lock](../../docs/ledger/2026-11-04-fix-diff-auto-refresh-takes-index-lock.md)

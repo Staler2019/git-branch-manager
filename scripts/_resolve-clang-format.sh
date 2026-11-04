@@ -50,14 +50,16 @@ if command -v clang-format >/dev/null 2>&1; then
 fi
 
 # 4. Cached venv with the pinned PyPI wheel -- the always-works fallback.
-if [ ! -x "$venv_dir/bin/clang-format" ]; then
+# Asks the binary rather than checking it exists: a venv outlives the Python it
+# was built from, and then bin/clang-format is executable but cannot start.
+if [ "$(version_major "$venv_dir/bin/clang-format")" != "$want_major" ]; then
     if ! command -v python3 >/dev/null 2>&1; then
         echo "error: no clang-format 18 found and python3 is unavailable to install one" >&2
         exit 1
     fi
-    echo "Bootstrapping clang-format 18.1.8 into $venv_dir (one-time)..." >&2
+    echo "Bootstrapping clang-format 18.1.8 into $venv_dir..." >&2
     mkdir -p "$cache_dir"
-    python3 -m venv "$venv_dir" >&2
+    python3 -m venv --clear "$venv_dir" >&2
     "$venv_dir/bin/pip" install --quiet --upgrade pip >&2
     "$venv_dir/bin/pip" install --quiet "clang-format==18.1.8" >&2
 fi

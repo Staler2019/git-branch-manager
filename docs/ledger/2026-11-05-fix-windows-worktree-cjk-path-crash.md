@@ -129,6 +129,8 @@ PR 第一次跑 CI，1014 個紅 1 個：探針回 `inherited`。這條分支的
 這是由程式碼推論的假陽性，真正的物件沒有查過，也不知道為什麼這條分支才撞到。
 探針改成檢查有特定內容的 file mapping，另加 `TheProbeSeesAHandleThatWasReallyInherited` 當正向對照（真的 `bInheritHandles=TRUE` 要回 `inherited`）。兩個都只在 Windows CI 跑；改完若仍紅，就是真的洩漏。
 
+結果：`1ae67e3c` 的 Windows job 1015 個全過，兩個測試都綠，所以舊的紅是探針誤判，不是洩漏。撞到的物件仍未查明。PR #208 全部 13 個 check 通過後合併（`0fe79728`）。
+
 ### Verifier 的第一次判定：REFUTED
 
 | Finding | 處置 |
@@ -169,6 +171,10 @@ PR 第一次跑 CI，1014 個紅 1 個：探針回 `inherited`。這條分支的
 - **CP950 的例外本身 CI 重現不了**（CI 是 1252）；要繁中 Windows 實機確認。
 - `activeCodePage` 與 `RegGetValueW` 的實際行為沒有 CI tier 跑得到：manifest 測試只驗原始碼文字，
   registry 測試只在 Windows host 跑，而且測試行程本身沒有這個 manifest。
+
+## 合併後發現：token 會寫進 log 檔
+
+PR #208 合併後，下一輪的 security-reviewer 指出：`OperationRunner` 以 `"Operation: " + describe()` 當 `where`，`AddSubmoduleOperation::describe()` 又帶完整 URL，所以帶 token 的 `Add submodule` 拋例外時，token 會以明文寫進 `<temp>/gbm-native-errors.log`。Linux 上該檔權限由 umask 決定，共用 `/tmp` 時其他本機使用者可能讀得到。本輪的「例外防護」沒有看到這點。`src/` 沒有 `throw` 敘述，只有標準函式庫的例外會觸發，機率低，未實際觸發過。修正在 [feat/native-error-channel](2026-11-05-feat-native-error-channel.md)。
 
 ## 已知缺口
 

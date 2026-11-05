@@ -124,3 +124,15 @@ Dart ──> 每個 Log                  真實 GbmApp，FakeGbmBindings
 - 舊 log 只有 app 啟動註冊時移除；askpass 子行程不註冊，也不會移除。
 - 回報發生時等事件回覆的呼叫端仍可能一直等：本輪讓使用者看得到，沒有解開等待（後續 D）。
 - #207 的 CP950 例外 CI 重現不了，仍需繁中 Windows 實機確認，#207 維持開啟。
+
+### verifier 的結果
+
+CONFIRMED，只在 macOS arm64 實際執行；Linux、Windows 是讀碼，要看本 PR 的 CI。以下都是 P3／P4，記錄不修：
+
+- **`what()` 裡的憑證仍以明文進檔案**（P3）。S1 修的是 `where`；這條路靠 [CPP-exception-text-reaches-the-screen] 約束，目前 `src/` 沒有帶資料的 `throw`。檔案是 0600。
+- **截斷會讓憑證逃過遮罩**（P3）。`what()` 超過 2 KiB 且 URL 跨過邊界時，`@` 被切掉，`redactUrlCredentials` 原樣返回；前提同上，目前走不到。
+- C1 控制字元（如 U+009B）沒有跳脫（P4），部分終端機會解讀。
+- `appendToLog` 的 function-local `std::mutex`（既有）會在行程結束時析構，sink slot 則刻意不析構，兩者對 exit 期間的回報保護不一致（P4，未重現）。
+- A、B 交替的回報不會合併（P4），Log 有筆數上限。
+
+裝置測試的異常，verifier 同意不應收窄：沒有 native error 只排除回報路徑，不排除每次啟動都會跑的部分（listener、`NativeCallable`、舊檔移除）。

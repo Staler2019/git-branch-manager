@@ -23,9 +23,12 @@ std::string describeCurrentException();
 /// log sink and appends it to nativeErrorLogPath(). Never throws.
 void reportCurrentException(std::string_view where) noexcept;
 
-/// `<temp>/gbm-native-errors.log`. No log sink is installed in a release build and
-/// a Windows GUI app has no stderr, so this file is what a bug report can attach.
-/// Started over once it passes 1 MiB.
+/// `gbm-native-errors.log` under %LOCALAPPDATA%\\GitBranchManager\\logs,
+/// ~/Library/Logs/GitBranchManager or $XDG_STATE_HOME (~/.local/state)/gitbranchmanager;
+/// GBM_NATIVE_ERROR_LOG_DIR overrides it. Empty when none resolves, and then nothing
+/// is written. No log sink is installed in a release build and a Windows GUI app has
+/// no stderr, so this file is what a bug report can attach. Started over once it
+/// passes 1 MiB.
 std::filesystem::path nativeErrorLogPath();
 
 /// std::terminate writes the description to the log file and stderr before

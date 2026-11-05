@@ -5,6 +5,7 @@
 #include "core/workers/ThreadPool.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -40,8 +41,122 @@ protected:
     void SetUp() override {
         std::error_code ec;
         std::filesystem::remove(nativeErrorLogPath(), ec);
+        std::filesystem::create_directories(nativeErrorLogPath().parent_path(), ec);
     }
 };
+
+/// Sets or, with nullptr, clears one variable, and restores it.
+class ScopedEnv {
+public:
+    ScopedEnv(std::string name, const char* value) : name_(std::move(name)) {
+        const char* previous = std::getenv(name_.c_str());
+        hadValue_ = previous != nullptr;
+        previous_ = hadValue_ ? previous : "";
+        set(value);
+    }
+
+    ~ScopedEnv() { set(hadValue_ ? previous_.c_str() : nullptr); }
+
+    ScopedEnv(const ScopedEnv&) = delete;
+    ScopedEnv& operator=(const ScopedEnv&) = delete;
+
+private:
+    void set(const char* value) {
+#if defined(_WIN32)
+        _putenv_s(name_.c_str(), value != nullptr ? value : "");
+#else
+        if (value != nullptr) {
+            setenv(name_.c_str(), value, 1);
+        } else {
+            unsetenv(name_.c_str());
+        }
+#endif
+    }
+
+    std::string name_;
+    std::string previous_;
+    bool hadValue_ = false;
+};
+
+TEST(NativeErrorLogPath, ATestBinaryStaysInItsProcessPrivateDirectory) {
+    const std::filesystem::path log = nativeErrorLogPath();
+    const std::filesystem::path temp = std::filesystem::temp_directory_path();
+    EXPECT_EQ(log, temp / "native-error-logs" / "gbm-native-errors.log");
+}
+
+TEST(NativeErrorLogPath, WithNoOverrideItIsUnderThePerUserDirectory) {
+    const ScopedEnv noOverride("GBM_NATIVE_ERROR_LOG_DIR", nullptr);
+#if defined(_WIN32)
+    const ScopedEnv home("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local");
+    const std::filesystem::path expected = std::filesystem::path("C:\\Users\\u\\AppData\\Local") /
+                                           "GitBranchManager" / "logs";
+#elif defined(__APPLE__)
+    const ScopedEnv home("HOME", "/home/u");
+    const std::filesystem::path expected = "/home/u/Library/Logs/GitBranchManager";
+#else
+    const ScopedEnv home("HOME", "/home/u");
+    const ScopedEnv noState("XDG_STATE_HOME", nullptr);
+    const std::filesystem::path expected = "/home/u/.local/state/gitbranchmanager";
+#endif
+    EXPECT_EQ(nativeErrorLogPath(), expected / "gbm-native-errors.log");
+}
+
+#if !defined(_WIN32) && !defined(__APPLE__)
+TEST(NativeErrorLogPath, TheStateDirectoryIsHonouredOnlyWhenAbsolute) {
+    const ScopedEnv noOverride("GBM_NATIVE_ERROR_LOG_DIR", nullptr);
+    const ScopedEnv home("HOME", "/home/u");
+    {
+        const ScopedEnv state("XDG_STATE_HOME", "/state");
+        EXPECT_EQ(nativeErrorLogPath(), "/state/gitbranchmanager/gbm-native-errors.log");
+    }
+    const ScopedEnv state("XDG_STATE_HOME", "relative");
+    EXPECT_EQ(nativeErrorLogPath(), "/home/u/.local/state/gitbranchmanager/gbm-native-errors.log");
+}
+#endif
+
+TEST(NativeErrorLogPath, NoLocationMeansNoFileAndNoThrow) {
+    const ScopedEnv noOverride("GBM_NATIVE_ERROR_LOG_DIR", nullptr);
+#if defined(_WIN32)
+    const ScopedEnv noHome("LOCALAPPDATA", nullptr);
+#else
+    const ScopedEnv noHome("HOME", nullptr);
+    const ScopedEnv noState("XDG_STATE_HOME", nullptr);
+#endif
+    EXPECT_TRUE(nativeErrorLogPath().empty());
+    try {
+        throw std::runtime_error("boom");
+    } catch (...) {
+        reportCurrentException("nowhere to write");
+    }
+}
+
+TEST(NativeErrorLogPath, TheDirectoryIsCreatedOnTheFirstReport) {
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "not-yet" / "here";
+    const ScopedEnv override("GBM_NATIVE_ERROR_LOG_DIR", directory.string().c_str());
+    try {
+        throw std::runtime_error("boom");
+    } catch (...) {
+        reportCurrentException("first");
+    }
+    EXPECT_NE(readLog().find("first: "), std::string::npos);
+}
+
+#if !defined(_WIN32)
+TEST(NativeErrorLogPath, TheDirectoryAndFileAreReadableOnlyByTheirOwner) {
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() / "owner-only";
+    const ScopedEnv override("GBM_NATIVE_ERROR_LOG_DIR", directory.string().c_str());
+    try {
+        throw std::runtime_error("boom");
+    } catch (...) {
+        reportCurrentException("private");
+    }
+    const auto others = std::filesystem::perms::group_all | std::filesystem::perms::others_all;
+    EXPECT_EQ(std::filesystem::status(directory).permissions() & others,
+              std::filesystem::perms::none);
+    EXPECT_EQ(std::filesystem::status(nativeErrorLogPath()).permissions() & others,
+              std::filesystem::perms::none);
+}
+#endif
 
 TEST(DescribeCurrentException, ASystemErrorCarriesTypeWhatCodeAndCategory) {
     const std::string text = describeThrown([] {

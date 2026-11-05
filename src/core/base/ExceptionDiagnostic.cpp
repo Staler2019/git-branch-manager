@@ -19,11 +19,60 @@
 #include <memory>
 #endif
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
+
 namespace gbm {
 
 namespace {
 
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
+
+#if defined(_WIN32)
+std::filesystem::path pathFromEnv(const wchar_t* name) {
+    std::wstring value(32768, L'\0');
+    const DWORD length =
+        ::GetEnvironmentVariableW(name, value.data(), static_cast<DWORD>(value.size()));
+    if (length == 0 || length >= value.size()) {
+        return {};
+    }
+    value.resize(length);
+    return std::filesystem::path(value);
+}
+#else
+std::filesystem::path pathFromEnv(const char* name) {
+    const char* value = std::getenv(name);
+    return value != nullptr ? fsutil::pathFromUtf8(value) : std::filesystem::path{};
+}
+#endif
+
+/// Per user because a shared temp directory lets another local account read this
+/// file or plant a link at its fixed name.
+std::filesystem::path nativeErrorLogDirectory() {
+#if defined(_WIN32)
+    if (std::filesystem::path override = pathFromEnv(L"GBM_NATIVE_ERROR_LOG_DIR");
+        !override.empty()) {
+        return override;
+    }
+    const std::filesystem::path base = pathFromEnv(L"LOCALAPPDATA");
+    return base.empty() ? base : base / "GitBranchManager" / "logs";
+#else
+    if (std::filesystem::path override = pathFromEnv("GBM_NATIVE_ERROR_LOG_DIR");
+        !override.empty()) {
+        return override;
+    }
+    const std::filesystem::path home = pathFromEnv("HOME");
+#if defined(__APPLE__)
+    return home.empty() ? home : home / "Library" / "Logs" / "GitBranchManager";
+#else
+    if (const std::filesystem::path state = pathFromEnv("XDG_STATE_HOME"); state.is_absolute()) {
+        return state / "gitbranchmanager";
+    }
+    return home.empty() ? home : home / ".local" / "state" / "gitbranchmanager";
+#endif
+#endif
+}
 
 /// Length of the well-formed UTF-8 sequence at `index`, or 0 if there is none.
 /// As strict as Dart's utf8.decode: no overlong forms, no surrogates, nothing
@@ -95,6 +144,8 @@ void appendToLog(std::string_view where, std::string_view description) {
         return;
     }
     std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+    std::filesystem::permissions(path.parent_path(), std::filesystem::perms::owner_all, ec);
     const std::uintmax_t size = std::filesystem::file_size(path, ec);
     const bool startOver = !ec && size > kMaxLogBytes;
     std::ofstream out(path, std::ios::binary | (startOver ? std::ios::trunc : std::ios::app));
@@ -102,6 +153,9 @@ void appendToLog(std::string_view where, std::string_view description) {
     const auto now = std::chrono::system_clock::now().time_since_epoch();
     out << std::chrono::duration_cast<std::chrono::milliseconds>(now).count() << " thread "
         << std::this_thread::get_id() << " " << where << ": " << description << "\n";
+    out.close();
+    std::filesystem::permissions(
+        path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write, ec);
 }
 
 [[noreturn]] void onTerminate() noexcept {
@@ -168,9 +222,8 @@ void reportCurrentException(std::string_view where) noexcept {
 }
 
 std::filesystem::path nativeErrorLogPath() {
-    std::error_code ec;
-    const std::filesystem::path temp = std::filesystem::temp_directory_path(ec);
-    return ec ? std::filesystem::path{} : temp / "gbm-native-errors.log";
+    const std::filesystem::path directory = nativeErrorLogDirectory();
+    return directory.empty() ? directory : directory / "gbm-native-errors.log";
 }
 
 void installTerminateHandler() noexcept {

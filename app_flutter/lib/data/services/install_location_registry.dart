@@ -56,7 +56,6 @@ typedef _RegGetValueDart = int Function(
 /// is sign-extended to pointer width.
 final int _hkeyCurrentUser = 0x80000001.toSigned(32);
 const int _rrfRtRegSz = 0x2;
-const int _rrfRtRegExpandSz = 0x4;
 const int _errorSuccess = 0;
 
 /// A string value under `HKEY_CURRENT_USER`, or null when it is absent, empty
@@ -75,7 +74,9 @@ String? readCurrentUserRegistryString(String subKey, String value) {
   try {
     final _RegGetValueDart regGetValue = DynamicLibrary.open('advapi32.dll')
         .lookupFunction<_RegGetValueNative, _RegGetValueDart>('RegGetValueW');
-    const int flags = _rrfRtRegSz | _rrfRtRegExpandSz;
+    // Alone on purpose: `Package.wxs` writes `Type="string"`, and RRF_RT_REG_EXPAND_SZ
+    // without RRF_NOEXPAND is documented by Wine's tests as an invalid combination.
+    const int flags = _rrfRtRegSz;
     byteCount.value = 0;
     if (regGetValue(
               _hkeyCurrentUser,

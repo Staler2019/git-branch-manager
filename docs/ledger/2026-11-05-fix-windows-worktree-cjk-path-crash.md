@@ -59,7 +59,7 @@ gbm_session_open(<worktree>/.git)
 |---|---|
 | `Discovery.cpp` 的 `state->db.open(path)` | 修：db 路徑含 Windows 使用者名稱 |
 | `Scanner.cpp` 的 `longPathSafe(baseFolder.path)`、`workerCountFor(baseFolder.path)` | 修：使用者的 base folder |
-| `RepoIndexDb.h` 的 `toPaths()` | 未改：`src/` 沒有呼叫者，只有 `DiscoveryTest` 讀，屬 orphan，交使用者決定 |
+| `RepoIndexDb.h` 的 `toPaths()` | 刪：`src/` 沒有呼叫者，只有 `DiscoveryTest` 讀，使用者裁定「沒用到就刪」 |
 | `FsUtil.cpp:128-129` | 非 Windows 分支，安全 |
 
 這一版 overlay 在 110 個編譯單元裡有 93 個 `-fsyntax-only` 回非零，警告還是印得出來，但不能當成完整證據。第二次 verifier 自建 overlay（加 `-Wno-error=deprecated-declarations`）110 個 0 失敗，也確認抓得到修正前的這三處，修正後沒有新來源。
@@ -172,6 +172,5 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 - `cancel()` 窗口：`runningId_` 與 `runningKillable_` 不再於同一臨界區設定，窗口內的 cancel 可能回 `NotCancellable`，再按一次即可。
 - `gbm_history_refresh` 例外時回 0，`isRefreshing` 可能沒有事件結束它，與 void export 同一類缺口。
 - `CloneJob.cpp:61` 的 `USERPROFILE`、`Session.cpp:101` 的 `GBM_GIT_PATH` 是窄 `getenv` 配 `pathFromUtf8`：有 manifest 時一致；Windows 10 1903 之前會解錯。
-- `RepoRecord::toPaths()` 沒有產品呼叫者。
 - 上述 `cancel()` 窗口內，`NotCancellable` 帶的描述是上一個操作的，只影響文字。
 - `check-native-exception-guards.py` 是逐行文字比對，目前 `src/` 沒有實例，但抓不到：簽名行帶尾註解的 export、`.cpp` 定義不寫 `GBM_API`（標頭有宣告即仍匯出）、`readers.emplace_back(f)` 這類不含關鍵字的名稱、`make_unique<std::thread>`、`using std::thread`。比對 `nm` 匯出集合與已檢查的定義集合能擋前兩種，目前 160=160，未做成 CI。

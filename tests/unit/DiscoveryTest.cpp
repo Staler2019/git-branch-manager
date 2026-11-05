@@ -274,7 +274,7 @@ TEST(RepoIndexDb, RoundTripsBaseFoldersAndRepos) {
     ASSERT_TRUE(repos);
     ASSERT_EQ(repos->size(), 1u);
     EXPECT_EQ((*repos)[0].name, "project");
-    EXPECT_EQ((*repos)[0].toPaths().gitDir(), std::filesystem::path("/work/project/.git"));
+    EXPECT_EQ((*repos)[0].gitDir, "/work/project/.git");
 }
 
 TEST(RepoIndexDb, UpsertIsIdempotentOnGitDir) {

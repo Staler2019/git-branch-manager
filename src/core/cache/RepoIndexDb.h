@@ -45,8 +45,6 @@ struct RepoRecord {
     std::int64_t discoveredAt = 0;
     std::int64_t lastSeenGeneration = 0;
     std::optional<std::int64_t> missingSince;
-
-    RepoPaths toPaths() const { return RepoPaths(workDir, gitDir, commonDir); }
 };
 
 /// The cheap summary shown in the repository list.

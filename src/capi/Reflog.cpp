@@ -7,5 +7,5 @@ using namespace gbm::capi;
 GBM_API void gbm_request_reflog(GbmSessionHandle session, const char* ref) try {
     toSession(session)->requestReflog(ref != nullptr ? ref : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

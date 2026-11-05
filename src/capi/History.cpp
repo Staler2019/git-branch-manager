@@ -18,5 +18,5 @@ GBM_API void gbm_history_set_filter(GbmSessionHandle session,
     toSession(session)->setHistoryFilter(
         toStringVector(includeRefs, includeRefCount), firstParentOnly != 0, noMerges != 0);
 } catch (...) {
-    reportNativeException(__func__);
+    gbm::reportCurrentException(__func__);
 }

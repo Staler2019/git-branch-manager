@@ -12,7 +12,7 @@ using namespace gbm::capi;
 GBM_API void gbm_local_identity_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshLocalIdentity();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) try {
@@ -32,7 +32,7 @@ GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) try {
 GBM_API void gbm_effective_identity_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshEffectiveIdentity();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session) try {
@@ -57,13 +57,13 @@ GBM_API void gbm_set_local_identity(GbmSessionHandle session,
     request.email = email != nullptr ? email : "";
     toSession(session)->setLocalIdentityOverride(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clear_local_identity(GbmSessionHandle session) try {
     toSession(session)->clearLocalIdentityOverride();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session) try {
@@ -76,5 +76,5 @@ GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session) try {
 GBM_API void gbm_write_commit_graph(GbmSessionHandle session) try {
     toSession(session)->writeCommitGraph();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

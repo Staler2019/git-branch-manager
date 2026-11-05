@@ -108,5 +108,5 @@ GBM_API int32_t gbm_graph_snapshot_truncated(GbmSessionHandle session) try {
 GBM_API void gbm_graph_snapshot_release(GbmSessionHandle session) try {
     toSession(session)->releaseExportedGraph();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

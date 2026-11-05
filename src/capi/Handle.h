@@ -34,9 +34,11 @@ inline std::vector<std::string> toStringVector(const char* const* items, std::in
     return out;
 }
 
-/// For the catch of every exported function: an exception crossing into Dart FFI
-/// has no handler and ends the process (#207). It becomes the ordinary
-/// staging-buffer error, naming the function, plus a log entry.
+/// For the catch of an export that returns a value: an exception crossing into Dart
+/// FFI has no handler and ends the process (#207). It becomes the ordinary
+/// staging-buffer error, naming the function, plus a log entry. A void export calls
+/// reportCurrentException() instead: nothing drains the buffer after it, and the
+/// stale error would sit there for the next reader.
 inline void reportNativeException(const char* function) noexcept {
     reportCurrentException(function);
     try {

@@ -15,5 +15,5 @@ GBM_API void gbm_export_file_at_revision(GbmSessionHandle session,
                                              path != nullptr ? path : "",
                                              destPath != nullptr ? destPath : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

@@ -39,13 +39,13 @@ GBM_API void gbm_cherry_pick(GbmSessionHandle session,
     request.recordOrigin = recordOrigin != 0;
     toSession(session)->cherryPick(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session) try {
     toSession(session)->continueCherryPick();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session,
@@ -53,17 +53,17 @@ GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session,
     toSession(session)->continueCherryPickWithMessage(message != nullptr ? std::string(message)
                                                                          : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session) try {
     toSession(session)->skipCherryPick();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session) try {
     toSession(session)->abortCherryPick();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

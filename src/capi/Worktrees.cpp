@@ -12,13 +12,13 @@ using namespace gbm::capi;
 GBM_API void gbm_worktree_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshWorktrees();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session) try {
     toSession(session)->requestWorktreePendingCounts();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) try {
@@ -51,7 +51,7 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
     request.force = force != 0;
     toSession(session)->addWorktree(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force) try {
@@ -60,13 +60,13 @@ GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int
     request.force = force != 0;
     toSession(session)->removeWorktree(request);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_worktree_prune(GbmSessionHandle session) try {
     toSession(session)->pruneWorktrees();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason) try {
@@ -75,7 +75,7 @@ GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const
     request.reason = reason != nullptr ? reason : "";
     toSession(session)->lockWorktree(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path) try {
@@ -83,5 +83,5 @@ GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path) try
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     toSession(session)->unlockWorktree(request);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

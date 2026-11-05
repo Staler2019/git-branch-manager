@@ -39,7 +39,7 @@ GBM_API void gbm_free_event_payload(const uint8_t* payload) try {
     // std::malloc in CallbackRegistry::emit(); see gbm_capi.h's ownership note.
     std::free(const_cast<uint8_t*>(payload));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_last_result_json_len(void) try {
@@ -54,7 +54,7 @@ GBM_API void gbm_last_result_json_copy(uint8_t* out, int32_t outLen) try {
     const std::size_t n = std::min(static_cast<std::size_t>(outLen), buffer.size());
     std::memcpy(out, buffer.data(), n);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier) try {
@@ -86,7 +86,7 @@ GBM_API GbmSessionHandle gbm_session_open(const char* workDir,
 GBM_API void gbm_session_close(GbmSessionHandle session) try {
     delete toSession(session);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_register_callback(GbmSessionHandle session,
@@ -94,7 +94,7 @@ GBM_API void gbm_register_callback(GbmSessionHandle session,
                                    void* userData) try {
     toSession(session)->registerCallback(callback, userData);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session) try {

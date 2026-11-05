@@ -12,5 +12,5 @@ GBM_API void gbm_request_blame(GbmSessionHandle session,
     toSession(session)->requestBlame(
         path != nullptr ? path : "", revision != nullptr ? revision : "", startLine, endLine);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

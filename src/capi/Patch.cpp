@@ -45,7 +45,7 @@ GBM_API void gbm_patch_export(GbmSessionHandle session,
     request.outputDir = fsutil::pathFromUtf8(outputDir != nullptr ? outputDir : "");
     toSession(session)->exportPatches(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_apply_files(GbmSessionHandle session,
@@ -59,7 +59,7 @@ GBM_API void gbm_patch_apply_files(GbmSessionHandle session,
     request.updateIndex = updateIndex != 0;
     toSession(session)->applyPatchFiles(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_import(GbmSessionHandle session,
@@ -71,23 +71,23 @@ GBM_API void gbm_patch_import(GbmSessionHandle session,
     request.threeWay = threeWay != 0;
     toSession(session)->importPatches(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_import_continue(GbmSessionHandle session) try {
     toSession(session)->continueImport();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_import_skip(GbmSessionHandle session) try {
     toSession(session)->skipImport();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_import_abort(GbmSessionHandle session) try {
     toSession(session)->abortImport();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

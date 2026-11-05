@@ -16,7 +16,7 @@ namespace {}  // namespace
 GBM_API void gbm_remote_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshRemotes();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_remotes_json(GbmSessionHandle session) try {
@@ -48,7 +48,7 @@ GBM_API void gbm_remote_fetch(GbmSessionHandle session,
     request.background = background != 0;
     toSession(session)->fetchRemote(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_pull(GbmSessionHandle session,
@@ -63,7 +63,7 @@ GBM_API void gbm_pull(GbmSessionHandle session,
     request.stashFirst = stashFirst != 0;
     toSession(session)->pullChanges(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_push(GbmSessionHandle session,
@@ -81,14 +81,14 @@ GBM_API void gbm_push(GbmSessionHandle session,
     request.force = forceWithLease != 0 ? PushForceMode::ForceWithLease : PushForceMode::None;
     toSession(session)->pushChanges(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session,
                                               const char* remoteName) try {
     toSession(session)->requestRemotePrunePreview(remoteName != nullptr ? remoteName : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_remote_prune(GbmSessionHandle session,
@@ -100,7 +100,7 @@ GBM_API void gbm_remote_prune(GbmSessionHandle session,
     request.refs = toStringVector(refs, refCount);
     toSession(session)->pruneRemote(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const char* url) try {
@@ -109,7 +109,7 @@ GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const ch
     request.url = url != nullptr ? url : "";
     toSession(session)->addRemote(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_remote_remove(GbmSessionHandle session, const char* name) try {
@@ -117,17 +117,17 @@ GBM_API void gbm_remote_remove(GbmSessionHandle session, const char* name) try {
     request.name = name != nullptr ? name : "";
     toSession(session)->removeRemote(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_provide_credential(GbmSessionHandle session, const char* secret) try {
     toSession(session)->provideCredential(secret != nullptr ? secret : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_cancel_credential(GbmSessionHandle session) try {
     toSession(session)->cancelCredential();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

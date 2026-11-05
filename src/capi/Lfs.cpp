@@ -13,7 +13,7 @@ using namespace gbm::capi;
 GBM_API void gbm_lfs_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshLfs();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_lfs_installation_json(GbmSessionHandle session) try {
@@ -62,7 +62,7 @@ GBM_API int32_t gbm_lfs_files_json(GbmSessionHandle session) try {
 GBM_API void gbm_lfs_install(GbmSessionHandle session) try {
     toSession(session)->installLfs();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_lfs_track(GbmSessionHandle session, const char* pattern) try {
@@ -70,7 +70,7 @@ GBM_API void gbm_lfs_track(GbmSessionHandle session, const char* pattern) try {
     request.pattern = pattern != nullptr ? pattern : "";
     toSession(session)->trackLfsPattern(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_lfs_untrack(GbmSessionHandle session, const char* pattern) try {
@@ -78,7 +78,7 @@ GBM_API void gbm_lfs_untrack(GbmSessionHandle session, const char* pattern) try 
     request.pattern = pattern != nullptr ? pattern : "";
     toSession(session)->untrackLfsPattern(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_lfs_pull(GbmSessionHandle session, const char* remoteName) try {
@@ -86,7 +86,7 @@ GBM_API void gbm_lfs_pull(GbmSessionHandle session, const char* remoteName) try 
     request.remoteName = remoteName != nullptr ? remoteName : "";
     toSession(session)->pullLfs(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_lfs_fetch(GbmSessionHandle session, const char* remoteName) try {
@@ -94,7 +94,7 @@ GBM_API void gbm_lfs_fetch(GbmSessionHandle session, const char* remoteName) try
     request.remoteName = remoteName != nullptr ? remoteName : "";
     toSession(session)->fetchLfs(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_lfs_prune(GbmSessionHandle session, int32_t dryRun) try {
@@ -102,5 +102,5 @@ GBM_API void gbm_lfs_prune(GbmSessionHandle session, int32_t dryRun) try {
     request.dryRun = dryRun != 0;
     toSession(session)->pruneLfs(request);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

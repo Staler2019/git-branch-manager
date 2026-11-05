@@ -17,11 +17,11 @@ GBM_API void gbm_merge_branch(GbmSessionHandle session,
     request.stashFirst = stashFirst != 0;
     toSession(session)->mergeBranch(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_merge_abort(GbmSessionHandle session) try {
     toSession(session)->abortMerge();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

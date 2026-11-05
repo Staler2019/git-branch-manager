@@ -16,7 +16,7 @@ GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t 
     request.mode = static_cast<ResetMode>(mode);
     toSession(session)->resetTo(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_restore_paths(GbmSessionHandle session,
@@ -30,13 +30,13 @@ GBM_API void gbm_restore_paths(GbmSessionHandle session,
     request.source = source != nullptr ? source : "";
     toSession(session)->restorePaths(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clean_preview(GbmSessionHandle session, int32_t includeIgnored) try {
     toSession(session)->requestCleanPreview(includeIgnored != 0);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clean_untracked(GbmSessionHandle session,
@@ -48,5 +48,5 @@ GBM_API void gbm_clean_untracked(GbmSessionHandle session,
     request.includeIgnored = includeIgnored != 0;
     toSession(session)->cleanUntracked(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

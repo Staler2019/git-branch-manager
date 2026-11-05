@@ -47,7 +47,7 @@ GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) try {
 GBM_API void gbm_discovery_close(GbmDiscoveryHandle discovery) try {
     delete toDiscovery(discovery);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int64_t gbm_discovery_add_base_folder(GbmDiscoveryHandle discovery,

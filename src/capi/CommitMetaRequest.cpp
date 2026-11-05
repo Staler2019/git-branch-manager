@@ -25,7 +25,7 @@ GBM_API void gbm_request_commit_meta(GbmSessionHandle session,
                                      int32_t oidCount) try {
     toSession(session)->requestCommitMeta(toOidVector(oids, oidCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
@@ -33,5 +33,5 @@ GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
                                             int32_t oidCount) try {
     toSession(session)->requestCommitFileCounts(toOidVector(oids, oidCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

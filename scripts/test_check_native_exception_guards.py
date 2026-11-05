@@ -81,6 +81,24 @@ class Exports(unittest.TestCase):
         write(self.root, 'src/capi/a.h', 'GBM_API void gbm_x(void) {\n}\n')
         self.assertEqual(len(self.found()), 1)
 
+    def test_a_void_export_writing_the_staging_buffer_is_reported(self):
+        write(self.root, 'src/capi/a.cpp',
+              'GBM_API void gbm_x(void) try {\n} catch (...) {\n'
+              '    reportNativeException(__func__);\n}\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_a_void_export_logging_is_not_reported(self):
+        write(self.root, 'src/capi/a.cpp',
+              'GBM_API void gbm_x(void) try {\n} catch (...) {\n'
+              '    reportCurrentException(__func__);\n}\n')
+        self.assertEqual(self.found(), [])
+
+    def test_an_export_returning_a_value_may_write_the_staging_buffer(self):
+        write(self.root, 'src/capi/a.cpp',
+              'GBM_API int32_t gbm_x(void) try {\n    return 0;\n} catch (...) {\n'
+              '    reportNativeException(__func__);\n    return -1;\n}\n')
+        self.assertEqual(self.found(), [])
+
     def test_a_declaration_in_the_header_is_not_reported(self):
         write(self.root, 'src/capi/gbm_capi.h', 'GBM_API void gbm_x(void);\n')
         self.assertEqual(self.found(), [])

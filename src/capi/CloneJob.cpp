@@ -393,7 +393,7 @@ GBM_API void gbm_clone_cancel(GbmCloneHandle job) try {
         static_cast<CloneJob*>(job)->cancel();
     }
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret) try {
@@ -401,7 +401,7 @@ GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret
         static_cast<CloneJob*>(job)->provideCredential(secret != nullptr ? secret : "");
     }
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) try {
@@ -409,11 +409,11 @@ GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) try {
         static_cast<CloneJob*>(job)->cancelCredential();
     }
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_clone_close(GbmCloneHandle job) try {
     delete static_cast<CloneJob*>(job);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

@@ -16,7 +16,7 @@ namespace {}  // namespace
 GBM_API void gbm_submodule_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshSubmodules();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_submodules_json(GbmSessionHandle session) try {
@@ -43,7 +43,7 @@ GBM_API void gbm_submodule_add(GbmSessionHandle session,
     request.branch = branch != nullptr ? branch : "";
     toSession(session)->addSubmodule(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_init(GbmSessionHandle session,
@@ -55,7 +55,7 @@ GBM_API void gbm_submodule_init(GbmSessionHandle session,
     request.recursive = recursive != 0;
     toSession(session)->initSubmodules(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_update(GbmSessionHandle session,
@@ -71,7 +71,7 @@ GBM_API void gbm_submodule_update(GbmSessionHandle session,
     request.remote = remote != 0;
     toSession(session)->updateSubmodules(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_sync(GbmSessionHandle session,
@@ -83,7 +83,7 @@ GBM_API void gbm_submodule_sync(GbmSessionHandle session,
     request.recursive = recursive != 0;
     toSession(session)->syncSubmodules(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
@@ -95,5 +95,5 @@ GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
     request.force = force != 0;
     toSession(session)->deinitSubmodules(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

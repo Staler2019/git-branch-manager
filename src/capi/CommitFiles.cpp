@@ -9,7 +9,7 @@ using namespace gbm::capi;
 GBM_API void gbm_request_commit_files(GbmSessionHandle session, const char* oid) try {
     toSession(session)->requestCommitFiles(oid != nullptr ? std::string(oid) : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
@@ -20,5 +20,5 @@ GBM_API void gbm_request_commit_file_diff(GbmSessionHandle session,
                                               path != nullptr ? std::string(path) : "",
                                               oldPath != nullptr ? std::string(oldPath) : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

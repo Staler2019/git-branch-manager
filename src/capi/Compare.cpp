@@ -14,7 +14,7 @@ GBM_API void gbm_request_compare_refs(GbmSessionHandle session,
                                            rightRef != nullptr ? std::string(rightRef) : "",
                                            threeDot != 0);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
@@ -29,11 +29,11 @@ GBM_API void gbm_request_compare_file_diff(GbmSessionHandle session,
                                                path != nullptr ? std::string(path) : "",
                                                oldPath != nullptr ? std::string(oldPath) : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_compare_with_working_copy(GbmSessionHandle session, const char* ref) try {
     toSession(session)->requestCompareWithWorkingCopy(ref != nullptr ? std::string(ref) : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

@@ -24,5 +24,5 @@ GBM_API void gbm_revert(GbmSessionHandle session,
     request.stashFirst = stashFirst != 0;
     toSession(session)->revertCommit(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

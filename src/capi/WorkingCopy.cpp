@@ -14,7 +14,7 @@ using namespace gbm::capi;
 GBM_API void gbm_working_copy_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshWorkingCopy();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_working_copy_status_json(GbmSessionHandle session) try {
@@ -38,7 +38,7 @@ GBM_API void gbm_working_copy_diff(GbmSessionHandle session,
     toSession(session)->requestWorkingCopyDiff(
         path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
@@ -48,7 +48,7 @@ GBM_API void gbm_working_copy_full_diff(GbmSessionHandle session,
     toSession(session)->requestWorkingCopyFullDiff(
         path != nullptr ? path : "", oldPath != nullptr ? oldPath : "", staged != 0);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 namespace {
@@ -69,7 +69,7 @@ GBM_API void gbm_stage_files(GbmSessionHandle session,
                              int32_t pathCount) try {
     toSession(session)->stageFiles(toPathVector(paths, pathCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_unstage_files(GbmSessionHandle session,
@@ -77,7 +77,7 @@ GBM_API void gbm_unstage_files(GbmSessionHandle session,
                                int32_t pathCount) try {
     toSession(session)->unstageFiles(toPathVector(paths, pathCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 namespace {
@@ -98,7 +98,7 @@ std::vector<std::size_t> toIndexVector(const int32_t* indices, int32_t indexCoun
 GBM_API void gbm_stage_hunk(GbmSessionHandle session, const char* path, int32_t hunkIndex) try {
     toSession(session)->stageHunk(path != nullptr ? path : "", static_cast<std::size_t>(hunkIndex));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_unstage_hunk(GbmSessionHandle session,
@@ -109,7 +109,7 @@ GBM_API void gbm_unstage_hunk(GbmSessionHandle session,
                                     oldPath != nullptr ? oldPath : "",
                                     static_cast<std::size_t>(hunkIndex));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_stage_lines(GbmSessionHandle session,
@@ -121,7 +121,7 @@ GBM_API void gbm_stage_lines(GbmSessionHandle session,
                                    static_cast<std::size_t>(hunkIndex),
                                    toIndexVector(lineIndices, lineIndexCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_unstage_lines(GbmSessionHandle session,
@@ -135,7 +135,7 @@ GBM_API void gbm_unstage_lines(GbmSessionHandle session,
                                      static_cast<std::size_t>(hunkIndex),
                                      toIndexVector(lineIndices, lineIndexCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_discard_lines(GbmSessionHandle session,
@@ -147,7 +147,7 @@ GBM_API void gbm_discard_lines(GbmSessionHandle session,
                                      static_cast<std::size_t>(hunkIndex),
                                      toIndexVector(lineIndices, lineIndexCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_commit_changes(GbmSessionHandle session,
@@ -160,5 +160,5 @@ GBM_API void gbm_commit_changes(GbmSessionHandle session,
     request.signOff = signOff != 0;
     toSession(session)->commitChanges(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

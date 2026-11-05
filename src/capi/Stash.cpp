@@ -14,7 +14,7 @@ using namespace gbm::capi;
 GBM_API void gbm_stash_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshStashes();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_stashes_json(GbmSessionHandle session) try {
@@ -48,7 +48,7 @@ GBM_API void gbm_stash_save(GbmSessionHandle session,
     }
     toSession(session)->saveStash(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_stash_apply(GbmSessionHandle session, int32_t index, int32_t pop) try {
@@ -57,7 +57,7 @@ GBM_API void gbm_stash_apply(GbmSessionHandle session, int32_t index, int32_t po
     request.pop = pop != 0;
     toSession(session)->applyStash(request);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index) try {
@@ -65,7 +65,7 @@ GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index) try {
     request.index = index;
     toSession(session)->dropStash(request);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName) try {
@@ -74,11 +74,11 @@ GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const cha
     request.branchName = branchName != nullptr ? branchName : "";
     toSession(session)->branchFromStash(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index) try {
     toSession(session)->requestStashDiff(index);
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

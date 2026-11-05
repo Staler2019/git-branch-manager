@@ -7,5 +7,5 @@ using namespace gbm::capi;
 GBM_API void gbm_request_original_operation_message(GbmSessionHandle session) try {
     toSession(session)->requestOriginalOperationMessage();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

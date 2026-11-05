@@ -17,7 +17,7 @@ GBM_API void gbm_tag_create(GbmSessionHandle session,
     request.force = force != 0;
     toSession(session)->createTag(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_tag_delete(GbmSessionHandle session,
@@ -30,7 +30,7 @@ GBM_API void gbm_tag_delete(GbmSessionHandle session,
     request.remoteName = remoteName != nullptr ? remoteName : "";
     toSession(session)->deleteTag(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, const char* name) try {
@@ -39,5 +39,5 @@ GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, cons
     request.name = name != nullptr ? name : "";
     toSession(session)->pushTag(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

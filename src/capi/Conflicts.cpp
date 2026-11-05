@@ -22,13 +22,13 @@ GBM_API void gbm_resolve_conflict(GbmSessionHandle session,
     request.resolvedContent = resolvedContent != nullptr ? resolvedContent : "";
     toSession(session)->resolveConflict(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_working_tree_content(GbmSessionHandle session, const char* path) try {
     toSession(session)->requestWorkingTreeContent(path != nullptr ? path : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API int32_t gbm_parse_conflict_markers(const char* content) try {

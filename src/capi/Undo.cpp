@@ -17,5 +17,5 @@ GBM_API int32_t gbm_undo_journal_json(GbmSessionHandle session) try {
 GBM_API void gbm_undo_last(GbmSessionHandle session) try {
     toSession(session)->undoLastOperation();
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

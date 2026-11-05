@@ -5,7 +5,8 @@
 一律用 guardedThread（core/base/ExceptionDiagnostic.h），不得直接建立 std::thread。
 
 src/capi 匯出函式同理：例外穿進 Dart FFI 沒有 handler。一律寫成 function-try-block，
-catch 裡呼叫 reportNativeException（capi/Handle.h）。
+catch 裡呼叫 reportNativeException（capi/Handle.h）；void 匯出沒有人讀 staging buffer，
+只呼叫 reportCurrentException。
 
 從 repo 根目錄跑：python3 scripts/check-native-exception-guards.py
 """
@@ -37,6 +38,13 @@ def _thread_findings(rel, lines):
             if not _is_comment(line) and _BARE_THREAD.search(line)]
 
 
+def _catch_body(lines, start):
+    for i in range(start, len(lines) - 1):
+        if lines[i].startswith('} catch (...) {'):
+            return lines[i + 1].strip()
+    return ''
+
+
 def _export_findings(rel, lines):
     if not rel.startswith('src/capi/'):
         return []
@@ -48,6 +56,9 @@ def _export_findings(rel, lines):
         last = lines[end].rstrip()
         if not last.endswith(';') and not last.endswith(' try {'):
             out.append(f'{rel}:{index + 1}: export without function-try-block: {line.strip()}')
+        elif line.startswith('GBM_API void ') and _catch_body(lines, end).startswith('reportNative'):
+            out.append(f'{rel}:{index + 1}: void export writes a staging buffer nobody reads: '
+                       f'{line.strip()}')
     return out
 
 

@@ -30,7 +30,7 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
 
     toSession(session)->checkout(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_branch_create(GbmSessionHandle session,
@@ -48,7 +48,7 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
 
     toSession(session)->createBranch(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_branch_rename(GbmSessionHandle session,
@@ -66,7 +66,7 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
 
     toSession(session)->renameBranch(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_branch_delete(GbmSessionHandle session,
@@ -93,7 +93,7 @@ GBM_API void gbm_branch_delete(GbmSessionHandle session,
 
     toSession(session)->deleteBranch(std::move(request));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_branch_deletion_probe(GbmSessionHandle session,
@@ -102,5 +102,5 @@ GBM_API void gbm_request_branch_deletion_probe(GbmSessionHandle session,
                                                int32_t nameCount) try {
     toSession(session)->requestBranchDeletionProbe(requestId, toStringVector(names, nameCount));
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

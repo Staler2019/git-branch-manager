@@ -10,7 +10,7 @@ GBM_API void gbm_request_file_history(GbmSessionHandle session,
     toSession(session)->requestFileHistory(path != nullptr ? path : "",
                                            startRevision != nullptr ? startRevision : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_request_line_history(GbmSessionHandle session,
@@ -23,5 +23,5 @@ GBM_API void gbm_request_line_history(GbmSessionHandle session,
                                            endLine,
                                            startRevision != nullptr ? startRevision : "");
 } catch (...) {
-    reportNativeException(__func__);
+    reportCurrentException(__func__);
 }

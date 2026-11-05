@@ -159,6 +159,24 @@ TEST(TerminateHandlerDeathTest, ANoexceptViolationPrintsTheExceptionBeforeAborti
         "gbm: fatal: std::terminate: .*escaped");
 }
 
+TEST_F(ExceptionDiagnosticTest, AGuardedThreadReportsAndGivesTheHandlerTheException) {
+    std::string seen;
+    guardedThread(
+        "named thread",
+        [] { throw std::runtime_error("from the body"); },
+        [&] {
+            seen = describeCurrentException();
+            throw std::runtime_error("from the handler");
+        })
+        .join();
+
+    EXPECT_NE(seen.find("from the body"), std::string::npos) << seen;
+    const std::string log = readLog();
+    EXPECT_NE(log.find("named thread: "), std::string::npos) << log;
+    EXPECT_NE(log.find("named thread exception handler: "), std::string::npos) << log;
+    EXPECT_NE(log.find("from the handler"), std::string::npos) << log;
+}
+
 TEST_F(ExceptionDiagnosticTest, AThrowingPoolTaskIsReportedAndThePoolKeepsRunning) {
     ThreadPool pool("diagnostic", 1);
     bool ranAfter = false;

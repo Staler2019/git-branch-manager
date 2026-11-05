@@ -20,7 +20,7 @@ ThreadPool::ThreadPool(std::string name, std::size_t threads) : name_(std::move(
     const std::size_t count = threads == 0 ? defaultThreadCount() : threads;
     workers_.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-        workers_.emplace_back([this] { workerLoop(); });
+        workers_.push_back(guardedThread(name_ + " worker loop", [this] { workerLoop(); }));
     }
 }
 
@@ -89,7 +89,6 @@ void ThreadPool::shutdown() {
 }
 
 void ThreadPool::workerLoop() {
-    installTerminateHandler();
     for (;;) {
         std::function<void()> task;
         {

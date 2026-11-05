@@ -1,5 +1,6 @@
 #include "core/git/OperationRunner.h"
 
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/OperationId.h"
@@ -14,7 +15,7 @@ OperationRunner::OperationRunner(IProcessRunner& runner,
                                  RepoPaths paths,
                                  std::chrono::milliseconds lockWait)
     : runner_(runner), paths_(std::move(paths)), lockWait_(lockWait) {
-    worker_ = std::thread([this] { workerLoop(); });
+    worker_ = guardedThread("OperationRunner thread", [this] { workerLoop(); });
 }
 
 OperationRunner::~OperationRunner() {
@@ -224,6 +225,84 @@ void OperationRunner::recordUndoPoint(const Operation& operation) {
     }
 }
 
+void OperationRunner::runQueued(QueuedOperation& queued) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        runningKillable_ = queued.operation->killableMidFlight();
+        runningDescription_ = queued.operation->describe();
+    }
+
+    OperationOutcome outcome;
+    if (queued.source.isCancelled()) {
+        outcome.succeeded = false;
+        outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
+    } else if (auto blocked = preflight(*queued.operation, queued.source)) {
+        outcome = std::move(*blocked);
+    } else {
+        const bool housekeeping = queued.operation->isHousekeeping();
+        if (housekeeping) {
+            ++housekeepingEdges_;
+        }
+        try {
+            if (!housekeeping) {
+                recordUndoPoint(*queued.operation);
+                logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
+            }
+            const QueuedOperationScope scope(queued.id);
+            outcome = queued.operation->run(runner_, paths_, queued.source.token());
+            // Preflight saw no lock, but another process can take it before
+            // git does. Nothing has changed at that point for an operation
+            // that opted in, so it waits the holder out and runs again.
+            for (int retry = 0;
+                 retry < kLockRetries && !outcome.succeeded &&
+                 queued.operation->retriesOnLockHeld() && outcome.error &&
+                 outcome.error->code == GitError::Code::LockHeld && !queued.source.isCancelled();
+                 ++retry) {
+                waitForLiveIndexLock(queued.source);
+                outcome = queued.operation->run(runner_, paths_, queued.source.token());
+            }
+        } catch (...) {
+            // A throwing operation must not take the process down while the
+            // user has uncommitted work open.
+            reportCurrentException("Operation: " + queued.operation->describe());
+            outcome.succeeded = false;
+            outcome.error = GitError(GitError::Code::Unknown,
+                                     "The operation failed unexpectedly",
+                                     describeCurrentException());
+        }
+        if (housekeeping) {
+            ++housekeepingEdges_;
+        }
+    }
+
+    // Stamped here, on the single path every completion (normal, preflight-
+    // blocked, or cancelled) funnels through, so it's impossible for an
+    // outcome to reach onDone unstamped.
+    outcome.kind = queued.operation->kind();
+
+    // Taken before the call: a callback that throws has been delivered all the same.
+    const CompletionCallback onDone = std::exchange(queued.onDone, nullptr);
+    if (onDone) {
+        onDone(std::move(outcome));
+    }
+}
+
+void OperationRunner::failUndelivered(QueuedOperation& queued) {
+    const CompletionCallback onDone = std::exchange(queued.onDone, nullptr);
+    if (!onDone) {
+        return;
+    }
+    OperationOutcome outcome;
+    outcome.succeeded = false;
+    outcome.error = GitError(
+        GitError::Code::Unknown, "The operation failed unexpectedly", describeCurrentException());
+    try {
+        onDone(std::move(outcome));
+    } catch (...) {
+        reportCurrentException("Operation completion callback");
+    }
+}
+
 void OperationRunner::workerLoop() {
     for (;;) {
         QueuedOperation queued{0, nullptr, nullptr, CancellationSource{}};
@@ -238,58 +317,16 @@ void OperationRunner::workerLoop() {
             busy_ = true;
             // cancel()'s invariant 1: running from the instant it left the queue.
             runningId_ = queued.id;
-            runningKillable_ = queued.operation->killableMidFlight();
-            runningDescription_ = queued.operation->describe();
             runningSource_ = queued.source;
         }
 
-        OperationOutcome outcome;
-        if (queued.source.isCancelled()) {
-            outcome.succeeded = false;
-            outcome.error = GitError(GitError::Code::Cancelled, "Operation cancelled");
-        } else if (auto blocked = preflight(*queued.operation, queued.source)) {
-            outcome = std::move(*blocked);
-        } else {
-            const bool housekeeping = queued.operation->isHousekeeping();
-            if (housekeeping) {
-                ++housekeepingEdges_;
-            } else {
-                recordUndoPoint(*queued.operation);
-                logMessage(LogLevel::Info, "Starting: " + queued.operation->describe());
-            }
-            try {
-                const QueuedOperationScope scope(queued.id);
-                outcome = queued.operation->run(runner_, paths_, queued.source.token());
-                // Preflight saw no lock, but another process can take it before
-                // git does. Nothing has changed at that point for an operation
-                // that opted in, so it waits the holder out and runs again.
-                for (int retry = 0; retry < kLockRetries && !outcome.succeeded &&
-                                    queued.operation->retriesOnLockHeld() && outcome.error &&
-                                    outcome.error->code == GitError::Code::LockHeld &&
-                                    !queued.source.isCancelled();
-                     ++retry) {
-                    waitForLiveIndexLock(queued.source);
-                    outcome = queued.operation->run(runner_, paths_, queued.source.token());
-                }
-            } catch (const std::exception& ex) {
-                // A throwing operation must not take the process down while the
-                // user has uncommitted work open.
-                outcome.succeeded = false;
-                outcome.error = GitError(
-                    GitError::Code::Unknown, "The operation failed unexpectedly", ex.what());
-            }
-            if (housekeeping) {
-                ++housekeepingEdges_;
-            }
-        }
-
-        // Stamped here, on the single path every completion (normal, preflight-
-        // blocked, or cancelled) funnels through, so it's impossible for an
-        // outcome to reach onDone unstamped.
-        outcome.kind = queued.operation->kind();
-
-        if (queued.onDone) {
-            queued.onDone(std::move(outcome));
+        // A throw that left this loop would end the thread: nothing would run again
+        // and drain() would wait forever, which is a hang in place of the crash.
+        try {
+            runQueued(queued);
+        } catch (...) {
+            reportCurrentException("Operation worker");
+            failUndelivered(queued);
         }
 
         {

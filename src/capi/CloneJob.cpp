@@ -4,6 +4,7 @@
 #include "capi/JsonWriter.h"
 #include "capi/Session.h"
 #include "capi/StagingBuffer.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/ops/InitCloneOps.h"
@@ -169,7 +170,16 @@ std::unique_ptr<CloneJob> CloneJob::start(CloneJobRequest request,
         registry().emplace(id, job.get());
     }
     CloneJob* raw = job.get();
-    job->thread_ = std::thread([raw] { raw->run(); });
+    job->thread_ = guardedThread(
+        "CloneJob thread",
+        [raw] { raw->run(); },
+        [raw] {
+            // The app waits on GBM_EVENT_CLONE_FINISHED; without it the dialog never ends.
+            raw->askpass_.stop();
+            raw->emitFinished(fail(GitError::Code::Unknown,
+                                   "The clone failed unexpectedly",
+                                   describeCurrentException()));
+        });
     return job;
 }
 

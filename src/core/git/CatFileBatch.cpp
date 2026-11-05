@@ -1,5 +1,6 @@
 #include "core/git/CatFileBatch.h"
 
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/PosixPipe.h"
@@ -98,7 +99,7 @@ public:
         auto spawned = spawnPosix(argv);
 #endif
         if (spawned) {
-            watchdog_ = std::thread([this] { watch(); });
+            watchdog_ = guardedThread("CatFileBatch watchdog", [this] { watch(); });
         }
         return spawned;
     }

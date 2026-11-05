@@ -12,7 +12,6 @@
 #include <mutex>
 #include <sstream>
 #include <system_error>
-#include <thread>
 #include <typeinfo>
 
 #if defined(__GNUG__)

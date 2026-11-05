@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -69,6 +70,27 @@ protected:
 
     std::filesystem::path root_;
 };
+
+// A throw on a scan worker has no caller to reach: uncaught, it ends the process.
+TEST_F(TempTree, AThrowOnAScanWorkerFailsTheScanAndNotTheProcess) {
+    makeNormalRepo("repo");
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(fsutil::utf8FromPath(root_), 8, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    const auto result =
+        scanner.scan((*folders)[0], ScanMode::Full, source.token(), [](const ScanProgress&) {
+            throw std::runtime_error("boom");
+        });
+
+    ASSERT_FALSE(result);
+    EXPECT_NE(result.error().detail.find("boom"), std::string::npos) << result.error().detail;
+}
 
 // --- classification --------------------------------------------------------
 
@@ -447,7 +469,9 @@ TEST(RepoIndexDb, FinishScanRecordsSkippedDirectoryCount) {
     ASSERT_TRUE(folderId);
     ASSERT_TRUE(db.beginScan(*folderId));
 
-    ASSERT_TRUE(db.finishScan(*folderId, /*dirsScanned=*/10, /*elapsedMs=*/5,
+    ASSERT_TRUE(db.finishScan(*folderId,
+                              /*dirsScanned=*/10,
+                              /*elapsedMs=*/5,
                               /*dirsSkipped=*/3));
 
     auto folders = db.baseFolders();

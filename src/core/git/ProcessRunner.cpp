@@ -1,3 +1,4 @@
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/PosixPipe.h"
@@ -695,34 +696,35 @@ public:
               bool* sinkStopped) {
         std::thread stderrThread;
         if (stderrHandle_ != nullptr) {
-            stderrThread = std::thread([this, stderrText, &onProgress] {
-                std::vector<char> buffer(16 * 1024);
-                for (;;) {
-                    DWORD read = 0;
-                    if (!::ReadFile(stderrHandle_,
-                                    buffer.data(),
-                                    static_cast<DWORD>(buffer.size()),
-                                    &read,
-                                    nullptr) ||
-                        read == 0) {
-                        return;
+            stderrThread =
+                guardedThread("ProcessRunner stderr pump", [this, stderrText, &onProgress] {
+                    std::vector<char> buffer(16 * 1024);
+                    for (;;) {
+                        DWORD read = 0;
+                        if (!::ReadFile(stderrHandle_,
+                                        buffer.data(),
+                                        static_cast<DWORD>(buffer.size()),
+                                        &read,
+                                        nullptr) ||
+                            read == 0) {
+                            return;
+                        }
+                        lastProgress_.store(nowMs());
+                        const std::string_view chunk(buffer.data(), read);
+                        std::lock_guard<std::mutex> lock(stderrMutex_);
+                        if (stderrText != nullptr) {
+                            stderrText->append(chunk);
+                        }
+                        if (onProgress) {
+                            onProgress(chunk);
+                        }
                     }
-                    lastProgress_.store(nowMs());
-                    const std::string_view chunk(buffer.data(), read);
-                    std::lock_guard<std::mutex> lock(stderrMutex_);
-                    if (stderrText != nullptr) {
-                        stderrText->append(chunk);
-                    }
-                    if (onProgress) {
-                        onProgress(chunk);
-                    }
-                }
-            });
+                });
         }
 
         std::thread stdinThread;
         if (stdinHandle_ != nullptr) {
-            stdinThread = std::thread([this, stdinData] {
+            stdinThread = guardedThread("ProcessRunner stdin pump", [this, stdinData] {
                 if (stdinData != nullptr) {
                     std::size_t offset = 0;
                     while (offset < stdinData->size()) {
@@ -782,8 +784,9 @@ public:
                 pumpThread = nullptr;
             }
             if (pumpDone != nullptr && pumpThread != nullptr) {
-                deadlineThread =
-                    std::thread([this, pumpDone, pumpThread, timeout, idleTimeout, askpassDir] {
+                deadlineThread = guardedThread(
+                    "ProcessRunner deadline",
+                    [this, pumpDone, pumpThread, timeout, idleTimeout, askpassDir] {
                         // Waits in slices rather than one long wait, because the idle
                         // deadline moves: every byte the pump reads pushes it out. A
                         // slice ends either at the total deadline or at the earliest

@@ -22,6 +22,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace gbm {
@@ -116,6 +117,88 @@ protected:
     RepoPaths paths_;
     testing::FakeProcessRunner fake_;
 };
+
+class ThrowsANonStandardException final : public Operation {
+public:
+    std::string describe() const override { return "Throws an int"; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override { throw 7; }
+};
+
+class Succeeds final : public Operation {
+public:
+    std::string describe() const override { return "Succeeds"; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        OperationOutcome outcome;
+        outcome.succeeded = true;
+        return outcome;
+    }
+};
+
+TEST_F(OperationRunnerCancelTest, ANonStandardExceptionFailsTheOperationAndNotTheProcess) {
+    OperationRunner operations(fake_, paths_);
+    std::optional<OperationOutcome> outcome;
+    operations.submit(std::make_unique<ThrowsANonStandardException>(),
+                      [&outcome](OperationOutcome done) { outcome = std::move(done); });
+    operations.drain();
+
+    ASSERT_TRUE(outcome.has_value());
+    EXPECT_FALSE(outcome->succeeded);
+    ASSERT_TRUE(outcome->error.has_value());
+    EXPECT_NE(outcome->error->detail.find("non-standard exception"), std::string::npos)
+        << outcome->error->detail;
+}
+
+TEST_F(OperationRunnerCancelTest, AThrowingCompletionCallbackDoesNotStopTheQueue) {
+    OperationRunner operations(fake_, paths_);
+    std::optional<OperationOutcome> second;
+    int firstCalls = 0;
+    operations.submit(std::make_unique<Succeeds>(), [&firstCalls](OperationOutcome) {
+        ++firstCalls;
+        throw std::runtime_error("from onDone");
+    });
+    operations.submit(std::make_unique<Succeeds>(),
+                      [&second](OperationOutcome done) { second = std::move(done); });
+    operations.drain();
+
+    EXPECT_EQ(firstCalls, 1) << "an outcome is delivered once, even by a callback that throws";
+    ASSERT_TRUE(second.has_value());
+    EXPECT_TRUE(second->succeeded);
+}
+
+class ThrowsBeforeItRuns final : public Operation {
+public:
+    std::string describe() const override { return "Throws before it runs"; }
+
+    bool killableMidFlight() const override { throw std::runtime_error("before the run"); }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        ADD_FAILURE() << "must not run";
+        return {};
+    }
+};
+
+// Outside the try around run(). If it left the worker loop the thread would end:
+// no crash, and every later operation and drain() would wait forever.
+TEST_F(OperationRunnerCancelTest, AThrowOutsideRunFailsThatOperationAndTheQueueGoesOn) {
+    OperationRunner operations(fake_, paths_);
+    std::optional<OperationOutcome> first;
+    std::optional<OperationOutcome> second;
+    operations.submit(std::make_unique<ThrowsBeforeItRuns>(),
+                      [&first](OperationOutcome done) { first = std::move(done); });
+    operations.submit(std::make_unique<Succeeds>(),
+                      [&second](OperationOutcome done) { second = std::move(done); });
+    operations.drain();
+
+    ASSERT_TRUE(first.has_value());
+    EXPECT_FALSE(first->succeeded);
+    ASSERT_TRUE(first->error.has_value());
+    EXPECT_NE(first->error->detail.find("before the run"), std::string::npos)
+        << first->error->detail;
+    ASSERT_TRUE(second.has_value());
+    EXPECT_TRUE(second->succeeded);
+}
 
 TEST_F(OperationRunnerCancelTest, AQueuedUnitIsCancelledEvenWhenItCouldNotBeKilled) {
     OperationRunner operations(fake_, paths_);

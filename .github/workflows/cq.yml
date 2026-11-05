@@ -92,6 +92,13 @@ jobs:
           python3 scripts/test_check_narrow_path_conversions.py
           python3 scripts/check-narrow-path-conversions.py
 
+      # An exception leaving a thread entry or an exported C API function ends
+      # the process with no message at all (#207).
+      - name: native boundaries catch exceptions
+        run: |
+          python3 scripts/test_check_native_exception_guards.py
+          python3 scripts/check-native-exception-guards.py
+
       - name: core must not depend on Qt
         run: |
           if grep -rEn '#include\s*[<"]Q' src/core; then

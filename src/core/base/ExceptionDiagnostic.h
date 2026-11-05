@@ -27,8 +27,8 @@ void reportCurrentException(std::string_view where) noexcept;
 /// ~/Library/Logs/GitBranchManager or $XDG_STATE_HOME (~/.local/state)/gitbranchmanager;
 /// GBM_NATIVE_ERROR_LOG_DIR overrides it. Empty when none resolves, and then nothing
 /// is written. No log sink is installed in a release build and a Windows GUI app has
-/// no stderr, so this file is what a bug report can attach. Started over once it
-/// passes 1 MiB.
+/// no stderr, so this file is what a bug report can attach. Past 1 MiB it becomes
+/// `.1`, replacing the previous one.
 std::filesystem::path nativeErrorLogPath();
 
 /// std::terminate writes the description to the log file and stderr before

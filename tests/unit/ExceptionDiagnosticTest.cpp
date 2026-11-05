@@ -227,19 +227,96 @@ TEST_F(ExceptionDiagnosticTest, EachReportIsAppendedToTheLogFile) {
     EXPECT_EQ(std::count(log.begin(), log.end(), '\n'), 2) << log;
 }
 
-TEST_F(ExceptionDiagnosticTest, ALogFileOverTheCapStartsOver) {
+std::filesystem::path rotatedLogPath() {
+    std::filesystem::path path = nativeErrorLogPath();
+    path += ".1";
+    return path;
+}
+
+void reportBoom(const std::string& where) {
+    try {
+        throw std::runtime_error("boom");
+    } catch (...) {
+        reportCurrentException(where);
+    }
+}
+
+TEST_F(ExceptionDiagnosticTest, ALogFileOverTheCapIsKeptAsTheDotOneAndStartsOver) {
     {
         std::ofstream out(nativeErrorLogPath(), std::ios::binary);
         out << std::string(1024 * 1024 + 1, 'Z');
     }
+    {
+        std::ofstream out(rotatedLogPath(), std::ios::binary);
+        out << "the previous dot one";
+    }
+    reportBoom("after the cap");
+
+    const std::string log = readLog();
+    EXPECT_EQ(log.find("ZZZ"), std::string::npos);
+    EXPECT_NE(log.find("after the cap: "), std::string::npos) << log;
+    std::error_code ec;
+    EXPECT_EQ(std::filesystem::file_size(rotatedLogPath(), ec), 1024u * 1024u + 1u);
+}
+
+TEST_F(ExceptionDiagnosticTest, ALogFileUnderTheCapIsAppendedTo) {
+    {
+        std::ofstream out(nativeErrorLogPath(), std::ios::binary);
+        out << std::string(1024 * 1024, 'Z');
+    }
+    std::error_code ec;
+    std::filesystem::remove(rotatedLogPath(), ec);
+    reportBoom("at the cap");
+
+    EXPECT_NE(readLog().find("ZZZ"), std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(rotatedLogPath()));
+}
+
+TEST_F(ExceptionDiagnosticTest, ALogThatCannotBeRotatedStartsOverAndNeverGrowsPastTheCap) {
+    {
+        std::ofstream out(nativeErrorLogPath(), std::ios::binary);
+        out << std::string(1024 * 1024 + 1, 'Z');
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(rotatedLogPath(), ec);
+    std::filesystem::create_directories(rotatedLogPath() / "in the way", ec);
+    reportBoom("unrotatable");
+    std::filesystem::remove_all(rotatedLogPath(), ec);
+
+    const std::string log = readLog();
+    EXPECT_EQ(log.find("ZZZ"), std::string::npos);
+    EXPECT_NE(log.find("unrotatable: "), std::string::npos) << log;
+}
+
+TEST_F(ExceptionDiagnosticTest, EachLineStartsWithAnIsoTimeInUtc) {
+    reportBoom("timed");
+    const std::string log = readLog();
+    ASSERT_GE(log.size(), 24u) << log;
+    const std::string stamp = log.substr(0, 24);
+    for (const std::size_t i : {0u, 1u, 2u, 3u, 5u, 6u, 8u, 9u, 11u, 12u, 14u, 15u, 17u, 18u, 20u, 21u, 22u}) {
+        EXPECT_TRUE(stamp[i] >= '0' && stamp[i] <= '9') << stamp;
+    }
+    EXPECT_EQ(stamp.substr(4, 1), "-") << stamp;
+    EXPECT_EQ(stamp.substr(10, 1), "T") << stamp;
+    EXPECT_EQ(stamp.substr(19, 1), ".") << stamp;
+    EXPECT_EQ(stamp.substr(23, 1), "Z") << stamp;
+    const std::string year = stamp.substr(0, 4);
+    EXPECT_GE(year, "2024") << stamp;
+}
+
+// A branch or file name is repository content; it must not be able to forge a line
+// or send terminal control sequences when the file is printed.
+TEST_F(ExceptionDiagnosticTest, ControlCharactersCannotBreakOutOfTheLine) {
     try {
-        throw std::runtime_error("boom");
+        throw std::runtime_error("a\nforged\x1b[2Jline\\");
     } catch (...) {
-        reportCurrentException("after the cap");
+        reportCurrentException("w\nhere");
     }
     const std::string log = readLog();
-    EXPECT_EQ(log.find('Z'), std::string::npos);
-    EXPECT_NE(log.find("after the cap: "), std::string::npos) << log;
+    EXPECT_EQ(std::count(log.begin(), log.end(), '\n'), 1) << log;
+    EXPECT_EQ(log.find('\x1b'), std::string::npos) << log;
+    EXPECT_NE(log.find("w\\nhere: "), std::string::npos) << log;
+    EXPECT_NE(log.find("a\\nforged\\x1b[2Jline\\\\"), std::string::npos) << log;
 }
 
 TEST_F(ExceptionDiagnosticTest, AReportReachesTheLogSink) {

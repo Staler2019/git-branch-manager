@@ -3,6 +3,7 @@
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -135,6 +136,53 @@ std::string describeCode(const std::error_code& code) {
     return " [code=" + std::to_string(code.value()) + " category=" + code.category().name() + "]";
 }
 
+/// Repository content reaches this file, so it stays one line per report and holds
+/// nothing a terminal would act on.
+std::string escapedForLogLine(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (c == '\\') {
+            out += "\\\\";
+        } else if (c == '\n') {
+            out += "\\n";
+        } else if (c == '\r') {
+            out += "\\r";
+        } else if (c == '\t') {
+            out += "\\t";
+        } else if (byte < 0x20 || byte == 0x7F) {
+            std::array<char, 5> hex{};
+            std::snprintf(hex.data(), hex.size(), "\\x%02x", byte);
+            out += hex.data();
+        } else {
+            out += c;
+        }
+    }
+    return out;
+}
+
+/// `2026-11-05T13:30:11.123Z`.
+std::string isoTimeNow() {
+    using namespace std::chrono;
+    const auto now = floor<milliseconds>(system_clock::now());
+    const auto day = floor<days>(now);
+    const year_month_day date{day};
+    const hh_mm_ss<milliseconds> time{now - day};
+    std::array<char, 32> text{};
+    std::snprintf(text.data(),
+                  text.size(),
+                  "%04d-%02u-%02uT%02d:%02d:%02d.%03dZ",
+                  static_cast<int>(date.year()),
+                  static_cast<unsigned>(date.month()),
+                  static_cast<unsigned>(date.day()),
+                  static_cast<int>(time.hours().count()),
+                  static_cast<int>(time.minutes().count()),
+                  static_cast<int>(time.seconds().count()),
+                  static_cast<int>(time.subseconds().count()));
+    return text.data();
+}
+
 void appendToLog(std::string_view where, std::string_view description) {
     static std::mutex mutex;
     const std::lock_guard<std::mutex> lock(mutex);
@@ -147,12 +195,17 @@ void appendToLog(std::string_view where, std::string_view description) {
     std::filesystem::create_directories(path.parent_path(), ec);
     std::filesystem::permissions(path.parent_path(), std::filesystem::perms::owner_all, ec);
     const std::uintmax_t size = std::filesystem::file_size(path, ec);
-    const bool startOver = !ec && size > kMaxLogBytes;
+    bool startOver = false;
+    if (!ec && size > kMaxLogBytes) {
+        std::filesystem::path rotated = path;
+        rotated += ".1";
+        std::filesystem::rename(path, rotated, ec);
+        startOver = static_cast<bool>(ec);
+    }
     std::ofstream out(path, std::ios::binary | (startOver ? std::ios::trunc : std::ios::app));
 
-    const auto now = std::chrono::system_clock::now().time_since_epoch();
-    out << std::chrono::duration_cast<std::chrono::milliseconds>(now).count() << " thread "
-        << std::this_thread::get_id() << " " << where << ": " << description << "\n";
+    out << isoTimeNow() << " thread " << std::this_thread::get_id() << " "
+        << escapedForLogLine(where) << ": " << escapedForLogLine(description) << "\n";
     out.close();
     std::filesystem::permissions(
         path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write, ec);

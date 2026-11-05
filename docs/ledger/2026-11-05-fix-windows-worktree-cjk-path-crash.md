@@ -106,6 +106,22 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 
 存活過一個值得記的：`m5-overlong3` 第一次 0 紅（測試沒有 overlong 三位元組的案例），補案例後才紅。
 
+### `SeparateDefinitionBlocks` 改成 `Leave`
+
+160 個 function-try-block 上了之後，`scripts/format-check.sh` 回報 160 筆，每個 export 的 `} catch (...) {` 各一筆，
+但 `clang-format <file> | diff` 是空的：v18 在 `SeparateDefinitionBlocks: Always` 下會產生一個內容與原文相同的替換，
+`-i` 不改任何字，`--dry-run --Werror` 照樣算違規。CI 的 `jidicula/clang-format-action@v4.13.0` 也帶 `--Werror`，
+不處理就會紅。
+
+| 試過的寫法 | 回報數 |
+|---|---|
+| 維持 `Always`，`catch` 行尾或第一行加註解 | 1 / 1（單檔樣本） |
+| 維持 `Always`，用 macro 包 catch | 5（單檔樣本） |
+| `Leave` | 0（`src/` 198 個檔） |
+
+代價：格式工具不再替定義之間補空行。既有檔案不變，新程式碼的空行改靠人。另一條路是把 160 個 export 改成函式內 try，
+全部主體要重新縮排，所以沒選。
+
 ## Result
 
 - macOS：`ctest` 1020 個全過；`flutter test` +4499、~12 skipped（本機 Flutter 3.47.7，CI 釘 3.47.4）。

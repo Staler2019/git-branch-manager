@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -19,9 +20,26 @@ std::string typeName(const std::type_info& type);
 /// catches it; with no active exception it says so.
 std::string describeCurrentException();
 
-/// For a catch site that swallows the exception: sends the description to the
-/// log sink and appends it to nativeErrorLogPath(). Never throws.
+/// For a catch site that swallows the exception: appends the description to
+/// nativeErrorLogPath(), then sends it to the log sink and the native error sink.
+/// Never throws.
 void reportCurrentException(std::string_view where) noexcept;
+
+/// What the native error sink hears. All three are valid UTF-8. `summary` is for the
+/// screen: at most 2 KiB, and a filesystem error gives only its type and code.
+struct NativeErrorReport {
+    std::string where;
+    std::string summary;
+    std::string logPath;
+};
+
+using NativeErrorSink = std::function<void(const NativeErrorReport&)>;
+
+/// Replaces the sink; nullptr clears it. A sink runs under a lock on the reporting
+/// thread, so this returning means the previous one is no longer running and its
+/// captures can go. For the same reason a sink must not report. std::terminate never
+/// calls it.
+void setNativeErrorSink(NativeErrorSink sink);
 
 /// `gbm-native-errors.log` under %LOCALAPPDATA%\\GitBranchManager\\logs,
 /// ~/Library/Logs/GitBranchManager or $XDG_STATE_HOME (~/.local/state)/gitbranchmanager;

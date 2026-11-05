@@ -14,6 +14,7 @@
 #include <sstream>
 #include <system_error>
 #include <typeinfo>
+#include <utility>
 
 #if defined(__GNUG__)
 #include <cxxabi.h>
@@ -29,6 +30,7 @@ namespace gbm {
 namespace {
 
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
+constexpr std::size_t kMaxSummaryBytes = 2048;
 
 #if defined(_WIN32)
 std::filesystem::path pathFromEnv(const wchar_t* name) {
@@ -211,6 +213,56 @@ void appendToLog(std::string_view where, std::string_view description) {
         path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write, ec);
 }
 
+/// One line for the screen: a filesystem error's what() and paths can name a private
+/// repository, so it keeps only its type and code; the file has the rest.
+std::string summarizeCurrentException() {
+    if (!std::current_exception()) {
+        return "no active exception";
+    }
+    std::string summary;
+    try {
+        throw;
+    } catch (const std::filesystem::filesystem_error& error) {
+        summary = typeName(typeid(error)) + describeCode(error.code());
+    } catch (const std::system_error& error) {
+        summary = describeStandard(error) + describeCode(error.code());
+    } catch (const std::exception& error) {
+        summary = describeStandard(error);
+    } catch (...) {
+        return "non-standard exception";
+    }
+    summary = validUtf8(summary);
+    if (summary.size() > kMaxSummaryBytes) {
+        std::size_t end = kMaxSummaryBytes;
+        while (end > 0 && (static_cast<unsigned char>(summary[end]) & 0xC0) == 0x80) {
+            --end;
+        }
+        summary.resize(end);
+    }
+    return summary;
+}
+
+struct NativeErrorSinkSlot {
+    std::mutex mutex;
+    NativeErrorSink sink;
+};
+
+/// Never destroyed: a detached worker can report during process exit.
+NativeErrorSinkSlot& nativeErrorSinkSlot() {
+    static auto* slot = new NativeErrorSinkSlot;
+    return *slot;
+}
+
+void notifyNativeErrorSink(std::string_view where) {
+    NativeErrorSinkSlot& slot = nativeErrorSinkSlot();
+    const std::lock_guard<std::mutex> lock(slot.mutex);
+    if (slot.sink) {
+        slot.sink({validUtf8(where),
+                   summarizeCurrentException(),
+                   validUtf8(fsutil::utf8FromPath(nativeErrorLogPath()))});
+    }
+}
+
 [[noreturn]] void onTerminate() noexcept {
     static thread_local bool entered = false;
     if (!entered) {
@@ -265,13 +317,28 @@ std::string describeCurrentException() {
 }
 
 void reportCurrentException(std::string_view where) noexcept {
+    // Each step is guarded on its own, the file first: a failure in one must not cost
+    // the others, and the file is what survives the process.
+    std::string description;
     try {
-        const std::string description = describeCurrentException();
-        logMessage(LogLevel::Error, std::string(where) + ": " + description);
+        description = describeCurrentException();
         appendToLog(where, description);
     } catch (...) {
-        // Nothing left to report through.
     }
+    try {
+        logMessage(LogLevel::Error, std::string(where) + ": " + description);
+    } catch (...) {
+    }
+    try {
+        notifyNativeErrorSink(where);
+    } catch (...) {
+    }
+}
+
+void setNativeErrorSink(NativeErrorSink sink) {
+    NativeErrorSinkSlot& slot = nativeErrorSinkSlot();
+    const std::lock_guard<std::mutex> lock(slot.mutex);
+    slot.sink = std::move(sink);
 }
 
 std::filesystem::path nativeErrorLogPath() {

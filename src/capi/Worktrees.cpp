@@ -9,15 +9,19 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_worktree_refresh(GbmSessionHandle session) {
+GBM_API void gbm_worktree_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshWorktrees();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session) {
+GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session) try {
     toSession(session)->requestWorktreePendingCounts();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) try {
     const WorktreeListPtr worktrees = toSession(session)->currentWorktrees();
     if (!worktrees) {
         setStagingBuffer(
@@ -26,6 +30,9 @@ GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*worktrees));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API void gbm_worktree_add(GbmSessionHandle session,
@@ -34,7 +41,7 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               int32_t createBranch,
                               const char* newBranchName,
                               int32_t detach,
-                              int32_t force) {
+                              int32_t force) try {
     AddWorktreeRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.branch = branch != nullptr ? branch : "";
@@ -43,28 +50,38 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
     request.detach = detach != 0;
     request.force = force != 0;
     toSession(session)->addWorktree(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force) {
+GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force) try {
     RemoveWorktreeRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.force = force != 0;
     toSession(session)->removeWorktree(request);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_prune(GbmSessionHandle session) {
+GBM_API void gbm_worktree_prune(GbmSessionHandle session) try {
     toSession(session)->pruneWorktrees();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason) {
+GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason) try {
     LockWorktreeRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.reason = reason != nullptr ? reason : "";
     toSession(session)->lockWorktree(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path) {
+GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path) try {
     UnlockWorktreeRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     toSession(session)->unlockWorktree(request);
+} catch (...) {
+    reportCurrentException(__func__);
 }

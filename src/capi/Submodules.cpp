@@ -13,11 +13,13 @@ using namespace gbm::capi;
 
 namespace {}  // namespace
 
-GBM_API void gbm_submodule_refresh(GbmSessionHandle session) {
+GBM_API void gbm_submodule_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshSubmodules();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_submodules_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_submodules_json(GbmSessionHandle session) try {
     const SubmoduleListPtr submodules = toSession(session)->currentSubmodules();
     if (!submodules) {
         setStagingBuffer(
@@ -26,27 +28,34 @@ GBM_API int32_t gbm_submodules_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*submodules));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API void gbm_submodule_add(GbmSessionHandle session,
                                const char* url,
                                const char* path,
-                               const char* branch) {
+                               const char* branch) try {
     AddSubmoduleRequest request;
     request.url = url != nullptr ? url : "";
     request.path = path != nullptr ? path : "";
     request.branch = branch != nullptr ? branch : "";
     toSession(session)->addSubmodule(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_init(GbmSessionHandle session,
                                 const char* const* paths,
                                 int32_t pathCount,
-                                int32_t recursive) {
+                                int32_t recursive) try {
     SubmodulePathsRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.recursive = recursive != 0;
     toSession(session)->initSubmodules(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_update(GbmSessionHandle session,
@@ -54,31 +63,37 @@ GBM_API void gbm_submodule_update(GbmSessionHandle session,
                                   int32_t pathCount,
                                   int32_t recursive,
                                   int32_t init,
-                                  int32_t remote) {
+                                  int32_t remote) try {
     UpdateSubmodulesRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.recursive = recursive != 0;
     request.init = init != 0;
     request.remote = remote != 0;
     toSession(session)->updateSubmodules(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_sync(GbmSessionHandle session,
                                 const char* const* paths,
                                 int32_t pathCount,
-                                int32_t recursive) {
+                                int32_t recursive) try {
     SubmodulePathsRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.recursive = recursive != 0;
     toSession(session)->syncSubmodules(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
                                   const char* const* paths,
                                   int32_t pathCount,
-                                  int32_t force) {
+                                  int32_t force) try {
     DeinitSubmodulesRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.force = force != 0;
     toSession(session)->deinitSubmodules(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }

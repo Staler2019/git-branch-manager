@@ -50,7 +50,7 @@
   `vcruntime140_1.dll`（及其餘 5 個 runtime DLL）皆 14.51.36247.0；build log 的 `VCToolsVersion` 為 14.51.36231，
   DLL 版本 ≥ toolset，通過。
 - 這也說明了「最近才壞」：runner 的 toolset 已到 14.51；STL 越新，System32 舊 runtime 不相容的機會越大。
-  出問題那台電腦上的實測尚待回報。
+  ~~出問題那台電腦上的實測尚待回報。~~ 更正（2026-11-05）：那份「v0.62.0 雙擊沒反應、以前可以」的症狀與 [#207](2026-11-05-fix-windows-worktree-cjk-path-crash.md) 吻合，歸因於 runtime 很可能有誤；該機未取證，無法斷定。14.29 的 `0xC0000005` 是獨立重現的另一個 crash，runtime 因此保留。
 - 計畫原本要加一條 `CI-` rule，最後沒加：`ops-toolchain-ci.md` 的開頭規定，由檢查強制的規則只寫在檢查點的註解，
   而 `build_msi.ps1` 的檢查與 `windows/CMakeLists.txt` 的註解已涵蓋。
 - 已知取捨：app-local runtime 不會被 Windows Update 修補，要靠每次 release 重新帶入 runner image 的版本。

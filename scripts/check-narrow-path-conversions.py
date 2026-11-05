@@ -15,8 +15,11 @@ git 的 core.quotepath=false、ProcessRunner 的 widen(CP_UTF8)）都假設 UTF-
 import os, re, sys
 
 _PATTERNS = (
-    re.compile(r'\.(?:generic_)?string\(\)'),
+    re.compile(r'(?:\.|->)(?:generic_)?string\(\)'),
     re.compile(r'std::filesystem::path\((?!\s*\))'),
+    # 變數宣告形式 `path target(text)`。括號內是空的、參數宣告或換行的，是函式宣告。
+    re.compile(r'std::filesystem::path\s+\w+\('
+               r'(?!\s*\)|\s*$|\s*(?:const\s+)?[\w:<>]+(?:\s*[&*]+\s*|\s+)\w+\s*[,)=])'),
 )
 
 # (檔案, 該行必須含的片段, 理由)。新增一筆前先問：能不能改走 FsUtil？
@@ -29,6 +32,10 @@ ALLOWED = (
      'pathFromUtf8 本身，參數是 std::u8string'),
     ('src/core/git/GitExecutable.cpp', 'std::filesystem::path(entry)',
      'PATH 的項目來自窄 getenv，與窄建構子同一個代碼頁，往返一致'),
+    ('src/core/git/GitExecutable.cpp', 'std::filesystem::path install(buffer)',
+     'buffer 是 RegQueryValueExW 的 wchar_t 陣列'),
+    ('src/core/git/AskpassHelper.cpp', 'std::filesystem::path dir(dirEnv)',
+     '_WIN32 分支，dirEnv 是 _wgetenv 的 wchar_t*'),
 )
 
 

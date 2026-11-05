@@ -5,6 +5,7 @@
 // cycle, and — most importantly — that a *cancelled* scan never marks
 // repositories as missing.
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/cache/RepoIndexDb.h"
 #include "core/discovery/RepoClassifier.h"
 #include "core/discovery/Scanner.h"
@@ -14,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -68,6 +70,27 @@ protected:
 
     std::filesystem::path root_;
 };
+
+// A throw on a scan worker has no caller to reach: uncaught, it ends the process.
+TEST_F(TempTree, AThrowOnAScanWorkerFailsTheScanAndNotTheProcess) {
+    makeNormalRepo("repo");
+
+    RepoIndexDb db;
+    ASSERT_TRUE(db.openInMemory());
+    ASSERT_TRUE(db.addBaseFolder(fsutil::utf8FromPath(root_), 8, false));
+    auto folders = db.baseFolders();
+    ASSERT_TRUE(folders);
+
+    Scanner scanner(db);
+    CancellationSource source;
+    const auto result =
+        scanner.scan((*folders)[0], ScanMode::Full, source.token(), [](const ScanProgress&) {
+            throw std::runtime_error("boom");
+        });
+
+    ASSERT_FALSE(result);
+    EXPECT_NE(result.error().detail.find("boom"), std::string::npos) << result.error().detail;
+}
 
 // --- classification --------------------------------------------------------
 
@@ -158,6 +181,25 @@ TEST_F(ClassifierTest, ResolvesARelativeGitDirPointer) {
     EXPECT_EQ(result.kind, RepoKind::LinkedWorktree);
 }
 
+// #207: git writes both pointer files as UTF-8. Decoded with the active code
+// page, these bytes throw under CP950 and name another directory under CI's
+// 1252. On macOS and Linux a narrow path is UTF-8 already; the red is Windows-only.
+TEST_F(ClassifierTest, ResolvesChinesePointerFilesAsUtf8) {
+    const auto common = root_ / std::filesystem::path(u8"主倉庫") / ".git";
+    const auto worktreeGitDir = common / "worktrees" / std::filesystem::path(u8"工作樹");
+    std::filesystem::create_directories(worktreeGitDir);
+    writeFile(worktreeGitDir / "commondir", fsutil::utf8FromPath(common) + "\n");
+
+    const auto worktree = root_ / std::filesystem::path(u8"工作樹wt");
+    writeFile(worktree / ".git", "gitdir: " + fsutil::utf8FromPath(worktreeGitDir) + "\n");
+
+    const ClassifiedRepo result = RepoClassifier::classify(worktree);
+    ASSERT_TRUE(result.isRepo());
+    EXPECT_EQ(result.kind, RepoKind::LinkedWorktree);
+    EXPECT_EQ(result.paths.gitDir(), worktreeGitDir.lexically_normal());
+    EXPECT_EQ(result.paths.commonDir(), common.lexically_normal());
+}
+
 TEST_F(ClassifierTest, ReportsADanglingGitPointerAsUnreadable) {
     // A worktree whose parent repository was deleted. Reporting it as a working
     // repository would produce a broken entry the user cannot open.
@@ -232,7 +274,7 @@ TEST(RepoIndexDb, RoundTripsBaseFoldersAndRepos) {
     ASSERT_TRUE(repos);
     ASSERT_EQ(repos->size(), 1u);
     EXPECT_EQ((*repos)[0].name, "project");
-    EXPECT_EQ((*repos)[0].toPaths().gitDir(), std::filesystem::path("/work/project/.git"));
+    EXPECT_EQ((*repos)[0].gitDir, "/work/project/.git");
 }
 
 TEST(RepoIndexDb, UpsertIsIdempotentOnGitDir) {
@@ -427,7 +469,9 @@ TEST(RepoIndexDb, FinishScanRecordsSkippedDirectoryCount) {
     ASSERT_TRUE(folderId);
     ASSERT_TRUE(db.beginScan(*folderId));
 
-    ASSERT_TRUE(db.finishScan(*folderId, /*dirsScanned=*/10, /*elapsedMs=*/5,
+    ASSERT_TRUE(db.finishScan(*folderId,
+                              /*dirsScanned=*/10,
+                              /*elapsedMs=*/5,
                               /*dirsSkipped=*/3));
 
     auto folders = db.baseFolders();

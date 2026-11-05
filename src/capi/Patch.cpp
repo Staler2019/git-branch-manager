@@ -39,43 +39,55 @@ std::vector<std::filesystem::path> toPaths(const char* const* files, int32_t fil
 GBM_API void gbm_patch_export(GbmSessionHandle session,
                               const char* const* commitHexes,
                               int32_t commitCount,
-                              const char* outputDir) {
+                              const char* outputDir) try {
     ExportPatchesRequest request;
     request.commits = toObjectIds(commitHexes, commitCount);
     request.outputDir = fsutil::pathFromUtf8(outputDir != nullptr ? outputDir : "");
     toSession(session)->exportPatches(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_apply_files(GbmSessionHandle session,
                                    const char* const* patchFiles,
                                    int32_t fileCount,
                                    int32_t threeWay,
-                                   int32_t updateIndex) {
+                                   int32_t updateIndex) try {
     ApplyPatchFilesRequest request;
     request.patchFiles = toPaths(patchFiles, fileCount);
     request.threeWay = threeWay != 0;
     request.updateIndex = updateIndex != 0;
     toSession(session)->applyPatchFiles(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_patch_import(GbmSessionHandle session,
                               const char* const* patchFiles,
                               int32_t fileCount,
-                              int32_t threeWay) {
+                              int32_t threeWay) try {
     ImportPatchesRequest request;
     request.patchFiles = toPaths(patchFiles, fileCount);
     request.threeWay = threeWay != 0;
     toSession(session)->importPatches(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_patch_import_continue(GbmSessionHandle session) {
+GBM_API void gbm_patch_import_continue(GbmSessionHandle session) try {
     toSession(session)->continueImport();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_patch_import_skip(GbmSessionHandle session) {
+GBM_API void gbm_patch_import_skip(GbmSessionHandle session) try {
     toSession(session)->skipImport();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_patch_import_abort(GbmSessionHandle session) {
+GBM_API void gbm_patch_import_abort(GbmSessionHandle session) try {
     toSession(session)->abortImport();
+} catch (...) {
+    reportCurrentException(__func__);
 }

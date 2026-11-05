@@ -43,11 +43,13 @@
 //               grandchild keeps that pipe open and the run never sees EOF.
 //
 //   --probe-handle V   (Windows only)
-//               Print `inherited` if V names a live, unsignalled event in
-//               this process, else `absent`, and exit 0. The parent passes
-//               an inheritable event it did *not* list for this child, so
+//               Print `inherited` and exit 3 if V names a file mapping holding
+//               kProbeMark, else print `absent` and exit 0. The parent passes
+//               an inheritable mapping it did *not* list for this child, so
 //               `inherited` means `CreateProcessW` handed over every
-//               inheritable handle instead of only the child's own pipes.
+//               inheritable handle instead of only the child's own pipes. The
+//               mark is the point: V is only a number, and this process has
+//               handles of its own that can happen to carry it.
 //
 // **Every line is flushed.** stdout to a pipe is block-buffered, so an
 // unflushed drip would sit in this process's buffer and reach the parent as
@@ -77,6 +79,11 @@
 namespace {
 constexpr int kDripIntervalMs = 200;
 constexpr int kGrandchildSeconds = 5;
+#ifdef _WIN32
+// GitIntegrationTest.cpp writes the same bytes.
+constexpr char kProbeMark[] = "gbm-probe-handle";
+constexpr int kProbeInheritedExit = 3;
+#endif
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -87,12 +94,12 @@ int main(int argc, char** argv) {
         }
         const auto value = static_cast<std::uintptr_t>(std::strtoull(argv[i + 1], nullptr, 10));
         const HANDLE handle = reinterpret_cast<HANDLE>(value);
-        DWORD flags = 0;
-        const bool live = ::GetHandleInformation(handle, &flags) != 0 &&
-                          ::WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
-        std::printf("%s\n", live ? "inherited" : "absent");
+        const void* view = ::MapViewOfFile(handle, FILE_MAP_READ, 0, 0, sizeof(kProbeMark));
+        const bool inherited =
+            view != nullptr && std::memcmp(view, kProbeMark, sizeof(kProbeMark)) == 0;
+        std::printf("%s\n", inherited ? "inherited" : "absent");
         std::fflush(stdout);
-        return 0;
+        return inherited ? kProbeInheritedExit : 0;
     }
 #endif
 #ifndef _WIN32

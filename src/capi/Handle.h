@@ -4,8 +4,12 @@
 // helpers are the one place that casts them back to the real C++ type, so a
 // mismatch shows up here instead of at every call site.
 
+#include "capi/JsonCodec.h"
 #include "capi/Session.h"
+#include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
+#include "core/base/Error.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/cache/RepoIndexDb.h"
 
 #include <cstdint>
@@ -28,6 +32,22 @@ inline std::vector<std::string> toStringVector(const char* const* items, std::in
         }
     }
     return out;
+}
+
+/// For the catch of an export that returns a value: an exception crossing into Dart
+/// FFI has no handler and ends the process (#207). It becomes the ordinary
+/// staging-buffer error, naming the function, plus a log entry. A void export calls
+/// reportCurrentException() instead: nothing drains the buffer after it, and the
+/// stale error would sit there for the next reader.
+inline void reportNativeException(const char* function) noexcept {
+    reportCurrentException(function);
+    try {
+        setStagingBuffer(toJson(GitError(GitError::Code::Unknown,
+                                         std::string("Native error in ") + function,
+                                         describeCurrentException())));
+    } catch (...) {
+        // reportCurrentException() has already kept what can be kept.
+    }
 }
 
 inline Session* toSession(GbmSessionHandle handle) {

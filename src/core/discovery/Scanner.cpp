@@ -1,5 +1,6 @@
 #include "core/discovery/Scanner.h"
 
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/base/ThreadCheck.h"
@@ -305,7 +306,9 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
     ScanResult result;
 
     std::error_code ec;
-    if (!std::filesystem::is_directory(fsutil::longPathSafe(baseFolder.path), ec) || ec) {
+    if (!std::filesystem::is_directory(fsutil::longPathSafe(fsutil::pathFromUtf8(baseFolder.path)),
+                                       ec) ||
+        ec) {
         return fail(GitError::Code::NotFound,
                     "The folder " + baseFolder.path + " could not be read");
     }
@@ -324,12 +327,20 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
     SharedState state;
     state.queue.push_back({fsutil::pathFromUtf8(baseFolder.path), 0});
 
-    const std::size_t workers = workerCountFor(baseFolder.path);
+    const std::size_t workers = workerCountFor(fsutil::pathFromUtf8(baseFolder.path));
     std::vector<std::thread> threads;
     threads.reserve(workers);
     for (std::size_t i = 0; i < workers; ++i) {
-        threads.emplace_back(
-            [&] { workerLoop(state, baseFolder, mode, *generation, token, onProgress, onBatch); });
+        threads.push_back(guardedThread(
+            "Scanner worker",
+            [&] { workerLoop(state, baseFolder, mode, *generation, token, onProgress, onBatch); },
+            [&] {
+                std::lock_guard<std::mutex> lock(state.mutex);
+                state.failed = true;
+                state.error = GitError(GitError::Code::Unknown,
+                                       "The scan failed unexpectedly",
+                                       describeCurrentException());
+            }));
     }
     for (auto& thread : threads) {
         thread.join();

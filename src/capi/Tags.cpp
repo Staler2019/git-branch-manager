@@ -9,29 +9,35 @@ GBM_API void gbm_tag_create(GbmSessionHandle session,
                             const char* name,
                             const char* target,
                             const char* message,
-                            int32_t force) {
+                            int32_t force) try {
     CreateTagRequest request;
     request.name = name != nullptr ? name : "";
     request.target = target != nullptr ? target : "";
     request.message = message != nullptr ? message : "";
     request.force = force != 0;
     toSession(session)->createTag(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_tag_delete(GbmSessionHandle session,
                             const char* name,
                             int32_t alsoRemote,
-                            const char* remoteName) {
+                            const char* remoteName) try {
     DeleteTagRequest request;
     request.name = name != nullptr ? name : "";
     request.alsoRemote = alsoRemote != 0;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     toSession(session)->deleteTag(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, const char* name) {
+GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, const char* name) try {
     PushTagRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.name = name != nullptr ? name : "";
     toSession(session)->pushTag(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }

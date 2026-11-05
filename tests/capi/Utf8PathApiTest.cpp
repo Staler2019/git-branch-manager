@@ -186,5 +186,52 @@ TEST_F(Utf8PathApiTest, ALinkedWorktreeAtAChinesePathIsMeasured) {
         << "expected the linked worktree measured at 1: " << json;
 }
 
+// #207, as the Dart side opens it: `<workDir>/.git` is the pointer file and
+// commonDir is empty, so Session::open reads the pointer itself.
+TEST_F(Utf8PathApiTest, ALinkedWorktreeOpenedAtAChinesePathSeesItsOwnMerge) {
+    ASSERT_EQ(runGit({"worktree", "add", "--quiet", "-b", "feature", utf8(linked_)}), 0);
+    std::ofstream(linked_ / "shared.txt") << "feature change\n";
+    ASSERT_EQ(GitCli::run(linked_, {"commit", "--quiet", "-am", "Feature edits shared.txt"}), 0);
+    std::ofstream(repo_ / "shared.txt") << "main change\n";
+    ASSERT_EQ(runGit({"commit", "--quiet", "-am", "Main edits shared.txt"}), 0);
+    ASSERT_NE(GitCli::run(linked_, {"merge", "--quiet", "main"}), 0);
+
+    GbmSessionHandle linkedSession =
+        gbm_session_open(utf8(linked_).c_str(), utf8(linked_ / ".git").c_str(), "");
+    ASSERT_NE(linkedSession, nullptr) << lastResultJson();
+    ASSERT_EQ(gbm_repo_state_json(linkedSession), 0);
+    const std::string json = lastResultJson();
+    gbm_session_close(linkedSession);
+
+    EXPECT_NE(json.find("\"isClean\":false"), std::string::npos)
+        << "MERGE_HEAD is under the worktree's own git dir: " << json;
+}
+
+TEST_F(Utf8PathApiTest, TheDiscoveryCacheIsCreatedAtTheChinesePathItWasGiven) {
+    std::filesystem::create_directories(linked_);
+    const std::filesystem::path db = linked_ / std::filesystem::path(u8"索引.sqlite3");
+
+    GbmDiscoveryHandle discovery = gbm_discovery_open(utf8(db).c_str());
+    ASSERT_NE(discovery, nullptr) << lastResultJson();
+    gbm_discovery_close(discovery);
+
+    EXPECT_TRUE(std::filesystem::exists(db));
+}
+
+TEST_F(Utf8PathApiTest, AScanFindsARepositoryUnderAChineseBaseFolder) {
+    std::filesystem::create_directories(linked_);
+    ASSERT_EQ(GitCli::run(linked_, {"init", "--quiet", "child"}), 0);
+
+    GbmDiscoveryHandle discovery = gbm_discovery_open("");
+    ASSERT_NE(discovery, nullptr) << lastResultJson();
+    ASSERT_GE(gbm_discovery_add_base_folder(discovery, utf8(linked_).c_str(), 2, 0), 0);
+    ASSERT_EQ(gbm_discovery_scan_all(discovery), 0);
+    ASSERT_EQ(gbm_discovery_list_repos_json(discovery), 0);
+    const std::string json = lastResultJson();
+    gbm_discovery_close(discovery);
+
+    EXPECT_NE(json.find("child"), std::string::npos) << json;
+}
+
 }  // namespace
 }  // namespace gbm::capi

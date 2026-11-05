@@ -58,7 +58,9 @@ std::optional<std::filesystem::path> RepoClassifier::resolveGitDirFile(
         return std::nullopt;
     }
 
-    std::filesystem::path target(trimmed(text.substr(kPrefix.size())));
+    // git writes this file as UTF-8. A narrow path() would decode it with the
+    // active code page: Chinese throws under CP950 (#207), garbles under 1252.
+    std::filesystem::path target = fsutil::pathFromUtf8(trimmed(text.substr(kPrefix.size())));
     if (target.empty()) {
         return std::nullopt;
     }
@@ -74,7 +76,7 @@ std::filesystem::path RepoClassifier::resolveCommonDir(const std::filesystem::pa
     // HEAD for a worktree, so it is resolved once, here.
     const auto commonDirFile = gitDir / "commondir";
     if (auto contents = fsutil::readSmallFile(commonDirFile, 4096)) {
-        std::filesystem::path target(trimmed(std::move(*contents)));
+        std::filesystem::path target = fsutil::pathFromUtf8(trimmed(std::move(*contents)));
         if (!target.empty()) {
             if (target.is_relative()) {
                 target = gitDir / target;

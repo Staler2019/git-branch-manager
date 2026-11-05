@@ -1,11 +1,13 @@
 #include "core/workers/DelayTimer.h"
 
+#include "core/base/ExceptionDiagnostic.h"
+
 #include <utility>
 
 namespace gbm {
 
 DelayTimer::DelayTimer(std::function<void()> onFire) : onFire_(std::move(onFire)) {
-    thread_ = std::thread([this] { run(); });
+    thread_ = guardedThread("DelayTimer thread", [this] { run(); });
 }
 
 DelayTimer::~DelayTimer() {
@@ -63,7 +65,11 @@ void DelayTimer::run() {
 
         armed_ = false;
         lock.unlock();
-        onFire_();
+        try {
+            onFire_();
+        } catch (...) {
+            reportCurrentException("DelayTimer callback");
+        }
     }
 }
 

@@ -3,6 +3,7 @@
 # the boundary by grepping this directory for Qt includes.
 add_library(gbm_core STATIC
     base/Error.cpp
+    base/ExceptionDiagnostic.cpp
     base/FsUtil.cpp
     base/Logging.cpp
     base/PosixPipe.cpp

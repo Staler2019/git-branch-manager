@@ -14,6 +14,7 @@
 #include <condition_variable>
 #include <gtest/gtest.h>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <vector>
 
@@ -143,6 +144,21 @@ TEST(DelayTimer, StopIsIdempotentAndTheDestructorStopsToo) {
     std::this_thread::sleep_for(400ms);
 
     EXPECT_EQ(log.count(), 0u);
+}
+
+TEST(DelayTimer, AThrowingCallbackDoesNotStopTheTimer) {
+    FireLog log;
+    DelayTimer timer([&] {
+        log.record();
+        if (log.count() == 1) {
+            throw std::runtime_error("from onFire");
+        }
+    });
+
+    timer.arm(1ms);
+    ASSERT_TRUE(log.waitForCount(1));
+    timer.arm(1ms);
+    EXPECT_TRUE(log.waitForCount(2));
 }
 
 }  // namespace

@@ -3,6 +3,7 @@
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/discovery/Scanner.h"
 
 #include <string>
@@ -19,12 +20,12 @@ int32_t errorCodeOrdinal(const GitError& error) {
 
 }  // namespace
 
-GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) {
+GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) try {
     auto* state = new DiscoveryState();
     const std::string path = dbPath != nullptr ? dbPath : "";
 
     const GitResult<void> openResult =
-        path.empty() ? state->db.openInMemory() : state->db.open(path);
+        path.empty() ? state->db.openInMemory() : state->db.open(fsutil::pathFromUtf8(path));
     if (!openResult) {
         setStagingBuffer(toJson(openResult.error()));
         delete state;
@@ -39,16 +40,21 @@ GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) {
     }
 
     return toHandle(state);
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API void gbm_discovery_close(GbmDiscoveryHandle discovery) {
+GBM_API void gbm_discovery_close(GbmDiscoveryHandle discovery) try {
     delete toDiscovery(discovery);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API int64_t gbm_discovery_add_base_folder(GbmDiscoveryHandle discovery,
                                               const char* path,
                                               int32_t maxDepth,
-                                              int32_t followLinks) {
+                                              int32_t followLinks) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<std::int64_t> result =
         state->db.addBaseFolder(path != nullptr ? path : "", maxDepth, followLinks != 0);
@@ -57,9 +63,12 @@ GBM_API int64_t gbm_discovery_add_base_folder(GbmDiscoveryHandle discovery,
         return errorCodeOrdinal(result.error());
     }
     return result.value();
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_discovery_scan_all(GbmDiscoveryHandle discovery) {
+GBM_API int32_t gbm_discovery_scan_all(GbmDiscoveryHandle discovery) try {
     DiscoveryState* state = toDiscovery(discovery);
 
     const GitResult<std::vector<BaseFolderRecord>> folders = state->db.baseFolders();
@@ -82,9 +91,12 @@ GBM_API int32_t gbm_discovery_scan_all(GbmDiscoveryHandle discovery) {
         }
     }
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_discovery_list_repos_json(GbmDiscoveryHandle discovery) {
+GBM_API int32_t gbm_discovery_list_repos_json(GbmDiscoveryHandle discovery) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<std::vector<RepoRecord>> records = state->db.repos(/*includeMissing=*/true);
     if (!records) {
@@ -93,9 +105,12 @@ GBM_API int32_t gbm_discovery_list_repos_json(GbmDiscoveryHandle discovery) {
     }
     setStagingBuffer(toJson(records.value()));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery) {
+GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<std::vector<BaseFolderRecord>> folders = state->db.baseFolders();
     if (!folders) {
@@ -104,10 +119,13 @@ GBM_API int32_t gbm_discovery_base_folders_json(GbmDiscoveryHandle discovery) {
     }
     setStagingBuffer(toJson(folders.value()));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery,
-                                                 int64_t baseFolderId) {
+                                                 int64_t baseFolderId) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<void> result = state->db.removeBaseFolder(baseFolderId);
     if (!result) {
@@ -115,11 +133,14 @@ GBM_API int32_t gbm_discovery_remove_base_folder(GbmDiscoveryHandle discovery,
         return errorCodeOrdinal(result.error());
     }
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discovery,
                                                       int64_t baseFolderId,
-                                                      int32_t enabled) {
+                                                      int32_t enabled) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<void> result = state->db.setBaseFolderEnabled(baseFolderId, enabled != 0);
     if (!result) {
@@ -127,11 +148,14 @@ GBM_API int32_t gbm_discovery_set_base_folder_enabled(GbmDiscoveryHandle discove
         return errorCodeOrdinal(result.error());
     }
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API int32_t gbm_discovery_set_base_folder_depth(GbmDiscoveryHandle discovery,
                                                     int64_t baseFolderId,
-                                                    int32_t maxDepth) {
+                                                    int32_t maxDepth) try {
     DiscoveryState* state = toDiscovery(discovery);
     const GitResult<void> result = state->db.setBaseFolderMaxDepth(baseFolderId, maxDepth);
     if (!result) {
@@ -139,4 +163,7 @@ GBM_API int32_t gbm_discovery_set_base_folder_depth(GbmDiscoveryHandle discovery
         return errorCodeOrdinal(result.error());
     }
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }

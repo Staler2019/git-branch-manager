@@ -10,8 +10,10 @@ using namespace gbm::capi;
 GBM_API void gbm_export_file_at_revision(GbmSessionHandle session,
                                          const char* revision,
                                          const char* path,
-                                         const char* destPath) {
+                                         const char* destPath) try {
     toSession(session)->exportFileAtRevision(revision != nullptr ? revision : "",
                                              path != nullptr ? path : "",
                                              destPath != nullptr ? destPath : "");
+} catch (...) {
+    reportCurrentException(__func__);
 }

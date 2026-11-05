@@ -1,5 +1,6 @@
 #include "capi/AskpassPoller.h"
 
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/git/AskpassHelper.h"
 
@@ -24,7 +25,7 @@ void AskpassPoller::start(std::filesystem::path dir, std::function<void(std::str
         answered_ = false;
     }
     running_ = true;
-    thread_ = std::thread([this] { pollLoop(); });
+    thread_ = guardedThread("AskpassPoller thread", [this] { pollLoop(); });
 }
 
 void AskpassPoller::stop() {

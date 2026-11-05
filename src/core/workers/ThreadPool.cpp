@@ -1,5 +1,6 @@
 #include "core/workers/ThreadPool.h"
 
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/Logging.h"
 
 #include <algorithm>
@@ -19,7 +20,7 @@ ThreadPool::ThreadPool(std::string name, std::size_t threads) : name_(std::move(
     const std::size_t count = threads == 0 ? defaultThreadCount() : threads;
     workers_.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-        workers_.emplace_back([this] { workerLoop(); });
+        workers_.push_back(guardedThread(name_ + " worker loop", [this] { workerLoop(); }));
     }
 }
 
@@ -105,11 +106,8 @@ void ThreadPool::workerLoop() {
         // otherwise terminate the app while the user is only browsing history.
         try {
             task();
-        } catch (const std::exception& ex) {
-            logMessage(LogLevel::Error,
-                       "Unhandled exception in " + name_ + " worker: " + ex.what());
         } catch (...) {
-            logMessage(LogLevel::Error, "Unhandled non-standard exception in " + name_ + " worker");
+            reportCurrentException(name_ + " worker");
         }
 
         {

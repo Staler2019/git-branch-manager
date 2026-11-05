@@ -48,6 +48,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -6219,11 +6220,63 @@ TEST(ProcessRunnerPipes, AGrandchildDoesNotKeepTheRunOpen) {
 // child every inheritable handle in the process, including another spawn's
 // pipe write end. The race itself cannot be timed from a test, so this asserts
 // the mechanism: an inheritable handle nobody listed must not reach the child.
-TEST(ProcessRunnerPipes, AChildInheritsOnlyItsOwnHandles) {
+//
+// A marked mapping and not an event: the child gets only the handle's number,
+// and an event of its own under that number read as a leak on Windows CI.
+static HANDLE makeMarkedInheritableMapping() {
+    static constexpr char kProbeMark[] = "gbm-probe-handle";  // hang_forever.cpp reads these.
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
-    const HANDLE bystander = ::CreateEventW(&sa, TRUE, FALSE, nullptr);
+    const HANDLE mapping = ::CreateFileMappingW(
+        INVALID_HANDLE_VALUE, &sa, PAGE_READWRITE, 0, sizeof(kProbeMark), nullptr);
+    if (mapping == nullptr) {
+        return nullptr;
+    }
+    void* view = ::MapViewOfFile(mapping, FILE_MAP_WRITE, 0, 0, sizeof(kProbeMark));
+    if (view == nullptr) {
+        ::CloseHandle(mapping);
+        return nullptr;
+    }
+    std::memcpy(view, kProbeMark, sizeof(kProbeMark));
+    ::UnmapViewOfFile(view);
+    return mapping;
+}
+
+// The control: without it, a probe that can never answer `inherited` passes below.
+TEST(ProcessRunnerPipes, TheProbeSeesAHandleThatWasReallyInherited) {
+    const HANDLE bystander = makeMarkedInheritableMapping();
+    ASSERT_NE(bystander, nullptr);
+
+    STARTUPINFOW startup{};
+    startup.cb = sizeof(startup);
+    PROCESS_INFORMATION process{};
+    std::wstring commandLine = L"\"" + std::filesystem::path(GBM_HANG_FOREVER_EXE).wstring() +
+                               L"\" --probe-handle " +
+                               std::to_wstring(reinterpret_cast<std::uintptr_t>(bystander));
+    const BOOL started = ::CreateProcessW(nullptr,
+                                          commandLine.data(),
+                                          nullptr,
+                                          nullptr,
+                                          TRUE,
+                                          0,
+                                          nullptr,
+                                          nullptr,
+                                          &startup,
+                                          &process);
+    ::CloseHandle(bystander);
+    ASSERT_NE(started, FALSE) << ::GetLastError();
+
+    EXPECT_EQ(::WaitForSingleObject(process.hProcess, 10000), WAIT_OBJECT_0);
+    DWORD exitCode = 0;
+    EXPECT_NE(::GetExitCodeProcess(process.hProcess, &exitCode), FALSE);
+    ::CloseHandle(process.hThread);
+    ::CloseHandle(process.hProcess);
+    EXPECT_EQ(exitCode, 3u) << "inheriting everything must read as inherited";
+}
+
+TEST(ProcessRunnerPipes, AChildInheritsOnlyItsOwnHandles) {
+    const HANDLE bystander = makeMarkedInheritableMapping();
     ASSERT_NE(bystander, nullptr);
 
     auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
@@ -6233,7 +6286,7 @@ TEST(ProcessRunnerPipes, AChildInheritsOnlyItsOwnHandles) {
     auto result = runner->run(command, CancellationToken{});
     ::CloseHandle(bystander);
 
-    ASSERT_TRUE(result);
+    ASSERT_TRUE(result) << "exit 3: the child was handed an inheritable handle it was never given";
     // find(), not ==: the CRT's text-mode stdout may write "\r\n".
     EXPECT_NE(result.value().out.find("absent"), std::string::npos) << result.value().out;
     EXPECT_EQ(result.value().out.find("inherited"), std::string::npos)

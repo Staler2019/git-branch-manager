@@ -26,7 +26,7 @@ void wire(GitCommand& command, const std::filesystem::path& dir) {
     if (!exe) {
         return;
     }
-    const std::string exePath = exe->string();
+    const std::string exePath = fsutil::utf8FromPath(*exe);
     command.envOverrides.emplace_back("GIT_ASKPASS", exePath);
     command.envOverrides.emplace_back("SSH_ASKPASS", exePath);
     // OpenSSH only calls SSH_ASKPASS when it believes no terminal is usable.
@@ -43,7 +43,7 @@ void wire(GitCommand& command, const std::filesystem::path& dir) {
 void wireRefusing(GitCommand& command) {
     auto exe = fsutil::currentExecutablePath();
     if (exe) {
-        const std::string exePath = exe->string();
+        const std::string exePath = fsutil::utf8FromPath(*exe);
         command.envOverrides.emplace_back("GIT_ASKPASS", exePath);
         command.envOverrides.emplace_back("SSH_ASKPASS", exePath);
     }

@@ -9,15 +9,19 @@ GBM_API void gbm_merge_branch(GbmSessionHandle session,
                               const char* target,
                               int32_t mode,
                               const char* message,
-                              int32_t stashFirst) {
+                              int32_t stashFirst) try {
     MergeRequest request;
     request.target = target != nullptr ? target : "";
     request.mode = static_cast<MergeMode>(mode);
     request.message = message != nullptr ? message : "";
     request.stashFirst = stashFirst != 0;
     toSession(session)->mergeBranch(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_merge_abort(GbmSessionHandle session) {
+GBM_API void gbm_merge_abort(GbmSessionHandle session) try {
     toSession(session)->abortMerge();
+} catch (...) {
+    reportCurrentException(__func__);
 }

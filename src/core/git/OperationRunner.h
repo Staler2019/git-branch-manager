@@ -251,6 +251,11 @@ public:
 
 private:
     void workerLoop();
+    struct QueuedOperation;
+    /// One queued operation, start to delivered outcome. May throw; workerLoop() catches.
+    void runQueued(QueuedOperation& queued);
+    /// Delivers a failure if the throw came before the outcome did. Call from a catch.
+    void failUndelivered(QueuedOperation& queued);
     /// Refuses to start when a lock is still held after waitForLiveIndexLock(),
     /// or an incompatible operation is in progress, returning the choices that
     /// would unblock it.

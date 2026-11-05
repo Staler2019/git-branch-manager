@@ -133,5 +133,5 @@ E2E 第一次走真實路徑：`launchUpdater` 回報 `updater started`，`gbm-u
 - `ci.yml` 不建 MSI：`Package.wxs` 或 `build_msi.ps1` 壞掉，要到 merge 後 release 才會發現。
 - 觀察到 `update_controller_test.dart` 的 install 測試會把行寫進**真的** `<systemTemp>/gbm-update.log`（`UpdateController.install` 固定用 `Directory.systemTemp`）。
 - 下一次真正 release 後，以 GitHub 上的 N → N+1 做一次 app 內更新（gateway 寫死 GitHub API，merge 前做不到）。
-- reg.exe 輸出編碼（第一次 verifier P4）：未實測，fail-safe。
+- ~~reg.exe 輸出編碼（第一次 verifier P4）：未實測，fail-safe。~~ 已修：[fix/windows-worktree-cjk-path-crash](2026-11-05-fix-windows-worktree-cjk-path-crash.md) 改用 `RegGetValueW`。
 - 第四次 verifier（`de66cee..f1eb0fb`）**CONFIRMED**；advisory A1（P4）：路徑含 `[ ]` 時 PowerShell 備援終端機落在 `$PSHOME`，是 Windows PowerShell 5.1 自己的行為（不經 relay 也重現），主要候選 wt.exe 落點正確。

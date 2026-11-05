@@ -9,11 +9,13 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_local_identity_refresh(GbmSessionHandle session) {
+GBM_API void gbm_local_identity_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshLocalIdentity();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) try {
     const LocalIdentityPtr identity = toSession(session)->currentLocalIdentity();
     if (!identity) {
         setStagingBuffer(
@@ -22,13 +24,18 @@ GBM_API int32_t gbm_local_identity_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*identity));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API void gbm_effective_identity_refresh(GbmSessionHandle session) {
+GBM_API void gbm_effective_identity_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshEffectiveIdentity();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session) try {
     const EffectiveIdentityPtr identity = toSession(session)->currentEffectiveIdentity();
     if (!identity) {
         setStagingBuffer(
@@ -37,23 +44,37 @@ GBM_API int32_t gbm_effective_identity_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*identity));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API void gbm_set_local_identity(GbmSessionHandle session, const char* name, const char* email) {
+GBM_API void gbm_set_local_identity(GbmSessionHandle session,
+                                    const char* name,
+                                    const char* email) try {
     SetLocalIdentityRequest request;
     request.name = name != nullptr ? name : "";
     request.email = email != nullptr ? email : "";
     toSession(session)->setLocalIdentityOverride(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_clear_local_identity(GbmSessionHandle session) {
+GBM_API void gbm_clear_local_identity(GbmSessionHandle session) try {
     toSession(session)->clearLocalIdentityOverride();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session) {
+GBM_API int32_t gbm_has_commit_graph(GbmSessionHandle session) try {
     return toSession(session)->hasCommitGraph() ? 1 : 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API void gbm_write_commit_graph(GbmSessionHandle session) {
+GBM_API void gbm_write_commit_graph(GbmSessionHandle session) try {
     toSession(session)->writeCommitGraph();
+} catch (...) {
+    reportCurrentException(__func__);
 }

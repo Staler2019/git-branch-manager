@@ -13,11 +13,13 @@ using namespace gbm::capi;
 
 namespace {}  // namespace
 
-GBM_API void gbm_bisect_refresh(GbmSessionHandle session) {
+GBM_API void gbm_bisect_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshBisectStatus();
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_bisect_status_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_bisect_status_json(GbmSessionHandle session) try {
     const BisectStatusPtr status = toSession(session)->currentBisectStatus();
     if (!status) {
         setStagingBuffer(
@@ -26,6 +28,9 @@ GBM_API int32_t gbm_bisect_status_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*status));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API void gbm_bisect_start(GbmSessionHandle session,
@@ -34,30 +39,40 @@ GBM_API void gbm_bisect_start(GbmSessionHandle session,
                               int32_t goodCount,
                               const char* const* paths,
                               int32_t pathCount,
-                              int32_t noCheckout) {
+                              int32_t noCheckout) try {
     BisectStartRequest request;
     request.badRef = badRef != nullptr ? badRef : "";
     request.goodRefs = toStringVector(goodRefs, goodCount);
     request.paths = toStringVector(paths, pathCount);
     request.noCheckout = noCheckout != 0;
     toSession(session)->startBisect(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_bisect_mark(GbmSessionHandle session, int32_t good, const char* ref) {
+GBM_API void gbm_bisect_mark(GbmSessionHandle session, int32_t good, const char* ref) try {
     BisectMarkRequest request;
     request.good = good != 0;
     request.ref = ref != nullptr ? ref : "";
     toSession(session)->markBisect(request);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_bisect_skip(GbmSessionHandle session, const char* const* refs, int32_t refCount) {
+GBM_API void gbm_bisect_skip(GbmSessionHandle session,
+                             const char* const* refs,
+                             int32_t refCount) try {
     BisectSkipRequest request;
     request.refs = toStringVector(refs, refCount);
     toSession(session)->skipBisect(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target) {
+GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target) try {
     BisectResetRequest request;
     request.target = target != nullptr ? target : "";
     toSession(session)->resetBisect(std::move(request));
+} catch (...) {
+    reportCurrentException(__func__);
 }

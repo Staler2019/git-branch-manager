@@ -13,6 +13,12 @@ namespace gbm::capi {
 
 namespace {
 thread_local std::string g_stagingBuffer;
+
+// Runs as the library loads, on the thread that will make the FFI calls.
+[[maybe_unused]] const bool g_terminateHandlerInstalled = [] {
+    installTerminateHandler();
+    return true;
+}();
 }  // namespace
 
 void setStagingBuffer(std::string json) {
@@ -28,30 +34,40 @@ const std::string& stagingBuffer() {
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_free_event_payload(const uint8_t* payload) {
+GBM_API void gbm_free_event_payload(const uint8_t* payload) try {
     // NOLINTNEXTLINE(cppcoreguidelines-owning-memory) -- allocated with
     // std::malloc in CallbackRegistry::emit(); see gbm_capi.h's ownership note.
     std::free(const_cast<uint8_t*>(payload));
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_last_result_json_len(void) {
+GBM_API int32_t gbm_last_result_json_len(void) try {
     return static_cast<int32_t>(stagingBuffer().size());
+} catch (...) {
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API void gbm_last_result_json_copy(uint8_t* out, int32_t outLen) {
+GBM_API void gbm_last_result_json_copy(uint8_t* out, int32_t outLen) try {
     const std::string& buffer = stagingBuffer();
     const std::size_t n = std::min(static_cast<std::size_t>(outLen), buffer.size());
     std::memcpy(out, buffer.data(), n);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier) {
+GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier) try {
     setTimeoutMultiplier(static_cast<int>(multiplier));
     return static_cast<int32_t>(timeoutMultiplier());
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API GbmSessionHandle gbm_session_open(const char* workDir,
                                           const char* gitDir,
-                                          const char* commonDir) {
+                                          const char* commonDir) try {
     GitError error;
     std::unique_ptr<Session> session = Session::open(workDir != nullptr ? workDir : "",
                                                      gitDir != nullptr ? gitDir : "",
@@ -62,27 +78,43 @@ GBM_API GbmSessionHandle gbm_session_open(const char* workDir,
         return nullptr;
     }
     return toHandle(session.release());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API void gbm_session_close(GbmSessionHandle session) {
+GBM_API void gbm_session_close(GbmSessionHandle session) try {
     delete toSession(session);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
 GBM_API void gbm_register_callback(GbmSessionHandle session,
                                    GbmEventCallback callback,
-                                   void* userData) {
+                                   void* userData) try {
     toSession(session)->registerCallback(callback, userData);
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session) try {
     setStagingBuffer(toJson(toSession(session)->repoState()));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session) {
+GBM_API int32_t gbm_operation_remove_stale_index_lock(GbmSessionHandle session) try {
     return toSession(session)->removeStaleIndexLock() ? 1 : 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id) {
+GBM_API int32_t gbm_cancel_operation(GbmSessionHandle session, uint64_t id) try {
     return toSession(session)->cancelOperation(id);
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }

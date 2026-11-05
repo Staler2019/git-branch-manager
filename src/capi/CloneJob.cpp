@@ -1,9 +1,11 @@
 #include "capi/CloneJob.h"
 
+#include "capi/Handle.h"
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
 #include "capi/Session.h"
 #include "capi/StagingBuffer.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/git/AskpassHelper.h"
 #include "core/git/IProcessRunner.h"
 #include "core/git/ops/InitCloneOps.h"
@@ -169,7 +171,16 @@ std::unique_ptr<CloneJob> CloneJob::start(CloneJobRequest request,
         registry().emplace(id, job.get());
     }
     CloneJob* raw = job.get();
-    job->thread_ = std::thread([raw] { raw->run(); });
+    job->thread_ = guardedThread(
+        "CloneJob thread",
+        [raw] { raw->run(); },
+        [raw] {
+            // The app waits on GBM_EVENT_CLONE_FINISHED; without it the dialog never ends.
+            raw->askpass_.stop();
+            raw->emitFinished(fail(GitError::Code::Unknown,
+                                   "The clone failed unexpectedly",
+                                   describeCurrentException()));
+        });
     return job;
 }
 
@@ -359,7 +370,7 @@ GBM_API GbmCloneHandle gbm_clone_start(const char* url,
                                        int32_t recurseSubmodules,
                                        int32_t depth,
                                        GbmEventCallback callback,
-                                       void* userData) {
+                                       void* userData) try {
     CloneJobRequest request;
     request.url = url != nullptr ? url : "";
     request.destPath = fsutil::pathFromUtf8(destPath != nullptr ? destPath : "");
@@ -372,26 +383,37 @@ GBM_API GbmCloneHandle gbm_clone_start(const char* url,
         return nullptr;
     }
     return static_cast<GbmCloneHandle>(job.release());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API void gbm_clone_cancel(GbmCloneHandle job) {
+GBM_API void gbm_clone_cancel(GbmCloneHandle job) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->cancel();
     }
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret) {
+GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->provideCredential(secret != nullptr ? secret : "");
     }
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) {
+GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->cancelCredential();
     }
+} catch (...) {
+    reportCurrentException(__func__);
 }
 
-GBM_API void gbm_clone_close(GbmCloneHandle job) {
+GBM_API void gbm_clone_close(GbmCloneHandle job) try {
     delete static_cast<CloneJob*>(job);
+} catch (...) {
+    reportCurrentException(__func__);
 }

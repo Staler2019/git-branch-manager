@@ -2,10 +2,6 @@
   "env": {
     "ENABLE_LSP_TOOL": "1"
   },
-  "enabledPlugins": {
-    "clangd-lsp@claude-plugins-official": true,
-    "dart-flutter@dart-flutter": true
-  },
   "hooks": {
     "SessionStart": [
       {
@@ -29,5 +25,9 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "clangd-lsp@claude-plugins-official": true,
+    "dart-and-flutter@anthropic-plugin-directory": true
   }
 }

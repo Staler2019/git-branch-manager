@@ -1,3 +1,4 @@
+import 'native_error_report.dart';
 import 'operation_record.dart';
 import 'remote_prune_preview_entry.dart';
 
@@ -21,6 +22,19 @@ import 'remote_prune_preview_entry.dart';
 ///    path, a branch name, a *remote name* and ref names -- never a remote
 ///    URL, which is where a token would live.
 abstract final class AppLogEvents {
+  /// A failure `gbm_capi` caught and could not return to anyone. The summary has no
+  /// repository path in it; the file it points at does.
+  static AppLogEntry nativeError(NativeErrorReport report) {
+    final String details = report.logPath.isEmpty
+        ? ''
+        : ' (details: ${report.logPath})';
+    return AppLogEntry(
+      whenEpochMs: report.when.millisecondsSinceEpoch,
+      level: OperationLogLevel.error,
+      message: 'Native error in ${report.where}: ${report.summary}$details',
+    );
+  }
+
   /// 「開啟 repo」. The work tree, not the git dir: it is what the window
   /// title and the repository switcher show, so it is what the reader will
   /// recognise.

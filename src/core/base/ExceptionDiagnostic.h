@@ -1,12 +1,17 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <typeinfo>
 #include <utility>
 
 namespace gbm {
+
+/// A type's name for a report: code-chosen, so it holds no user text.
+std::string typeName(const std::type_info& type);
 
 /// The exception currently being handled as one line of text: dynamic type,
 /// what(), error code and category, and any filesystem paths. Always valid UTF-8,
@@ -15,13 +20,33 @@ namespace gbm {
 /// catches it; with no active exception it says so.
 std::string describeCurrentException();
 
-/// For a catch site that swallows the exception: sends the description to the
-/// log sink and appends it to nativeErrorLogPath(). Never throws.
+/// For a catch site that swallows the exception: appends the description to
+/// nativeErrorLogPath(), then sends it to the log sink and the native error sink.
+/// Never throws.
 void reportCurrentException(std::string_view where) noexcept;
 
-/// `<temp>/gbm-native-errors.log`. No log sink is installed in a release build and
-/// a Windows GUI app has no stderr, so this file is what a bug report can attach.
-/// Started over once it passes 1 MiB.
+/// What the native error sink hears. All three are valid UTF-8. `summary` is for the
+/// screen: at most 2 KiB, and a filesystem error gives only its type and code.
+struct NativeErrorReport {
+    std::string where;
+    std::string summary;
+    std::string logPath;
+};
+
+using NativeErrorSink = std::function<void(const NativeErrorReport&)>;
+
+/// Replaces the sink; nullptr clears it. A sink runs under a lock on the reporting
+/// thread, so this returning means the previous one is no longer running and its
+/// captures can go. For the same reason a sink must not report. std::terminate never
+/// calls it.
+void setNativeErrorSink(NativeErrorSink sink);
+
+/// `gbm-native-errors.log` under %LOCALAPPDATA%\\GitBranchManager\\logs,
+/// ~/Library/Logs/GitBranchManager or $XDG_STATE_HOME (~/.local/state)/gitbranchmanager;
+/// GBM_NATIVE_ERROR_LOG_DIR overrides it. Empty when none resolves, and then nothing
+/// is written. No log sink is installed in a release build and a Windows GUI app has
+/// no stderr, so this file is what a bug report can attach. Past 1 MiB it becomes
+/// `.1`, replacing the previous one.
 std::filesystem::path nativeErrorLogPath();
 
 /// std::terminate writes the description to the log file and stderr before

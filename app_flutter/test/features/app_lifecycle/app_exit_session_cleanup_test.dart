@@ -3,6 +3,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/features/app_lifecycle/app_exit_session_cleanup.dart';
 
@@ -17,6 +18,9 @@ class _Recorder implements ClosableRepoSession {
 
   @override
   void closeNativeSession() => closes++;
+
+  @override
+  void recordAppLog(AppLogEntry entry) {}
 }
 
 Future<OpenRepoSessions> _pump(WidgetTester tester) async {

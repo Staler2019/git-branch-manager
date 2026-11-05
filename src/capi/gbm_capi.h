@@ -295,6 +295,16 @@ typedef void (*GbmEventCallback)(GbmSessionHandle session,
 /// finished reading it. A null or already-freed pointer is not accepted.
 GBM_API void gbm_free_event_payload(const uint8_t* payload);
 
+/// Receives a failure the library caught and could not return to anyone, on whatever
+/// thread it happened: UTF-8 JSON `{whenEpochMs, where, summary, logPath}`, released with
+/// gbm_free_event_payload(). It must not call back into this library.
+typedef void (*GbmNativeErrorCallback)(const uint8_t* payload, int32_t payloadLen, void* userData);
+
+/// Registers the process-wide callback and removes what an earlier version left in the
+/// temp directory; null clears it. Once a clearing call returns the callback is not
+/// running and will not run again.
+GBM_API void gbm_set_native_error_callback(GbmNativeErrorCallback callback, void* userData);
+
 // --- Thread-local synchronous-result staging buffer -------------------------
 // Populated by any function documented "populates the staging buffer".
 // Always drain it (len, then copy) on the same thread and before the next

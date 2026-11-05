@@ -55,3 +55,10 @@ or test now enforces live at that site, with the reason in its comment; history 
 - **Consequence**: nothing in the app can tell; the updater's `.ps1` sat in temp with no log beside it, and `DesktopLauncher`'s `cmd /c start` and `powershell.exe` opened nothing.
 - **Do**: start every external program through `startDetachedProcess` (`detached_process.dart`; ~~`startUpdaterProcess` in `update_installer.dart`~~), which relays via `Start-Process` and waits for the relay; prove a start with a mark the child writes itself (`detached_process_test.dart`). A relayed argument is quoted only when it holds whitespace: `cmd.exe` given `"/c"` runs nothing.
 - **Evidence**: [ledger: Release 改發 MSI](../../docs/ledger/2026-10-14-feat-release-msi-installer.md)
+
+## [CI-required-checks-need-a-run] A PR head with no run of the required checks cannot merge
+
+- **Rule**: `main`'s protection is a ruleset, not branch protection: `gh api repos/{owner}/{repo}/rules/branches/main` shows it and `branches/main/protection` returns 404.
+- **Consequence**: `[skip ci]` on the PR head, or a workflow-level `paths:` filter that excludes it, leaves required checks missing and the PR `BLOCKED`; every push to the PR, force-push included, reruns the whole matrix.
+- **Do**: put a docs-only commit in the same push as the code it describes, before CI runs; skip jobs with a job-level `if:` so the required check still reports.
+- **Evidence**: [ledger: feat/native-error-channel](../../docs/ledger/2026-11-05-feat-native-error-channel.md)

@@ -37,6 +37,8 @@ const Map<String, String> _cToFfi = <String, String>{
   'GbmDiscoveryHandle': 'Pointer<Void>',
   'GbmCloneHandle': 'Pointer<Void>',
   'GbmEventCallback': 'Pointer<NativeFunction<GbmEventCallbackNative>>',
+  'GbmNativeErrorCallback':
+      'Pointer<NativeFunction<GbmNativeErrorCallbackNative>>',
 };
 
 /// Dart-side aliases `gbm_bindings.dart` declares for `Pointer<Void>`.

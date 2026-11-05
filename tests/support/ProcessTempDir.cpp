@@ -39,6 +39,14 @@ ProcessTempDir::ProcessTempDir()
     std::filesystem::remove_all(own_, ec);
     std::filesystem::create_directories(own_);
     pointTempAt(own_);
+    // An environment variable because gbm_capi holds its own copy of gbm_core on
+    // Windows, and only this reaches that copy. Keeps tests out of the real home.
+    const std::string logDir = (own_ / "native-error-logs").string();
+#ifdef _WIN32
+    _putenv_s("GBM_NATIVE_ERROR_LOG_DIR", logDir.c_str());
+#else
+    setenv("GBM_NATIVE_ERROR_LOG_DIR", logDir.c_str(), 1);
+#endif
 }
 
 ProcessTempDir::~ProcessTempDir() {

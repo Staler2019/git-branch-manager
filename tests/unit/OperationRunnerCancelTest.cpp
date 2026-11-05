@@ -9,16 +9,20 @@
 // The operations here run no git at all -- each blocks on a latch the test
 // controls -- so "queued" and "running" are states the test holds the runner
 // in, not races it has to win.
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/git/OperationId.h"
 #include "core/git/OperationRunner.h"
 #include "core/git/RepoPaths.h"
+#include "core/git/ops/SubmoduleOps.h"
 #include "support/FakeProcessRunner.h"
 
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
 #include <gtest/gtest.h>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -201,6 +205,41 @@ TEST_F(OperationRunnerCancelTest, AThrowOutsideRunFailsThatOperationAndTheQueueG
     EXPECT_EQ(first->kind, "throwsBeforeItRuns") << "Dart routes an outcome by its kind";
     ASSERT_TRUE(second.has_value());
     EXPECT_TRUE(second->succeeded);
+}
+
+class ThrowsWithASecretInItsDescription final : public Operation {
+public:
+    std::string describe() const override { return "Add submodule https://u:s3cret@host/x"; }
+
+    OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
+        throw std::runtime_error("from the run");
+    }
+};
+
+// describe() holds user text, and the log file is what a bug report attaches.
+TEST_F(OperationRunnerCancelTest, AThrowReportsTheOperationsTypeAndNotItsDescription) {
+    std::error_code ec;
+    std::filesystem::remove(nativeErrorLogPath(), ec);
+
+    OperationRunner operations(fake_, paths_);
+    operations.submit(std::make_unique<ThrowsWithASecretInItsDescription>(), [](OperationOutcome) {
+    });
+    operations.drain();
+
+    std::ifstream in(nativeErrorLogPath(), std::ios::binary);
+    const std::string log{std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+    EXPECT_NE(log.find("ThrowsWithASecretInItsDescription"), std::string::npos) << log;
+    EXPECT_NE(log.find("from the run"), std::string::npos) << log;
+    EXPECT_EQ(log.find("s3cret"), std::string::npos) << log;
+}
+
+TEST_F(OperationRunnerCancelTest, AddingASubmoduleDoesNotDescribeItselfWithItsUrl) {
+    AddSubmoduleRequest request;
+    request.url = "https://u:s3cret@host/x";
+    request.path = "vendor/x";
+    const std::string text = makeAddSubmoduleOperation(std::move(request))->describe();
+    EXPECT_EQ(text.find("s3cret"), std::string::npos) << text;
+    EXPECT_NE(text.find("vendor/x"), std::string::npos) << text;
 }
 
 TEST_F(OperationRunnerCancelTest, AQueuedUnitIsCancelledEvenWhenItCouldNotBeKilled) {

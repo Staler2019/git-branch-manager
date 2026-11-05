@@ -264,7 +264,10 @@ void OperationRunner::runQueued(QueuedOperation& queued) {
         } catch (...) {
             // A throwing operation must not take the process down while the
             // user has uncommitted work open.
-            reportCurrentException("Operation: " + queued.operation->describe());
+            // The type, not describe(): that holds user text, and this report is
+            // what a bug report attaches.
+            const Operation& operation = *queued.operation;
+            reportCurrentException("Operation " + typeName(typeid(operation)));
             outcome.succeeded = false;
             outcome.error = GitError(GitError::Code::Unknown,
                                      "The operation failed unexpectedly",

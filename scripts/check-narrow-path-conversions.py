@@ -30,6 +30,8 @@ ALLOWED = (
      '寬字元字面值，不經代碼頁'),
     ('src/core/base/FsUtil.cpp', 'return std::filesystem::path(',
      'pathFromUtf8 本身，參數是 std::u8string'),
+    ('src/core/base/ExceptionDiagnostic.cpp', 'std::filesystem::path(value)',
+     'value 是 GetEnvironmentVariableW 的 wstring'),
     ('src/core/git/GitExecutable.cpp', 'std::filesystem::path(entry)',
      'PATH 的項目來自窄 getenv，與窄建構子同一個代碼頁，往返一致'),
     ('src/core/git/GitExecutable.cpp', 'std::filesystem::path install(buffer)',

@@ -97,6 +97,21 @@ typedef SessionOpenDart = Pointer<Void> Function(
   Pointer<Utf8> commonDir,
 );
 
+/// `void (*)(const uint8_t*, int32_t, void*)`.
+typedef GbmNativeErrorCallbackNative = Void Function(
+  Pointer<Uint8> payload,
+  Int32 payloadLen,
+  Pointer<Void> userData,
+);
+typedef _SetNativeErrorCallbackNative = Void Function(
+  Pointer<NativeFunction<GbmNativeErrorCallbackNative>> callback,
+  Pointer<Void> userData,
+);
+typedef SetNativeErrorCallbackDart = void Function(
+  Pointer<NativeFunction<GbmNativeErrorCallbackNative>> callback,
+  Pointer<Void> userData,
+);
+
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
 
@@ -1431,6 +1446,11 @@ class GbmBindings {
           .lookupFunction<_FreeEventPayloadNative, FreeEventPayloadDart>(
             'gbm_free_event_payload',
           ),
+      setNativeErrorCallback = library
+          .lookupFunction<
+            _SetNativeErrorCallbackNative,
+            SetNativeErrorCallbackDart
+          >('gbm_set_native_error_callback'),
       setTimeoutMultiplier = library
           .lookupFunction<
             _SetTimeoutMultiplierNative,
@@ -2041,6 +2061,9 @@ class GbmBindings {
           >('gbm_discovery_set_base_folder_depth');
 
   final FreeEventPayloadDart freeEventPayload;
+
+  /// gbm_set_native_error_callback(): process-wide; null clears it.
+  final SetNativeErrorCallbackDart setNativeErrorCallback;
 
   /// gbm_set_timeout_multiplier(): process-wide, no session. Returns the
   /// multiplier now in effect.

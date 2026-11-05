@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -15,13 +16,79 @@ import '../../support/fake_repo_session.dart';
 /// each controller registers itself.
 class _Recorder implements ClosableRepoSession {
   int closes = 0;
+  final List<AppLogEntry> logged = <AppLogEntry>[];
 
   @override
   void closeNativeSession() => closes++;
+
+  @override
+  void recordAppLog(AppLogEntry entry) => logged.add(entry);
 }
+
+const AppLogEntry _line = AppLogEntry(
+  whenEpochMs: 0,
+  level: OperationLogLevel.error,
+  message: 'line',
+);
 
 void main() {
   group('OpenRepoSessions', () {
+    test('a line goes to every live session, once', () {
+      final OpenRepoSessions registry = OpenRepoSessions();
+      final _Recorder a = _Recorder();
+      final _Recorder b = _Recorder();
+      final _Recorder gone = _Recorder();
+      registry
+        ..register(a)
+        ..register(b)
+        ..register(gone)
+        ..unregister(gone);
+
+      registry.recordAppLogToAll(_line);
+
+      expect(a.logged, <AppLogEntry>[_line]);
+      expect(b.logged, <AppLogEntry>[_line]);
+      expect(gone.logged, isEmpty);
+    });
+
+    test('a session that cannot take the line does not cost the others', () {
+      final OpenRepoSessions registry = OpenRepoSessions();
+      final _Recorder after = _Recorder();
+      registry
+        ..register(_ThrowingSession())
+        ..register(after);
+
+      registry.recordAppLogToAll(_line);
+
+      expect(after.logged, <AppLogEntry>[_line]);
+    });
+
+    test('after-close hooks run once the sessions have closed', () {
+      final OpenRepoSessions registry = OpenRepoSessions();
+      final _Recorder session = _Recorder();
+      final List<int> closesSeen = <int>[];
+      registry
+        ..register(session)
+        ..addAfterCloseAll(() => closesSeen.add(session.closes));
+
+      registry.closeAll();
+
+      expect(closesSeen, <int>[1]);
+    });
+
+    test('a failing session or hook does not cost the hooks after it', () {
+      final OpenRepoSessions registry = OpenRepoSessions();
+      int ran = 0;
+      registry
+        ..register(_ThrowingSession())
+        ..addAfterCloseAll(() => throw StateError('hook'))
+        ..addAfterCloseAll(() => ran++);
+
+      registry.closeAll();
+
+      expect(ran, 1);
+    });
+
     test('closes every registered session', () {
       final OpenRepoSessions registry = OpenRepoSessions();
       final _Recorder a = _Recorder();
@@ -109,6 +176,9 @@ void main() {
 class _ThrowingSession implements ClosableRepoSession {
   @override
   void closeNativeSession() => throw StateError('already gone');
+
+  @override
+  void recordAppLog(AppLogEntry entry) => throw StateError('already gone');
 }
 
 /// The real controller, with the one call under test counted on the way

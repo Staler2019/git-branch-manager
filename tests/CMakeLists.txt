@@ -214,6 +214,7 @@ if(GBM_BUILD_CAPI)
         capi/JsonCodecTest.cpp
         capi/LfsApiTest.cpp
         capi/MergeApiTest.cpp
+        capi/NativeErrorApiTest.cpp
         capi/OperationLogApiTest.cpp
         capi/OriginalOperationMessageApiTest.cpp
         capi/PatchApiTest.cpp

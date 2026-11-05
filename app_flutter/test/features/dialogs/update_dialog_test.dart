@@ -1,11 +1,16 @@
+import 'dart:ffi';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
 import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
+import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
+import 'package:gbm_flutter/data/repositories/native_error_events_provider.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -134,6 +139,38 @@ Future<_PumpedDialog> _pumpDialog(
   );
   await tester.pump();
   return (fake: fake, container: container);
+}
+
+class _OrderedBindings extends FakeGbmBindings {
+  _OrderedBindings(this.order);
+
+  final List<String> order;
+
+  @override
+  SetNativeErrorCallbackDart get setNativeErrorCallback =>
+      (
+        Pointer<NativeFunction<GbmNativeErrorCallbackNative>> callback,
+        Pointer<Void> userData,
+      ) {
+        if (callback == nullptr) order.add('callback cleared');
+      };
+}
+
+class _OrderedSession extends FakeRepoSessionController {
+  _OrderedSession(this.order, OpenRepoSessions sessions)
+    : super(
+        RepoIdentity.forWorkDir('/test/repo'),
+        const RepoSessionState(isOpen: true),
+        openSessions: sessions,
+      );
+
+  final List<String> order;
+
+  @override
+  void closeNativeSession() {
+    order.add('session closed');
+    super.closeNativeSession();
+  }
 }
 
 /// Any well-formed digest: no test here re-reads the bundle.
@@ -480,6 +517,36 @@ void main() {
 
       expect(fake.calls, contains('install'));
       expect(sessions.closeAllCalls, 1);
+    });
+
+    // The handover's own quit path: nothing but this callback closes the sessions on it, so
+    // the native callback must come after them here as well as on an ordinary quit.
+    testWidgets('clears the native error callback after closing the sessions', (
+      WidgetTester tester,
+    ) async {
+      final List<String> order = <String>[];
+      final OpenRepoSessions sessions = OpenRepoSessions();
+      final _OrderedSession session = _OrderedSession(order, sessions);
+      addTearDown(session.dispose);
+      final ProviderContainer container = (await _pumpDialog(
+        tester,
+        UpdateState.readyToInstall(
+          release: _release,
+          asset: _asset,
+          downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
+        ),
+        sessions: sessions,
+        extra: <Override>[
+          gbmBindingsProvider.overrideWithValue(_OrderedBindings(order)),
+        ],
+      )).container;
+      container.read(nativeErrorEventsProvider);
+
+      await tester.tap(find.text('Install and restart'));
+      await tester.pump();
+
+      expect(order, <String>['session closed', 'callback cleared']);
     });
 
     // Without this button `skippedVersion` would be a stored setting

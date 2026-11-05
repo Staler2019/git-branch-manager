@@ -178,7 +178,7 @@ PR #208 合併後，下一輪的 security-reviewer 指出：`OperationRunner` �
 
 ## 已知缺口
 
-- void export（共 119 個）失敗時只有 log 與 `gbm-native-errors.log`，Dart 收不到回傳值；等事件回覆的呼叫端可能一直等。
+- void export（共 119 個）失敗時~~只有 log 與 `gbm-native-errors.log`，Dart 收不到回傳值；~~會進 Log 與狀態列紅字（[feat/native-error-channel](2026-11-05-feat-native-error-channel.md)）；等事件回覆的呼叫端仍可能一直等。
 - `AskpassPoller` 執行緒若因例外結束，該次 git 操作的密碼提示不會出現，~~只能等 git 自己的 deadline~~ request 檔還在，idle 時鐘一直被重置，實際要等 helper 的 `kResponseTimeout`（10 分鐘）。靜態推論，未實際觸發。
 - `CloneJob` 的例外分支（`CLONE_FINISHED`）沒有測試：找不到可注入例外的接縫，只有 lint 確認入口有包。
 - `ProcessRunner` 的三條 Windows 執行緒在 macOS 上編譯不到，只有 Windows CI 驗。

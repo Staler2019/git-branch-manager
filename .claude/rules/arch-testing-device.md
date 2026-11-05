@@ -22,6 +22,7 @@ Format: [README.md](../../docs/rules/README.md). Run steps and which native libr
 ## [TEST-device-tier-not-in-ci] The device tier is in no CI job and is not part of `flutter test`
 
 - **Rule**: `ci.yml`'s three-OS `flutter-ci` runs `flutter test` and `flutter build` only; a UI redesign can leave `integration_test/` red for rounds with every other tier green.
+- **Do**: what must cross `dart:ffi` for real on Windows goes in `capi-build` (its library has `gbm_test_raise_native_error`, the runners' do not), as `native_error_real_library_test.dart` does; it skips in a plain `flutter test`.
 - **Do**: **a round that removes or replaces a user affordance owns grepping `integration_test/` for it**, and re-runs every device file (one at a time) after touching a shared row widget.
 
 ## [TEST-ffi-matches-symbol-only] `dart:ffi`'s `lookupFunction` matches by symbol name only, never by signature

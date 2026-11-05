@@ -53,3 +53,10 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 - **Consequence**: a write end that leaks into a long-lived process — `fsmonitor--daemon` started by `git worktree add`, or a sibling `cat-file --batch` — keeps the pipe open after git exits; the read loop never sees EOF, the operation shows RUNNING until its deadline, and its onSuccess refresh never runs.
 - **Do**: a new spawn site uses both helpers; test with `hang_forever --detach-grandchild` (POSIX) or `--probe-handle` (Windows, CI only).
 - **Evidence**: [ledger: feature-worktree-checkout](../../docs/ledger/2026-10-08-feature-worktree-checkout.md)
+
+## [CPP-exception-text-reaches-the-screen] A thrown exception's `what()` reaches every open repository's Log
+
+- **Rule**: `reportCurrentException` sends the summary to the Log of the window and of every open repository, and the full description to a file a bug report attaches. A filesystem error is reduced to type and code on screen; every other `what()` is shown as it is, behind only `redactUrlCredentials`, whose known gaps are in the ledger.
+- **Consequence**: safe today because `src/` has no data-bearing `throw` (only the standard library throws, and the one in `NativeError.cpp` is test-only). The first `throw` carrying a path, URL or file content makes that text visible across repositories.
+- **Do**: put no user data in a `what()` or in `where`; `where` is a function name or a type name, never `describe()`. A sink runs under a lock, so it must not report.
+- **Evidence**: [ledger: feat/native-error-channel](../../docs/ledger/2026-11-05-feat-native-error-channel.md)

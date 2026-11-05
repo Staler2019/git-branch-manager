@@ -88,7 +88,9 @@ TEST_F(NativeErrorApiTest, TheLogFileGetsTheLineAndStaysInTheProcessPrivateDirec
     gbm_test_raise_native_error("file too");
 
     const std::filesystem::path log = nativeErrorLogPath();
-    EXPECT_EQ(log.parent_path().parent_path(), std::filesystem::temp_directory_path());
+    // Appended, not parent_path()'d: Windows' temp path keeps a trailing separator, and a path
+    // ending in one compares unequal to the same directory without it.
+    EXPECT_EQ(log.parent_path(), std::filesystem::temp_directory_path() / "native-error-logs");
     EXPECT_NE(readFile(log).find("file too"), std::string::npos);
 }
 

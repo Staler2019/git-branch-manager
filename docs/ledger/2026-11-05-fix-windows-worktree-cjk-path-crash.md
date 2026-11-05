@@ -52,6 +52,18 @@ gbm_session_open(<worktree>/.git)
 
 `_WIN32` 區塊這個方法編譯不到，只用 grep 看過。
 
+~~這張表是全部。~~ verifier 反駁了：`path(const _Source&)` 是 template，`[[deprecated]]` 每個 TU 每種型別只警告一次，
+同一型別的第二個隱式轉換就看不見了。改用非 template 的 `path(const string&)` overload 逐點警告後，又找到：
+
+| 位置 | 處置 |
+|---|---|
+| `Discovery.cpp` 的 `state->db.open(path)` | 修：db 路徑含 Windows 使用者名稱 |
+| `Scanner.cpp` 的 `longPathSafe(baseFolder.path)`、`workerCountFor(baseFolder.path)` | 修：使用者的 base folder |
+| `RepoIndexDb.h` 的 `toPaths()` | 未改：`src/` 沒有呼叫者，只有 `DiscoveryTest` 讀，屬 orphan，交使用者決定 |
+| `FsUtil.cpp:128-129` | 非 Windows 分支，安全 |
+
+這一版 overlay 在 110 個編譯單元裡有 93 個 `-fsyntax-only` 回非零，警告還是印得出來，但不能當成完整證據；0 失敗的那份是 verifier 自己做的盤點。
+
 ### 例外防護
 
 - **`ExceptionDiagnostic`（core/base）**：型別、what、error code 與 category、檔案路徑，保證是合法 UTF-8
@@ -103,6 +115,27 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 | 7 | `fix: install location 改以 RegGetValueW 讀取` | 無：只在 Windows 能跑 | — |
 | 8 | `feat: Windows 行程改用 UTF-8 active code page` | 測試先紅 1 個 | 1 |
 | 9 | `fix: void export 不再寫沒人讀的 staging buffer` | 2 | 2（第一次 `m-any-export` 存活，補「回傳值的 export 可以寫」的測試後轉紅） |
+| 10 | `fix: SeparateDefinitionBlocks 改為 Leave` | 無：`format-check.sh` 160 筆降為 0 | — |
+| 11 | `fix: discovery 快取與掃描的路徑改以 UTF-8 解碼` | 無：紅燈只在 Windows | — |
+| 12 | `fix: failUndelivered 的 outcome 補上 kind` | 先紅 1 個 | 1 |
+| 13 | `fix: native exception lint 改為強制完整合約` | 10 | 18（第一次 `value-report` 存活，補案例後才紅；實作前另有 16 個新測試先紅） |
+| 14 | `refactor: 更正 describeCurrentException 的註解` | 只改註解 | — |
+| 15 | `fix: RegGetValueW 只帶 RRF_RT_REG_SZ` | 無：只在 Windows 能跑 | — |
+
+### Verifier 的第一次判定：REFUTED
+
+| Finding | 處置 |
+|---|---|
+| 三處隱式窄字元轉換（P2） | 修，見上方盤點 |
+| lint 接受 `catch (const std::exception&)`、`return 0`、`throw;`、空 catch（P2） | 修，lint 現在檢查 catch 型別、內容與回傳值 |
+| `RRF_RT_REG_SZ \| RRF_RT_REG_EXPAND_SZ` 可能讓讀取永遠失敗（未確認） | 改成只帶 `RRF_RT_REG_SZ`，不再取決於 Windows 怎麼判這個組合。這讓舊組合在真實 Windows 上會不會失敗變成無解，沒有量測 |
+| `failUndelivered` 的 outcome 沒有 `kind`（P3，本輪引入） | 修 |
+| `describeCurrentException` 註解過頭（P4） | 更正註解 |
+| thread lint 的洞（P3） | 修 |
+| `cancel()` 的新競態窗口（P3，只有靜態推論） | 延後，見已知缺口 |
+| `gbm_history_refresh` 失敗後 refreshing 可能不結束（P3，只有靜態推論） | 延後，見已知缺口 |
+| 窄 `getenv` 配 `pathFromUtf8`（P4） | 延後，見已知缺口 |
+| ledger 的 1020 與 verifier 的 1018 不符（P4） | 不是錯：`--preset capi-only` 排除 `perf` label 的 2 個，`ctest --test-dir` 不排除 |
 
 存活過一個值得記的：`m5-overlong3` 第一次 0 紅（測試沒有 overlong 三位元組的案例），補案例後才紅。
 
@@ -136,3 +169,7 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 - `AskpassPoller` 執行緒若因例外結束，該次 git 操作的密碼提示不會出現，只能等 git 自己的 deadline。
 - `CloneJob` 的例外分支（`CLONE_FINISHED`）沒有測試：找不到可注入例外的接縫，只有 lint 確認入口有包。
 - `ProcessRunner` 的三條 Windows 執行緒在 macOS 上編譯不到，只有 Windows CI 驗。
+- `cancel()` 窗口：`runningId_` 與 `runningKillable_` 不再於同一臨界區設定，窗口內的 cancel 可能回 `NotCancellable`，再按一次即可。
+- `gbm_history_refresh` 例外時回 0，`isRefreshing` 可能沒有事件結束它，與 void export 同一類缺口。
+- `CloneJob.cpp:61` 的 `USERPROFILE`、`Session.cpp:101` 的 `GBM_GIT_PATH` 是窄 `getenv` 配 `pathFromUtf8`：有 manifest 時一致；Windows 10 1903 之前會解錯。
+- `RepoRecord::toPaths()` 沒有產品呼叫者。

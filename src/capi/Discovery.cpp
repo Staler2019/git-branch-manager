@@ -3,6 +3,7 @@
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/discovery/Scanner.h"
 
 #include <string>
@@ -24,7 +25,7 @@ GBM_API GbmDiscoveryHandle gbm_discovery_open(const char* dbPath) try {
     const std::string path = dbPath != nullptr ? dbPath : "";
 
     const GitResult<void> openResult =
-        path.empty() ? state->db.openInMemory() : state->db.open(path);
+        path.empty() ? state->db.openInMemory() : state->db.open(fsutil::pathFromUtf8(path));
     if (!openResult) {
         setStagingBuffer(toJson(openResult.error()));
         delete state;

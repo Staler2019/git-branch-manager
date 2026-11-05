@@ -207,5 +207,31 @@ TEST_F(Utf8PathApiTest, ALinkedWorktreeOpenedAtAChinesePathSeesItsOwnMerge) {
         << "MERGE_HEAD is under the worktree's own git dir: " << json;
 }
 
+TEST_F(Utf8PathApiTest, TheDiscoveryCacheIsCreatedAtTheChinesePathItWasGiven) {
+    std::filesystem::create_directories(linked_);
+    const std::filesystem::path db = linked_ / std::filesystem::path(u8"索引.sqlite3");
+
+    GbmDiscoveryHandle discovery = gbm_discovery_open(utf8(db).c_str());
+    ASSERT_NE(discovery, nullptr) << lastResultJson();
+    gbm_discovery_close(discovery);
+
+    EXPECT_TRUE(std::filesystem::exists(db));
+}
+
+TEST_F(Utf8PathApiTest, AScanFindsARepositoryUnderAChineseBaseFolder) {
+    std::filesystem::create_directories(linked_);
+    ASSERT_EQ(GitCli::run(linked_, {"init", "--quiet", "child"}), 0);
+
+    GbmDiscoveryHandle discovery = gbm_discovery_open("");
+    ASSERT_NE(discovery, nullptr) << lastResultJson();
+    ASSERT_GE(gbm_discovery_add_base_folder(discovery, utf8(linked_).c_str(), 2, 0), 0);
+    ASSERT_EQ(gbm_discovery_scan_all(discovery), 0);
+    ASSERT_EQ(gbm_discovery_list_repos_json(discovery), 0);
+    const std::string json = lastResultJson();
+    gbm_discovery_close(discovery);
+
+    EXPECT_NE(json.find("child"), std::string::npos) << json;
+}
+
 }  // namespace
 }  // namespace gbm::capi

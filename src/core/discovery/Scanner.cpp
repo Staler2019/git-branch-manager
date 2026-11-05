@@ -306,7 +306,9 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
     ScanResult result;
 
     std::error_code ec;
-    if (!std::filesystem::is_directory(fsutil::longPathSafe(baseFolder.path), ec) || ec) {
+    if (!std::filesystem::is_directory(fsutil::longPathSafe(fsutil::pathFromUtf8(baseFolder.path)),
+                                       ec) ||
+        ec) {
         return fail(GitError::Code::NotFound,
                     "The folder " + baseFolder.path + " could not be read");
     }
@@ -325,7 +327,7 @@ GitResult<ScanResult> Scanner::scan(const BaseFolderRecord& baseFolder,
     SharedState state;
     state.queue.push_back({fsutil::pathFromUtf8(baseFolder.path), 0});
 
-    const std::size_t workers = workerCountFor(baseFolder.path);
+    const std::size_t workers = workerCountFor(fsutil::pathFromUtf8(baseFolder.path));
     std::vector<std::thread> threads;
     threads.reserve(workers);
     for (std::size_t i = 0; i < workers; ++i) {

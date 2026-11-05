@@ -46,9 +46,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: Linux,   os: ubuntu-22.04 }
-          - { name: macOS (arm64), os: macos-26 }
-          - { name: Windows, os: windows-latest }
+          - { name: Linux,   os: ubuntu-22.04,   lib: libgbm_capi.so }
+          - { name: macOS (arm64), os: macos-26, lib: libgbm_capi.dylib }
+          - { name: Windows, os: windows-latest, lib: gbm_capi.dll }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,15 +65,24 @@ jobs:
       - name: Build and test gbm_capi
         run: cmake --workflow --preset capi-only
 
-      - name: Upload the built native library
-        uses: actions/upload-artifact@v4
+      # In this job because the library it needs is the one just built: `flutter-ci`'s is built
+      # without tests, and a job of its own would add only a wait and a transfer to the same
+      # Flutter setup. It is the only place a real library meets Dart on Linux and Windows.
+      - uses: subosito/flutter-action@v2
         with:
-          name: gbm_capi-${{ matrix.os }}
-          path: |
-            build/capi-only/src/capi/libgbm_capi.so
-            build/capi-only/src/capi/libgbm_capi.dylib
-            build/capi-only/src/capi/gbm_capi.dll
-          if-no-files-found: ignore
+          channel: stable
+          flutter-version: '3.47.4'
+
+      - name: flutter pub get
+        working-directory: app_flutter
+        run: flutter pub get
+
+      - name: Real library reports across FFI
+        working-directory: app_flutter
+        run: flutter test test/data/ffi/native_error_real_library_test.dart
+        env:
+          GBM_CAPI_LIBRARY_PATH: ${{ github.workspace }}/build/capi-only/src/capi/${{ matrix.lib }}
+          GBM_NATIVE_ERROR_LOG_DIR: ${{ runner.temp }}/gbm-native-errors
 
       - name: Upload test logs
         if: failure()

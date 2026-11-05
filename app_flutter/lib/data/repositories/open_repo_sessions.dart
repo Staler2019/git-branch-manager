@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../models/operation_record.dart';
+
 /// A repository session whose native handle can be released early.
 ///
 /// Narrower than `RepoSessionController` on purpose: [OpenRepoSessions] has
@@ -9,6 +11,9 @@ abstract interface class ClosableRepoSession {
   /// Releases the `gbm_capi` session handle. Must be idempotent -- the
   /// registry may call it on a session that is already closing.
   void closeNativeSession();
+
+  /// Appends a line produced outside this session's own events. A no-op once disposed.
+  void recordAppLog(AppLogEntry entry);
 }
 
 /// Every live repository session, so something outside the
@@ -34,10 +39,25 @@ abstract interface class ClosableRepoSession {
 /// this reaching in to find them.
 class OpenRepoSessions {
   final Set<ClosableRepoSession> _live = <ClosableRepoSession>{};
+  final List<void Function()> _afterCloseAll = <void Function()>[];
 
   void register(ClosableRepoSession session) => _live.add(session);
 
   void unregister(ClosableRepoSession session) => _live.remove(session);
+
+  /// Runs at the end of every [closeAll], for what must outlive the sessions.
+  void addAfterCloseAll(void Function() hook) => _afterCloseAll.add(hook);
+
+  /// For a line that belongs to no one repository.
+  void recordAppLogToAll(AppLogEntry entry) {
+    for (final ClosableRepoSession session in _live.toList()) {
+      try {
+        session.recordAppLog(entry);
+      } on Object {
+        // One session failing must not cost the others the line.
+      }
+    }
+  }
 
   /// Releases every registered session. Runs immediately before the process
   /// exits, so one session failing must not strand the others -- an
@@ -50,6 +70,13 @@ class OpenRepoSessions {
       } on Object {
         // Nothing useful to do: the process is about to end, and there is no
         // surface left to report this on.
+      }
+    }
+    for (final void Function() hook in _afterCloseAll) {
+      try {
+        hook();
+      } on Object {
+        // As above.
       }
     }
   }

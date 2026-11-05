@@ -2345,6 +2345,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// sink before the action's first await.
   /// A no-op once this controller is disposed: an action can outlive the
   /// session it was started from (security review F7).
+  @override
   void recordAppLog(AppLogEntry entry) {
     if (!mounted) return;
     _appendAppLog(entry);

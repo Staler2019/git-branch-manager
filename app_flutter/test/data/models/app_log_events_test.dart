@@ -8,9 +8,38 @@
 // a branch name, a remote *name* or a ref name -- never a URL.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/app_log_events.dart';
+import 'package:gbm_flutter/data/models/native_error_report.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 
 void main() {
+  group('AppLogEvents.nativeError', () {
+    NativeErrorReport report({String logPath = '/logs/x.log'}) =>
+        NativeErrorReport(
+          when: DateTime.fromMillisecondsSinceEpoch(7),
+          where: 'gbm_x',
+          summary: 'boom',
+          logPath: logPath,
+        );
+
+    test('names where, what and the file, at error level', () {
+      final AppLogEntry entry = AppLogEvents.nativeError(report());
+
+      expect(
+        entry.message,
+        'Native error in gbm_x: boom (details: /logs/x.log)',
+      );
+      expect(entry.level, OperationLogLevel.error);
+      expect(entry.whenEpochMs, 7);
+    });
+
+    test('with no file it does not point at one', () {
+      expect(
+        AppLogEvents.nativeError(report(logPath: '')).message,
+        'Native error in gbm_x: boom',
+      );
+    });
+  });
+
   group('AppLogEvents.repositoryOpened', () {
     test('names the work tree and is info level', () {
       final AppLogEntry entry = AppLogEvents.repositoryOpened(

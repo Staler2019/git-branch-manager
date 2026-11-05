@@ -15,6 +15,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
+import 'package:gbm_flutter/data/models/app_log_events.dart';
+import 'package:gbm_flutter/data/models/native_error_report.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/features/log_drawer/log_drawer.dart';
 import 'package:gbm_flutter/features/status_bar/status_bar.dart';
@@ -151,6 +153,34 @@ void main() {
       ),
       findsOneWidget,
       reason: 'a new error is unread again',
+    );
+  });
+
+  testWidgets('a native error lights the red summary', (tester) async {
+    final PumpedWorkspace pumped = await pumpWorkspace(
+      tester,
+      identity: _identity,
+    );
+    pumped.controller.recordAppLog(
+      AppLogEvents.nativeError(
+        NativeErrorReport(
+          when: DateTime.fromMillisecondsSinceEpoch(0),
+          where: 'gbm_x',
+          summary: 'boom',
+          logPath: '/logs/x.log',
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.descendant(
+        of: find.byWidgetPredicate(
+          (Widget w) => w.key == const ValueKey<String>('status-error-summary'),
+        ),
+        matching: find.textContaining('Native error in gbm_x: boom'),
+      ),
+      findsOneWidget,
     );
   });
 

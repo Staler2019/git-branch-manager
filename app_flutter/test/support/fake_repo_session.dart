@@ -1293,6 +1293,13 @@ class FakeGbmBindings implements GbmBindings {
   SetTimeoutMultiplierDart get setTimeoutMultiplier =>
       (int multiplier) => multiplier;
 
+  // GbmApp registers this at startup, with or without a repository open.
+  @override
+  SetNativeErrorCallbackDart get setNativeErrorCallback => (
+    Pointer<NativeFunction<GbmNativeErrorCallbackNative>> callback,
+    Pointer<Void> userData,
+  ) {};
+
   @override
   Never noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('Not implemented for testing');

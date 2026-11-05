@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
 import 'features/app_lifecycle/clone_job_listener.dart';
+import 'features/app_lifecycle/native_error_log_listener.dart';
 import 'features/update/auto_update_check.dart';
 import 'features/update/update_leftover_sweep.dart';
 import 'routing/app_router.dart';
@@ -54,7 +55,11 @@ class GbmApp extends ConsumerWidget {
           child: AppExitSessionCleanup(
             // A clone outlives the window that started it, so its prompt
             // and its success navigation live up here too.
-            child: CloneJobListener(child: child ?? const SizedBox.shrink()),
+            child: CloneJobListener(
+              child: NativeErrorLogListener(
+                child: child ?? const SizedBox.shrink(),
+              ),
+            ),
           ),
         ),
       ),

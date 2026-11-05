@@ -47,7 +47,7 @@ gbm_session_open(<worktree>/.git)
 |---|---|
 | `RepoClassifier.cpp` 兩處 | 修（根因） |
 | `AskpassHelper.cpp` 兩處 `exe->string()` | 修：以代碼頁編碼，`ProcessRunner` 卻以 UTF-8 解回；使用者目錄含中文時路徑錯誤，表示不了的字元則拋例外 |
-| `dir / std::string(kFile)` 共 11 處、`RebaseOps.cpp:56` | ASCII 常數，安全 |
+| `dir / std::string(kFile)` 共 ~~11~~ 10 處、`RebaseOps.cpp:56` | ASCII 常數，安全 |
 | `GitExecutable.cpp` 兩處 | 窄 `getenv` 配窄建構子，同一代碼頁，既有 ALLOWED |
 
 `_WIN32` 區塊這個方法編譯不到，只用 grep 看過。
@@ -62,7 +62,7 @@ gbm_session_open(<worktree>/.git)
 | `RepoIndexDb.h` 的 `toPaths()` | 未改：`src/` 沒有呼叫者，只有 `DiscoveryTest` 讀，屬 orphan，交使用者決定 |
 | `FsUtil.cpp:128-129` | 非 Windows 分支，安全 |
 
-這一版 overlay 在 110 個編譯單元裡有 93 個 `-fsyntax-only` 回非零，警告還是印得出來，但不能當成完整證據；0 失敗的那份是 verifier 自己做的盤點。
+這一版 overlay 在 110 個編譯單元裡有 93 個 `-fsyntax-only` 回非零，警告還是印得出來，但不能當成完整證據。第二次 verifier 自建 overlay（加 `-Wno-error=deprecated-declarations`）110 個 0 失敗，也確認抓得到修正前的這三處，修正後沒有新來源。
 
 ### 例外防護
 
@@ -157,7 +157,7 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 
 ## Result
 
-- macOS：`ctest` 1020 個全過；`flutter test` +4499、~12 skipped（本機 Flutter 3.47.7，CI 釘 3.47.4）。
+- macOS：`ctest` ~~1020~~ 1022 個全過（`--preset capi-only` 排除 `perf` 後是 1020）；`flutter test` +4499、~12 skipped（本機 Flutter 3.47.7，CI 釘 3.47.4）。
 - **中文路徑相關測試在 macOS 上修前修後都是綠的**，它們的紅只會出現在 Windows CI。
 - **CP950 的例外本身 CI 重現不了**（CI 是 1252）；要繁中 Windows 實機確認。
 - `activeCodePage` 與 `RegGetValueW` 的實際行為沒有 CI tier 跑得到：manifest 測試只驗原始碼文字，
@@ -166,10 +166,12 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 ## 已知缺口
 
 - void export（共 119 個）失敗時只有 log 與 `gbm-native-errors.log`，Dart 收不到回傳值；等事件回覆的呼叫端可能一直等。
-- `AskpassPoller` 執行緒若因例外結束，該次 git 操作的密碼提示不會出現，只能等 git 自己的 deadline。
+- `AskpassPoller` 執行緒若因例外結束，該次 git 操作的密碼提示不會出現，~~只能等 git 自己的 deadline~~ request 檔還在，idle 時鐘一直被重置，實際要等 helper 的 `kResponseTimeout`（10 分鐘）。靜態推論，未實際觸發。
 - `CloneJob` 的例外分支（`CLONE_FINISHED`）沒有測試：找不到可注入例外的接縫，只有 lint 確認入口有包。
 - `ProcessRunner` 的三條 Windows 執行緒在 macOS 上編譯不到，只有 Windows CI 驗。
 - `cancel()` 窗口：`runningId_` 與 `runningKillable_` 不再於同一臨界區設定，窗口內的 cancel 可能回 `NotCancellable`，再按一次即可。
 - `gbm_history_refresh` 例外時回 0，`isRefreshing` 可能沒有事件結束它，與 void export 同一類缺口。
 - `CloneJob.cpp:61` 的 `USERPROFILE`、`Session.cpp:101` 的 `GBM_GIT_PATH` 是窄 `getenv` 配 `pathFromUtf8`：有 manifest 時一致；Windows 10 1903 之前會解錯。
 - `RepoRecord::toPaths()` 沒有產品呼叫者。
+- 上述 `cancel()` 窗口內，`NotCancellable` 帶的描述是上一個操作的，只影響文字。
+- `check-native-exception-guards.py` 是逐行文字比對，目前 `src/` 沒有實例，但抓不到：簽名行帶尾註解的 export、`.cpp` 定義不寫 `GBM_API`（標頭有宣告即仍匯出）、`readers.emplace_back(f)` 這類不含關鍵字的名稱、`make_unique<std::thread>`、`using std::thread`。比對 `nm` 匯出集合與已檢查的定義集合能擋前兩種，目前 160=160，未做成 CI。

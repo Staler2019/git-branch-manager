@@ -26,6 +26,7 @@ add_library(gbm_capi SHARED
     JsonCodec.cpp
     Lfs.cpp
     Merge.cpp
+    NativeError.cpp
     OriginalOperationMessage.cpp
     PreparedMessage.cpp
     Patch.cpp
@@ -61,3 +62,9 @@ target_link_libraries(gbm_capi
 # -fvisibility=hidden + explicit exports if gbm_capi ever needs a minimal
 # public surface (e.g. to ship a stripped release binary).
 set_target_properties(gbm_capi PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+# gbm_core is in both this library and the test binary, and on Windows those are two
+# copies of its state, so only a report raised in here can test the native error channel.
+if(GBM_BUILD_TESTS)
+    target_compile_definitions(gbm_capi PRIVATE GBM_CAPI_TEST_EXPORTS)
+endif()

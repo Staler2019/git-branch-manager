@@ -18,7 +18,7 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
                                  const char* newBranchName,
                                  int32_t force,
                                  int32_t stashFirst,
-                                 int32_t recurseSubmodules) {
+                                 int32_t recurseSubmodules) try {
     CheckoutRequest request;
     request.target = target != nullptr ? target : "";
     request.detach = detach != 0;
@@ -29,6 +29,8 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
     request.recurseSubmodules = recurseSubmodules != 0;
 
     toSession(session)->checkout(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_branch_create(GbmSessionHandle session,
@@ -36,7 +38,7 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
                                const char* startPoint,
                                int32_t checkoutAfter,
                                int32_t setUpstream,
-                               const char* upstream) {
+                               const char* upstream) try {
     CreateBranchRequest request;
     request.name = name != nullptr ? name : "";
     request.startPoint = startPoint != nullptr ? startPoint : "";
@@ -45,6 +47,8 @@ GBM_API void gbm_branch_create(GbmSessionHandle session,
     request.upstream = upstream != nullptr ? upstream : "";
 
     toSession(session)->createBranch(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_branch_rename(GbmSessionHandle session,
@@ -52,7 +56,7 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
                                const char* to,
                                int32_t force,
                                int32_t renameRemote,
-                               const char* remoteName) {
+                               const char* remoteName) try {
     RenameBranchRequest request;
     request.from = from != nullptr ? from : "";
     request.to = to != nullptr ? to : "";
@@ -61,6 +65,8 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
     request.remoteName = remoteName != nullptr ? remoteName : "";
 
     toSession(session)->renameBranch(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_branch_delete(GbmSessionHandle session,
@@ -69,7 +75,7 @@ GBM_API void gbm_branch_delete(GbmSessionHandle session,
                                const int32_t* forces,
                                const char* const* expectedTips,
                                int32_t isRemote,
-                               const char* remoteName) {
+                               const char* remoteName) try {
     DeleteBranchRequest request;
     std::vector<std::string> list = toStringVector(names, nameCount);
     for (std::size_t i = 0; i < list.size(); ++i) {
@@ -86,11 +92,15 @@ GBM_API void gbm_branch_delete(GbmSessionHandle session,
     request.remoteName = remoteName != nullptr ? remoteName : "";
 
     toSession(session)->deleteBranch(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_request_branch_deletion_probe(GbmSessionHandle session,
                                                uint64_t requestId,
                                                const char* const* names,
-                                               int32_t nameCount) {
+                                               int32_t nameCount) try {
     toSession(session)->requestBranchDeletionProbe(requestId, toStringVector(names, nameCount));
+} catch (...) {
+    reportNativeException(__func__);
 }

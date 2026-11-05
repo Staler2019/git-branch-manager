@@ -9,12 +9,11 @@
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/Error.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/cache/RepoIndexDb.h"
 
 #include <cstdint>
-#include <exception>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace gbm::capi {
@@ -35,19 +34,18 @@ inline std::vector<std::string> toStringVector(const char* const* items, std::in
     return out;
 }
 
-/// Stops a C++ exception at the extern "C" boundary: one crossing into Dart FFI
-/// has no handler, so it ends the process (#207). The exception becomes the
-/// ordinary staging-buffer error and `fallback` the return value.
-template <typename Fn, typename Result>
-Result guardCall(Fn&& fn, Result fallback) {
+/// For the catch of every exported function: an exception crossing into Dart FFI
+/// has no handler and ends the process (#207). It becomes the ordinary
+/// staging-buffer error, naming the function, plus a log entry.
+inline void reportNativeException(const char* function) noexcept {
+    reportCurrentException(function);
     try {
-        return std::forward<Fn>(fn)();
-    } catch (const std::exception& e) {
-        setStagingBuffer(toJson(GitError(GitError::Code::Unknown, e.what())));
+        setStagingBuffer(toJson(GitError(GitError::Code::Unknown,
+                                         std::string("Native error in ") + function,
+                                         describeCurrentException())));
     } catch (...) {
-        setStagingBuffer(toJson(GitError(GitError::Code::Unknown, "unknown native exception")));
+        // reportCurrentException() has already kept what can be kept.
     }
-    return fallback;
 }
 
 inline Session* toSession(GbmSessionHandle handle) {

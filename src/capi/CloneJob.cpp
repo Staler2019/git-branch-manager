@@ -1,5 +1,6 @@
 #include "capi/CloneJob.h"
 
+#include "capi/Handle.h"
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
 #include "capi/Session.h"
@@ -369,7 +370,7 @@ GBM_API GbmCloneHandle gbm_clone_start(const char* url,
                                        int32_t recurseSubmodules,
                                        int32_t depth,
                                        GbmEventCallback callback,
-                                       void* userData) {
+                                       void* userData) try {
     CloneJobRequest request;
     request.url = url != nullptr ? url : "";
     request.destPath = fsutil::pathFromUtf8(destPath != nullptr ? destPath : "");
@@ -382,26 +383,37 @@ GBM_API GbmCloneHandle gbm_clone_start(const char* url,
         return nullptr;
     }
     return static_cast<GbmCloneHandle>(job.release());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API void gbm_clone_cancel(GbmCloneHandle job) {
+GBM_API void gbm_clone_cancel(GbmCloneHandle job) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->cancel();
     }
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret) {
+GBM_API void gbm_clone_provide_credential(GbmCloneHandle job, const char* secret) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->provideCredential(secret != nullptr ? secret : "");
     }
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) {
+GBM_API void gbm_clone_cancel_credential(GbmCloneHandle job) try {
     if (job != nullptr) {
         static_cast<CloneJob*>(job)->cancelCredential();
     }
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_clone_close(GbmCloneHandle job) {
+GBM_API void gbm_clone_close(GbmCloneHandle job) try {
     delete static_cast<CloneJob*>(job);
+} catch (...) {
+    reportNativeException(__func__);
 }

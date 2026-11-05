@@ -4,6 +4,8 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_request_original_operation_message(GbmSessionHandle session) {
+GBM_API void gbm_request_original_operation_message(GbmSessionHandle session) try {
     toSession(session)->requestOriginalOperationMessage();
+} catch (...) {
+    reportNativeException(__func__);
 }

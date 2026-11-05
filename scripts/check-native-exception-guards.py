@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""原生例外不得穿出邊界：每個執行緒入口都要接住（#207）。
+"""原生例外不得穿出邊界：每個執行緒入口與 C API 匯出函式都要接住（#207）。
 
 執行緒入口沒有呼叫者，例外穿出去就是 std::terminate；Windows GUI app 不會留下任何訊息。
 一律用 guardedThread（core/base/ExceptionDiagnostic.h），不得直接建立 std::thread。
+
+src/capi 匯出函式同理：例外穿進 Dart FFI 沒有 handler。一律寫成 function-try-block，
+catch 裡呼叫 reportNativeException（capi/Handle.h）。
 
 從 repo 根目錄跑：python3 scripts/check-native-exception-guards.py
 """
@@ -34,10 +37,25 @@ def _thread_findings(rel, lines):
             if not _is_comment(line) and _BARE_THREAD.search(line)]
 
 
+def _export_findings(rel, lines):
+    if not rel.startswith('src/capi/'):
+        return []
+    out = []
+    for index, line in enumerate(lines):
+        if not line.startswith('GBM_API '):
+            continue
+        end = next(i for i in range(index, len(lines)) if lines[i].rstrip().endswith(('{', ';', '}')))
+        last = lines[end].rstrip()
+        if not last.endswith(';') and not last.endswith(' try {'):
+            out.append(f'{rel}:{index + 1}: export without function-try-block: {line.strip()}')
+    return out
+
+
 def findings(root):
     out = []
     for rel, lines in _sources(root):
         out += _thread_findings(rel, lines)
+        out += _export_findings(rel, lines)
     return out
 
 

@@ -10,35 +10,43 @@ using namespace gbm::capi;
 
 namespace {}  // namespace
 
-GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t mode) {
+GBM_API void gbm_reset_to(GbmSessionHandle session, const char* target, int32_t mode) try {
     ResetRequest request;
     request.target = target != nullptr ? target : "";
     request.mode = static_cast<ResetMode>(mode);
     toSession(session)->resetTo(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_restore_paths(GbmSessionHandle session,
                                const char* const* paths,
                                int32_t pathCount,
                                int32_t staged,
-                               const char* source) {
+                               const char* source) try {
     RestoreRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.staged = staged != 0;
     request.source = source != nullptr ? source : "";
     toSession(session)->restorePaths(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_clean_preview(GbmSessionHandle session, int32_t includeIgnored) {
+GBM_API void gbm_clean_preview(GbmSessionHandle session, int32_t includeIgnored) try {
     toSession(session)->requestCleanPreview(includeIgnored != 0);
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_clean_untracked(GbmSessionHandle session,
                                  const char* const* paths,
                                  int32_t pathCount,
-                                 int32_t includeIgnored) {
+                                 int32_t includeIgnored) try {
     CleanRequest request;
     request.paths = toStringVector(paths, pathCount);
     request.includeIgnored = includeIgnored != 0;
     toSession(session)->cleanUntracked(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }

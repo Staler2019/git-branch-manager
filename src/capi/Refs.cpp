@@ -6,7 +6,7 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API int32_t gbm_refs_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_refs_json(GbmSessionHandle session) try {
     const RefSnapshotPtr refs = toSession(session)->currentRefs();
     if (!refs) {
         setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no refs published yet")));
@@ -14,4 +14,7 @@ GBM_API int32_t gbm_refs_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*refs));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }

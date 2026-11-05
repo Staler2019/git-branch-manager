@@ -16,7 +16,7 @@ namespace {
 
 GBM_API const uint8_t* gbm_graph_snapshot_rows(GbmSessionHandle session,
                                                int32_t* rowCount,
-                                               int32_t* rowStride) {
+                                               int32_t* rowStride) try {
     GraphSnapshotPtr snapshot = toSession(session)->exportGraph();
     if (!snapshot) {
         if (rowCount != nullptr) *rowCount = 0;
@@ -26,11 +26,14 @@ GBM_API const uint8_t* gbm_graph_snapshot_rows(GbmSessionHandle session,
     if (rowCount != nullptr) *rowCount = static_cast<int32_t>(snapshot->rows.size());
     if (rowStride != nullptr) *rowStride = static_cast<int32_t>(sizeof(RowMeta));
     return reinterpret_cast<const uint8_t*>(snapshot->rows.data());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
 GBM_API const uint8_t* gbm_graph_snapshot_oids(GbmSessionHandle session,
                                                int32_t* oidCount,
-                                               int32_t* oidStride) {
+                                               int32_t* oidStride) try {
     GraphSnapshotPtr snapshot = toSession(session)->exportGraph();
     if (!snapshot) {
         if (oidCount != nullptr) *oidCount = 0;
@@ -40,9 +43,13 @@ GBM_API const uint8_t* gbm_graph_snapshot_oids(GbmSessionHandle session,
     if (oidCount != nullptr) *oidCount = static_cast<int32_t>(snapshot->oids.size());
     if (oidStride != nullptr) *oidStride = static_cast<int32_t>(sizeof(ObjectId));
     return reinterpret_cast<const uint8_t*>(snapshot->oids.data());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int32_t* parentCount) {
+GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session,
+                                                   int32_t* parentCount) try {
     GraphSnapshotPtr snapshot = toSession(session)->exportGraph();
     if (!snapshot) {
         if (parentCount != nullptr) *parentCount = 0;
@@ -52,11 +59,14 @@ GBM_API const uint32_t* gbm_graph_snapshot_parents(GbmSessionHandle session, int
     static_assert(sizeof(RowId) == sizeof(uint32_t),
                   "RowId must stay uint32_t-sized for the FFI view");
     return reinterpret_cast<const uint32_t*>(snapshot->parentPool.data());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
 GBM_API const uint8_t* gbm_graph_snapshot_edges(GbmSessionHandle session,
                                                 int32_t* edgeCount,
-                                                int32_t* edgeStride) {
+                                                int32_t* edgeStride) try {
     GraphSnapshotPtr snapshot = toSession(session)->exportGraph();
     if (!snapshot) {
         if (edgeCount != nullptr) *edgeCount = 0;
@@ -66,23 +76,37 @@ GBM_API const uint8_t* gbm_graph_snapshot_edges(GbmSessionHandle session,
     if (edgeCount != nullptr) *edgeCount = static_cast<int32_t>(snapshot->edges.size());
     if (edgeStride != nullptr) *edgeStride = static_cast<int32_t>(sizeof(Edge));
     return reinterpret_cast<const uint8_t*>(snapshot->edges.data());
+} catch (...) {
+    reportNativeException(__func__);
+    return nullptr;
 }
 
-GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session) {
+GBM_API int32_t gbm_graph_snapshot_lane_count(GbmSessionHandle session) try {
     GraphSnapshotPtr snapshot = toSession(session)->currentGraph();
     return snapshot ? static_cast<int32_t>(snapshot->laneCount) : 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session) {
+GBM_API int32_t gbm_graph_snapshot_complete(GbmSessionHandle session) try {
     GraphSnapshotPtr snapshot = toSession(session)->currentGraph();
     return snapshot && snapshot->complete ? 1 : 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API int32_t gbm_graph_snapshot_truncated(GbmSessionHandle session) {
+GBM_API int32_t gbm_graph_snapshot_truncated(GbmSessionHandle session) try {
     GraphSnapshotPtr snapshot = toSession(session)->currentGraph();
     return snapshot && snapshot->truncated ? 1 : 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API void gbm_graph_snapshot_release(GbmSessionHandle session) {
+GBM_API void gbm_graph_snapshot_release(GbmSessionHandle session) try {
     toSession(session)->releaseExportedGraph();
+} catch (...) {
+    reportNativeException(__func__);
 }

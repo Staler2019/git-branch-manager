@@ -6,18 +6,22 @@ using namespace gbm::capi;
 
 GBM_API void gbm_request_file_history(GbmSessionHandle session,
                                       const char* path,
-                                      const char* startRevision) {
+                                      const char* startRevision) try {
     toSession(session)->requestFileHistory(path != nullptr ? path : "",
                                            startRevision != nullptr ? startRevision : "");
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_request_line_history(GbmSessionHandle session,
                                       const char* path,
                                       int32_t startLine,
                                       int32_t endLine,
-                                      const char* startRevision) {
+                                      const char* startRevision) try {
     toSession(session)->requestLineHistory(path != nullptr ? path : "",
                                            startLine,
                                            endLine,
                                            startRevision != nullptr ? startRevision : "");
+} catch (...) {
+    reportNativeException(__func__);
 }

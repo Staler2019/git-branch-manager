@@ -53,5 +53,38 @@ class ThreadEntries(unittest.TestCase):
         self.assertEqual(self.found(), [])
 
 
+class Exports(unittest.TestCase):
+    def setUp(self):
+        self.root = tempfile.mkdtemp()
+
+    def found(self):
+        return guards.findings(self.root)
+
+    def test_an_unguarded_export_is_reported(self):
+        write(self.root, 'src/capi/a.cpp', 'GBM_API int32_t gbm_x(void) {\n    return 0;\n}\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_an_unguarded_one_liner_is_reported(self):
+        write(self.root, 'src/capi/a.cpp', 'GBM_API void gbm_x(void) {}\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_an_unguarded_multi_line_signature_is_reported(self):
+        write(self.root, 'src/capi/a.cpp', 'GBM_API void gbm_x(int a,\n    int b) {\n}\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_a_guarded_export_is_not_reported(self):
+        write(self.root, 'src/capi/a.cpp',
+              'GBM_API void gbm_x(int a,\n    int b) try {\n} catch (...) {\n}\n')
+        self.assertEqual(self.found(), [])
+
+    def test_an_unguarded_definition_in_a_header_is_reported(self):
+        write(self.root, 'src/capi/a.h', 'GBM_API void gbm_x(void) {\n}\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_a_declaration_in_the_header_is_not_reported(self):
+        write(self.root, 'src/capi/gbm_capi.h', 'GBM_API void gbm_x(void);\n')
+        self.assertEqual(self.found(), [])
+
+
 if __name__ == '__main__':
     unittest.main()

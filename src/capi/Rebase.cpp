@@ -9,8 +9,10 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream) {
+GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream) try {
     toSession(session)->requestRebasePlan(upstream != nullptr ? upstream : "");
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
@@ -20,7 +22,7 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
                                           const char* const* oids,
                                           const char* const* subjects,
                                           int32_t entryCount,
-                                          int32_t stashFirst) {
+                                          int32_t stashFirst) try {
     RebaseInteractiveRequest request;
     request.upstream = upstream != nullptr ? upstream : "";
     request.onto = onto != nullptr ? onto : "";
@@ -34,6 +36,8 @@ GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,
         request.todo.push_back(std::move(entry));
     }
     toSession(session)->startInteractiveRebase(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_rebase_start(GbmSessionHandle session,
@@ -41,7 +45,7 @@ GBM_API void gbm_rebase_start(GbmSessionHandle session,
                               const char* onto,
                               int32_t stashFirst,
                               int32_t rebaseMerges,
-                              int32_t autosquash) {
+                              int32_t autosquash) try {
     RebaseRequest request;
     request.upstream = upstream != nullptr ? upstream : "";
     request.onto = onto != nullptr ? onto : "";
@@ -49,20 +53,30 @@ GBM_API void gbm_rebase_start(GbmSessionHandle session,
     request.rebaseMerges = rebaseMerges != 0;
     request.autosquash = autosquash != 0;
     toSession(session)->startRebase(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_rebase_continue(GbmSessionHandle session) {
+GBM_API void gbm_rebase_continue(GbmSessionHandle session) try {
     toSession(session)->continueRebase();
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const char* message) {
+GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const char* message) try {
     toSession(session)->continueRebaseWithMessage(message != nullptr ? std::string(message) : "");
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_rebase_skip(GbmSessionHandle session) {
+GBM_API void gbm_rebase_skip(GbmSessionHandle session) try {
     toSession(session)->skipRebase();
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_rebase_abort(GbmSessionHandle session) {
+GBM_API void gbm_rebase_abort(GbmSessionHandle session) try {
     toSession(session)->abortRebase();
+} catch (...) {
+    reportNativeException(__func__);
 }

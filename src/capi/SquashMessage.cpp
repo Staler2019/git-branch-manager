@@ -4,6 +4,8 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source) {
+GBM_API void gbm_request_squash_message(GbmSessionHandle session, const char* source) try {
     toSession(session)->requestSquashMessage(source != nullptr ? source : "");
+} catch (...) {
+    reportNativeException(__func__);
 }

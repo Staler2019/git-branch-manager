@@ -22,12 +22,16 @@ std::vector<std::string> toOidVector(const char* const* oids, int32_t oidCount) 
 
 GBM_API void gbm_request_commit_meta(GbmSessionHandle session,
                                      const char* const* oids,
-                                     int32_t oidCount) {
+                                     int32_t oidCount) try {
     toSession(session)->requestCommitMeta(toOidVector(oids, oidCount));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
 GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
                                             const char* const* oids,
-                                            int32_t oidCount) {
+                                            int32_t oidCount) try {
     toSession(session)->requestCommitFileCounts(toOidVector(oids, oidCount));
+} catch (...) {
+    reportNativeException(__func__);
 }

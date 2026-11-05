@@ -11,11 +11,13 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_stash_refresh(GbmSessionHandle session) {
+GBM_API void gbm_stash_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshStashes();
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API int32_t gbm_stashes_json(GbmSessionHandle session) {
+GBM_API int32_t gbm_stashes_json(GbmSessionHandle session) try {
     const StashListPtr stashes = toSession(session)->currentStashes();
     if (!stashes) {
         setStagingBuffer(toJson(GitError(GitError::Code::NotFound, "no stash list published yet")));
@@ -23,6 +25,9 @@ GBM_API int32_t gbm_stashes_json(GbmSessionHandle session) {
     }
     setStagingBuffer(toJson(*stashes));
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 GBM_API void gbm_stash_save(GbmSessionHandle session,
@@ -30,7 +35,7 @@ GBM_API void gbm_stash_save(GbmSessionHandle session,
                             int32_t includeUntracked,
                             int32_t keepIndex,
                             const char* const* paths,
-                            int32_t pathCount) {
+                            int32_t pathCount) try {
     StashSaveRequest request;
     request.message = message != nullptr ? message : "";
     request.includeUntracked = includeUntracked != 0;
@@ -42,28 +47,38 @@ GBM_API void gbm_stash_save(GbmSessionHandle session,
         }
     }
     toSession(session)->saveStash(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_stash_apply(GbmSessionHandle session, int32_t index, int32_t pop) {
+GBM_API void gbm_stash_apply(GbmSessionHandle session, int32_t index, int32_t pop) try {
     StashApplyRequest request;
     request.index = index;
     request.pop = pop != 0;
     toSession(session)->applyStash(request);
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index) {
+GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index) try {
     StashDropRequest request;
     request.index = index;
     toSession(session)->dropStash(request);
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName) {
+GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName) try {
     StashBranchRequest request;
     request.index = index;
     request.branchName = branchName != nullptr ? branchName : "";
     toSession(session)->branchFromStash(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index) {
+GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index) try {
     toSession(session)->requestStashDiff(index);
+} catch (...) {
+    reportNativeException(__func__);
 }

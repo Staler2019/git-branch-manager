@@ -30,7 +30,7 @@ GBM_API void gbm_cherry_pick(GbmSessionHandle session,
                              int32_t mainline,
                              int32_t noCommit,
                              int32_t stashFirst,
-                             int32_t recordOrigin) {
+                             int32_t recordOrigin) try {
     CherryPickRequest request;
     request.commits = toObjectIds(commitHexes, commitCount);
     request.mainline = mainline;
@@ -38,21 +38,32 @@ GBM_API void gbm_cherry_pick(GbmSessionHandle session,
     request.stashFirst = stashFirst != 0;
     request.recordOrigin = recordOrigin != 0;
     toSession(session)->cherryPick(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session) {
+GBM_API void gbm_cherry_pick_continue(GbmSessionHandle session) try {
     toSession(session)->continueCherryPick();
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session, const char* message) {
+GBM_API void gbm_cherry_pick_continue_with_message(GbmSessionHandle session,
+                                                   const char* message) try {
     toSession(session)->continueCherryPickWithMessage(message != nullptr ? std::string(message)
                                                                          : "");
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session) {
+GBM_API void gbm_cherry_pick_skip(GbmSessionHandle session) try {
     toSession(session)->skipCherryPick();
+} catch (...) {
+    reportNativeException(__func__);
 }
 
-GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session) {
+GBM_API void gbm_cherry_pick_abort(GbmSessionHandle session) try {
     toSession(session)->abortCherryPick();
+} catch (...) {
+    reportNativeException(__func__);
 }

@@ -12,7 +12,7 @@ GBM_API void gbm_revert(GbmSessionHandle session,
                         const char* const* commitHexes,
                         int32_t commitCount,
                         int32_t noCommit,
-                        int32_t stashFirst) {
+                        int32_t stashFirst) try {
     RevertRequest request;
     request.commits.reserve(static_cast<std::size_t>(commitCount > 0 ? commitCount : 0));
     for (int32_t i = 0; i < commitCount; ++i) {
@@ -23,4 +23,6 @@ GBM_API void gbm_revert(GbmSessionHandle session,
     request.noCommit = noCommit != 0;
     request.stashFirst = stashFirst != 0;
     toSession(session)->revertCommit(std::move(request));
+} catch (...) {
+    reportNativeException(__func__);
 }

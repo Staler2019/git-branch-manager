@@ -1,3 +1,4 @@
+#include "capi/Handle.h"
 #include "capi/JsonCodec.h"
 #include "capi/Session.h"
 #include "capi/StagingBuffer.h"
@@ -20,7 +21,7 @@ int32_t errorCodeOrdinal(const GitError& error) {
 
 }  // namespace
 
-GBM_API int32_t gbm_repo_init(const char* path, const char* initial_branch) {
+GBM_API int32_t gbm_repo_init(const char* path, const char* initial_branch) try {
     const GitResult<GitInstallation> installation = sharedGitInstallation();
     if (!installation) {
         setStagingBuffer(toJson(installation.error()));
@@ -39,9 +40,12 @@ GBM_API int32_t gbm_repo_init(const char* path, const char* initial_branch) {
         return errorCodeOrdinal(result.error());
     }
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
-GBM_API int32_t gbm_git_version_json(void) {
+GBM_API int32_t gbm_git_version_json(void) try {
     const GitResult<GitInstallation> installation = sharedGitInstallation();
     if (!installation) {
         setStagingBuffer(toJson(installation.error()));
@@ -52,4 +56,7 @@ GBM_API int32_t gbm_git_version_json(void) {
                      ",\"minor\":" + std::to_string(version.minor) +
                      ",\"patch\":" + std::to_string(version.patch) + "}");
     return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }

@@ -42,14 +42,19 @@ struct EventLog {
 
     /// Waits until a predicate over the accumulated events is true, or fails
     /// the current test on timeout.
-    bool waitFor(const std::function<bool(const std::vector<std::pair<int32_t, std::string>>&)>& pred,
-                std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
+    bool waitFor(
+        const std::function<bool(const std::vector<std::pair<int32_t, std::string>>&)>& pred,
+        std::chrono::milliseconds timeout = std::chrono::seconds(10)) {
         std::unique_lock<std::mutex> lock(mutex);
         return cv.wait_for(lock, timeout, [&] { return pred(events); });
     }
 };
 
-void logCallback(GbmSessionHandle, int32_t eventType, const uint8_t* payload, int32_t payloadLen, void* userData) {
+void logCallback(GbmSessionHandle,
+                 int32_t eventType,
+                 const uint8_t* payload,
+                 int32_t payloadLen,
+                 void* userData) {
     auto* log = static_cast<EventLog*>(userData);
     std::string body;
     if (payload != nullptr) {
@@ -110,9 +115,7 @@ protected:
     /// Fixture git, without a shell in the middle -- see tests/support/GitCli.h
     /// for why that matters (one process instead of two, and no per-platform
     /// quoting hazard).
-    int runGit(std::vector<std::string> args) {
-        return GitCli::run(repo_, std::move(args));
-    }
+    int runGit(std::vector<std::string> args) { return GitCli::run(repo_, std::move(args)); }
 
     std::filesystem::path repo_;
     GbmSessionHandle session_ = nullptr;
@@ -121,31 +124,29 @@ protected:
 
 // Process-wide, so no session handle -- and it returns the multiplier now in
 // effect, which is how the caller learns a refused value changed nothing.
-TEST(CapiGuardCall, AnExceptionBecomesTheFallbackAndAnErrorResult) {
+TEST(CapiNativeException, BecomesAnErrorResultNamingTheFunctionAndTheCause) {
     setStagingBuffer("");
-    const int result = guardCall(
-        []() -> int {
-            throw std::system_error(
-                std::make_error_code(std::errc::invalid_argument), "no mapping");
-        },
-        -1);
+    try {
+        throw std::system_error(std::make_error_code(std::errc::invalid_argument), "no mapping");
+    } catch (...) {
+        reportNativeException("gbm_some_export");
+    }
 
-    EXPECT_EQ(result, -1);
-    EXPECT_NE(stagingBuffer().find("no mapping"), std::string::npos) << stagingBuffer();
+    const std::string& json = stagingBuffer();
+    EXPECT_NE(json.find("Native error in gbm_some_export"), std::string::npos) << json;
+    EXPECT_NE(json.find("system_error"), std::string::npos) << json;
+    EXPECT_NE(json.find("no mapping"), std::string::npos) << json;
 }
 
-TEST(CapiGuardCall, ANonStandardExceptionIsStoppedToo) {
+TEST(CapiNativeException, ANonStandardExceptionIsReportedToo) {
     setStagingBuffer("");
-    const int result = guardCall([]() -> int { throw 7; }, -1);
+    try {
+        throw 7;
+    } catch (...) {
+        reportNativeException("gbm_some_export");
+    }
 
-    EXPECT_EQ(result, -1);
-    EXPECT_NE(stagingBuffer().find("message"), std::string::npos) << stagingBuffer();
-}
-
-TEST(CapiGuardCall, AReturnedValuePassesThroughAndWritesNoError) {
-    setStagingBuffer("");
-    EXPECT_EQ(guardCall([]() -> int { return 3; }, -1), 3);
-    EXPECT_EQ(stagingBuffer(), "");
+    EXPECT_NE(stagingBuffer().find("non-standard exception"), std::string::npos) << stagingBuffer();
 }
 
 TEST(CapiTimeoutMultiplier, ReturnsTheMultiplierNowInEffectAndRefusesBelowOne) {
@@ -158,7 +159,8 @@ TEST(CapiTimeoutMultiplier, ReturnsTheMultiplierNowInEffectAndRefusesBelowOne) {
 TEST_F(CapiSessionTest, RepoStateJsonReportsCleanRepository) {
     ASSERT_EQ(gbm_repo_state_json(session_), 0);
     std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
-    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()),
+                              static_cast<int32_t>(json.size()));
 
     EXPECT_NE(json.find("\"isClean\":true"), std::string::npos);
 }
@@ -166,7 +168,8 @@ TEST_F(CapiSessionTest, RepoStateJsonReportsCleanRepository) {
 std::string repoStateJson(GbmSessionHandle session) {
     if (gbm_repo_state_json(session) != 0) return {};
     std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
-    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()),
+                              static_cast<int32_t>(json.size()));
     return json;
 }
 
@@ -206,8 +209,7 @@ TEST_F(CapiSessionTest, RemoveStaleIndexLockDeletesAnOldLockThroughTheCAbi) {
     const std::filesystem::path lockPath = repo_ / ".git" / "index.lock";
     { std::ofstream(lockPath) << "held"; }
     std::filesystem::last_write_time(
-        lockPath,
-        std::filesystem::file_time_type::clock::now() - std::chrono::seconds(700));
+        lockPath, std::filesystem::file_time_type::clock::now() - std::chrono::seconds(700));
 
     EXPECT_EQ(gbm_operation_remove_stale_index_lock(session_), 1);
     EXPECT_FALSE(std::filesystem::exists(lockPath));
@@ -218,7 +220,8 @@ TEST_F(CapiSessionTest, HistoryRefreshPublishesACompleteGraphSnapshot) {
 
     const bool arrived = log_.waitFor([](const auto& events) {
         for (const auto& [type, payload] : events) {
-            if (type == GBM_EVENT_GRAPH_UPDATED && payload.find("\"complete\":true") != std::string::npos) {
+            if (type == GBM_EVENT_GRAPH_UPDATED &&
+                payload.find("\"complete\":true") != std::string::npos) {
                 return true;
             }
         }
@@ -233,7 +236,8 @@ TEST_F(CapiSessionTest, HistoryRefreshPublishesACompleteGraphSnapshot) {
 
     ASSERT_EQ(gbm_refs_json(session_), 0);
     std::string refsJson(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
-    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(refsJson.data()), static_cast<int32_t>(refsJson.size()));
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(refsJson.data()),
+                              static_cast<int32_t>(refsJson.size()));
     EXPECT_NE(refsJson.find("\"branchName\":\"main\""), std::string::npos) << refsJson;
     EXPECT_NE(refsJson.find("\"shortName\":\"main\""), std::string::npos) << refsJson;
 
@@ -324,7 +328,8 @@ TEST_F(CapiSessionTest, CheckoutCreatesAndSwitchesToNewBranch) {
     EXPECT_NE(head.find("refs/heads/feature"), std::string::npos);
 
     // A successful checkout also triggers a refresh -- see Session::checkout.
-    EXPECT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }));
+    EXPECT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_REFS_UPDATED); }));
 }
 
 // --- sharedGitInstallation() / GBM_GIT_PATH ---------------------------------

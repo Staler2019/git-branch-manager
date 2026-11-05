@@ -81,6 +81,7 @@ Mutation 分開記兩個數字（跑的次數、變紅的測試數）。沒編�
 | 7 coalescer | 16 | 33 | |
 | 8 接線 | 14 | 29 | |
 | 9 真實 library 測試 | 2 | 2 | 一次沒編過的重做 |
+| 10 Windows 目錄比對 | 2 | 2 | 紅色證據是 PR 的 Windows CI，本機重現不了 |
 
 - commit 6 的測試與實作是一起寫的，**沒有先看到紅**，紅色證據只來自 mutation。其他 commit 都先看到編譯失敗。
 - TSan、ASan 跑過 commit 4 的 sink 測試與 commit 5 的 capi 測試，都綠。本機 `build/asan-ubsan` 是舊路徑留下的目錄編不起來，改在暫存目錄另建。
@@ -95,7 +96,22 @@ callback ──> GbmNativeErrorEvents  單元測試餵相同 JSON
 Dart ──> 每個 Log                  真實 GbmApp，FakeGbmBindings
 ```
 
-真實 library 這段放在 `capi-build`，因為該 job 剛建好的就是含測試用匯出的 library：`flutter-ci` 的 Flutter build 關掉測試，要另外編；另開 job 則多了等待與傳檔，Flutter 安裝一樣要做。#208 的 run 量到 Windows 的 `flutter-action` 108 秒、`pub get` 40 秒，所以估計 Windows `capi-build` 多約 3 分鐘，實際數字待本 PR 的 CI。最早寫的是 macOS 專用的裝置測試，裝置測試不在 CI，等於沒驗到 Windows；使用者看過後裁定要加，於是改成這樣，裝置測試的版本沒有提交。
+真實 library 這段放在 `capi-build`，因為該 job 剛建好的就是含測試用匯出的 library：`flutter-ci` 的 Flutter build 關掉測試，要另外編；另開 job 則多了等待與傳檔，Flutter 安裝一樣要做。#208 的 run 量到 Windows 的 `flutter-action` 108 秒、`pub get` 40 秒，所以估計 Windows `capi-build` 多約 3 分鐘。~~實際數字待本 PR 的 CI。~~ PR 的 run 42066419130 量到 Flutter 安裝、`pub get`、測試三步合計 Windows 142 秒（92+40+10）、macOS 119 秒（88+10+21）、Linux 80 秒（62+7+11），三個 OS 的 log 都是 `1 test passed`。最早寫的是 macOS 專用的裝置測試，裝置測試不在 CI，等於沒驗到 Windows；使用者看過後裁定要加，於是改成這樣，裝置測試的版本沒有提交。
+
+### PR 的第一次 CI 紅在 Windows
+
+run 42063348728 的 `capi (FFI) - Windows` 1047 個測試紅 1 個，後面的真實 library 步驟因此被跳過：
+
+```
+log.parent_path().parent_path()          ...\Temp\gbm-proc-7144
+std::filesystem::temp_directory_path()   ...\Temp\gbm-proc-7144\
+```
+
+Windows 的 temp 路徑帶結尾分隔符，`path` 比較會把它算成多一個元素。是測試寫錯，產品碼沒動。macOS 與 Linux 測不出來；verifier 的 CONFIRMED 也只涵蓋 macOS。改成比對 `temp / "native-error-logs"` 後，run 42066419130 全綠，含三個 OS 的真實 library 測試。
+
+### `[skip ci]` 卡住合併
+
+這段 ledger 第一次用 `[skip ci]` 推上去，想省 runner 時間，結果 PR 變 `BLOCKED`：`main` 沒有 branch protection，但有 ruleset 要求 status checks，沒跑過 check 的 HEAD 不能合併。我先前說「`main` 沒有保護」是只查了 protection API，查 `rules/branches/main` 才看得到。接著 force-push 回 `3aacbbef`，並告訴使用者這樣不耗 runner，這也是錯的：force-push 同樣觸發 `synchronize`，整組 CI 在同一個 SHA 重跑。使用者於是裁定把 ledger 推回來，本 commit 不帶 `[skip ci]`。見 [CI-required-checks-need-a-run]。
 
 ### 裝置測試
 

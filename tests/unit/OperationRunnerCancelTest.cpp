@@ -171,6 +171,8 @@ class ThrowsBeforeItRuns final : public Operation {
 public:
     std::string describe() const override { return "Throws before it runs"; }
 
+    std::string kind() const override { return "throwsBeforeItRuns"; }
+
     bool killableMidFlight() const override { throw std::runtime_error("before the run"); }
 
     OperationOutcome run(IProcessRunner&, const RepoPaths&, CancellationToken) override {
@@ -196,6 +198,7 @@ TEST_F(OperationRunnerCancelTest, AThrowOutsideRunFailsThatOperationAndTheQueueG
     ASSERT_TRUE(first->error.has_value());
     EXPECT_NE(first->error->detail.find("before the run"), std::string::npos)
         << first->error->detail;
+    EXPECT_EQ(first->kind, "throwsBeforeItRuns") << "Dart routes an outcome by its kind";
     ASSERT_TRUE(second.has_value());
     EXPECT_TRUE(second->succeeded);
 }

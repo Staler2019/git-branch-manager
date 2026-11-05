@@ -276,8 +276,8 @@ void OperationRunner::runQueued(QueuedOperation& queued) {
     }
 
     // Stamped here, on the single path every completion (normal, preflight-
-    // blocked, or cancelled) funnels through, so it's impossible for an
-    // outcome to reach onDone unstamped.
+    // blocked, or cancelled) funnels through. failUndelivered() is the one other
+    // path to onDone, and it stamps too.
     outcome.kind = queued.operation->kind();
 
     // Taken before the call: a callback that throws has been delivered all the same.
@@ -296,6 +296,11 @@ void OperationRunner::failUndelivered(QueuedOperation& queued) {
     outcome.succeeded = false;
     outcome.error = GitError(
         GitError::Code::Unknown, "The operation failed unexpectedly", describeCurrentException());
+    try {
+        outcome.kind = queued.operation->kind();
+    } catch (...) {
+        reportCurrentException("Operation kind");
+    }
     try {
         onDone(std::move(outcome));
     } catch (...) {

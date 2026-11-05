@@ -3,59 +3,56 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/services/install_location_registry.dart';
 
-/// `reg query` output, as measured on Windows 11 (four-space separated,
-/// header line naming the key, blank lines either side).
-const String _query =
-    '\r\n'
-    'HKEY_CURRENT_USER\\Software\\Git Branch Manager\r\n'
-    '    InstallFolder    REG_SZ    C:\\Users\\jane\\AppData\\Local\\Programs\\Git Branch Manager\\\r\n'
-    '\r\n';
-
 void main() {
-  group('parseRegQueryValue', () {
-    test('reads a REG_SZ value, spaces and all', () {
-      expect(
-        parseRegQueryValue(_query, kInstallLocationRegistryValue),
-        r'C:\Users\jane\AppData\Local\Programs\Git Branch Manager\',
-      );
+  group('readCurrentUserRegistryString', () {
+    const String subKey = r'Software\Git Branch Manager Test';
+    final String regExe =
+        '${Platform.environment['SystemRoot']}'
+        r'\System32\reg.exe';
+
+    void regAdd(String value, String data) {
+      final ProcessResult added = Process.runSync(regExe, <String>[
+        'add',
+        'HKCU\\$subKey',
+        '/v',
+        value,
+        '/d',
+        data,
+        '/f',
+      ]);
+      expect(added.exitCode, 0, reason: '${added.stderr}');
+    }
+
+    tearDown(() {
+      Process.runSync(regExe, <String>['delete', 'HKCU\\$subKey', '/f']);
     });
 
-    test('reads a REG_EXPAND_SZ value', () {
-      expect(
-        parseRegQueryValue(
-          '    InstallFolder    REG_EXPAND_SZ    D:\\gbm\r\n',
-          kInstallLocationRegistryValue,
-        ),
-        r'D:\gbm',
-      );
-    });
-
-    // A value whose *name* merely starts with the one asked for is a
-    // different value.
-    test('does not take a value with a longer name', () {
-      expect(
-        parseRegQueryValue(
-          '    InstallFolderOld    REG_SZ    D:\\old\r\n',
-          kInstallLocationRegistryValue,
-        ),
-        isNull,
-      );
+    // What reg.exe and a pipe could not carry: under CI's code page 1252
+    // these characters do not survive, and under the app's UTF-8 ACP a user's
+    // CP950 output would not decode.
+    test('reads a Chinese value exactly', () {
+      const String folder = r'C:\Users\王小明\工作樹 x\';
+      regAdd('InstallFolder', folder);
+      expect(readCurrentUserRegistryString(subKey, 'InstallFolder'), folder);
     });
 
     test('answers null when the value is absent', () {
-      expect(parseRegQueryValue('', kInstallLocationRegistryValue), isNull);
+      regAdd('Other', 'x');
+      expect(readCurrentUserRegistryString(subKey, 'InstallFolder'), isNull);
     });
 
-    test('answers null for an empty value', () {
+    test('answers null when the key is absent', () {
       expect(
-        parseRegQueryValue(
-          '    InstallFolder    REG_SZ    \r\n',
-          kInstallLocationRegistryValue,
-        ),
+        readCurrentUserRegistryString(r'Software\Gbm No Such Key', 'x'),
         isNull,
       );
     });
-  });
+
+    test('answers null for an empty value', () {
+      regAdd('InstallFolder', '');
+      expect(readCurrentUserRegistryString(subKey, 'InstallFolder'), isNull);
+    });
+  }, skip: Platform.isWindows ? false : 'reads the real Windows registry');
 
   // The key and value are written by the installer and read here, in two
   // languages that share no symbol. A rename on one side only would leave

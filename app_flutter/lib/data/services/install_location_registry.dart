@@ -1,4 +1,7 @@
+import 'dart:ffi';
 import 'dart:io';
+
+import 'package:ffi/ffi.dart';
 
 /// Where the Windows installer records the folder it installed into.
 ///
@@ -16,60 +19,102 @@ const String kInstallLocationRegistryValue = 'InstallFolder';
 /// injected so tests never touch the registry of the machine running them.
 typedef InstallLocationReader = String? Function();
 
-/// The real [InstallLocationReader]: `reg query` by absolute path.
+/// The real [InstallLocationReader].
 ///
-/// `reg.exe` rather than FFI into `advapi32`, because the answer is one
-/// string read once per update check and the process seam is already how
-/// this feature talks to the OS. By absolute path for the same reason the
-/// updater starts PowerShell that way: a mangled `PATH`, or a `reg.exe`
-/// planted in the working directory, must not decide the answer.
-///
-/// Never throws: a registry that cannot be read is treated as "not
-/// installed by the installer", which is the answer that offers the least.
+/// Never throws: a registry that cannot be read is treated as "not installed
+/// by the installer", which is the answer that offers the least.
 String? readInstallLocationFromRegistry() {
-  final String? root = Platform.environment['SystemRoot'];
-  if (root == null || root.isEmpty) {
+  if (!Platform.isWindows) {
     return null;
   }
-  try {
-    final ProcessResult result = Process.runSync(
-      '$root\\System32\\reg.exe',
-      <String>[
-        'query',
-        kInstallLocationRegistryKey,
-        '/v',
-        kInstallLocationRegistryValue,
-      ],
-    );
-    if (result.exitCode != 0) {
-      return null;
-    }
-    return parseRegQueryValue(
-      '${result.stdout}',
-      kInstallLocationRegistryValue,
-    );
-  } on Object {
-    return null;
-  }
+  return readCurrentUserRegistryString(
+    kInstallLocationRegistryKey.replaceFirst(r'HKCU\', ''),
+    kInstallLocationRegistryValue,
+  );
 }
 
-/// Pulls the data of value [name] out of `reg query` output, or null.
+typedef _RegGetValueNative = Int32 Function(
+  IntPtr key,
+  Pointer<Utf16> subKey,
+  Pointer<Utf16> value,
+  Uint32 flags,
+  Pointer<Uint32> type,
+  Pointer<Void> data,
+  Pointer<Uint32> byteCount,
+);
+typedef _RegGetValueDart = int Function(
+  int key,
+  Pointer<Utf16> subKey,
+  Pointer<Utf16> value,
+  int flags,
+  Pointer<Uint32> type,
+  Pointer<Void> data,
+  Pointer<Uint32> byteCount,
+);
+
+/// `HKEY_CURRENT_USER`: the Win32 constant is `(HKEY)(LONG)0x80000001`, so it
+/// is sign-extended to pointer width.
+final int _hkeyCurrentUser = 0x80000001.toSigned(32);
+const int _rrfRtRegSz = 0x2;
+const int _rrfRtRegExpandSz = 0x4;
+const int _errorSuccess = 0;
+
+/// A string value under `HKEY_CURRENT_USER`, or null when it is absent, empty
+/// or unreadable. Windows only.
 ///
-/// The line is `<4 spaces><name><4 spaces><type><4 spaces><data>`; the data
-/// may itself contain spaces, so everything after the type is kept.
-String? parseRegQueryValue(String output, String name) {
-  final RegExp line = RegExp(
-    '^\\s+${RegExp.escape(name)}\\s{2,}REG_(?:EXPAND_)?SZ\\s{2,}(.*)\$',
-    caseSensitive: false,
-  );
-  for (final String raw in output.split(RegExp(r'\r?\n'))) {
-    final RegExpMatch? match = line.firstMatch(raw);
-    if (match != null) {
-      final String value = match.group(1)!.trim();
-      return value.isEmpty ? null : value;
+/// `RegGetValueW` rather than parsing `reg.exe`, because a pipe has no encoding
+/// both sides agree on: reg.exe writes in the system's code page, while this
+/// process runs with `activeCodePage` UTF-8 (`runner.exe.manifest`), so a Chinese
+/// user name would decode wrong and the installed copy would look unmanaged.
+/// `advapi32.dll` is a KnownDLL, so it cannot be planted beside the executable.
+String? readCurrentUserRegistryString(String subKey, String value) {
+  final Pointer<Utf16> subKeyPtr = subKey.toNativeUtf16();
+  final Pointer<Utf16> valuePtr = value.toNativeUtf16();
+  final Pointer<Uint32> byteCount = malloc<Uint32>();
+  Pointer<Uint16> data = nullptr;
+  try {
+    final _RegGetValueDart regGetValue = DynamicLibrary.open('advapi32.dll')
+        .lookupFunction<_RegGetValueNative, _RegGetValueDart>('RegGetValueW');
+    const int flags = _rrfRtRegSz | _rrfRtRegExpandSz;
+    byteCount.value = 0;
+    if (regGetValue(
+              _hkeyCurrentUser,
+              subKeyPtr,
+              valuePtr,
+              flags,
+              nullptr,
+              nullptr,
+              byteCount,
+            ) !=
+            _errorSuccess ||
+        byteCount.value == 0) {
+      return null;
+    }
+    data = malloc<Uint16>((byteCount.value ~/ sizeOf<Uint16>()) + 1);
+    if (regGetValue(
+          _hkeyCurrentUser,
+          subKeyPtr,
+          valuePtr,
+          flags,
+          nullptr,
+          data.cast<Void>(),
+          byteCount,
+        ) !=
+        _errorSuccess) {
+      return null;
+    }
+    final String text = data.cast<Utf16>().toDartString();
+    return text.isEmpty ? null : text;
+  } on Object {
+    return null;
+  } finally {
+    malloc.free(subKeyPtr);
+    malloc.free(valuePtr);
+    malloc.free(byteCount);
+    if (data != nullptr) {
+      malloc.free(data);
     }
   }
-  return null;
 }
 
 /// Whether two Windows paths name the same folder, the way Windows compares

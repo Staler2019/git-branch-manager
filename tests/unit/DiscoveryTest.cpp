@@ -5,6 +5,7 @@
 // cycle, and — most importantly — that a *cancelled* scan never marks
 // repositories as missing.
 #include "core/base/CancellationToken.h"
+#include "core/base/FsUtil.h"
 #include "core/cache/RepoIndexDb.h"
 #include "core/discovery/RepoClassifier.h"
 #include "core/discovery/Scanner.h"
@@ -156,6 +157,25 @@ TEST_F(ClassifierTest, ResolvesARelativeGitDirPointer) {
     const ClassifiedRepo result = RepoClassifier::classify(worktree);
     ASSERT_TRUE(result.isRepo());
     EXPECT_EQ(result.kind, RepoKind::LinkedWorktree);
+}
+
+// #207: git writes both pointer files as UTF-8. Decoded with the active code
+// page, these bytes throw under CP950 and name another directory under CI's
+// 1252. On macOS and Linux a narrow path is UTF-8 already; the red is Windows-only.
+TEST_F(ClassifierTest, ResolvesChinesePointerFilesAsUtf8) {
+    const auto common = root_ / std::filesystem::path(u8"主倉庫") / ".git";
+    const auto worktreeGitDir = common / "worktrees" / std::filesystem::path(u8"工作樹");
+    std::filesystem::create_directories(worktreeGitDir);
+    writeFile(worktreeGitDir / "commondir", fsutil::utf8FromPath(common) + "\n");
+
+    const auto worktree = root_ / std::filesystem::path(u8"工作樹wt");
+    writeFile(worktree / ".git", "gitdir: " + fsutil::utf8FromPath(worktreeGitDir) + "\n");
+
+    const ClassifiedRepo result = RepoClassifier::classify(worktree);
+    ASSERT_TRUE(result.isRepo());
+    EXPECT_EQ(result.kind, RepoKind::LinkedWorktree);
+    EXPECT_EQ(result.paths.gitDir(), worktreeGitDir.lexically_normal());
+    EXPECT_EQ(result.paths.commonDir(), common.lexically_normal());
 }
 
 TEST_F(ClassifierTest, ReportsADanglingGitPointerAsUnreadable) {

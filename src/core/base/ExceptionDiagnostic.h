@@ -11,7 +11,8 @@ namespace gbm {
 /// The exception currently being handled as one line of text: dynamic type,
 /// what(), error code and category, and any filesystem paths. Always valid UTF-8,
 /// because it reaches Dart's strict decoder and MSVC's what() may be in the active
-/// code page. Never throws; with no active exception it says so.
+/// code page. Can throw only if it cannot allocate, so a caller on a noexcept path
+/// catches it; with no active exception it says so.
 std::string describeCurrentException();
 
 /// For a catch site that swallows the exception: sends the description to the

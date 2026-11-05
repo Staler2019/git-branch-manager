@@ -3,7 +3,9 @@
 // Exercises the same path Dart's FFI bindings will: open a session, refresh
 // history asynchronously, read the packed graph buffer, and check out a
 // branch, all through the C ABI rather than the C++ classes directly.
+#include "capi/Handle.h"
 #include "capi/Session.h"
+#include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/git/GitExecutable.h"
 #include "core/graph/GraphSnapshot.h"
@@ -19,6 +21,7 @@
 #include <gtest/gtest.h>
 #include <mutex>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace gbm::capi {
@@ -118,6 +121,33 @@ protected:
 
 // Process-wide, so no session handle -- and it returns the multiplier now in
 // effect, which is how the caller learns a refused value changed nothing.
+TEST(CapiGuardCall, AnExceptionBecomesTheFallbackAndAnErrorResult) {
+    setStagingBuffer("");
+    const int result = guardCall(
+        []() -> int {
+            throw std::system_error(
+                std::make_error_code(std::errc::invalid_argument), "no mapping");
+        },
+        -1);
+
+    EXPECT_EQ(result, -1);
+    EXPECT_NE(stagingBuffer().find("no mapping"), std::string::npos) << stagingBuffer();
+}
+
+TEST(CapiGuardCall, ANonStandardExceptionIsStoppedToo) {
+    setStagingBuffer("");
+    const int result = guardCall([]() -> int { throw 7; }, -1);
+
+    EXPECT_EQ(result, -1);
+    EXPECT_NE(stagingBuffer().find("message"), std::string::npos) << stagingBuffer();
+}
+
+TEST(CapiGuardCall, AReturnedValuePassesThroughAndWritesNoError) {
+    setStagingBuffer("");
+    EXPECT_EQ(guardCall([]() -> int { return 3; }, -1), 3);
+    EXPECT_EQ(stagingBuffer(), "");
+}
+
 TEST(CapiTimeoutMultiplier, ReturnsTheMultiplierNowInEffectAndRefusesBelowOne) {
     EXPECT_EQ(gbm_set_timeout_multiplier(4), 4);
     EXPECT_EQ(gbm_set_timeout_multiplier(0), 4);

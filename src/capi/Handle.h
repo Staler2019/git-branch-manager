@@ -4,12 +4,17 @@
 // helpers are the one place that casts them back to the real C++ type, so a
 // mismatch shows up here instead of at every call site.
 
+#include "capi/JsonCodec.h"
 #include "capi/Session.h"
+#include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
+#include "core/base/Error.h"
 #include "core/cache/RepoIndexDb.h"
 
 #include <cstdint>
+#include <exception>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gbm::capi {
@@ -28,6 +33,21 @@ inline std::vector<std::string> toStringVector(const char* const* items, std::in
         }
     }
     return out;
+}
+
+/// Stops a C++ exception at the extern "C" boundary: one crossing into Dart FFI
+/// has no handler, so it ends the process (#207). The exception becomes the
+/// ordinary staging-buffer error and `fallback` the return value.
+template <typename Fn, typename Result>
+Result guardCall(Fn&& fn, Result fallback) {
+    try {
+        return std::forward<Fn>(fn)();
+    } catch (const std::exception& e) {
+        setStagingBuffer(toJson(GitError(GitError::Code::Unknown, e.what())));
+    } catch (...) {
+        setStagingBuffer(toJson(GitError(GitError::Code::Unknown, "unknown native exception")));
+    }
+    return fallback;
 }
 
 inline Session* toSession(GbmSessionHandle handle) {

@@ -52,16 +52,22 @@ GBM_API int32_t gbm_set_timeout_multiplier(int32_t multiplier) {
 GBM_API GbmSessionHandle gbm_session_open(const char* workDir,
                                           const char* gitDir,
                                           const char* commonDir) {
-    GitError error;
-    std::unique_ptr<Session> session = Session::open(workDir != nullptr ? workDir : "",
-                                                     gitDir != nullptr ? gitDir : "",
-                                                     commonDir != nullptr ? commonDir : "",
-                                                     &error);
-    if (!session) {
-        setStagingBuffer(toJson(error));
-        return nullptr;
-    }
-    return toHandle(session.release());
+    // The app reopens the last repository at every launch, so an exception here
+    // would stop it starting at all; an error result leaves it usable.
+    return guardCall(
+        [&]() -> GbmSessionHandle {
+            GitError error;
+            std::unique_ptr<Session> session = Session::open(workDir != nullptr ? workDir : "",
+                                                             gitDir != nullptr ? gitDir : "",
+                                                             commonDir != nullptr ? commonDir : "",
+                                                             &error);
+            if (!session) {
+                setStagingBuffer(toJson(error));
+                return nullptr;
+            }
+            return toHandle(session.release());
+        },
+        GbmSessionHandle{nullptr});
 }
 
 GBM_API void gbm_session_close(GbmSessionHandle session) {

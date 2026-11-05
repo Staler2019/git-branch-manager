@@ -4,9 +4,13 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <typeinfo>
 #include <utility>
 
 namespace gbm {
+
+/// A type's name for a report: code-chosen, so it holds no user text.
+std::string typeName(const std::type_info& type);
 
 /// The exception currently being handled as one line of text: dynamic type,
 /// what(), error code and category, and any filesystem paths. Always valid UTF-8,

@@ -23,7 +23,11 @@ class AddSubmoduleOperation final : public Operation {
 public:
     explicit AddSubmoduleOperation(AddSubmoduleRequest request) : request_(std::move(request)) {}
 
-    std::string describe() const override { return "Add submodule " + request_.url; }
+    // Never the URL: it can hold a credential, and this text reaches the undo
+    // journal and the log.
+    std::string describe() const override {
+        return request_.path.empty() ? "Add submodule" : "Add submodule " + request_.path;
+    }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,

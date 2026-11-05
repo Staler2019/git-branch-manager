@@ -25,18 +25,6 @@ namespace {
 
 constexpr std::uintmax_t kMaxLogBytes = 1024 * 1024;
 
-std::string typeName(const std::type_info& type) {
-#if defined(__GNUG__)
-    int status = 0;
-    const std::unique_ptr<char, decltype(&std::free)> demangled(
-        abi::__cxa_demangle(type.name(), nullptr, nullptr, &status), &std::free);
-    if (status == 0 && demangled != nullptr) {
-        return demangled.get();
-    }
-#endif
-    return type.name();
-}
-
 /// Length of the well-formed UTF-8 sequence at `index`, or 0 if there is none.
 /// As strict as Dart's utf8.decode: no overlong forms, no surrogates, nothing
 /// past U+10FFFF.
@@ -132,6 +120,18 @@ void appendToLog(std::string_view where, std::string_view description) {
 }
 
 }  // namespace
+
+std::string typeName(const std::type_info& type) {
+#if defined(__GNUG__)
+    int status = 0;
+    const std::unique_ptr<char, decltype(&std::free)> demangled(
+        abi::__cxa_demangle(type.name(), nullptr, nullptr, &status), &std::free);
+    if (status == 0 && demangled != nullptr) {
+        return demangled.get();
+    }
+#endif
+    return type.name();
+}
 
 std::string describeCurrentException() {
     try {

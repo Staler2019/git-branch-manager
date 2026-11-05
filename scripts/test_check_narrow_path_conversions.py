@@ -33,6 +33,10 @@ class Findings(unittest.TestCase):
         write(self.root, 'src/core/a.cpp', 'auto t = p.generic_string();\n')
         self.assertEqual(len(self.found()), 1)
 
+    def test_string_through_a_pointer_is_reported(self):
+        write(self.root, 'src/core/a.cpp', 'const std::string text = exe->string();\n')
+        self.assertEqual(len(self.found()), 1)
+
     def test_narrow_constructor_is_reported(self):
         write(self.root, 'src/capi/a.cpp', 'auto p = std::filesystem::path(text);\n')
         self.assertEqual(len(self.found()), 1)

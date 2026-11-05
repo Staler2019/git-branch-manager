@@ -15,7 +15,7 @@ git 的 core.quotepath=false、ProcessRunner 的 widen(CP_UTF8)）都假設 UTF-
 import os, re, sys
 
 _PATTERNS = (
-    re.compile(r'\.(?:generic_)?string\(\)'),
+    re.compile(r'(?:\.|->)(?:generic_)?string\(\)'),
     re.compile(r'std::filesystem::path\((?!\s*\))'),
     # 變數宣告形式 `path target(text)`。括號內是空的、參數宣告或換行的，是函式宣告。
     re.compile(r'std::filesystem::path\s+\w+\('

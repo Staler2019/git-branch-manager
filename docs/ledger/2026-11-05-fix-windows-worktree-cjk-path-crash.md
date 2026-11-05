@@ -122,6 +122,13 @@ mutation m5 讓 `onDone` 的 catch 重新拋出，例外被 `guardedThread` 接�
 | 14 | `refactor: 更正 describeCurrentException 的註解` | 只改註解 | — |
 | 15 | `fix: RegGetValueW 只帶 RRF_RT_REG_SZ` | 無：只在 Windows 能跑 | — |
 
+### Windows CI 紅：`AChildInheritsOnlyItsOwnHandles`
+
+PR 第一次跑 CI，1014 個紅 1 個：探針回 `inherited`。這條分支的 diff 沒碰 `win::InheritList`，也沒碰 spawn 的參數。
+探針只收到 handle 的數字，判斷「這個數字是活著、未 signal 的物件」，子行程自己同號的 handle 也符合。
+這是由程式碼推論的假陽性，真正的物件沒有查過，也不知道為什麼這條分支才撞到。
+探針改成檢查有特定內容的 file mapping，另加 `TheProbeSeesAHandleThatWasReallyInherited` 當正向對照（真的 `bInheritHandles=TRUE` 要回 `inherited`）。兩個都只在 Windows CI 跑；改完若仍紅，就是真的洩漏。
+
 ### Verifier 的第一次判定：REFUTED
 
 | Finding | 處置 |

@@ -13,6 +13,7 @@ add_executable(gbm_core_tests
     unit/ConflictBatchTest.cpp
     unit/ConflictMarkerParserTest.cpp
     unit/CoreBasicsTest.cpp
+    unit/CrashFilterTest.cpp
     unit/ExceptionDiagnosticTest.cpp
     unit/ProcessTempDirTest.cpp
     unit/DelayTimerTest.cpp
@@ -200,6 +201,7 @@ if(GBM_BUILD_CAPI)
         capi/CancelOperationApiTest.cpp
         capi/CherryPickRevertApiTest.cpp
         capi/CloneJobApiTest.cpp
+        capi/CrashFilterApiTest.cpp
         capi/CommitFilesApiTest.cpp
         capi/CommitMetaApiTest.cpp
         capi/CompareApiTest.cpp
@@ -253,6 +255,15 @@ if(GBM_BUILD_CAPI)
         GBM_ASKPASS_LAUNCHER_EXE="$<TARGET_FILE:gbm_askpass_launcher>"
         GBM_CAPI_LIBRARY_FILE="$<TARGET_FILE:gbm_capi>")
     add_dependencies(gbm_capi_tests gbm_askpass_launcher)
+
+    # --- the subject of CrashFilterApiTest: loads gbm_capi, then crashes -----
+    if(WIN32)
+        add_executable(gbm_crash_now fixtures/crash_now_win.cpp)
+        target_link_libraries(gbm_crash_now PRIVATE gbm_warnings)
+        target_compile_definitions(gbm_capi_tests PRIVATE
+            GBM_CRASH_NOW_EXE="$<TARGET_FILE:gbm_crash_now>")
+        add_dependencies(gbm_capi_tests gbm_crash_now)
+    endif()
 
     # gbm_capi is SHARED, so on Windows (no RPATH like Linux/macOS) the
     # loader can't find gbm_capi.dll unless it sits next to the .exe --

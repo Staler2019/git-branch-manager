@@ -658,5 +658,69 @@ TEST_F(ExceptionDiagnosticTest, AThrowingPoolTaskIsReportedAndThePoolKeepsRunnin
     EXPECT_NE(log.find("from a task"), std::string::npos) << log;
 }
 
+// An error raised outside C++ (Dart's) brings its own summary: the caller knows which of
+// its types carry data, so nothing here re-derives one from the detail.
+TEST_F(ExceptionDiagnosticTest, AnExternalErrorPutsTheDetailInTheFileAndTheSummaryInTheSink) {
+    const RecordedReports reports;
+    reportExternalError("FlutterError", "on screen", "in the file\nwith a stack");
+
+    ASSERT_EQ(reports->size(), 1u);
+    EXPECT_EQ(reports->front().where, "FlutterError");
+    EXPECT_EQ(reports->front().summary, "on screen");
+    EXPECT_EQ(reports->front().logPath, fsutil::utf8FromPath(nativeErrorLogPath()));
+    const std::string log = readLog();
+    EXPECT_NE(log.find("FlutterError: in the file\\nwith a stack\n"), std::string::npos) << log;
+    EXPECT_EQ(log.find("on screen"), std::string::npos) << log;
+}
+
+TEST_F(ExceptionDiagnosticTest, AnExternalErrorReachesTheLogSinkWithItsDetail) {
+    std::vector<std::string> messages;
+    Log::instance().setMessageSink([&](LogLevel level, std::string_view message) {
+        if (level == LogLevel::Error) {
+            messages.emplace_back(message);
+        }
+    });
+    reportExternalError("PlatformDispatcher", "short", "long detail");
+    Log::instance().setMessageSink(nullptr);
+
+    ASSERT_EQ(messages.size(), 1u);
+    EXPECT_EQ(messages[0], "PlatformDispatcher: long detail");
+}
+
+TEST_F(ExceptionDiagnosticTest, AnExternalSummaryIsSanitisedAndCappedOnACharacterBoundary) {
+    std::string characters;
+    for (int i = 0; i < 3000; ++i) {
+        characters += "\xE5\xB7\xA5";  // 工
+    }
+    for (const std::string lead : {"", "a", "aa"}) {
+        const RecordedReports reports;
+        reportExternalError("w\xA4here", "\xA4" + lead + characters, "detail");
+
+        ASSERT_EQ(reports->size(), 1u);
+        EXPECT_EQ(reports->front().where, "w?here");
+        const std::string& summary = reports->front().summary;
+        EXPECT_EQ(summary.rfind("?", 0), 0u) << "not UTF-8, so a question mark";
+        EXPECT_LE(summary.size(), 2048u);
+        EXPECT_GT(summary.size(), 2000u);
+        const std::size_t start = summary.find("\xE5\xB7\xA5");
+        ASSERT_NE(start, std::string::npos);
+        EXPECT_EQ((summary.size() - start) % 3, 0u) << "ends inside a character, lead: " << lead;
+    }
+}
+
+TEST_F(ExceptionDiagnosticTest, AnExternalDetailThatIsNotUtf8IsSanitisedInTheFile) {
+    reportExternalError("bytes", "s", "odd \xA4 byte");
+
+    EXPECT_NE(readLog().find("bytes: odd ? byte"), std::string::npos) << readLog();
+}
+
+TEST_F(ExceptionDiagnosticTest, AThrowingSinkStillKeepsAnExternalErrorsLine) {
+    setNativeErrorSink([](const NativeErrorReport&) { throw std::runtime_error("from the sink"); });
+    reportExternalError("guarded", "s", "kept");
+    setNativeErrorSink(nullptr);
+
+    EXPECT_NE(readLog().find("guarded: kept"), std::string::npos) << readLog();
+}
+
 }  // namespace
 }  // namespace gbm

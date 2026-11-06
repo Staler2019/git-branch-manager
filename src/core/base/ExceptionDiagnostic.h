@@ -25,6 +25,14 @@ std::string describeCurrentException();
 /// Never throws.
 void reportCurrentException(std::string_view where) noexcept;
 
+/// For an error raised outside C++ (Dart's): `detail` goes to the file and the log sink,
+/// `summary` to the native error sink as the caller wrote it, since only the caller knows
+/// which of its error types carry data. Both are made valid UTF-8 and the summary is capped
+/// like reportCurrentException's. Never throws.
+void reportExternalError(std::string_view where,
+                         std::string_view summary,
+                         std::string_view detail) noexcept;
+
 /// What the native error sink hears. All three are valid UTF-8. `summary` is for the
 /// screen: at most 2 KiB, and a filesystem error gives only its type and code.
 struct NativeErrorReport {

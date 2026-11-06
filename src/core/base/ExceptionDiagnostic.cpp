@@ -213,25 +213,9 @@ void appendToLog(std::string_view where, std::string_view description) {
         path, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write, ec);
 }
 
-/// One line for the screen: a filesystem error's what() and paths can name a private
-/// repository, so it keeps only its type and code; the file has the rest.
-std::string summarizeCurrentException() {
-    if (!std::current_exception()) {
-        return "no active exception";
-    }
-    std::string summary;
-    try {
-        throw;
-    } catch (const std::filesystem::filesystem_error& error) {
-        summary = typeName(typeid(error)) + describeCode(error.code());
-    } catch (const std::system_error& error) {
-        summary = describeStandard(error) + describeCode(error.code());
-    } catch (const std::exception& error) {
-        summary = describeStandard(error);
-    } catch (...) {
-        return "non-standard exception";
-    }
-    summary = validUtf8(summary);
+/// Valid UTF-8, at most kMaxSummaryBytes, cut on a character boundary.
+std::string screenSummary(std::string_view text) {
+    std::string summary = validUtf8(text);
     if (summary.size() > kMaxSummaryBytes) {
         std::size_t end = kMaxSummaryBytes;
         while (end > 0 && (static_cast<unsigned char>(summary[end]) & 0xC0) == 0x80) {
@@ -240,6 +224,25 @@ std::string summarizeCurrentException() {
         summary.resize(end);
     }
     return summary;
+}
+
+/// One line for the screen: a filesystem error's what() and paths can name a private
+/// repository, so it keeps only its type and code; the file has the rest.
+std::string summarizeCurrentException() {
+    if (!std::current_exception()) {
+        return "no active exception";
+    }
+    try {
+        throw;
+    } catch (const std::filesystem::filesystem_error& error) {
+        return screenSummary(typeName(typeid(error)) + describeCode(error.code()));
+    } catch (const std::system_error& error) {
+        return screenSummary(describeStandard(error) + describeCode(error.code()));
+    } catch (const std::exception& error) {
+        return screenSummary(describeStandard(error));
+    } catch (...) {
+        return "non-standard exception";
+    }
 }
 
 struct NativeErrorSinkSlot {
@@ -253,13 +256,33 @@ NativeErrorSinkSlot& nativeErrorSinkSlot() {
     return *slot;
 }
 
-void notifyNativeErrorSink(std::string_view where) {
+template <typename Summary>
+void notifyNativeErrorSink(std::string_view where, Summary summary) {
     NativeErrorSinkSlot& slot = nativeErrorSinkSlot();
     const std::lock_guard<std::mutex> lock(slot.mutex);
     if (slot.sink) {
-        slot.sink({validUtf8(where),
-                   summarizeCurrentException(),
-                   validUtf8(fsutil::utf8FromPath(nativeErrorLogPath()))});
+        slot.sink(
+            {validUtf8(where), summary(), validUtf8(fsutil::utf8FromPath(nativeErrorLogPath()))});
+    }
+}
+
+/// Each step is guarded on its own, the file first: a failure in one must not cost the
+/// others, and the file is what survives the process.
+template <typename Describe, typename Summary>
+void report(std::string_view where, Describe describe, Summary summary) noexcept {
+    std::string description;
+    try {
+        description = describe();
+        appendToLog(where, description);
+    } catch (...) {
+    }
+    try {
+        logMessage(LogLevel::Error, std::string(where) + ": " + description);
+    } catch (...) {
+    }
+    try {
+        notifyNativeErrorSink(where, summary);
+    } catch (...) {
     }
 }
 
@@ -317,22 +340,16 @@ std::string describeCurrentException() {
 }
 
 void reportCurrentException(std::string_view where) noexcept {
-    // Each step is guarded on its own, the file first: a failure in one must not cost
-    // the others, and the file is what survives the process.
-    std::string description;
-    try {
-        description = describeCurrentException();
-        appendToLog(where, description);
-    } catch (...) {
-    }
-    try {
-        logMessage(LogLevel::Error, std::string(where) + ": " + description);
-    } catch (...) {
-    }
-    try {
-        notifyNativeErrorSink(where);
-    } catch (...) {
-    }
+    report(where, describeCurrentException, summarizeCurrentException);
+}
+
+void reportExternalError(std::string_view where,
+                         std::string_view summary,
+                         std::string_view detail) noexcept {
+    report(
+        where,
+        [detail] { return validUtf8(detail); },
+        [summary] { return screenSummary(summary); });
 }
 
 void setNativeErrorSink(NativeErrorSink sink) {

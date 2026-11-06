@@ -74,7 +74,7 @@ Windows 那列在暫時分支 `scratch/crash-mut-win` 上跑：一個只有 Wind
 ## Result
 
 - 本機：ctest 1068/1068；`flutter analyze` 0 個問題；`flutter test` 通過 4564 個、跳過 14 個。
-- Windows：`CrashFilterApiTest` 在暫時 workflow 的基準與還原都綠（run 42255997616、42257521093；第一次沒有印出失敗斷言，第二次補印才確認每個紅都夠窄）。整個 PR 的 Windows CI 見 PR。
+- Windows：`CrashFilterApiTest` 在暫時 workflow 的基準與還原都綠（run 42255997616、42257521093；第一次沒有印出失敗斷言，第二次補印才確認每個紅都夠窄）。PR #210 的第一輪 CI（run 42259254607）：Linux、Windows 的 capi 與 Flutter UI、兩個 sanitizer 與 cq 全綠；macOS arm64 的兩個 job 因 GitHub 沒有可用 runner（「The job was not acquired by Runner of type hosted even after multiple attempts」）排 15 分鐘後被取消，一步都沒跑。
 
 ### 和計畫不同的地方
 
@@ -91,3 +91,12 @@ Windows 那列在暫時分支 `scratch/crash-mut-win` 上跑：一個只有 Wind
 - limiter 的 2 s／60 s／20 筆是提案值，沒有量測。退出前還沒送出的重複計數會被丟掉，和 PR A 的 coalescer 相同。
 - detail 的遮罩沿用 `redactUrlCredentials`，它的已知缺口也適用於這個檔案；Flutter 的診斷樹可能帶 widget 文字。檔案只在使用者自己的目錄。
 - #207 的 CP950 例外仍需繁中 Windows 實機確認，#207 維持開啟。
+
+### verifier 的結果
+
+CONFIRMED，只在 macOS arm64 實際執行；Windows 部分是讀碼加上暫時 workflow 的兩次 run（與 PR head 的 `src`、`tests` 相同）。以下記錄不修：
+
+- **`app_bootstrap_test` 在設了 `GBM_CAPI_LIBRARY_PATH` 時會紅**（P3）。「開不了 library 就不 override provider」那個案例用「provider 讀取時會 throw」來證明沒有 override；環境變數讓 provider 自己開得到 library，就不 throw。產品行為正確；CI 只對 real-library 那個檔案設這個變數，不受影響，本機合併執行會看到假紅。
+- **limiter 的 timer 路徑上 reporter 丟例外會被回報一次**（P3）。`_flushRepeats` 與 `_endCapWindow` 的 `_emit` 不在 `send` 的 try/catch 內，例外跑到 `PlatformDispatcher.onError` 被當新錯誤回報；第二次的例外被吞掉，不會循環。正式的 reporter 是 C 端全部攔住的 void FFI 呼叫，幾乎走不到。所以「回報時丟的例外不會再回報」只對同步路徑成立。
+- **後來的 `SetUnhandledExceptionFilter` 會蓋掉這個 filter**（P4，推測）。沒有查 Flutter engine 或之後載入的 DLL 是否會裝自己的 filter。
+- 狀態列紅字只由 error 等級的 Log 推論，沒有測試看 `StatusBar` 畫出的文字（同上方「和計畫不同的地方」）。

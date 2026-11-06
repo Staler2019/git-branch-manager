@@ -305,6 +305,11 @@ typedef void (*GbmNativeErrorCallback)(const uint8_t* payload, int32_t payloadLe
 /// running and will not run again.
 GBM_API void gbm_set_native_error_callback(GbmNativeErrorCallback callback, void* userData);
 
+/// Reports an error raised outside the library (Dart's) through the same file and
+/// callback: `detail` goes to the file, `summary` to the callback's `summary` as given,
+/// so the caller decides what is safe to show. UTF-8; null reads as empty.
+GBM_API void gbm_report_external_error(const char* where, const char* summary, const char* detail);
+
 // --- Thread-local synchronous-result staging buffer -------------------------
 // Populated by any function documented "populates the staging buffer".
 // Always drain it (len, then copy) on the same thread and before the next

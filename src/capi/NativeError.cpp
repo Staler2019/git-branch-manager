@@ -69,6 +69,17 @@ GBM_API void gbm_set_native_error_callback(GbmNativeErrorCallback callback, void
     reportCurrentException(__func__);
 }
 
+GBM_API void gbm_report_external_error(const char* where,
+                                       const char* summary,
+                                       const char* detail) try {
+    const auto text = [](const char* value) {
+        return std::string_view(value != nullptr ? value : "");
+    };
+    reportExternalError(text(where), text(summary), text(detail));
+} catch (...) {
+    reportCurrentException(__func__);
+}
+
 #if defined(GBM_CAPI_TEST_EXPORTS)
 GBM_API void gbm_test_raise_native_error(const char* message);
 

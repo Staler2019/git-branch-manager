@@ -57,4 +57,30 @@ void main() {
     expect(report.logPath, startsWith(logDirectory));
     expect(File(report.logPath).existsSync(), isTrue);
   }, skip: libraryPath == null ? 'GBM_CAPI_LIBRARY_PATH is not set' : false);
+
+  // The Dart error reporter's fake hand-builds this payload; this is what the library sends.
+  test('an external error keeps the summary it was given, and its detail goes to the file', () async {
+    final GbmBindings bindings = GbmBindings(openGbmCapiLibrary());
+    final GbmNativeErrorEvents events = GbmNativeErrorEvents(bindings);
+    addTearDown(events.dispose);
+    final Future<NativeErrorReport> next = events.reports.first;
+
+    using((Arena arena) {
+      bindings.reportExternalError(
+        'FlutterError'.toNativeUtf8(allocator: arena),
+        'StateError: on screen'.toNativeUtf8(allocator: arena),
+        'only in the file'.toNativeUtf8(allocator: arena),
+      );
+    });
+    final NativeErrorReport report = await next.timeout(
+      const Duration(seconds: 10),
+    );
+
+    expect(report.where, 'FlutterError');
+    expect(report.summary, 'StateError: on screen');
+    expect(
+      File(report.logPath).readAsStringSync(),
+      contains('FlutterError: only in the file'),
+    );
+  }, skip: libraryPath == null ? 'GBM_CAPI_LIBRARY_PATH is not set' : false);
 }

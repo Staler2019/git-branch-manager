@@ -127,7 +127,7 @@ Windows 的 temp 路徑帶結尾分隔符，`path` 比較會把它算成多一�
 
 ### 順帶的 CI 清理
 
-`gbm_capi-*` artifact 自從拿掉 `needs: capi-build` 就沒有讀取端，本輪停止上傳。使用者裁定刪掉既有的 626 個（5.87 GB），artifact 總量從 12.2 GB 降到 6.3 GB。依路徑跳過 job 與 `package-*` 保留天數留給下一個 PR（使用者裁定），估計省約 31% runner 分鐘，尚未實測。
+`gbm_capi-*` artifact 自從拿掉 `needs: capi-build` 就沒有讀取端，本輪停止上傳。使用者裁定刪掉既有的 626 個（5.87 GB），artifact 總量從 12.2 GB 降到 6.3 GB。依路徑跳過 job 與 `package-*` 保留天數留給下一個 PR（使用者裁定），~~估計省約 31% runner 分鐘，尚未實測。~~ 更正（[feat/crash-and-dart-error-log](2026-11-07-feat-crash-and-dart-error-log.md)）：31% 沒有量測依據。量最近 40 個合併 PR 的 `ci.yml` job 時間共 4,994 分鐘：只改文件的 PR 全部跳過省 7.4%；只改 Dart（不含 `data/ffi/`）的 PR 再跳過 capi 與 sanitizer，合計 16.0%。
 
 ## 已知缺口
 

@@ -81,3 +81,18 @@ commit 3 的兩個 plan 指定 mutation：拿掉 pending override、override 成
 - 兩個 app 同時執行時會搶同一個標記。
 - macOS 的 `shared_preferences_foundation` 走 NSUserDefaults／cfprefsd，crash 前剛寫入的值能不能留下沒有驗證；#207 是 Windows。
 - 「開啟完成」只看第一次 history 讀取；working copy 的第一次讀取還在跑時就清除了標記。
+
+### verifier 的結果
+
+fresh `verifier` 對 `dea43750` 判定 **CONFIRMED**。它重跑了 Flutter 全套（4590）、analyze、capi 1069、real-library 測試，
+並把 commit 1、2 的樹各自抽出來跑全套（4568、4583，analyze 0）；commit 3 與 HEAD 在程式碼上相同。另外寫了 real-library 端到端 probe
+（真 `GbmBindings`、真 `RepoSessionController`、真 git repo，經過 `bootstrapApp`）：讀取中標記保留，第一次讀取結束後清除；
+不存在的 work dir 以 `ProcessFailed` 結束，標記同樣清除。10 種 work dir 拼法（結尾 `/`、`%20`、`#`、`C:\…`、CJK）經 route 解回的
+`RepoIdentity` 都和 host 用的相等。
+
+advisories（未修，依 P3/P4 預設 defer）：
+
+- P3：第一次讀取還沒結束時使用者就正常關閉 app，標記會留下，下次啟動會被跳過一次，訊息寫「quit while opening it」。
+  在「開啟完成就清」的裁定範圍內；要不要在正常結束時也清標記，留給使用者決定。
+- P4：讀取期間任何一個讀取的 `errorOccurred` 設了 `lastError` 就算「完成」，比 doc comment 寫的寬；working copy 的第一次讀取可能還在跑（已在已知缺口）。
+- P4：`readNativeErrorLogPath` 在 microtask 裡沒有 try/catch，binding 丟例外時這一列不會寫出；這是刻意的（fake 少成員就該當場失敗），正式版 library 一定帶這個匯出。

@@ -49,6 +49,26 @@ abstract final class AppLogEvents {
     );
   }
 
+  /// A launch that did not reopen [workDir] because the last one ended while opening it
+  /// (#207: every launch reopened the repository that crashed it). Error, so the status bar's
+  /// summary lights (P10 item 3), as the ruling asks: 「Welcome 上的紅字加 Log 抽屜那一列，寫明
+  /// 『上次開啟某 repo 時 app 結束，已跳過自動開啟』，且只跳過一次」. Names the way back, and the
+  /// file in [nativeError]'s `(details: …)` form when the library can say where it is.
+  static AppLogEntry autoReopenSkipped(
+    String workDir, {
+    required String logPath,
+    required int atEpochMs,
+  }) {
+    final String details = logPath.isEmpty ? '' : ' (details: $logPath)';
+    return AppLogEntry(
+      whenEpochMs: atEpochMs,
+      level: OperationLogLevel.error,
+      message:
+          'Skipped reopening $workDir: git-branch-manager quit while opening it '
+          'last time. Open it again from File → Switch repository…$details',
+    );
+  }
+
   /// 「切分支」. Says which of checkout's three shapes happened, because
   /// "Checked out abc1234" and "Created branch x at abc1234" are different
   /// events to anyone reading back what they did.

@@ -157,3 +157,12 @@ verifier 另一項（P4）：「已知缺口」寫對話框有 4 個 Windows 測
 - `--box-thread-stalled` 可能偶發卡住（P3，推測，未重現）。主 thread 若在 `LoadLibraryExW` 回傳後、暫停其他 thread 前被阻塞，helper 可能正好持有 heap lock 時被暫停；之後 `writeLine` 的 `CreateFileW` 在系統內部配置記憶體就會卡住，表現為 15 秒逾時。CI 跑了 2 次基準都綠，沒有重跑 `--repeat until-fail`。若這個案例偶發紅，先查這裡。
 - 「filter 不配置記憶體」只對本專案的程式碼成立（P4，既有）。`CreateFileW`、`CreateDirectoryW` 把 Win32 路徑轉成 NT 路徑時，會從 process heap 配置。[CPP-crash-filter-allocates-nothing] 已原地改寫。
 
+## 追加：對話框測試寫死英文按鈕文字
+
+**S**：PR review 時在本機 Windows 11 ARM64（UI 語系繁體中文，MSVC 14.51 ARM64、VS generator）跑完整 capi 測試，`WithNoWindowABoxNamesTheCodeAndTheLogAndOkLetsTheProcessGo` 紅：`windowText(ok)` 是 `L"\x78BA\x5B9A"`（「確定」），不是 `L"OK"`。MessageBox 的按鈕文字跟著系統語系，CI 的英文 runner 看不出來；CI 的 Windows 環境接下來要改成繁體中文。
+
+**T**：斷言要能分辨「是 MB_OK 那顆按鈕」，又不依賴語系。
+
+**A**：改成兩個斷言：對話框只有一顆 `Button`，且其 control id 為 `IDCANCEL`。id 是先寫成 `IDOK` 跑紅後實測得到的值（2）；Windows 把 MB_OK 的唯一按鈕設成 IDCANCEL，所以 Esc 也能關閉。mutation 跑 2 個、紅 2 個測試（各 1，都只紅這個測試）：`MB_OKCANCEL` 讓兩個斷言都紅（多一顆按鈕，第一顆 id 1）；`MB_YESNO` 讓兩個斷言都紅（id 6）。第一次跑 mutation 兩個都綠，原因是 MSBuild 在暫存目錄下的增量建置沒有重新連結 `gbm_capi.dll`（MSB8029，DLL 時間戳沒變），不計；建置前刪掉 DLL 後重跑才是上面的結果。
+
+**R**：本機 `CrashFilterApiTest` 7/7 綠。同一次完整執行的另外 3 個紅與本 PR 無關：`SubmoduleApiTest.AddSubmoduleAddsAndListsIt`、`DeinitSubmoduleEmptiesTheWorkTree` 在 `-j 8` 下等事件逾時，單獨重跑都綠；`commit_graph_speedup_ratio` 單獨重跑仍是 1.76x（門檻 2.0x），沒有在 `main` 上比對。本機另外兩個環境問題也沒有修：MSVC ARM64 編 `GitIntegrationTest.cpp` 需要 `/bigobj`（C1128，CI 沒遇到），`_resolve-clang-format.sh` 在 Windows 找 `venv/bin/pip`，但 Windows 的 venv 是 `Scripts\`。

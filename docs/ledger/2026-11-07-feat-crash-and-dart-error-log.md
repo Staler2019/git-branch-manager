@@ -86,7 +86,7 @@ Windows 那列在暫時分支 `scratch/crash-mut-win` 上跑：一個只有 Wind
 ### 已知缺口
 
 - **Windows 的程式碼本機編不了**。macOS 上只用 `windows.h` stub 做 `-fsyntax-only`，gtest 測試連 stub 也檢查不到；Windows CI 是唯一證據。
-- ~~**對話框沒有任何自動化測試看得到**：CI 一律設 `GBM_CRASH_NO_DIALOG`。~~ 更正：見下方「追加」，對話框現在有 4 個 Windows 測試。仍未驗證的是：出錯的 thread 握著 `EnumWindows` 需要的鎖時會怎樣；helper 5 秒內沒出現對話框就放行、行程照樣結束的那條路徑。
+- ~~**對話框沒有任何自動化測試看得到**：CI 一律設 `GBM_CRASH_NO_DIALOG`。~~ 更正：見下方「追加」，對話框現在有 ~~4~~ 6 個 Windows 測試。仍未驗證的是：出錯的 thread 握著 `EnumWindows` 需要的鎖時會怎樣。~~helper 5 秒內沒出現對話框就放行、行程照樣結束的那條路徑。~~ 這條路徑後來有測試，見「追加」的 verifier 段落。
 - Dart 載入 DLL 之前的 crash 不會被記錄（計畫的非目標）。
 - limiter 的 2 s／60 s／20 筆是提案值，沒有量測。退出前還沒送出的重複計數會被丟掉，和 PR A 的 coalescer 相同。
 - detail 的遮罩沿用 `redactUrlCredentials`，它的已知缺口也適用於這個檔案；Flutter 的診斷樹可能帶 widget 文字。檔案只在使用者自己的目錄。
@@ -117,7 +117,7 @@ CONFIRMED，只在 macOS arm64 實際執行；Windows 部分是讀碼加上暫�
 
 第一次在 Windows 跑時，基準就紅：對話框出現、前面的斷言都過，但 `WM_COMMAND IDOK` 送出後行程 15 秒沒結束。改成找出 `Button` 子視窗、用它自己的 control id 送出後變綠。
 
-同一輪的 mutation `boxBeforeLine`（先開對話框再寫 log）沒有紅在預期的斷言上，而是子程序 0.02 秒就結束、沒有對話框。原因是真的 race：helper thread 在 library 載入完成後才開始跑，`showDialog` 看到 `g_dialogThreadId == 0` 就直接放棄。原本 `writeLine` 的檔案 I/O 剛好讓出 CPU 給 helper，把它蓋住了。修法是只要 event 建好就送出請求，在原本的 5 秒等待裡讓 helper 接手（`b90a6daa`）。`--at-once` 把行程綁在單一核心、主 thread 設最高優先權，讓 crash 必定先於 helper；放回舊寫法時只有這個案例紅。
+同一輪的 mutation `boxBeforeLine`（先開對話框再寫 log）沒有紅在預期的斷言上，而是子程序 0.02 秒就結束、沒有對話框。原因是真的 race：helper thread 在 library 載入完成後才開始跑，`showDialog` 看到 `g_dialogThreadId == 0` 就直接放棄。原本 `writeLine` 的檔案 I/O 剛好讓出 CPU 給 helper，把它蓋住了。修法是只要 event 建好就送出請求，在原本的 5 秒等待裡讓 helper 接手（`b90a6daa`）~~。~~，但這個修法本身引入了新問題，見下方 verifier 段落（`e8c20501`）。`--at-once` 把行程綁在單一核心、主 thread 設最高優先權，讓 crash 必定先於 helper；放回舊寫法時只有這個案例紅。
 
 | mutation | 紅的測試 | 紅在 |
 |---|---|---|
@@ -134,4 +134,20 @@ CONFIRMED，只在 macOS arm64 實際執行；Windows 部分是讀碼加上暫�
 跑了 9 個、紅 10 個測試。另有 1 個第一次沒編過（拿掉判斷後 `code` 未使用，MSVC C4100 視為錯誤），改寫後重跑，不計。Dart 1 個、紅 1 個。暫時分支 `scratch/crash-dialog-win`（run 42312981207、42314363763）跑完即刪。
 
 仍未涵蓋：helper 5 秒內沒能顯示對話框的那條路徑；按 OK 以外的關閉方式。
+
+### 第二次 verifier：修 race 時引入的無限等待
+
+verifier 判 INCONCLUSIVE，主要發現（P2）：`b90a6daa` 拿掉 `g_dialogThreadId == 0` 的提早返回後，helper 還沒跑時 `dialogIsOnScreen()` 會呼叫 `EnumThreadWindows(0, …)`。thread id 0 的行為沒有文件記載（Wine 會把它當成列舉全部視窗），只要桌面上有任何可見視窗就回 true，接著 `WaitForSingleObject(g_closed, INFINITE)`。helper 若永遠顯示不出對話框（例如它被 loader lock 卡住，或 `guardedThread` 丟例外），行程會一直卡住，畫面上又沒有任何視窗。
+
+Windows 上量到的結果和這個推論一致。新增的 `--box-thread-stalled` 先讓 crash 先於 helper，再暫停其他所有 thread，所以對話框永遠不會出現：
+
+| 版本 | `ABoxThatNeverAppearsHoldsTheProcessForSecondsNotForever` |
+|---|---|
+| 修正後（id 為 0 時直接回 false） | 綠，5.4 秒結束 |
+| 拿掉防護（`b90a6daa` 的寫法） | 紅，15 秒仍未結束 |
+| 等待改成無限 | 紅，15 秒仍未結束 |
+
+`e8c20501` 修正。mutation 跑 2 個、紅 2 個測試（各 1）；第一次因 clang-format 把 `tlhelp32.h` 排到 `windows.h` 前面而沒編過，改用 `clang-format off` 固定順序後重跑，不計。暫時分支 `scratch/crash-stall-win`（run 42317373186）跑完即刪。`--at-once` 案例在 `b90a6daa` 時是綠的，因為 helper 終究會跑起來，分不出這兩種語意。這是 [TEST-fixture-cannot-disagree] 第 11 型：在那一層表達不了會失敗的條件。
+
+verifier 另一項（P4）：「已知缺口」寫對話框有 4 個 Windows 測試，實際新增 5 個，加上本段的 1 個共 6 個，已原地更正。這段之前，對話框 5 秒內沒出現的路徑沒有測試涵蓋；現在由上表的案例涵蓋。
 

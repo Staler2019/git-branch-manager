@@ -6,10 +6,15 @@
 //
 // `--window` shows a window of its own first; `--stack-overflow` overflows the stack instead
 // of writing through a null pointer; `--at-once` keeps every other thread of the process off
-// the CPU until the crash, so the library's dialog thread has not run when it comes.
+// the CPU until the crash, so the library's dialog thread has not run when it comes;
+// `--box-thread-stalled` does the same and then suspends every other thread, so it never will.
 #include <cstring>
 #include <cwchar>
+// clang-format off
+// tlhelp32.h needs windows.h first; sorted alphabetically it comes first and MSVC fails.
 #include <windows.h>
+#include <tlhelp32.h>
+// clang-format on
 
 namespace {
 
@@ -52,6 +57,27 @@ __declspec(noinline) int recurse(int depth) {
     return g_keepGoing ? recurse(depth + 1) + pad[0] : pad[0];
 }
 
+void suspendOtherThreads() {
+    const HANDLE snapshot = ::CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snapshot == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    THREADENTRY32 entry{};
+    entry.dwSize = sizeof entry;
+    for (BOOL more = ::Thread32First(snapshot, &entry); more != FALSE;
+         more = ::Thread32Next(snapshot, &entry)) {
+        if (entry.th32OwnerProcessID == ::GetCurrentProcessId() &&
+            entry.th32ThreadID != ::GetCurrentThreadId()) {
+            const HANDLE thread = ::OpenThread(THREAD_SUSPEND_RESUME, FALSE, entry.th32ThreadID);
+            if (thread != nullptr) {
+                ::SuspendThread(thread);
+                ::CloseHandle(thread);
+            }
+        }
+    }
+    ::CloseHandle(snapshot);
+}
+
 void showWindow() {
     WNDCLASSW type{};
     type.lpfnWndProc = &::DefWindowProcW;
@@ -78,7 +104,8 @@ void showWindow() {
 int wmain(int argc, wchar_t** argv) {
     const bool window = argc > 1 && std::wcscmp(argv[1], L"--window") == 0;
     const bool overflow = argc > 1 && std::wcscmp(argv[1], L"--stack-overflow") == 0;
-    if (argc > 1 && std::wcscmp(argv[1], L"--at-once") == 0) {
+    const bool stalled = argc > 1 && std::wcscmp(argv[1], L"--box-thread-stalled") == 0;
+    if (stalled || (argc > 1 && std::wcscmp(argv[1], L"--at-once") == 0)) {
         ::SetProcessAffinityMask(::GetCurrentProcess(), 1);
         ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
     }
@@ -96,6 +123,9 @@ int wmain(int argc, wchar_t** argv) {
     }
     if (window) {
         showWindow();
+    }
+    if (stalled) {
+        suspendOtherThreads();
     }
     if (overflow) {
         return recurse(0);

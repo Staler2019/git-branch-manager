@@ -87,8 +87,14 @@ BOOL CALLBACK findDialogWindow(HWND window, LPARAM found) {
 }
 
 bool dialogIsOnScreen() {
+    // Until the helper has run there is no thread to ask, and what EnumThreadWindows does
+    // with id 0 is undocumented: it may walk every window on the desktop.
+    const DWORD thread = g_dialogThreadId;
+    if (thread == 0) {
+        return false;
+    }
     bool found = false;
-    ::EnumThreadWindows(g_dialogThreadId, &findDialogWindow, reinterpret_cast<LPARAM>(&found));
+    ::EnumThreadWindows(thread, &findDialogWindow, reinterpret_cast<LPARAM>(&found));
     return found;
 }
 

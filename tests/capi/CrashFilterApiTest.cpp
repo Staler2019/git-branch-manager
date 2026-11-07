@@ -236,6 +236,17 @@ TEST(CrashFilterApiTest, ABoxStillAppearsWhenTheCrashComesBeforeItsThreadHasRun)
     EXPECT_TRUE(run.exitsWithin(15000));
 }
 
+TEST(CrashFilterApiTest, ABoxThatNeverAppearsHoldsTheProcessForSecondsNotForever) {
+    const ULONGLONG start = ::GetTickCount64();
+    const CrashRun run(L"--box-thread-stalled", {{L"GBM_CRASH_NO_DIALOG", nullptr}});
+    ASSERT_TRUE(run.started());
+
+    ASSERT_TRUE(run.exitsWithin(15000)) << "still waiting on a box that cannot appear";
+    EXPECT_GE(::GetTickCount64() - start, 4000u) << "it gave the box its 5 s";
+    EXPECT_EQ(countOf(run.log(), "unhandled SEH exception"), 1u) << run.log();
+    EXPECT_EQ(run.marker(), "after");
+}
+
 TEST(CrashFilterApiTest, NoBoxWhenTheProcessAlreadyShowsAWindow) {
     const CrashRun run(L"--window", {{L"GBM_CRASH_NO_DIALOG", nullptr}});
     ASSERT_TRUE(run.started());

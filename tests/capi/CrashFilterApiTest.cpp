@@ -221,6 +221,21 @@ TEST(CrashFilterApiTest, WithNoWindowABoxNamesTheCodeAndTheLogAndOkLetsTheProces
     EXPECT_EQ(run.marker(), "after");
 }
 
+TEST(CrashFilterApiTest, ABoxStillAppearsWhenTheCrashComesBeforeItsThreadHasRun) {
+    const CrashRun run(L"--at-once", {{L"GBM_CRASH_NO_DIALOG", nullptr}});
+    ASSERT_TRUE(run.started());
+
+    const HWND dialog = run.waitForDialog(15000);
+    ASSERT_NE(dialog, nullptr) << "no box within 15 s; log: " << run.log();
+    const HWND ok = ::FindWindowExW(dialog, nullptr, L"Button", nullptr);
+    ASSERT_NE(ok, nullptr);
+    ::PostMessageW(dialog,
+                   WM_COMMAND,
+                   MAKEWPARAM(::GetDlgCtrlID(ok), BN_CLICKED),
+                   reinterpret_cast<LPARAM>(ok));
+    EXPECT_TRUE(run.exitsWithin(15000));
+}
+
 TEST(CrashFilterApiTest, NoBoxWhenTheProcessAlreadyShowsAWindow) {
     const CrashRun run(L"--window", {{L"GBM_CRASH_NO_DIALOG", nullptr}});
     ASSERT_TRUE(run.started());

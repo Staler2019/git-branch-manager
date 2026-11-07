@@ -177,7 +177,9 @@ void writeLine(DWORD code, const void* address) {
 /// Shown from its own thread: MessageBoxW pumps messages, and on the faulting thread that
 /// would re-enter whatever crashed.
 void showDialog(DWORD code) {
-    if (g_showRequest == nullptr || g_dialogThreadId == 0) {
+    // The helper may not have run yet when the crash follows the load at once; the request
+    // waits for it, and the loop below gives it the same 5 s.
+    if (g_showRequest == nullptr) {
         return;
     }
     std::swprintf(g_message,

@@ -5,7 +5,8 @@
 // library's line was already in the log by then.
 //
 // `--window` shows a window of its own first; `--stack-overflow` overflows the stack instead
-// of writing through a null pointer.
+// of writing through a null pointer; `--at-once` keeps every other thread of the process off
+// the CPU until the crash, so the library's dialog thread has not run when it comes.
 #include <cstring>
 #include <cwchar>
 #include <windows.h>
@@ -77,6 +78,10 @@ void showWindow() {
 int wmain(int argc, wchar_t** argv) {
     const bool window = argc > 1 && std::wcscmp(argv[1], L"--window") == 0;
     const bool overflow = argc > 1 && std::wcscmp(argv[1], L"--stack-overflow") == 0;
+    if (argc > 1 && std::wcscmp(argv[1], L"--at-once") == 0) {
+        ::SetProcessAffinityMask(::GetCurrentProcess(), 1);
+        ::SetThreadPriority(::GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    }
     // No Windows Error Reporting dialog to sit on the CI machine.
     ::SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
     wchar_t library[32768];

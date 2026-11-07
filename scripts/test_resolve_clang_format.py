@@ -36,8 +36,10 @@ class CachedVenv(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.bin = os.path.join(self.tmp, 'bin')
         os.makedirs(self.bin)
+        # 包一層 exec 而不是 symlink：Windows 沒有開發人員模式時 os.symlink 會 WinError 1314。
         for tool in ('bash', 'grep', 'head', 'mkdir', 'rm', 'chmod', 'cat', 'sh'):
-            os.symlink(shutil.which(tool), os.path.join(self.bin, tool))
+            real = shutil.which(tool).replace('\\', '/')
+            write_executable(os.path.join(self.bin, tool), f'#!/bin/sh\nexec "{real}" "$@"\n')
         write_executable(os.path.join(self.bin, 'python3'), FAKE_PYTHON)
         self.log = os.path.join(self.tmp, 'python.log')
         self.cache = os.path.join(self.tmp, 'cache')
@@ -56,12 +58,12 @@ class CachedVenv(unittest.TestCase):
 
     def test_builds_the_venv_when_there_is_none(self):
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
 
     def test_a_healthy_venv_is_reused_without_rebuilding(self):
         write_executable(self.venv_tool, '#!/bin/sh\necho "clang-format version 18.1.8"\n')
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 0)
 
     def test_a_venv_whose_interpreter_is_gone_is_rebuilt(self):
@@ -69,7 +71,7 @@ class CachedVenv(unittest.TestCase):
         write_executable(self.venv_tool, '#!/nonexistent/python3\n')
         write_executable(os.path.join(self.cache, 'venv-18.1.8', 'bin', 'pip'), '#!/nonexistent/python3\n')
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 1)
 
     def test_a_rebuild_that_gives_the_wrong_version_is_an_error(self):

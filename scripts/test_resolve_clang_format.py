@@ -8,18 +8,22 @@ import os, shutil, stat, subprocess, tempfile, unittest
 RESOLVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_resolve-clang-format.sh')
 
 # 假的 `python3 -m venv [--clear] DIR`：DIR 已存在又沒帶 --clear 就照舊留著壞掉的內容。
+# FAKE_LAYOUT 是 venv 放執行檔的目錄：POSIX 是 bin，Windows 的 Python 是 Scripts。
+# find_python 的單行 -c 探測回答自己的路徑，不記進 log。
 FAKE_PYTHON = '''#!/bin/sh
+[ "$1" = -c ] && { echo "$0"; exit 0; }
 echo "$*" >> "$FAKE_LOG"
 for dir in "$@"; do :; done
 case "$*" in *--clear*) rm -rf "$dir" ;; esac
-mkdir -p "$dir/bin"
-[ -e "$dir/bin/pip" ] && exit 0
-cat > "$dir/bin/pip" <<EOF
+exe="$dir/$FAKE_LAYOUT"
+mkdir -p "$exe"
+[ -e "$exe/python" ] && exit 0
+cat > "$exe/python" <<EOF
 #!/bin/sh
-printf '#!/bin/sh\\necho "clang-format version $FAKE_VERSION"\\n' > "$dir/bin/clang-format"
-chmod +x "$dir/bin/clang-format"
+printf '#!/bin/sh\\necho "clang-format version $FAKE_VERSION"\\n' > "$exe/clang-format"
+chmod +x "$exe/clang-format"
 EOF
-chmod +x "$dir/bin/pip"
+chmod +x "$exe/python"
 '''
 
 
@@ -36,17 +40,20 @@ class CachedVenv(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp)
         self.bin = os.path.join(self.tmp, 'bin')
         os.makedirs(self.bin)
-        for tool in ('bash', 'grep', 'head', 'mkdir', 'rm', 'chmod', 'cat', 'sh'):
-            os.symlink(shutil.which(tool), os.path.join(self.bin, tool))
+        # 包一層 exec 而不是 symlink：Windows 沒有開發人員模式時 os.symlink 會 WinError 1314。
+        for tool in ('bash', 'grep', 'head', 'mkdir', 'rm', 'chmod', 'cat', 'sh', 'dirname'):
+            real = shutil.which(tool).replace('\\', '/')
+            write_executable(os.path.join(self.bin, tool), f'#!/bin/sh\nexec "{real}" "$@"\n')
         write_executable(os.path.join(self.bin, 'python3'), FAKE_PYTHON)
         self.log = os.path.join(self.tmp, 'python.log')
         self.cache = os.path.join(self.tmp, 'cache')
-        self.venv_tool = os.path.join(self.cache, 'venv-18.1.8', 'bin', 'clang-format')
+        self.venv_tool = os.path.join(self.cache, 'venv-22.1.8', 'bin', 'clang-format')
 
-    def resolve(self, version='18.1.8'):
+    def resolve(self, version='22.1.8', layout='bin'):
         return subprocess.run([shutil.which('bash'), RESOLVER], text=True, capture_output=True, timeout=10,
                               env={'PATH': self.bin, 'GBM_FORMAT_CACHE_DIR': self.cache,
-                                   'HOME': self.tmp, 'FAKE_LOG': self.log, 'FAKE_VERSION': version})
+                                   'HOME': self.tmp, 'FAKE_LOG': self.log, 'FAKE_VERSION': version,
+                                   'FAKE_LAYOUT': layout})
 
     def python_calls(self):
         if not os.path.exists(self.log):
@@ -56,27 +63,46 @@ class CachedVenv(unittest.TestCase):
 
     def test_builds_the_venv_when_there_is_none(self):
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
+
+    def test_builds_the_venv_with_python_when_there_is_no_python3(self):
+        # 只裝了 python.org 版本的 Windows：有 python，沒有 python3。
+        os.rename(os.path.join(self.bin, 'python3'), os.path.join(self.bin, 'python'))
+        result = self.resolve()
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
+        self.assertEqual(self.python_calls(), 1)
+
+    def test_a_windows_venv_is_found_under_scripts(self):
+        result = self.resolve(layout='Scripts')
+        expected = os.path.join(self.cache, 'venv-22.1.8', 'Scripts', 'clang-format')
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, expected), result.stderr)
+
+    def test_a_healthy_windows_venv_is_reused_without_rebuilding(self):
+        tool = os.path.join(self.cache, 'venv-22.1.8', 'Scripts', 'clang-format')
+        write_executable(tool, '#!/bin/sh\necho "clang-format version 22.1.8"\n')
+        result = self.resolve(layout='Scripts')
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, tool), result.stderr)
+        self.assertEqual(self.python_calls(), 0)
 
     def test_a_healthy_venv_is_reused_without_rebuilding(self):
-        write_executable(self.venv_tool, '#!/bin/sh\necho "clang-format version 18.1.8"\n')
+        write_executable(self.venv_tool, '#!/bin/sh\necho "clang-format version 22.1.8"\n')
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 0)
 
     def test_a_venv_whose_interpreter_is_gone_is_rebuilt(self):
         # 真實案例：pyenv 移除 venv 當初用的 Python，bin/clang-format 還在但 shebang 指向不存在的檔案。
         write_executable(self.venv_tool, '#!/nonexistent/python3\n')
-        write_executable(os.path.join(self.cache, 'venv-18.1.8', 'bin', 'pip'), '#!/nonexistent/python3\n')
+        write_executable(os.path.join(self.cache, 'venv-22.1.8', 'bin', 'python'), '#!/nonexistent/python3\n')
         result = self.resolve()
-        self.assertEqual((result.returncode, result.stdout.strip()), (0, self.venv_tool), result.stderr)
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 1)
 
     def test_a_rebuild_that_gives_the_wrong_version_is_an_error(self):
         result = self.resolve(version='23.1.5')
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, '')
-        self.assertIn('not major version 18', result.stderr)
+        self.assertIn('not major version 22', result.stderr)
 
 
 if __name__ == '__main__':

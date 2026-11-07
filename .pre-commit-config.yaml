@@ -2,11 +2,11 @@
 # pre-commit run --all-files   # to check everything now
 #
 # Pinned to the exact clang-format release CI's `lint` job checks against
-# (.github/workflows/cq.yml, jidicula/clang-format-action@v4.13.0,
-# clang-format-version: '18') so a passing local hook means a passing CI job.
+# (.github/workflows/cq.yml, jidicula/clang-format-action@v4.18.0,
+# clang-format-version: '22') so a passing local hook means a passing CI job.
 repos:
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v18.1.8
+    rev: v22.1.8
     hooks:
       - id: clang-format
         types_or: [c++, c]

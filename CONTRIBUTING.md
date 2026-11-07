@@ -56,7 +56,7 @@ doesn't test can opt out with `-DGBM_WERROR=OFF`.
 
 ## Formatting
 
-CI's `lint` job rejects any PR that isn't clang-format-clean (clang-format 18,
+CI's `lint` job rejects any PR that isn't clang-format-clean (clang-format 22,
 see `.clang-format`). Run before pushing:
 
 ```bash
@@ -64,9 +64,9 @@ scripts/format-check.sh   # non-mutating; what CI runs
 scripts/format.sh         # applies the fixes in place
 ```
 
-Both resolve clang-format 18 for you -- `clang-format-18` on `PATH`, then a
-Homebrew `llvm@18` keg, then a cached Python venv with the pinned `clang-format`
-PyPI wheel as a fallback that needs nothing but `python3`. They're also
+Both resolve clang-format 22 for you -- `clang-format-22` on `PATH`, then a
+Homebrew `llvm@22` keg, then a cached Python venv with the pinned `clang-format`
+PyPI wheel as a fallback that needs nothing but Python 3 (`python3`, or `python` where that is the only name). They're also
 reachable as CMake targets once configured: `cmake --build build/dev --target
 format-check`. Optionally wire `scripts/format-check.sh` into a pre-commit hook
 via the provided `.pre-commit-config.yaml` (`pre-commit install`).

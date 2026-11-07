@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Non-mutating check: exits non-zero if any file under src/ would be changed
-# by clang-format 18. This is what CI's `lint` job effectively runs
-# (jidicula/clang-format-action@v4.13.0, check-path: 'src') -- run this
+# by clang-format 22. This is what CI's `lint` job effectively runs
+# (jidicula/clang-format-action@v4.18.0, check-path: 'src') -- run this
 # locally before pushing to reproduce that gate exactly.
 set -euo pipefail
 

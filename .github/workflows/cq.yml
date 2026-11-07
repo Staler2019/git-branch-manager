@@ -53,15 +53,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: clang-format
-        uses: jidicula/clang-format-action@v4.13.0
+        uses: jidicula/clang-format-action@v4.18.0
         with:
-          clang-format-version: '18'
+          clang-format-version: '22'
           check-path: 'src'
 
       - name: clang-format resolver and post-edit hook
         run: |
           python3 scripts/test_resolve_clang_format.py
           python3 scripts/test_format_cpp_hook.py
+          python3 scripts/test_find_python.py
 
       # Claude Code loads CLAUDE.md, its @imports and unscoped .claude/rules/ at
       # session start, capped at 150k characters including the user's own

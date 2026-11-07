@@ -74,3 +74,4 @@ this file positionally.
 - 2026-11-04 — [chore/clang-format-post-edit-hook](2026-11-04-chore-clang-format-post-edit-hook.md) — agent 編輯 `src/` 的 C++ 後用 clang-format 18 格式化單一檔案；解析器遇到 Python 已被移除的 venv 會重建，不再一律回報版本不符
 - 2026-11-05 — [fix/windows-worktree-cjk-path-crash](2026-11-05-fix-windows-worktree-cjk-path-crash.md) — #207：`RepoClassifier` 窄字元建構 path，CP950 下中文 worktree 啟動即 crash；修根因並盤點窄字元轉換；160 個 export 與所有執行緒入口攔例外，寫 `gbm-native-errors.log`；加 activeCodePage=UTF-8，registry 改 `RegGetValueW`；MS DLL 依裁定保留
 - 2026-11-05 — [feat/native-error-channel](2026-11-05-feat-native-error-channel.md) — void export 與執行緒入口的例外進每個 Log 並點亮狀態列紅字；log 檔搬到使用者目錄，`where` 不再帶 submodule URL
+- 2026-11-07 — [chore/clang-format-22](2026-11-07-chore-clang-format-22.md) — clang-format 18 → 22.1.8（CI action v4.18.0；18.1.8 沒有 Windows ARM64 wheel）；resolver 支援 Windows venv 的 `Scripts\` 並改用 `python -m pip`；resolver 測試不再需要 symlink

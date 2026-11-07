@@ -14,7 +14,7 @@
 #   2. `clang-format` from a Homebrew `llvm@22` keg, if installed.
 #   3. A cached Python venv with the `clang-format` PyPI wheel pinned to
 #      22.1.8 (https://pypi.org/project/clang-format/, prebuilt binaries).
-#      This is the path that always works with nothing but python3 -- no
+#      This is the path that always works with nothing but Python 3 -- no
 #      brew, no system package manager -- so it's the default for anyone who
 #      hasn't already got 22 on their machine.
 set -euo pipefail
@@ -62,13 +62,15 @@ venv_exe() {
 # Asks the binary rather than checking it exists: a venv outlives the Python it
 # was built from, and then its clang-format is executable but cannot start.
 if [ "$(version_major "$(venv_exe clang-format)")" != "$want_major" ]; then
-    if ! command -v python3 >/dev/null 2>&1; then
-        echo "error: no clang-format 22 found and python3 is unavailable to install one" >&2
+    # python3, else python: a python.org install on Windows has no python3.
+    . "$(dirname "$0")/_find-python.sh"
+    if ! python="$(find_python)"; then
+        echo "error: no clang-format 22 found and no Python 3 is available to install one" >&2
         exit 1
     fi
     echo "Bootstrapping clang-format 22.1.8 into $venv_dir..." >&2
     mkdir -p "$cache_dir"
-    python3 -m venv --clear "$venv_dir" >&2
+    "$python" -m venv --clear "$venv_dir" >&2
     # Through the venv's python: on Windows pip.exe cannot replace itself and fails.
     "$(venv_exe python)" -m pip install --quiet --upgrade pip >&2
     "$(venv_exe python)" -m pip install --quiet "clang-format==22.1.8" >&2

@@ -9,7 +9,9 @@ RESOLVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), '_resolve-cl
 
 # 假的 `python3 -m venv [--clear] DIR`：DIR 已存在又沒帶 --clear 就照舊留著壞掉的內容。
 # FAKE_LAYOUT 是 venv 放執行檔的目錄：POSIX 是 bin，Windows 的 Python 是 Scripts。
+# find_python 的單行 -c 探測回答自己的路徑，不記進 log。
 FAKE_PYTHON = '''#!/bin/sh
+[ "$1" = -c ] && { echo "$0"; exit 0; }
 echo "$*" >> "$FAKE_LOG"
 for dir in "$@"; do :; done
 case "$*" in *--clear*) rm -rf "$dir" ;; esac
@@ -39,7 +41,7 @@ class CachedVenv(unittest.TestCase):
         self.bin = os.path.join(self.tmp, 'bin')
         os.makedirs(self.bin)
         # 包一層 exec 而不是 symlink：Windows 沒有開發人員模式時 os.symlink 會 WinError 1314。
-        for tool in ('bash', 'grep', 'head', 'mkdir', 'rm', 'chmod', 'cat', 'sh'):
+        for tool in ('bash', 'grep', 'head', 'mkdir', 'rm', 'chmod', 'cat', 'sh', 'dirname'):
             real = shutil.which(tool).replace('\\', '/')
             write_executable(os.path.join(self.bin, tool), f'#!/bin/sh\nexec "{real}" "$@"\n')
         write_executable(os.path.join(self.bin, 'python3'), FAKE_PYTHON)
@@ -62,6 +64,13 @@ class CachedVenv(unittest.TestCase):
     def test_builds_the_venv_when_there_is_none(self):
         result = self.resolve()
         self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
+
+    def test_builds_the_venv_with_python_when_there_is_no_python3(self):
+        # 只裝了 python.org 版本的 Windows：有 python，沒有 python3。
+        os.rename(os.path.join(self.bin, 'python3'), os.path.join(self.bin, 'python'))
+        result = self.resolve()
+        self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
+        self.assertEqual(self.python_calls(), 1)
 
     def test_a_windows_venv_is_found_under_scripts(self):
         result = self.resolve(layout='Scripts')

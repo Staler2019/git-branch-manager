@@ -62,6 +62,7 @@ jobs:
         run: |
           python3 scripts/test_resolve_clang_format.py
           python3 scripts/test_format_cpp_hook.py
+          python3 scripts/test_find_python.py
 
       # Claude Code loads CLAUDE.md, its @imports and unscoped .claude/rules/ at
       # session start, capped at 150k characters including the user's own

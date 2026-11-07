@@ -7,10 +7,12 @@ import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/foundation.dart' show FlutterExceptionHandler;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/app.dart';
+import 'package:gbm_flutter/app_bootstrap.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
@@ -23,6 +25,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
+import 'package:gbm_flutter/features/app_lifecycle/dart_error_handlers.dart';
 import 'package:gbm_flutter/features/app_lifecycle/native_error_log_listener.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
 import 'package:gbm_flutter/routing/app_router.dart';
@@ -59,6 +62,24 @@ class _Bindings extends FakeGbmBindings {
   @override
   FreeEventPayloadDart get freeEventPayload =>
       (Pointer<Uint8> payload) => malloc.free(payload);
+
+  /// Answers as the library does: the file gets the detail, the callback the summary as
+  /// given. native_error_real_library_test.dart checks the real library's payload.
+  @override
+  ReportExternalErrorDart get reportExternalError =>
+      (Pointer<Utf8> where, Pointer<Utf8> summary, Pointer<Utf8> detail) {
+        details.add(detail.toDartString());
+        fire(
+          jsonEncode(<String, Object>{
+            'whenEpochMs': 1793889351496,
+            'where': where.toDartString(),
+            'summary': summary.toDartString(),
+            'logPath': '/logs/gbm-native-errors.log',
+          }),
+        );
+      };
+
+  final List<String> details = <String>[];
 
   void fire(String json) {
     final List<int> bytes = utf8.encode(json);
@@ -217,6 +238,43 @@ void main() {
         _expectedLine,
       ]);
       expect(_messages(second.state.operationLog), <String>[_expectedLine]);
+      await tester.pump(const Duration(seconds: 1));
+    },
+  );
+
+  testWidgets(
+    'a Dart error reaches the window Log and every open session, masked',
+    (WidgetTester tester) async {
+      final _Harness harness = await _pumpApp(tester);
+      final _Session second = _Session(harness.order, harness.sessions);
+      addTearDown(second.dispose);
+      final FlutterExceptionHandler? testHandler = FlutterError.onError;
+      FlutterError.onError = (FlutterErrorDetails _) {};
+      final void Function() restore = installDartErrorHandlers(
+        report: reportThroughBindings(harness.bindings),
+      );
+      addTearDown(() {
+        restore();
+        FlutterError.onError = testHandler;
+      });
+
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: StateError('clone https://user:secret@host/x failed'),
+        ),
+      );
+      await _deliver(tester);
+
+      const String expected =
+          'Native error in FlutterError: StateError: Bad state: clone '
+          'https://user:••••@host/x failed (details: /logs/gbm-native-errors.log)';
+      final WindowLogState window = _container(tester).read(windowLogProvider);
+      expect(_messages(window.entries), <String>[expected]);
+      expect(_messages(harness.session.state.operationLog), <String>[expected]);
+      expect(_messages(second.state.operationLog), <String>[expected]);
+      expect(harness.bindings.details.single, isNot(contains('secret')));
+      // The limiter's timers are fake ones; the pending-timer check runs before tear-down.
+      restore();
       await tester.pump(const Duration(seconds: 1));
     },
   );

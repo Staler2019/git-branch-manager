@@ -111,6 +111,16 @@ typedef SetNativeErrorCallbackDart = void Function(
   Pointer<NativeFunction<GbmNativeErrorCallbackNative>> callback,
   Pointer<Void> userData,
 );
+typedef _ReportExternalErrorNative = Void Function(
+  Pointer<Utf8> where,
+  Pointer<Utf8> summary,
+  Pointer<Utf8> detail,
+);
+typedef ReportExternalErrorDart = void Function(
+  Pointer<Utf8> where,
+  Pointer<Utf8> summary,
+  Pointer<Utf8> detail,
+);
 
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
@@ -1451,6 +1461,10 @@ class GbmBindings {
             _SetNativeErrorCallbackNative,
             SetNativeErrorCallbackDart
           >('gbm_set_native_error_callback'),
+      reportExternalError = library
+          .lookupFunction<_ReportExternalErrorNative, ReportExternalErrorDart>(
+            'gbm_report_external_error',
+          ),
       setTimeoutMultiplier = library
           .lookupFunction<
             _SetTimeoutMultiplierNative,
@@ -2064,6 +2078,9 @@ class GbmBindings {
 
   /// gbm_set_native_error_callback(): process-wide; null clears it.
   final SetNativeErrorCallbackDart setNativeErrorCallback;
+
+  /// gbm_report_external_error(): a Dart error into the native error log and callback.
+  final ReportExternalErrorDart reportExternalError;
 
   /// gbm_set_timeout_multiplier(): process-wide, no session. Returns the
   /// multiplier now in effect.

@@ -44,6 +44,9 @@ ProcessTempDir::ProcessTempDir()
     const std::string logDir = (own_ / "native-error-logs").string();
 #ifdef _WIN32
     _putenv_s("GBM_NATIVE_ERROR_LOG_DIR", logDir.c_str());
+    // Read at crash time, by the library's filter too: a box nobody clicks would hold a
+    // crashed test until its deadline.
+    _putenv_s("GBM_CRASH_NO_DIALOG", "1");
 #else
     setenv("GBM_NATIVE_ERROR_LOG_DIR", logDir.c_str(), 1);
 #endif

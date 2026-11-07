@@ -3,6 +3,7 @@
 #include "capi/JsonCodec.h"
 #include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
+#include "core/base/CrashFilter.h"
 #include "core/git/GitCommand.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@ thread_local std::string g_stagingBuffer;
 // Runs as the library loads, on the thread that will make the FFI calls.
 [[maybe_unused]] const bool g_terminateHandlerInstalled = [] {
     installTerminateHandler();
+    installCrashFilter();
     return true;
 }();
 }  // namespace

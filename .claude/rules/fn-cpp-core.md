@@ -65,5 +65,5 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 
 - **Rule**: `CrashFilter.cpp`'s filter runs on the faulting thread, possibly on an overflowed stack or holding the heap lock: no allocation, no `std::string`, no `std::filesystem`, nothing that pumps messages. Everything it needs is filled at install time; the dialog is shown by a thread started then.
 - **Consequence**: without `GBM_CRASH_NO_DIALOG=1` a crash with no visible window blocks on a box nobody clicks until the job timeout. `ProcessTempDir.cpp` sets it for every C++ test binary; `ci.yml`'s "Real library reports across FFI" step sets it for Dart.
-- **Do**: a new CI step or test binary that loads the real `gbm_capi.dll` sets it too. The dialog itself has no automated test; read the Windows job for the rest.
+- **Do**: a new CI step or test binary that loads the real `gbm_capi.dll` sets it too. ~~The dialog itself has no automated test; read the Windows job for the rest.~~ The dialog is tested from `CrashFilterApiTest`, which unsets it for one child at a time; read the Windows job, since none of it runs on macOS.
 - **Evidence**: [ledger: feat/crash-and-dart-error-log](../../docs/ledger/2026-11-07-feat-crash-and-dart-error-log.md)

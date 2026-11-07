@@ -67,7 +67,7 @@ Dart summary 會出現在每個 repo 的 Log，所以只放型別知道不帶資
 | 2 capi 匯出與 binding | 5 | C++ 3（各 1）、Dart 2（parity 測試紅，real-library 檔載入失敗） | 兩個沒編過的改加 `(void)` 重做 |
 | 3 Dart handler 與 bootstrap | 12 | 19 | `noReentrancyGuard` 第一次存活：測試裡 reporter 丟的是同型別，被 limiter 當重複吞掉；改成 `FormatException` 後變紅 |
 | 4 本機：`shouldShowCrashDialog` | 4 | 4（各 1） | `overflowIgnored` 第一版改成 `code != 0`，`kStackOverflow` 變成未使用，`-Werror` 編不過，不計；改成 `kStackOverflow + 1` 後變紅 |
-| 4 Windows：`CrashFilterApiTest` | 5 | 5（各 1，同一個測試） | 每個紅在自己的斷言：拿掉 `Handle.cpp` 的安裝 → 沒有那行（:63/64/66）；不呼叫先前的 filter、改回傳 `EXCEPTION_EXECUTE_HANDLER` → 只有 marker 是空的（:70）；寫完整路徑 → 只有 module 欄位（:69，`D:\a\…\gbm_crash_now.exe`）；忽略 `GBM_CRASH_NO_DIALOG` → 子程序 30 秒沒結束（:60，`WAIT_TIMEOUT` 258）。回傳 `EXCEPTION_EXECUTE_HANDLER` 時結束碼（:73）沒有紅，和計畫說的「結束碼分不出是否串接」一致 |
+| 4 Windows：`CrashFilterApiTest` | 5 | 5（各 1，同一個測試） | 行號是 `4a0c9cd4` 的檔案。每個紅在自己的斷言：拿掉 `Handle.cpp` 的安裝 → 沒有那行（:63/64/66）；不呼叫先前的 filter、改回傳 `EXCEPTION_EXECUTE_HANDLER` → 只有 marker 是空的（:70）；寫完整路徑 → 只有 module 欄位（:69，`D:\a\…\gbm_crash_now.exe`）；忽略 `GBM_CRASH_NO_DIALOG` → 子程序 30 秒沒結束（:60，`WAIT_TIMEOUT` 258）。回傳 `EXCEPTION_EXECUTE_HANDLER` 時結束碼（:73）沒有紅，和計畫說的「結束碼分不出是否串接」一致；之後重寫測試時這個只做健全性檢查的斷言拿掉了 |
 
 Windows 那列在暫時分支 `scratch/crash-mut-win` 上跑：一個只有 Windows job 的 workflow，建一次，逐一套用 mutation、增量重建、只跑 `CrashFilter` 測試，結束後刪掉分支。
 
@@ -86,7 +86,7 @@ Windows 那列在暫時分支 `scratch/crash-mut-win` 上跑：一個只有 Wind
 ### 已知缺口
 
 - **Windows 的程式碼本機編不了**。macOS 上只用 `windows.h` stub 做 `-fsyntax-only`，gtest 測試連 stub 也檢查不到；Windows CI 是唯一證據。
-- **對話框沒有任何自動化測試看得到**：CI 一律設 `GBM_CRASH_NO_DIALOG`。出錯的 thread 握著 `EnumWindows` 需要的鎖時會怎樣，沒有驗證；helper 5 秒內沒出現對話框就放行，行程照樣結束。
+- ~~**對話框沒有任何自動化測試看得到**：CI 一律設 `GBM_CRASH_NO_DIALOG`。~~ 更正：見下方「追加」，對話框現在有 4 個 Windows 測試。仍未驗證的是：出錯的 thread 握著 `EnumWindows` 需要的鎖時會怎樣；helper 5 秒內沒出現對話框就放行、行程照樣結束的那條路徑。
 - Dart 載入 DLL 之前的 crash 不會被記錄（計畫的非目標）。
 - limiter 的 2 s／60 s／20 筆是提案值，沒有量測。退出前還沒送出的重複計數會被丟掉，和 PR A 的 coalescer 相同。
 - detail 的遮罩沿用 `redactUrlCredentials`，它的已知缺口也適用於這個檔案；Flutter 的診斷樹可能帶 widget 文字。檔案只在使用者自己的目錄。
@@ -98,5 +98,40 @@ CONFIRMED，只在 macOS arm64 實際執行；Windows 部分是讀碼加上暫�
 
 - **`app_bootstrap_test` 在設了 `GBM_CAPI_LIBRARY_PATH` 時會紅**（P3）。「開不了 library 就不 override provider」那個案例用「provider 讀取時會 throw」來證明沒有 override；環境變數讓 provider 自己開得到 library，就不 throw。產品行為正確；CI 只對 real-library 那個檔案設這個變數，不受影響，本機合併執行會看到假紅。
 - **limiter 的 timer 路徑上 reporter 丟例外會被回報一次**（P3）。`_flushRepeats` 與 `_endCapWindow` 的 `_emit` 不在 `send` 的 try/catch 內，例外跑到 `PlatformDispatcher.onError` 被當新錯誤回報；第二次的例外被吞掉，不會循環。正式的 reporter 是 C 端全部攔住的 void FFI 呼叫，幾乎走不到。所以「回報時丟的例外不會再回報」只對同步路徑成立。
-- **後來的 `SetUnhandledExceptionFilter` 會蓋掉這個 filter**（P4，推測）。沒有查 Flutter engine 或之後載入的 DLL 是否會裝自己的 filter。
+- **後來的 `SetUnhandledExceptionFilter` 會蓋掉這個 filter**（P4，推測）。~~沒有查 Flutter engine 或之後載入的 DLL 是否會裝自己的 filter。~~ 已查證並加測試，見下方「追加」。
 - 狀態列紅字只由 error 等級的 Log 推論，沒有測試看 `StatusBar` 畫出的文字（同上方「和計畫不同的地方」）。
+
+## 追加：P4 查證與對話框的自動化測試
+
+使用者要求「p4 去查，然後對話框如果可以建立自動化測試覆蓋，就加」。
+
+### P4：沒有東西在之後換掉 filter
+
+- 原始碼：Dart SDK（`b5493447902f`）唯一呼叫 `SetUnhandledExceptionFilter` 的是 `runtime/bin/platform_win.cc`，而且只在 `Platform::Initialize(true)` 時安裝；Flutter engine（`bc6e01a3ac69`）的 `runtime/dart_vm.cc` 呼叫 `Platform::Initialize(false)`。Windows embedder、`windows/runner`、本專案用到的 Windows plugin（`file_selector_windows`、`jni`）都沒有呼叫。
+- 量測：`native_error_real_library_test.dart` 新增 Windows 案例，在 `flutter_tester`（engine 與 Dart VM 都已啟動）裡載入 library 後，用 kernel32 讀出目前的 filter 並問它在哪個 module，得到 `gbm_capi.dll`。拿掉 `Handle.cpp` 的安裝時只有這個案例紅（同檔另兩個照綠；失敗訊息沒有留下，暫時腳本在 cp1252 主控台印 `\ufffd` 時當掉）。
+- 沒涵蓋：使用者電腦上注入的第三方 DLL（防毒、輸入法等）。這不在本專案控制內。
+
+### 對話框測試
+
+`CrashFilterApiTest` 從 1 個案例變 6 個；`gbm_crash_now` 加 `--window`、`--stack-overflow`、`--at-once`。對話框案例從測試行程用 `EnumWindows` 找子程序可見的 `#32770` 視窗，讀標題與 id `0xFFFF` 的內文，再按 OK。
+
+第一次在 Windows 跑時，基準就紅：對話框出現、前面的斷言都過，但 `WM_COMMAND IDOK` 送出後行程 15 秒沒結束。改成找出 `Button` 子視窗、用它自己的 control id 送出後變綠。
+
+同一輪的 mutation `boxBeforeLine`（先開對話框再寫 log）沒有紅在預期的斷言上，而是子程序 0.02 秒就結束、沒有對話框。原因是真的 race：helper thread 在 library 載入完成後才開始跑，`showDialog` 看到 `g_dialogThreadId == 0` 就直接放棄。原本 `writeLine` 的檔案 I/O 剛好讓出 CPU 給 helper，把它蓋住了。修法是只要 event 建好就送出請求，在原本的 5 秒等待裡讓 helper 接手（`b90a6daa`）。`--at-once` 把行程綁在單一核心、主 thread 設最高優先權，讓 crash 必定先於 helper；放回舊寫法時只有這個案例紅。
+
+| mutation | 紅的測試 | 紅在 |
+|---|---|---|
+| 有視窗也開對話框 | 1 | `NoBoxWhenTheProcessAlreadyShowsAWindow`，15 秒沒結束 |
+| askpass 也開 | 1 | `NoBoxInTheAskpassHelper…`，15 秒沒結束 |
+| stack overflow 也開（兩處判斷都拿掉） | 1 | `AStackOverflowIsLoggedWithNoBox`，15 秒沒結束 |
+| 標題改成 `Git Branch Manager` | 1 | 標題斷言 |
+| 內文不帶 log 路徑 | 1 | 內文路徑斷言 |
+| 先開對話框再寫 log | 1 | 「寫在對話框之前」斷言（修 race 之後） |
+| 對話框前先交給先前的 filter | 1 | marker 已存在 |
+| 放回 `g_dialogThreadId == 0` 就放棄 | 1 | `ABoxStillAppears…`，沒有對話框 |
+| 不等對話框關閉 | 2 | 行程 0.5 秒內結束；`--at-once` 案例找不到對話框 |
+
+跑了 9 個、紅 10 個測試。另有 1 個第一次沒編過（拿掉判斷後 `code` 未使用，MSVC C4100 視為錯誤），改寫後重跑，不計。Dart 1 個、紅 1 個。暫時分支 `scratch/crash-dialog-win`（run 42312981207、42314363763）跑完即刪。
+
+仍未涵蓋：helper 5 秒內沒能顯示對話框的那條路徑；按 OK 以外的關閉方式。
+

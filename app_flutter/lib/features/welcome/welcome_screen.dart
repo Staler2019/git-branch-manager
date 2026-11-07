@@ -46,7 +46,8 @@ import 'scan_summary.dart';
 ///
 /// The app normally never lands here: [appRouterProvider] opens straight
 /// into the most recently used repository, and this is where File → Close
-/// window comes back to.
+/// window comes back to -- and where a launch lands when the last one ended
+/// while opening that repository (`decideStartupTarget`, #207).
 class WelcomeScreen extends ConsumerStatefulWidget {
   const WelcomeScreen({super.key, this.isMacOS});
 

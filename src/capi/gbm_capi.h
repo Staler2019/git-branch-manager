@@ -310,6 +310,11 @@ GBM_API void gbm_set_native_error_callback(GbmNativeErrorCallback callback, void
 /// so the caller decides what is safe to show. UTF-8; null reads as empty.
 GBM_API void gbm_report_external_error(const char* where, const char* summary, const char* detail);
 
+/// Populates the staging buffer with `{"path": "<utf8>"}`, the file every report above is
+/// written to -- for a line the app writes itself, such as the next launch's notice that the
+/// last repository was not reopened. Returns 0, or -1 with nothing staged.
+GBM_API int32_t gbm_native_error_log_path_json(void);
+
 // --- Thread-local synchronous-result staging buffer -------------------------
 // Populated by any function documented "populates the staging buffer".
 // Always drain it (len, then copy) on the same thread and before the next

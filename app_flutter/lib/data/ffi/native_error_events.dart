@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/native_error_report.dart';
 import 'gbm_bindings.dart';
+import 'json_codec.dart';
 
 typedef _EmitDart = void Function(
   Pointer<Uint8> payload,
@@ -97,4 +98,17 @@ class GbmNativeErrorEvents {
       nullptr,
     );
   }
+}
+
+/// The file every native error report is written to, for a line the app writes itself;
+/// '' when the library cannot say. A binding that throws is not caught: that is a fake
+/// missing a member, which should fail where it is.
+String readNativeErrorLogPath(GbmBindings bindings) {
+  if (bindings.nativeErrorLogPathJson() != 0) return '';
+  final String json = readLastResultJson(bindings);
+  if (json.isEmpty) return '';
+  final Object? decoded = jsonDecode(json);
+  return decoded is Map<String, dynamic> && decoded['path'] is String
+      ? decoded['path'] as String
+      : '';
 }

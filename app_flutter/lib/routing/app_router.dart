@@ -2,7 +2,6 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../data/repositories/recents_repository.dart';
 import '../data/repositories/repo_identity.dart';
 import '../features/compare/compare_page.dart';
 import '../features/panels/panel_page.dart';
@@ -48,6 +47,7 @@ import '../features/workspace/workspace_screen.dart';
 import 'dialog_open_observer.dart';
 import 'dialog_route.dart';
 import 'route_paths.dart';
+import 'startup_target.dart';
 
 /// `repoId` in the route is the URL-encoded working-directory path -- simple
 /// and sufficient while a "repository" is identified by nothing more than
@@ -91,8 +91,9 @@ RepoIdentity repoIdentityFromRouteParam(String repoId) =>
 /// repositories: the spec's window *is* a repository (pages 01-03), with
 /// switching handled by the sidebar's popover rather than by navigating to a
 /// dashboard. [initialLocation] is therefore computed once here (cold start
-/// only) from [RecentsRepository] -- the most recently opened repository --
-/// and [RoutePaths.welcome] is only reached when there is none to open, or
+/// only) from [startupTargetProvider] -- the most recently opened repository --
+/// and [RoutePaths.welcome] is only reached when there is none to open, when
+/// the last launch ended while opening it (`decideStartupTarget`, #207), or
 /// via File → Close window.
 ///
 /// This is deliberately NOT a `redirect` on [RoutePaths.welcome]: a redirect
@@ -102,12 +103,12 @@ RepoIdentity repoIdentityFromRouteParam(String repoId) =>
 /// continues to mean the welcome screen for every explicit
 /// `context.go(RoutePaths.welcome)` afterward.
 final Provider<GoRouter> appRouterProvider = Provider<GoRouter>((ref) {
-  final List<RecentRepoEntry> recents = ref
-      .read(recentsRepositoryProvider)
-      .read();
-  final String initialLocation = recents.isEmpty
-      ? RoutePaths.welcome
-      : RoutePaths.workspaceFor(repoIdFor(recents.first.workDir));
+  final String initialLocation = switch (ref.read(startupTargetProvider)) {
+    OpenRecent(:final String workDir) => RoutePaths.workspaceFor(
+      repoIdFor(workDir),
+    ),
+    Welcome() => RoutePaths.welcome,
+  };
   return GoRouter(
     initialLocation: initialLocation,
     // Root navigator only, which is where every dialog lands: `dialogRoute`s

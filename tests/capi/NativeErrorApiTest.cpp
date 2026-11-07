@@ -165,6 +165,19 @@ TEST_F(NativeErrorApiTest, AnOldLogThatCannotBeRemovedDoesNotStopRegistration) {
     EXPECT_EQ(payloads_.size(), 1u);
 }
 
+// The next launch names this file in the row that says the last repository was not reopened.
+TEST_F(NativeErrorApiTest, TheLogPathIsStagedAsJson) {
+    ASSERT_EQ(gbm_native_error_log_path_json(), 0);
+
+    std::string expected = "{\"path\":";
+    jsonAppendEscaped(expected, fsutil::utf8FromPath(nativeErrorLogPath()));
+    expected += '}';
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()),
+                              static_cast<int32_t>(json.size()));
+    EXPECT_EQ(json, expected);
+}
+
 #if !defined(_WIN32)
 // The old path sat in a shared temp directory, so another account could have planted a
 // link there; removal takes the link and leaves what it points at.

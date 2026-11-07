@@ -211,8 +211,12 @@ TEST(CrashFilterApiTest, WithNoWindowABoxNamesTheCodeAndTheLogAndOkLetsTheProces
 
     const HWND ok = ::FindWindowExW(dialog, nullptr, L"Button", nullptr);
     ASSERT_NE(ok, nullptr);
-    EXPECT_EQ(windowText(ok), L"OK");
+    // The caption follows the system's UI language (「確定」 on zh-TW); the button's count and
+    // id do not. MB_OK's lone button is IDCANCEL (2), measured, so Esc closes the box too;
+    // MB_OKCANCEL would show two buttons and MB_YESNO would start at IDYES.
+    EXPECT_EQ(::FindWindowExW(dialog, ok, L"Button", nullptr), nullptr) << "MB_OK: one button";
     const int id = ::GetDlgCtrlID(ok);
+    EXPECT_EQ(id, IDCANCEL);
     ::PostMessageW(dialog, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(ok));
     ASSERT_TRUE(run.exitsWithin(15000))
         << "OK (id " << id

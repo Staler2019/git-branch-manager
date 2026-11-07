@@ -1,6 +1,6 @@
 # EditorConfig: https://editorconfig.org
 # Mirrors .clang-format (Google base, 4-space indent, 100-column limit) so
-# editors match what clang-format 18 will produce without waiting for a save.
+# editors match what clang-format 22 will produce without waiting for a save.
 
 root = true
 

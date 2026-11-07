@@ -92,10 +92,10 @@ class FormatCppHook(unittest.TestCase):
                 self.assertEqual(self.calls(), [])
 
     def test_a_resolver_failure_reaches_claude_instead_of_passing_silently(self):
-        write_executable(self.resolver, '#!/bin/sh\necho "no clang-format 18" >&2\nexit 1\n')
+        write_executable(self.resolver, '#!/bin/sh\necho "no clang-format 22" >&2\nexit 1\n')
         result = self.run_on(self.touch('src/core/a.cpp'))
         self.assertEqual(result.returncode, 2)
-        self.assertIn('no clang-format 18', result.stderr)
+        self.assertIn('no clang-format 22', result.stderr)
         self.assertEqual(self.calls(), [])
 
     def test_a_formatter_failure_reaches_claude_instead_of_passing_silently(self):

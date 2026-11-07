@@ -6,7 +6,7 @@
 add_custom_target(format
     COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/format.sh"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Applying clang-format 18 to src/"
+    COMMENT "Applying clang-format 22 to src/"
     VERBATIM)
 
 add_custom_target(format-check

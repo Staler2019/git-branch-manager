@@ -75,7 +75,7 @@ std::optional<FileId> identityOf(const std::filesystem::path& path, bool followF
     std::memcpy(&id.low, info.FileId.Identifier + sizeof(std::uint64_t), sizeof(std::uint64_t));
     return id;
 #else
-    struct stat st {};
+    struct stat st{};
 
     const int rc = followFinalLink ? ::stat(path.c_str(), &st) : ::lstat(path.c_str(), &st);
     if (rc != 0) {
@@ -234,7 +234,7 @@ bool isNetworkPath(const std::filesystem::path& path) {
     }
     return false;
 #elif defined(__APPLE__)
-    struct statfs info {};
+    struct statfs info{};
 
     if (::statfs(path.c_str(), &info) != 0) {
         return false;
@@ -243,7 +243,7 @@ bool isNetworkPath(const std::filesystem::path& path) {
     return name == "nfs" || name == "smbfs" || name == "cifs" || name == "afpfs" ||
            name == "webdav";
 #elif defined(__linux__)
-    struct statfs info {};
+    struct statfs info{};
 
     if (::statfs(path.c_str(), &info) != 0) {
         return false;
@@ -275,7 +275,7 @@ std::optional<std::int64_t> modifiedTimeNs(const std::filesystem::path& path) {
     }
     return static_cast<std::int64_t>((value.QuadPart - kEpochDelta) * 100ULL);
 #else
-    struct stat st {};
+    struct stat st{};
 
     if (::stat(path.c_str(), &st) != 0) {
         return std::nullopt;

@@ -45,9 +45,9 @@ class CachedVenv(unittest.TestCase):
         write_executable(os.path.join(self.bin, 'python3'), FAKE_PYTHON)
         self.log = os.path.join(self.tmp, 'python.log')
         self.cache = os.path.join(self.tmp, 'cache')
-        self.venv_tool = os.path.join(self.cache, 'venv-18.1.8', 'bin', 'clang-format')
+        self.venv_tool = os.path.join(self.cache, 'venv-22.1.8', 'bin', 'clang-format')
 
-    def resolve(self, version='18.1.8', layout='bin'):
+    def resolve(self, version='22.1.8', layout='bin'):
         return subprocess.run([shutil.which('bash'), RESOLVER], text=True, capture_output=True, timeout=10,
                               env={'PATH': self.bin, 'GBM_FORMAT_CACHE_DIR': self.cache,
                                    'HOME': self.tmp, 'FAKE_LOG': self.log, 'FAKE_VERSION': version,
@@ -65,18 +65,18 @@ class CachedVenv(unittest.TestCase):
 
     def test_a_windows_venv_is_found_under_scripts(self):
         result = self.resolve(layout='Scripts')
-        expected = os.path.join(self.cache, 'venv-18.1.8', 'Scripts', 'clang-format')
+        expected = os.path.join(self.cache, 'venv-22.1.8', 'Scripts', 'clang-format')
         self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, expected), result.stderr)
 
     def test_a_healthy_windows_venv_is_reused_without_rebuilding(self):
-        tool = os.path.join(self.cache, 'venv-18.1.8', 'Scripts', 'clang-format')
-        write_executable(tool, '#!/bin/sh\necho "clang-format version 18.1.8"\n')
+        tool = os.path.join(self.cache, 'venv-22.1.8', 'Scripts', 'clang-format')
+        write_executable(tool, '#!/bin/sh\necho "clang-format version 22.1.8"\n')
         result = self.resolve(layout='Scripts')
         self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, tool), result.stderr)
         self.assertEqual(self.python_calls(), 0)
 
     def test_a_healthy_venv_is_reused_without_rebuilding(self):
-        write_executable(self.venv_tool, '#!/bin/sh\necho "clang-format version 18.1.8"\n')
+        write_executable(self.venv_tool, '#!/bin/sh\necho "clang-format version 22.1.8"\n')
         result = self.resolve()
         self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 0)
@@ -84,7 +84,7 @@ class CachedVenv(unittest.TestCase):
     def test_a_venv_whose_interpreter_is_gone_is_rebuilt(self):
         # 真實案例：pyenv 移除 venv 當初用的 Python，bin/clang-format 還在但 shebang 指向不存在的檔案。
         write_executable(self.venv_tool, '#!/nonexistent/python3\n')
-        write_executable(os.path.join(self.cache, 'venv-18.1.8', 'bin', 'python'), '#!/nonexistent/python3\n')
+        write_executable(os.path.join(self.cache, 'venv-22.1.8', 'bin', 'python'), '#!/nonexistent/python3\n')
         result = self.resolve()
         self.assertEqual((result.returncode, os.path.normpath(result.stdout.strip())), (0, self.venv_tool), result.stderr)
         self.assertEqual(self.python_calls(), 1)
@@ -93,7 +93,7 @@ class CachedVenv(unittest.TestCase):
         result = self.resolve(version='23.1.5')
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stdout, '')
-        self.assertIn('not major version 18', result.stderr)
+        self.assertIn('not major version 22', result.stderr)
 
 
 if __name__ == '__main__':

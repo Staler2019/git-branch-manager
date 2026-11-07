@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies clang-format 18 to every .cpp/.h under src/, in place -- the same
+# Applies clang-format 22 to every .cpp/.h under src/, in place -- the same
 # scope CI's `lint` job checks (check-path: 'src' in .github/workflows/ci.yml).
 # See scripts/format-check.sh for the non-mutating version used by CI/pre-commit.
 set -euo pipefail

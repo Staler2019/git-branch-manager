@@ -1,6 +1,6 @@
 #!/bin/sh
 # PostToolUse(Write|Edit|MultiEdit): format the one C++ file a tool just changed.
-# Same scope as CI's check (.cpp/.h under src/) and the same v18, which is not what
+# Same scope as CI's check (.cpp/.h under src/) and the same v22, which is not what
 # `clang-format` on PATH may be; one file only, per [CI-formatter-version-drift].
 # Exit 2 hands a resolver or formatter failure to Claude, since CI would go red on it.
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"

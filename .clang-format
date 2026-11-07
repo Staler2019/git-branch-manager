@@ -21,6 +21,7 @@ IncludeCategories:
     Priority: 4
   - Regex: '.*'
     Priority: 2
-# Not Always: v18 then reports a replacement with identical text at the catch of every
-# function-try-block, so `--dry-run --Werror` is red on a file `-i` leaves unchanged.
+# Not Always: v18 and v22 (re-measured: 37 of 40 files) then report a replacement with
+# identical text at the catch of every function-try-block, so `--dry-run --Werror` is red
+# on a file `-i` leaves unchanged.
 SeparateDefinitionBlocks: Leave

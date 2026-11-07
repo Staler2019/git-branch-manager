@@ -133,7 +133,7 @@ CONFIRMED，只在 macOS arm64 實際執行；Windows 部分是讀碼加上暫�
 
 跑了 9 個、紅 10 個測試。另有 1 個第一次沒編過（拿掉判斷後 `code` 未使用，MSVC C4100 視為錯誤），改寫後重跑，不計。Dart 1 個、紅 1 個。暫時分支 `scratch/crash-dialog-win`（run 42312981207、42314363763）跑完即刪。
 
-仍未涵蓋：helper 5 秒內沒能顯示對話框的那條路徑；按 OK 以外的關閉方式。
+仍未涵蓋：~~helper 5 秒內沒能顯示對話框的那條路徑；~~ 按 OK 以外的關閉方式。（5 秒路徑後來由 `ABoxThatNeverAppearsHoldsTheProcessForSecondsNotForever` 涵蓋，見下一段。）
 
 ### 第二次 verifier：修 race 時引入的無限等待
 
@@ -150,4 +150,10 @@ Windows 上量到的結果和這個推論一致。新增的 `--box-thread-stalle
 `e8c20501` 修正。mutation 跑 2 個、紅 2 個測試（各 1）；第一次因 clang-format 把 `tlhelp32.h` 排到 `windows.h` 前面而沒編過，改用 `clang-format off` 固定順序後重跑，不計。暫時分支 `scratch/crash-stall-win`（run 42317373186）跑完即刪。`--at-once` 案例在 `b90a6daa` 時是綠的，因為 helper 終究會跑起來，分不出這兩種語意。這是 [TEST-fixture-cannot-disagree] 第 11 型：在那一層表達不了會失敗的條件。
 
 verifier 另一項（P4）：「已知缺口」寫對話框有 4 個 Windows 測試，實際新增 5 個，加上本段的 1 個共 6 個，已原地更正。這段之前，對話框 5 秒內沒出現的路徑沒有測試涵蓋；現在由上表的案例涵蓋。
+
+收尾複驗判 CONFIRMED。另有三項建議，處置如下：
+
+- 上面「仍未涵蓋」那句原本只在後文補充，沒有原地更正（P3）。已原地劃掉改寫。
+- `--box-thread-stalled` 可能偶發卡住（P3，推測，未重現）。主 thread 若在 `LoadLibraryExW` 回傳後、暫停其他 thread 前被阻塞，helper 可能正好持有 heap lock 時被暫停；之後 `writeLine` 的 `CreateFileW` 在系統內部配置記憶體就會卡住，表現為 15 秒逾時。CI 跑了 2 次基準都綠，沒有重跑 `--repeat until-fail`。若這個案例偶發紅，先查這裡。
+- 「filter 不配置記憶體」只對本專案的程式碼成立（P4，既有）。`CreateFileW`、`CreateDirectoryW` 把 Win32 路徑轉成 NT 路徑時，會從 process heap 配置。[CPP-crash-filter-allocates-nothing] 已原地改寫。
 

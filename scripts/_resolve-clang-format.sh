@@ -50,9 +50,18 @@ if command -v clang-format >/dev/null 2>&1; then
 fi
 
 # 4. Cached venv with the pinned PyPI wheel -- the always-works fallback.
+# A venv keeps its executables in bin/, or in Scripts/ when the Python is a Windows one.
+venv_exe() {
+    if [ -d "$venv_dir/Scripts" ]; then
+        echo "$venv_dir/Scripts/$1"
+    else
+        echo "$venv_dir/bin/$1"
+    fi
+}
+
 # Asks the binary rather than checking it exists: a venv outlives the Python it
-# was built from, and then bin/clang-format is executable but cannot start.
-if [ "$(version_major "$venv_dir/bin/clang-format")" != "$want_major" ]; then
+# was built from, and then its clang-format is executable but cannot start.
+if [ "$(version_major "$(venv_exe clang-format)")" != "$want_major" ]; then
     if ! command -v python3 >/dev/null 2>&1; then
         echo "error: no clang-format 18 found and python3 is unavailable to install one" >&2
         exit 1
@@ -60,13 +69,14 @@ if [ "$(version_major "$venv_dir/bin/clang-format")" != "$want_major" ]; then
     echo "Bootstrapping clang-format 18.1.8 into $venv_dir..." >&2
     mkdir -p "$cache_dir"
     python3 -m venv --clear "$venv_dir" >&2
-    "$venv_dir/bin/pip" install --quiet --upgrade pip >&2
-    "$venv_dir/bin/pip" install --quiet "clang-format==18.1.8" >&2
+    # Through the venv's python: on Windows pip.exe cannot replace itself and fails.
+    "$(venv_exe python)" -m pip install --quiet --upgrade pip >&2
+    "$(venv_exe python)" -m pip install --quiet "clang-format==18.1.8" >&2
 fi
 
-if [ "$(version_major "$venv_dir/bin/clang-format")" != "$want_major" ]; then
+if [ "$(version_major "$(venv_exe clang-format)")" != "$want_major" ]; then
     echo "error: bootstrapped clang-format is not major version $want_major" >&2
     exit 1
 fi
 
-echo "$venv_dir/bin/clang-format"
+venv_exe clang-format

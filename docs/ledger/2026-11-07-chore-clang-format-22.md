@@ -38,7 +38,7 @@ PR #210 review 時在 Windows 11 ARM64 本機跑格式檢查，`scripts/_resolve
 - 本機（Windows 11 ARM64、Python 3.12.10）用空的 `GBM_FORMAT_CACHE_DIR` 跑 `scripts/format.sh`：resolver 自舉 22.1.8 到 `venv-22.1.8/Scripts/`，格式化 199 個檔，只改了上面 2 個；接著 `scripts/format-check.sh` 回報全部乾淨。
 - `check-rule-pins.py`、`check-instruction-budget.py` 通過。
 - 本機 `scripts/` 的 Python 測試：resolver 6/6 綠。其餘的紅在 `main` 上同樣存在，~~沒有處理~~：`test_format_cpp_hook.py` 14 個 error（WinError 193：`subprocess` 直接執行 `.sh`）——後來由 `9902c908` 處理，見「追加」；`test_check_instruction_budget.py` 2 個 fail，沒有處理。
-- CI 的 docker 映像 `ghcr.io/jidicula/clang-format:22` 只指定 major；它實際的 patch 版和 22.1.8 是否一致，看 CI 的結果。
+- CI 的 docker 映像 `ghcr.io/jidicula/clang-format:22` 只指定 major；~~它實際的 patch 版和 22.1.8 是否一致，看 CI 的結果。~~ CI（run 42389529533）印出 `Ubuntu clang-format version 22.1.2`，和本機的 22.1.8 不同；兩者在 `src/` 的 201 個檔都判定乾淨。日後 patch 版之間若有差異，以 CI 為準。
 
 ### 已知缺口
 

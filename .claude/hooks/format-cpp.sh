@@ -13,6 +13,11 @@ except Exception:
     pass
 ' 2>/dev/null)"
 
+# On Windows Claude Code sends C:\..., while $root (pwd -P under Git Bash) is /c/...
+case "$file" in
+  [A-Za-z]:[\\/]*) command -v cygpath >/dev/null 2>&1 && file="$(cygpath -u "$file")" ;;
+esac
+
 case "$file" in
   "$root"/src/*.cpp | "$root"/src/*.h) ;;
   *) exit 0 ;;

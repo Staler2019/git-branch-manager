@@ -43,7 +43,17 @@ class FormatCppHook(unittest.TestCase):
         return path
 
     def run_hook(self, stdin):
-        return subprocess.run([self.hook], input=stdin, text=True, capture_output=True, timeout=10)
+        # Through sh, as Claude Code runs it: Windows cannot exec a .sh file (WinError 193).
+        return subprocess.run([shutil.which('sh'), self.hook], input=stdin, text=True,
+                              capture_output=True, timeout=10)
+
+    def seen(self, path):
+        """The path as the hook hands it on: Claude Code on Windows sends C:\\..., the hook
+        passes /c/... to the formatter, which Git Bash converts back for a native binary."""
+        if os.name != 'nt':
+            return path
+        return subprocess.run(['cygpath', '-u', path], text=True, capture_output=True,
+                              check=True).stdout.strip()
 
     def run_on(self, path):
         return self.run_hook(json.dumps({'tool_input': {'file_path': path}}))
@@ -57,17 +67,17 @@ class FormatCppHook(unittest.TestCase):
     def test_formats_one_cpp_file_under_src_in_place(self):
         path = self.touch('src/core/a.cpp')
         self.assertEqual(self.run_on(path).returncode, 0)
-        self.assertEqual(self.calls(), [f'[-i][--][{path}]'])
+        self.assertEqual(self.calls(), [f'[-i][--][{self.seen(path)}]'])
 
     def test_formats_a_header_under_src(self):
         path = self.touch('src/core/a.h')
         self.assertEqual(self.run_on(path).returncode, 0)
-        self.assertEqual(self.calls(), [f'[-i][--][{path}]'])
+        self.assertEqual(self.calls(), [f'[-i][--][{self.seen(path)}]'])
 
     def test_path_with_spaces_stays_one_argument(self):
         path = self.touch('src/core/a b.cpp')
         self.assertEqual(self.run_on(path).returncode, 0)
-        self.assertEqual(self.calls(), [f'[-i][--][{path}]'])
+        self.assertEqual(self.calls(), [f'[-i][--][{self.seen(path)}]'])
 
     def test_leaves_everything_ci_does_not_check_alone(self):
         for rel in ('tests/a.cpp', 'src/core/a.dart', 'src/core/a.cpp.orig'):

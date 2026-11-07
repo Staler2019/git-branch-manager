@@ -94,6 +94,26 @@ TEST_F(NativeErrorApiTest, TheLogFileGetsTheLineAndStaysInTheProcessPrivateDirec
     EXPECT_NE(readFile(log).find("file too"), std::string::npos);
 }
 
+TEST_F(NativeErrorApiTest, AnExternalErrorReachesTheCallbackWithItsOwnSummary) {
+    gbm_report_external_error("FlutterError", "the summary", "the detail\nand its stack");
+
+    ASSERT_EQ(payloads_.size(), 1u);
+    EXPECT_NE(payloads_[0].find(",\"where\":\"FlutterError\",\"summary\":\"the summary\","),
+              std::string::npos)
+        << payloads_[0];
+    EXPECT_EQ(payloads_[0].find("the detail"), std::string::npos) << payloads_[0];
+    EXPECT_NE(readFile(nativeErrorLogPath()).find("FlutterError: the detail\\nand its stack"),
+              std::string::npos);
+}
+
+TEST_F(NativeErrorApiTest, AnExternalErrorWithNullTextIsStillReported) {
+    gbm_report_external_error(nullptr, nullptr, nullptr);
+
+    ASSERT_EQ(payloads_.size(), 1u);
+    EXPECT_NE(payloads_[0].find(",\"where\":\"\",\"summary\":\"\","), std::string::npos)
+        << payloads_[0];
+}
+
 TEST_F(NativeErrorApiTest, ANullCallbackStopsTheReports) {
     gbm_set_native_error_callback(nullptr, nullptr);
     gbm_test_raise_native_error("after clearing");

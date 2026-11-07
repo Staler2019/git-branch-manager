@@ -2,6 +2,7 @@
 # testable from a plain GoogleTest binary with no QApplication, and CI enforces
 # the boundary by grepping this directory for Qt includes.
 add_library(gbm_core STATIC
+    base/CrashFilter.cpp
     base/Error.cpp
     base/ExceptionDiagnostic.cpp
     base/FsUtil.cpp

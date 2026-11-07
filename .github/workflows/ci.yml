@@ -83,6 +83,8 @@ jobs:
         env:
           GBM_CAPI_LIBRARY_PATH: ${{ github.workspace }}/build/capi-only/src/capi/${{ matrix.lib }}
           GBM_NATIVE_ERROR_LOG_DIR: ${{ runner.temp }}/gbm-native-errors
+          # A crash here would otherwise wait on a box nobody clicks until the job timeout.
+          GBM_CRASH_NO_DIALOG: '1'
 
       - name: Upload test logs
         if: failure()

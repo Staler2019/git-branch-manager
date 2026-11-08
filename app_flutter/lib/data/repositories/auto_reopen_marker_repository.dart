@@ -7,7 +7,9 @@ import '../../theme/theme_mode_provider.dart' show sharedPreferencesProvider;
 /// load has settled. Still set at the next launch, it means the app ended while opening it --
 /// #207's loop, where every launch reopened the repository that crashed it -- so that launch
 /// lands on the welcome screen instead (使用者裁定 2026-11-08: 「開 repo 前留標記、成功後清除；
-/// 若上次沒成功，就不自動重開」, cleared 「開啟完成就清」).
+/// 若上次沒成功，就不自動重開」, cleared 「開啟完成就清」). A normal quit clears it as well, so a quit
+/// before the first load settled is not mistaken for a crash (使用者 2026-11-08 「要加」):
+/// `AppExitSessionCleanup` and the update handover both do.
 class AutoReopenMarkerRepository {
   AutoReopenMarkerRepository(this._prefs);
 

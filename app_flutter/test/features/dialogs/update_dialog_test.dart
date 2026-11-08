@@ -11,6 +11,7 @@ import 'package:gbm_flutter/data/models/update_state.dart';
 import 'package:gbm_flutter/data/repositories/app_preferences_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/native_error_events_provider.dart';
+import 'package:gbm_flutter/data/repositories/auto_reopen_marker_repository.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -517,6 +518,30 @@ void main() {
 
       expect(fake.calls, contains('install'));
       expect(sessions.closeAllCalls, 1);
+    });
+
+    // The handover is a normal quit too: a marker left by a reopen that had not settled would
+    // make the updated build skip that repository and blame a crash that never happened.
+    testWidgets('clears the auto-reopen marker before handing over', (
+      WidgetTester tester,
+    ) async {
+      final ProviderContainer container = (await _pumpDialog(
+        tester,
+        UpdateState.readyToInstall(
+          release: _release,
+          asset: _asset,
+          downloadedPath: '/tmp/x.dmg',
+          sha256: _digest,
+        ),
+        sessions: _CountingSessions(),
+      )).container;
+      final SharedPreferences prefs = container.read(sharedPreferencesProvider);
+      await prefs.setString(AutoReopenMarkerRepository.key, '/r');
+
+      await tester.tap(find.text('Install and restart'));
+      await tester.pump();
+
+      expect(prefs.containsKey(AutoReopenMarkerRepository.key), isFalse);
     });
 
     // The handover's own quit path: nothing but this callback closes the sessions on it, so

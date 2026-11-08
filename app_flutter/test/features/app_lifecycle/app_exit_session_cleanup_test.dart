@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/repositories/auto_reopen_marker_repository.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
 import 'package:gbm_flutter/features/app_lifecycle/app_exit_session_cleanup.dart';
+import 'package:gbm_flutter/theme/theme_mode_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The registry `AppExitSessionCleanup` must reach at exit time. A real
 /// `RepoSessionController` would register itself through its constructor
@@ -23,11 +26,19 @@ class _Recorder implements ClosableRepoSession {
   void recordAppLog(AppLogEntry entry) {}
 }
 
-Future<OpenRepoSessions> _pump(WidgetTester tester) async {
+late SharedPreferences _prefs;
+
+Future<OpenRepoSessions> _pump(
+  WidgetTester tester, {
+  Map<String, Object> prefs = const <String, Object>{},
+}) async {
+  SharedPreferences.setMockInitialValues(prefs);
+  _prefs = await SharedPreferences.getInstance();
   final OpenRepoSessions sessions = OpenRepoSessions();
   await tester.pumpWidget(
     ProviderScope(
       overrides: <Override>[
+        sharedPreferencesProvider.overrideWithValue(_prefs),
         openRepoSessionsProvider.overrideWithValue(sessions),
       ],
       child: const MaterialApp(
@@ -63,6 +74,28 @@ void main() {
       expect(a.closes, 1);
       expect(b.closes, 1);
       expect(response, AppExitResponse.exit);
+    });
+
+    // A quit before the reopened repository's first load settled is still a quit, not a
+    // crash: the next launch must reopen it rather than say it ended while opening it.
+    testWidgets('clears the auto-reopen marker, after closing the sessions', (
+      WidgetTester tester,
+    ) async {
+      final OpenRepoSessions sessions = await _pump(
+        tester,
+        prefs: <String, Object>{AutoReopenMarkerRepository.key: '/r'},
+      );
+      bool markerWhenClosed = false;
+      sessions.addAfterCloseAll(
+        () => markerWhenClosed = _prefs.containsKey(
+          AutoReopenMarkerRepository.key,
+        ),
+      );
+
+      await tester.binding.handleRequestAppExit();
+
+      expect(_prefs.containsKey(AutoReopenMarkerRepository.key), isFalse);
+      expect(markerWhenClosed, isTrue, reason: 'cleared after closeAll');
     });
 
     testWidgets('renders its child unchanged', (WidgetTester tester) async {

@@ -5,6 +5,7 @@
 // The failures are injected with gbm_test_fail_read(), which arms one postRead() `where` name:
 // only the read posted under that name throws, so the reads a session posts on its own cannot
 // use it up.
+#include "capi/JsonWriter.h"
 #include "capi/Session.h"
 #include "capi/gbm_capi.h"
 #include "core/base/Error.h"
@@ -135,6 +136,10 @@ protected:
 
     int git(const std::vector<std::string>& args) { return GitCli::run(repo_, args); }
 
+    /// A real commit, so a read that did not throw would answer with content and the
+    /// assertions on the empty failure reply can tell the two apart.
+    std::string headOid() { return GitCli::capture(repo_, {"rev-parse", "HEAD"}).firstLine(); }
+
     std::vector<std::string> nativeErrors() {
         std::lock_guard<std::mutex> lock(nativeErrors_.first);
         return nativeErrors_.second;
@@ -227,6 +232,124 @@ TEST_F(ReadFailureApiTest, AnArmedNameFailsOneReadOnly) {
     gbm_request_blame(session_, "file.txt", "", 0, 0);
     ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
     EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 1u);
+}
+
+// The reads below answer a failure in their own reply rather than (or as well as) on
+// GBM_EVENT_ERROR_OCCURRED, because their caller waits on that reply by a key the error
+// event does not carry. A throw has to answer the same way, or the caller waits for good.
+
+std::size_t indexOf(const Events& events, int32_t type) {
+    for (std::size_t i = 0; i < events.size(); ++i) {
+        if (events[i].first == type) return i;
+    }
+    return events.size();
+}
+
+TEST_F(ReadFailureApiTest, ABranchDeletionProbeThatThrowsRepliesUnderItsRequestId) {
+    gbm_test_fail_read("Session::requestBranchDeletionProbe");
+    const char* names[] = {"main"};
+    gbm_request_branch_deletion_probe(session_, 4242, names, 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BRANCH_DELETION_PROBE_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BRANCH_DELETION_PROBE_READY);
+    EXPECT_TRUE(contains(reply, "\"requestId\":4242")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"probes\":[]")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AnExportThatThrowsRepliesUnderItsDestinationAsNotSucceeded) {
+    gbm_test_fail_read("Session::exportFileAtRevision");
+    const std::string dest = (repo_ / "exported.txt").string();
+    gbm_export_file_at_revision(session_, "HEAD", "file.txt", dest.c_str());
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_FILE_AT_REVISION_EXPORTED));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_FILE_AT_REVISION_EXPORTED);
+    std::string destJson;
+    jsonAppendEscaped(destJson, dest);
+    EXPECT_TRUE(contains(reply, "\"destPath\":" + destJson)) << reply;
+    EXPECT_TRUE(contains(reply, "\"succeeded\":false")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ASquashMessageThatThrowsReportsTheErrorFirstThenRepliesForItsSource) {
+    gbm_test_fail_read("Session::requestSquashMessage");
+    gbm_request_squash_message(session_, "feature");
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SQUASH_MESSAGE_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_SQUASH_MESSAGE_READY);
+    EXPECT_TRUE(contains(reply, "\"source\":\"feature\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"message\":\"\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    ASSERT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 1u);
+    EXPECT_LT(indexOf(events, GBM_EVENT_ERROR_OCCURRED),
+              indexOf(events, GBM_EVENT_SQUASH_MESSAGE_READY));
+}
+
+TEST_F(ReadFailureApiTest, APreparedMessageThatThrowsReportsTheErrorFirstThenReplies) {
+    gbm_test_fail_read("Session::requestPreparedMessage");
+    gbm_request_prepared_message(session_);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_PREPARED_MESSAGE_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_PREPARED_MESSAGE_READY);
+    EXPECT_TRUE(contains(reply, "\"message\":\"\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    ASSERT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 1u);
+    EXPECT_LT(indexOf(events, GBM_EVENT_ERROR_OCCURRED),
+              indexOf(events, GBM_EVENT_PREPARED_MESSAGE_READY));
+}
+
+TEST_F(ReadFailureApiTest, AWorkingTreeReadThatThrowsRepliesNotEditableForItsPath) {
+    gbm_test_fail_read("Session::requestWorkingTreeContent");
+    gbm_request_working_tree_content(session_, "file.txt");
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKING_TREE_CONTENT_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_WORKING_TREE_CONTENT_READY);
+    EXPECT_EQ(reply, "{\"path\":\"file.txt\",\"content\":\"\",\"editable\":false}");
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AnOriginalOperationMessageThatThrowsRepliesEmpty) {
+    // A message on disk, so an untouched read would reply with it.
+    std::ofstream(repo_ / ".git" / "MERGE_MSG") << "Merge branch 'feature'\n";
+    gbm_test_fail_read("Session::requestOriginalOperationMessage");
+    gbm_request_original_operation_message(session_);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY));
+    const Events events = log_.snapshot();
+    EXPECT_EQ(*firstOf(events, GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY), "{\"message\":\"\"}");
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+// gbm_capi.h promises both of these always reply and never raise the error event.
+TEST_F(ReadFailureApiTest, CommitMetaThatThrowsRepliesWithAnEmptyBatch) {
+    gbm_test_fail_read("Session::requestCommitMeta");
+    const std::string head = headOid();
+    const char* oids[] = {head.c_str()};
+    gbm_request_commit_meta(session_, oids, 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_COMMIT_META_READY));
+    const Events events = log_.snapshot();
+    EXPECT_EQ(*firstOf(events, GBM_EVENT_COMMIT_META_READY), "[]");
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, CommitFileCountsThatThrowRepliesWithAnEmptyBatch) {
+    gbm_test_fail_read("Session::requestCommitFileCounts");
+    const std::string head = headOid();
+    const char* oids[] = {head.c_str()};
+    gbm_request_commit_file_counts(session_, oids, 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_COMMIT_FILE_COUNTS_READY));
+    const Events events = log_.snapshot();
+    EXPECT_EQ(*firstOf(events, GBM_EVENT_COMMIT_FILE_COUNTS_READY), "[]");
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
 }
 
 struct PostReadProbe {

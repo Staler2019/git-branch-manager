@@ -93,6 +93,88 @@ GitResult<GitInstallation>& cachedGitInstallation() {
     return cached;
 }
 
+// The reply payloads a read builds on its ordinary path and again in its
+// postRead() failure reply, so the two cannot drift apart: the caller waits
+// on the reply by a key (requestId, destPath, source, path) that
+// GBM_EVENT_ERROR_OCCURRED does not carry.
+
+std::string messagePayload(const std::string& message, const GitError* error = nullptr) {
+    std::string payload = "{\"message\":";
+    jsonAppendEscaped(payload, message);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string squashMessagePayload(const std::string& source,
+                                 const std::string& headOid,
+                                 const std::string& sourceOid,
+                                 const std::string& message,
+                                 const GitError* error) {
+    std::string payload = "{\"source\":";
+    jsonAppendEscaped(payload, source);
+    payload += ",\"headOid\":";
+    jsonAppendEscaped(payload, headOid);
+    payload += ",\"sourceOid\":";
+    jsonAppendEscaped(payload, sourceOid);
+    payload += ",\"message\":";
+    jsonAppendEscaped(payload, message);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string workingTreeContentPayload(const std::string& path,
+                                      const std::string& content,
+                                      bool editable) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"content\":";
+    jsonAppendEscaped(payload, content);
+    payload += ",\"editable\":";
+    jsonAppendBool(payload, editable);
+    payload += '}';
+    return payload;
+}
+
+std::string fileAtRevisionPayload(const std::string& revision,
+                                  const std::string& path,
+                                  const std::string& destPath,
+                                  const GitError* error) {
+    std::string payload = "{\"revision\":";
+    jsonAppendEscaped(payload, revision);
+    payload += ",\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"destPath\":";
+    jsonAppendEscaped(payload, destPath);
+    payload += ",\"succeeded\":";
+    jsonAppendBool(payload, error == nullptr);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string branchDeletionProbePayload(std::uint64_t requestId,
+                                       const std::vector<BranchDeletionProbe>& probes,
+                                       const GitError* error) {
+    std::string payload = "{\"requestId\":";
+    jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += ",\"probes\":";
+    payload += error != nullptr ? std::string("[]") : toJson(probes);
+    payload += '}';
+    return payload;
+}
 }  // namespace
 
 GitResult<GitInstallation> sharedGitInstallation() {
@@ -1035,60 +1117,73 @@ void Session::resolveConflict(ResolveConflictRequest request) {
 }
 
 void Session::requestOriginalOperationMessage() {
-    sharedReadPool().postFront([this]() {
-        const std::string message = readOriginalOperationMessage(paths_);
-        std::string payload = "{\"message\":";
-        jsonAppendEscaped(payload, message);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestOriginalOperationMessage",
+        [this]() {
+            callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY,
+                            messagePayload(readOriginalOperationMessage(paths_)));
+        },
+        // Its only shape: no message is what the caller already handles when
+        // there is no operation in progress.
+        [this](const GitError&) {
+            callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, messagePayload(""));
+        });
 }
 
 void Session::requestSquashMessage(std::string source) {
     // postFront: the Merge dialog is open and waiting on this
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this, source = std::move(source)]() {
-        const GitResult<SquashMessagePreview> result =
-            squashMessageStore_->preview(source, readCancel_.token());
-        std::string payload = "{\"source\":";
-        jsonAppendEscaped(payload, source);
-        payload += ",\"headOid\":";
-        jsonAppendEscaped(payload, result ? result->headOid.hex() : std::string());
-        payload += ",\"sourceOid\":";
-        jsonAppendEscaped(payload, result ? result->sourceOid.hex() : std::string());
-        payload += ",\"message\":";
-        jsonAppendEscaped(payload, result ? result->message : std::string());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-            // Also the ordinary error event (使用者裁定 2026-10-09「抓不到
-            // capi應該跳錯誤」), so the reason reaches the window's banner and
-            // the Log like any other failure. First, so it is already
-            // recorded when READY ends the dialog's wait.
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);
-    });
+    auto fail = [this](const std::string& source, const GitError& error) {
+        // Also the ordinary error event (使用者裁定 2026-10-09「抓不到
+        // capi應該跳錯誤」), so the reason reaches the window's banner and
+        // the Log like any other failure. First, so it is already
+        // recorded when READY ends the dialog's wait.
+        callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+        callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY,
+                        squashMessagePayload(source, "", "", "", &error));
+    };
+    postRead(
+        ReadLane::Front,
+        "Session::requestSquashMessage",
+        [this, source, fail]() {
+            const GitResult<SquashMessagePreview> result =
+                squashMessageStore_->preview(source, readCancel_.token());
+            if (!result) {
+                fail(source, result.error());
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY,
+                            squashMessagePayload(source,
+                                                 result->headOid.hex(),
+                                                 result->sourceOid.hex(),
+                                                 result->message,
+                                                 nullptr));
+        },
+        [source, fail](const GitError& error) { fail(source, error); });
 }
 
 void Session::requestPreparedMessage() {
     // postFront: the Working Copy box is waiting on this to fill itself
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this]() {
-        const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
-        std::string payload = "{\"message\":";
-        jsonAppendEscaped(payload, result ? *result : std::string());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-            // First, like requestSquashMessage(): the reason reaches the
-            // window's banner and the Log before READY ends the wait.
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, payload);
-    });
+    auto fail = [this](const GitError& error) {
+        // First, like requestSquashMessage(): the reason reaches the
+        // window's banner and the Log before READY ends the wait.
+        callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, messagePayload("", &error));
+    };
+    postRead(
+        ReadLane::Front,
+        "Session::requestPreparedMessage",
+        [this, fail]() {
+            const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
+            if (!result) {
+                fail(result.error());
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, messagePayload(*result));
+        },
+        fail);
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
@@ -1096,73 +1191,68 @@ void Session::requestWorkingTreeContent(std::string path) {
     // window's own file read, and it must not sit behind a
     // refreshRepoStatus() sweep's other members either --
     // [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().postFront([this, path = std::move(path)]() {
-        // Above this, a conflicted file is treated the same as binary: shown
-        // as "not editable" rather than loaded whole into the resolve
-        // editor -- mirrors RepositorySession::requestWorkingTreeContent's
-        // own cap exactly.
-        constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
-        const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
-        const std::optional<std::string> raw =
-            fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
+    postRead(
+        ReadLane::Front,
+        "Session::requestWorkingTreeContent",
+        [this, path]() {
+            // Above this, a conflicted file is treated the same as binary: shown
+            // as "not editable" rather than loaded whole into the resolve
+            // editor -- mirrors RepositorySession::requestWorkingTreeContent's
+            // own cap exactly.
+            constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
+            const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
+            const std::optional<std::string> raw =
+                fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
 
-        bool editable = false;
-        std::string content;
-        if (raw.has_value()) {
-            const TextTraits traits = detectTextTraits(*raw);
-            // A conflicted path that fails this is shown read-only instead
-            // of risking silent corruption from a lossy UTF-8 decode --
-            // detectTextTraits already folds an embedded NUL into
-            // EncodingKind::Binary, matching RepositorySession's own check.
-            editable =
-                traits.encoding == EncodingKind::Utf8 || traits.encoding == EncodingKind::Utf8Bom;
-            if (editable) {
-                content = *raw;
+            bool editable = false;
+            std::string content;
+            if (raw.has_value()) {
+                const TextTraits traits = detectTextTraits(*raw);
+                // A conflicted path that fails this is shown read-only instead
+                // of risking silent corruption from a lossy UTF-8 decode --
+                // detectTextTraits already folds an embedded NUL into
+                // EncodingKind::Binary, matching RepositorySession's own check.
+                editable = traits.encoding == EncodingKind::Utf8 ||
+                           traits.encoding == EncodingKind::Utf8Bom;
+                if (editable) {
+                    content = *raw;
+                }
             }
-        }
 
-        std::string payload = "{\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"content\":";
-        jsonAppendEscaped(payload, content);
-        payload += ",\"editable\":";
-        jsonAppendBool(payload, editable);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY, payload);
-    });
+            callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY,
+                            workingTreeContentPayload(path, content, editable));
+        },
+        // What an unreadable file already gets: shown, not editable.
+        [this, path](const GitError&) {
+            callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY,
+                            workingTreeContentPayload(path, "", false));
+        });
 }
 
 void Session::exportFileAtRevision(std::string revision, std::string path, std::string destPath) {
-    sharedReadPool().post([this,
-                           revision = std::move(revision),
-                           path = std::move(path),
-                           destPath = std::move(destPath)]() {
-        FileAtRevisionRequest request;
-        request.revision = revision;
-        request.path = path;
-        request.destination = fsutil::pathFromUtf8(destPath);
-        const GitResult<std::uint64_t> result =
-            blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
+    postRead(
+        ReadLane::Back,
+        "Session::exportFileAtRevision",
+        [this, revision, path, destPath]() {
+            FileAtRevisionRequest request;
+            request.revision = revision;
+            request.path = path;
+            request.destination = fsutil::pathFromUtf8(destPath);
+            const GitResult<std::uint64_t> result =
+                blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
 
-        // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
-        // caller is waiting on this specific export to decide whether to
-        // open the file or tell the user it was saved, and a separate error
-        // event carries nothing to match it against.
-        std::string payload = "{\"revision\":";
-        jsonAppendEscaped(payload, revision);
-        payload += ",\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"destPath\":";
-        jsonAppendEscaped(payload, destPath);
-        payload += ",\"succeeded\":";
-        jsonAppendBool(payload, result.hasValue());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED, payload);
-    });
+            // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
+            // caller is waiting on this specific export to decide whether to
+            // open the file or tell the user it was saved, and a separate error
+            // event carries nothing to match it against.
+            callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED,
+                            fileAtRevisionPayload(
+                                revision, path, destPath, result ? nullptr : &result.error()));
+        },
+        [this, revision, path, destPath](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED,
+                            fileAtRevisionPayload(revision, path, destPath, &error));
+        });
 }
 
 // --- Stashes -------------------------------------------------------------
@@ -1463,19 +1553,21 @@ void Session::requestRemotePrunePreview(std::string remoteName) {
 void Session::requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names) {
     // postFront: a delete dialog's button waits on this reply
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this, requestId, names = std::move(names)]() mutable {
-        BranchStore store(*runner_, paths_);
-        const GitResult<std::vector<BranchDeletionProbe>> result =
-            store.probeDeletion(std::move(names), readCancel_.token());
-        std::string payload = "{\"requestId\":";
-        jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
-        payload += ",\"error\":";
-        payload += result ? std::string("null") : toJson(result.error());
-        payload += ",\"probes\":";
-        payload += result ? toJson(result.value()) : std::string("[]");
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestBranchDeletionProbe",
+        [this, requestId, names = std::move(names)]() mutable {
+            BranchStore store(*runner_, paths_);
+            const GitResult<std::vector<BranchDeletionProbe>> result =
+                store.probeDeletion(std::move(names), readCancel_.token());
+            callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY,
+                            result ? branchDeletionProbePayload(requestId, result.value(), nullptr)
+                                   : branchDeletionProbePayload(requestId, {}, &result.error()));
+        },
+        [this, requestId](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY,
+                            branchDeletionProbePayload(requestId, {}, &error));
+        });
 }
 
 void Session::pruneRemote(PruneRemoteRequest request) {
@@ -1592,54 +1684,66 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
 void Session::requestCommitMeta(std::vector<std::string> oids) {
     // postFront, like requestBlame(): a newer viewport (fast scroll) should
     // not wait behind a stale one still being answered.
-    sharedReadPool().postFront([this, oids = std::move(oids)]() {
-        std::vector<ObjectId> parsed;
-        parsed.reserve(oids.size());
-        for (const std::string& oid : oids) {
-            parsed.push_back(ObjectId::fromHex(oid));
-        }
-        const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, readCancel_.token());
-        callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitMeta",
+        [this, oids = std::move(oids)]() {
+            std::vector<ObjectId> parsed;
+            parsed.reserve(oids.size());
+            for (const std::string& oid : oids) {
+                parsed.push_back(ObjectId::fromHex(oid));
+            }
+            const std::vector<CommitMeta> result =
+                commitMetaStore_->read(parsed, readCancel_.token());
+            callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
+        },
+        // gbm_capi.h promises this always replies and never raises the error
+        // event: an unanswered oid is simply missing from the batch.
+        [this](const GitError&) { callbacks_.emit(GBM_EVENT_COMMIT_META_READY, "[]"); });
 }
 
 void Session::requestCommitFileCounts(std::vector<std::string> oids) {
     // postFront, like requestCommitMeta(): both answer the same viewport, and
     // a fast scroll should not leave the newest request behind a stale one.
-    sharedReadPool().postFront([this, oids = std::move(oids)]() {
-        std::vector<ObjectId> parsed;
-        parsed.reserve(oids.size());
-        for (const std::string& oid : oids) {
-            parsed.push_back(ObjectId::fromHex(oid));
-        }
-        const GitResult<std::vector<CommitFileCount>> result =
-            diffs_->commitFileCounts(parsed, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            // Deliberately not an error event. This backs a column that is off
-            // by default and shows a number; failing the whole session's error
-            // channel because one viewport could not be counted would be
-            // louder than the feature is important. The caller sees the
-            // absence instead, which is the same thing it must already handle
-            // for an individual unanswerable oid.
-            callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]");
-            return;
-        }
-        std::string payload = "[";
-        bool first = true;
-        for (const CommitFileCount& entry : *result) {
-            if (!first) {
-                payload += ',';
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitFileCounts",
+        [this, oids = std::move(oids)]() {
+            std::vector<ObjectId> parsed;
+            parsed.reserve(oids.size());
+            for (const std::string& oid : oids) {
+                parsed.push_back(ObjectId::fromHex(oid));
             }
-            first = false;
-            payload += "{\"oid\":";
-            jsonAppendEscaped(payload, entry.commit.hex());
-            payload += ",\"fileCount\":";
-            payload += std::to_string(entry.fileCount);
-            payload += '}';
-        }
-        payload += ']';
-        callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, payload);
-    });
+            const GitResult<std::vector<CommitFileCount>> result =
+                diffs_->commitFileCounts(parsed, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                // Deliberately not an error event. This backs a column that is off
+                // by default and shows a number; failing the whole session's error
+                // channel because one viewport could not be counted would be
+                // louder than the feature is important. The caller sees the
+                // absence instead, which is the same thing it must already handle
+                // for an individual unanswerable oid.
+                callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]");
+                return;
+            }
+            std::string payload = "[";
+            bool first = true;
+            for (const CommitFileCount& entry : *result) {
+                if (!first) {
+                    payload += ',';
+                }
+                first = false;
+                payload += "{\"oid\":";
+                jsonAppendEscaped(payload, entry.commit.hex());
+                payload += ",\"fileCount\":";
+                payload += std::to_string(entry.fileCount);
+                payload += '}';
+            }
+            payload += ']';
+            callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, payload);
+        },
+        // The same deliberate no-error shape as a failed count above.
+        [this](const GitError&) { callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]"); });
 }
 
 void Session::requestCommitFiles(std::string oid) {

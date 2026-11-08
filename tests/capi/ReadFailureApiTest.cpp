@@ -352,6 +352,20 @@ TEST_F(ReadFailureApiTest, CommitFileCountsThatThrowRepliesWithAnEmptyBatch) {
     EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
 }
 
+// An LFS read that fails is not an error: the refresh still fires GBM_EVENT_LFS_UPDATED with
+// whatever it had (Session::refreshLfs), so a throw answers the same way.
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsStillFiresLfsUpdatedAndNoError) {
+    gbm_test_fail_read("Session::refreshLfs");
+    gbm_lfs_refresh(session_);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::refreshLfs\"")) << reports[0];
+}
+
 struct PostReadProbe {
     std::mutex mutex;
     std::condition_variable cv;

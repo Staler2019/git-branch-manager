@@ -2239,7 +2239,8 @@ void Session::refreshLfs() {
             }
             callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
         },
-        errorReply());
+        // A failed read is not an error here either: answer with whatever was last published.
+        [this](const GitError&) { callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED); });
 }
 
 std::optional<LfsInstallation> Session::currentLfsInstallation() const {

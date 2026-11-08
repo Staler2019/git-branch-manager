@@ -35,7 +35,8 @@ onFailure 送出這個 read 原本的失敗路徑會送的東西：
 
 | 類別 | site | 例外時送出 |
 |---|---|---|
-| 一般 | 26 個（refresh*、diff、compare、blame、history、reflog、stash、worktree、remote、LFS、identity…） | `ERROR_OCCURRED` |
+| 一般 | ~~26~~ 25 個（refresh*、diff、compare、blame、history、reflog、stash、worktree、remote、~~LFS、~~identity…） | `ERROR_OCCURRED` |
+| LFS | `refreshLfs`（使用者裁定 2026-11-09「改成目前失敗時常送樣式」） | `LFS_UPDATED`，與單一 read 失敗時一致 |
 | prune 預覽 | `requestRemotePrunePreview` | `ERROR_OCCURRED`，`argv` 補成 `git remote prune <name> --dry-run`，Dart 的 `_isSuppressedAutoPrunePreviewError` 才認得出是自動預覽 |
 | 帶 key 的 reply | probe（requestId）、export（destPath）、squash（source，先 ERROR）、prepared（先 ERROR）、working tree content（path，editable:false）、original operation message（空 message） | 該 reply，payload 由一般路徑與失敗回覆共用的函式產生 |
 | 約定不送錯誤 | commit meta、commit file counts | `[]` |
@@ -49,6 +50,10 @@ Commits：
 2. `d41de295` 8 個 reply site，payload 抽成共用函式。
 3. `9003c764` `scripts/check-read-pool-posts.py` 與其測試，接進 `cq.yml`。
 4. `aab2d1bc` `read_failure_real_library_test.dart`（真 library、真 `RepoSessionController`、真 git repo），接進 `ci.yml` 的 capi-build。
+5. `3bb5453e` squash 失敗回覆的 lambda 參數改名（GCC `-Wshadow`）。
+6. `39af30d9` `refreshLfs` 例外時送 `LFS_UPDATED`；`gbm_capi.h` 原本寫「失敗時送 ERROR_OCCURRED」，但程式從來不送，一併改正。
+7. `41843a83` 檢查腳本改白名單：`postRead` 外 `sharedReadPool()` 只能是宣告、定義或直接 `drain()`／`cancelQueuedAndDrain()`。
+8. `6762cfb3` 同時競爭讀取：8 個執行緒 256 個 read 加一個不停重設 armed 開關的執行緒；同一 session 同時 16 個 blame。
 
 ### Mutation
 
@@ -59,6 +64,9 @@ Commits：
 | 2 | 9 | 9 | 8 個 site 各改成送 ERROR／別的事件，各只紅自己的測試；probe 回錯的 requestId（1）。另 1 個把 requestId 換成 0，未使用的 capture 在 `-Werror` 下編不過，不計 |
 | 3 | 4 | 4 | 不檢查參照（1）、不去註解（1）、不排除 postRead 本身（4）、不允許跨行（1） |
 | 4 | 2 | 2 | library 端 probe 失敗不回 reply（只紅 probe 那個）；拿掉 `finishRefresh`（只紅 History 那個）。以 20 秒 deadline 轉成紅，不是 hang |
+| 6 | 1 | 1 | 實作前的 `errorReply()` 本身就紅（等不到 `LFS_UPDATED`）；mutation：例外時兩個都送（只紅 LFS 那個） |
+| 7 | 3 | 3 | 不放過宣告（2：宣告測試與真實樹）；不放過 drain（2：drain 測試與真實樹）；只抓 post（4：參照、auto&、指標、當引數） |
+| 8 | 3 | 3 | armed 不清除（3）；成功後也呼叫 onFailure（4，含兩個新測試）；拿掉 armed 開關的 mutex：只有 TSan 抓得到，在 `ConcurrentBlames…` 報 data race。兩個新測試一開始就綠，保護的是既有行為 |
 
 c2 的 8 個測試第一次在 stub 下有 3 個是綠的：original message、commit meta、file counts 的正常回覆剛好也是空的，
 fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成寫入 `MERGE_MSG`、用真的 HEAD oid 後 8 個都紅。
@@ -81,7 +89,7 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 - Dart 的 prune 預覽測試用的是字面 payload，C++ 端拿掉 argv 不會讓它變紅；它釘的是 Dart 認得這個形狀，C++ 端由
   `APrunePreviewThatThrowsCarriesItsDryRunArgv` 釘（[TEST-fixture-cannot-disagree] 9）。
 
-- verifier 指出（P4，記錄不改）：`refreshLfs` 的一般失敗路徑不算錯誤、仍送 `LFS_UPDATED`，丟例外時卻送
+- verifier 指出（P4，~~記錄不改~~ 使用者裁定要改，見 commit 6）：`refreshLfs` 的一般失敗路徑不算錯誤、仍送 `LFS_UPDATED`，丟例外時卻送
   `ERROR_OCCURRED`，所以「26 個 ERROR site 的一般失敗都是 ERROR」對它不成立。Dart 沒有東西在等 `LFS_UPDATED`，
   不會卡；main 上這時什麼都不送。另外 `ctest -R ReadFailure` 只跑到 14 個，`PostRead.*` 的 2 個要
   `-R "ReadFailure|PostRead"`。
@@ -96,8 +104,8 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 
 ### 已知缺口
 
-- `scripts/check-read-pool-posts.py` 只認 `sharedReadPool().post(` 與 `ThreadPool& x = sharedReadPool()`；
-  `auto& pool = sharedReadPool()` 會漏（wiring-auditor）。目前 `src/` 沒有這種寫法。
+- ~~`scripts/check-read-pool-posts.py` 只認 `sharedReadPool().post(` 與 `ThreadPool& x = sharedReadPool()`；
+  `auto& pool = sharedReadPool()` 會漏（wiring-auditor）。目前 `src/` 沒有這種寫法。~~ 已由 commit 7 補上。
 
 - void 匯出在把 task 排進 pool 之前就丟例外（例如 `toOidVector` 配置失敗），匯出的 catch 只寫 log，不回覆。
 - 不在 read pool 上的執行緒（`CloneJob`、`AskpassPoller`、`Scanner`、`DelayTimer`、`CatFileBatch` 的 watchdog）沒有處理。

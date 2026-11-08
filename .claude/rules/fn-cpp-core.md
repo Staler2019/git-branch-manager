@@ -70,7 +70,7 @@ Pin prefix `CPP-`. Format: [README.md](../../docs/rules/README.md).
 
 ## [CPP-read-throw-still-replies] A read reaches `sharedReadPool()` only through `postRead`, and its `onFailure` sends what its ordinary failure sends
 
-- **Rule**: the pool's own catch only logs, so a read that throws never answers and Dart waits on it for good; `postRead` (`Session.cpp`) logs as before and then calls `onFailure`. `scripts/check-read-pool-posts.py` (`cq.yml`) rejects any other post.
+- **Rule**: the pool's own catch only logs, so a read that throws never answers and Dart waits on it for good; `postRead` (`Session.cpp`) logs as before and then calls `onFailure`. `scripts/check-read-pool-posts.py` (`cq.yml`) rejects any other use of the pool but a drain.
 - **Do**: `onFailure` emits exactly what the read's non-throwing failure path emits — `errorReply()` for `ERROR_OCCURRED`, or the read's own reply built by the same payload function (requestId, destPath, source, path). A Dart reader that matches on `argv` needs it set by hand (`requestRemotePrunePreview`); a guard the body needs on every path goes in `onAlways`, since an injected throw fires before the body.
 - **Do**: test with `gbm_test_fail_read("Session::<method>")`, which fails only the next read posted under that name, so a session's own reads cannot use it up.
 - **Evidence**: [ledger: feat/stuck-waits](../../docs/ledger/2026-11-09-feat-stuck-waits.md)

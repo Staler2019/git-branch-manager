@@ -22,6 +22,7 @@
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -366,6 +367,28 @@ TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsStillFiresLfsUpdatedAndNoError)
     EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::refreshLfs\"")) << reports[0];
 }
 
+// Reads posted from several threads at once compete for the armed name: compare-and-clear under
+// one mutex lets exactly one of them take it, and every other one answers normally.
+TEST_F(ReadFailureApiTest, ConcurrentBlamesFailOnlyTheOneThatTookTheArmedName) {
+    constexpr int kReads = 16;
+    gbm_test_fail_read("Session::requestBlame");
+    std::vector<std::thread> posters;
+    for (int i = 0; i < kReads; ++i) {
+        posters.emplace_back([this] { gbm_request_blame(session_, "file.txt", "", 0, 0); });
+    }
+    for (std::thread& poster : posters) poster.join();
+
+    ASSERT_TRUE(log_.waitFor([](const Events& events) {
+        return countOf(events, GBM_EVENT_BLAME_READY) + countOf(events, GBM_EVENT_ERROR_OCCURRED) >=
+               static_cast<std::size_t>(kReads);
+    }));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 1u);
+    EXPECT_EQ(countOf(events, GBM_EVENT_BLAME_READY), static_cast<std::size_t>(kReads - 1));
+    EXPECT_EQ(nativeErrors().size(), 1u);
+}
+
 struct PostReadProbe {
     std::mutex mutex;
     std::condition_variable cv;
@@ -404,6 +427,63 @@ TEST(PostRead, RunsOnAlwaysOnceOnEveryPath) {
     std::lock_guard<std::mutex> lock(probe.mutex);
     EXPECT_EQ(probe.always, 3);
     EXPECT_EQ(probe.failures, 2);
+}
+
+// Posters on several threads, bodies that throw, and a thread re-arming the switch the whole
+// time: whichever read takes a failure, each one answers exactly once -- success or failure,
+// never both and never neither -- and runs onAlways once.
+TEST(PostRead, ConcurrentReadsEachAnswerExactlyOnce) {
+    constexpr int kPosters = 8;
+    constexpr int kPerPoster = 32;
+    constexpr int kReads = kPosters * kPerPoster;
+    std::vector<std::atomic<int>> successes(kReads);
+    std::vector<std::atomic<int>> failures(kReads);
+    std::vector<std::atomic<int>> always(kReads);
+    std::atomic<int> answered{0};
+    std::atomic<bool> posting{true};
+
+    std::thread arming([&] {
+        for (int k = 0; posting; k = (k + 7) % kReads) {
+            gbm_test_fail_read(("PostReadTest::race-" + std::to_string(k)).c_str());
+        }
+    });
+    std::vector<std::thread> posters;
+    for (int p = 0; p < kPosters; ++p) {
+        posters.emplace_back([&, p] {
+            for (int j = 0; j < kPerPoster; ++j) {
+                const int k = p * kPerPoster + j;
+                postRead(
+                    k % 2 == 0 ? ReadLane::Front : ReadLane::Back,
+                    "PostReadTest::race-" + std::to_string(k),
+                    [&, k] {
+                        if (k % 5 == 0) throw std::runtime_error("body");
+                        ++successes[k];
+                    },
+                    [&, k](const GitError&) { ++failures[k]; },
+                    [&, k] {
+                        ++always[k];
+                        ++answered;
+                    });
+            }
+        });
+    }
+    for (std::thread& poster : posters) poster.join();
+    sharedReadPool().drain();
+    posting = false;
+    arming.join();
+    gbm_test_fail_read("");
+
+    EXPECT_EQ(answered.load(), kReads);
+    int failed = 0;
+    for (int k = 0; k < kReads; ++k) {
+        EXPECT_EQ(always[k].load(), 1) << k;
+        EXPECT_EQ(successes[k].load() + failures[k].load(), 1) << k;
+        if (k % 5 == 0) {
+            EXPECT_EQ(failures[k].load(), 1) << k;
+        }
+        failed += failures[k].load();
+    }
+    EXPECT_GE(failed, (kReads + 4) / 5);
 }
 
 TEST(PostRead, AFailureReplyThatThrowsIsLoggedAndGoesNoFurther) {

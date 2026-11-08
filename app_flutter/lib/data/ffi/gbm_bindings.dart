@@ -121,6 +121,8 @@ typedef ReportExternalErrorDart = void Function(
   Pointer<Utf8> summary,
   Pointer<Utf8> detail,
 );
+typedef _NativeErrorLogPathJsonNative = Int32 Function();
+typedef NativeErrorLogPathJsonDart = int Function();
 
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
@@ -1465,6 +1467,11 @@ class GbmBindings {
           .lookupFunction<_ReportExternalErrorNative, ReportExternalErrorDart>(
             'gbm_report_external_error',
           ),
+      nativeErrorLogPathJson = library
+          .lookupFunction<
+            _NativeErrorLogPathJsonNative,
+            NativeErrorLogPathJsonDart
+          >('gbm_native_error_log_path_json'),
       setTimeoutMultiplier = library
           .lookupFunction<
             _SetTimeoutMultiplierNative,
@@ -2081,6 +2088,9 @@ class GbmBindings {
 
   /// gbm_report_external_error(): a Dart error into the native error log and callback.
   final ReportExternalErrorDart reportExternalError;
+
+  /// gbm_native_error_log_path_json(): stages `{"path": ...}`, the file reports go to.
+  final NativeErrorLogPathJsonDart nativeErrorLogPathJson;
 
   /// gbm_set_timeout_multiplier(): process-wide, no session. Returns the
   /// multiplier now in effect.

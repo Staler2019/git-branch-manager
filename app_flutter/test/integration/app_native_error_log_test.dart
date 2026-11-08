@@ -17,6 +17,7 @@ import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/app_version.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/release_asset.dart';
+import 'package:gbm_flutter/data/repositories/auto_reopen_marker_repository.dart';
 import 'package:gbm_flutter/data/repositories/build_version_repository.dart';
 import 'package:gbm_flutter/data/repositories/gbm_bindings_provider.dart';
 import 'package:gbm_flutter/data/repositories/open_repo_sessions.dart';
@@ -25,6 +26,7 @@ import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/data/repositories/window_log_repository.dart';
 import 'package:gbm_flutter/data/services/github_release_gateway.dart';
 import 'package:gbm_flutter/data/services/update_installer.dart';
+import 'package:gbm_flutter/features/app_lifecycle/auto_reopen_host.dart';
 import 'package:gbm_flutter/features/app_lifecycle/dart_error_handlers.dart';
 import 'package:gbm_flutter/features/app_lifecycle/native_error_log_listener.dart';
 import 'package:gbm_flutter/features/update/auto_update_check.dart';
@@ -80,6 +82,11 @@ class _Bindings extends FakeGbmBindings {
       };
 
   final List<String> details = <String>[];
+
+  /// The library cannot say where its log is: the skipped-reopen row then names no file.
+  @override
+  NativeErrorLogPathJsonDart get nativeErrorLogPathJson =>
+      () => -1;
 
   void fire(String json) {
     final List<int> bytes = utf8.encode(json);
@@ -149,8 +156,12 @@ class _Harness {
   final List<String> order;
 }
 
-Future<_Harness> _pumpApp(WidgetTester tester) async {
-  SharedPreferences.setMockInitialValues(const <String, Object>{});
+Future<_Harness> _pumpApp(
+  WidgetTester tester, {
+  Map<String, Object> prefs = const <String, Object>{},
+  List<Override> extra = const <Override>[],
+}) async {
+  SharedPreferences.setMockInitialValues(prefs);
   final SharedPreferences store = await SharedPreferences.getInstance();
   final List<String> order = <String>[];
   final _Bindings bindings = _Bindings(order);
@@ -186,6 +197,7 @@ Future<_Harness> _pumpApp(WidgetTester tester) async {
           ),
         ),
         autoUpdateCheckDelayProvider.overrideWithValue(Duration.zero),
+        ...extra,
       ],
       child: const GbmApp(),
     ),
@@ -312,6 +324,42 @@ void main() {
       expect(harness.order, <String>['session closed', 'callback cleared']);
     },
   );
+
+  // GbmApp is what carries the auto-reopen host; app_auto_reopen_test.dart mounts the host alone.
+  testWidgets('a skipped reopen is a row in the window Log of the app', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(
+      tester,
+      extra: <Override>[skippedAutoReopenProvider.overrideWithValue('/r/wt')],
+    );
+
+    expect(find.byType(AutoReopenHost), findsOneWidget);
+    expect(_messages(_container(tester).read(windowLogProvider).entries), <
+      String
+    >[
+      'Skipped reopening /r/wt: git-branch-manager quit while opening it last '
+          'time. Open it again from File → Switch repository…',
+    ]);
+  });
+
+  testWidgets('quitting the app clears the auto-reopen marker', (
+    WidgetTester tester,
+  ) async {
+    await _pumpApp(
+      tester,
+      prefs: <String, Object>{AutoReopenMarkerRepository.key: '/r/wt'},
+    );
+
+    await tester.binding.handleRequestAppExit();
+
+    expect(
+      _container(tester)
+          .read(sharedPreferencesProvider)
+          .containsKey(AutoReopenMarkerRepository.key),
+      isFalse,
+    );
+  });
 
   testWidgets(
     'unmounting with a count pending neither throws nor leaves a timer',

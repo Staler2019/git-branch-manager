@@ -1,6 +1,9 @@
+#include "capi/Handle.h"
 #include "capi/JsonWriter.h"
+#include "capi/StagingBuffer.h"
 #include "capi/gbm_capi.h"
 #include "core/base/ExceptionDiagnostic.h"
+#include "core/base/FsUtil.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -78,6 +81,17 @@ GBM_API void gbm_report_external_error(const char* where,
     reportExternalError(text(where), text(summary), text(detail));
 } catch (...) {
     reportCurrentException(__func__);
+}
+
+GBM_API int32_t gbm_native_error_log_path_json(void) try {
+    std::string out = "{\"path\":";
+    jsonAppendEscaped(out, fsutil::utf8FromPath(nativeErrorLogPath()));
+    out += '}';
+    setStagingBuffer(out);
+    return 0;
+} catch (...) {
+    reportNativeException(__func__);
+    return -1;
 }
 
 #if defined(GBM_CAPI_TEST_EXPORTS)

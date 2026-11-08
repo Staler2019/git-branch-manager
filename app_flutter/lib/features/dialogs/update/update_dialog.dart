@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../data/models/release_asset.dart';
 import '../../../data/models/update_state.dart';
 import '../../../data/repositories/app_preferences_repository.dart';
+import '../../../data/repositories/auto_reopen_marker_repository.dart';
 import '../../../data/repositories/open_repo_sessions.dart';
 import '../../../data/repositories/update_repository.dart';
 import '../../../data/repositories/app_log_sink.dart';
@@ -65,8 +66,12 @@ class _UpdateDialogContentState extends ConsumerState<UpdateDialogContent> {
   /// the detached updater. An interrupted refresh would otherwise strand a
   /// `git` child holding `.git/index.lock` in a repository the user still
   /// has open -- and the *new* build would open onto that lock.
+  ///
+  /// The handover is a normal quit, so the auto-reopen marker goes too, as on
+  /// `AppExitSessionCleanup`'s path.
   Future<void> _closeSessions() async {
     ref.read(openRepoSessionsProvider).closeAll();
+    await ref.read(autoReopenMarkerRepositoryProvider).clear();
   }
 
   @override

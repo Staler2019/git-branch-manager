@@ -3,6 +3,7 @@ import 'dart:ui' show AppExitResponse;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/repositories/auto_reopen_marker_repository.dart';
 import '../../data/repositories/open_repo_sessions.dart';
 
 /// Closes every open `gbm_capi` session before the app is allowed to quit.
@@ -56,6 +57,9 @@ class _AppExitSessionCleanupState extends ConsumerState<AppExitSessionCleanup> {
     // the comments in Session::~Session()), so this
     // completes without an app-side timeout of its own.
     ref.read(openRepoSessionsProvider).closeAll();
+    // A quit, not a crash, so the next launch reopens the repository even if its first load
+    // had not settled yet (使用者 2026-11-08). Awaited: the exit follows straight after.
+    await ref.read(autoReopenMarkerRepositoryProvider).clear();
     return AppExitResponse.exit;
   }
 

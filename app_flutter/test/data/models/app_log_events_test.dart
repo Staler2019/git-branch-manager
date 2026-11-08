@@ -12,6 +12,35 @@ import 'package:gbm_flutter/data/models/native_error_report.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 
 void main() {
+  group('AppLogEvents.autoReopenSkipped', () {
+    test(
+      'names the repository, why it was skipped, the way back and the file',
+      () {
+        final AppLogEntry entry = AppLogEvents.autoReopenSkipped(
+          '/Users/dev/工作樹wt',
+          logPath: '/logs/gbm-native-errors.log',
+          atEpochMs: 7,
+        );
+
+        expect(entry.level, OperationLogLevel.error);
+        expect(entry.whenEpochMs, 7);
+        expect(
+          entry.message,
+          'Skipped reopening /Users/dev/工作樹wt: git-branch-manager quit while '
+          'opening it last time. Open it again from File → Switch repository… '
+          '(details: /logs/gbm-native-errors.log)',
+        );
+      },
+    );
+
+    test('says nothing about details when the library has no path', () {
+      expect(
+        AppLogEvents.autoReopenSkipped('/r', logPath: '', atEpochMs: 7).message,
+        endsWith('File → Switch repository…'),
+      );
+    });
+  });
+
   group('AppLogEvents.nativeError', () {
     NativeErrorReport report({String logPath = '/logs/x.log'}) =>
         NativeErrorReport(

@@ -129,6 +129,32 @@ void main() {
     );
   }, skip: libraryPath == null ? 'GBM_CAPI_LIBRARY_PATH is not set' : false);
 
+  // The next launch's notice names this file; it has to be the one reports go to.
+  test(
+    'the log path it hands Dart is the file a report is written to',
+    () async {
+      final GbmBindings bindings = GbmBindings(openGbmCapiLibrary());
+      final GbmNativeErrorEvents events = GbmNativeErrorEvents(bindings);
+      addTearDown(events.dispose);
+      final Future<NativeErrorReport> next = events.reports.first;
+
+      using((Arena arena) {
+        bindings.reportExternalError(
+          'FlutterError'.toNativeUtf8(allocator: arena),
+          'for the path'.toNativeUtf8(allocator: arena),
+          ''.toNativeUtf8(allocator: arena),
+        );
+      });
+      final NativeErrorReport report = await next.timeout(
+        const Duration(seconds: 10),
+      );
+
+      expect(readNativeErrorLogPath(bindings), report.logPath);
+      expect(report.logPath, isNotEmpty);
+    },
+    skip: libraryPath == null ? 'GBM_CAPI_LIBRARY_PATH is not set' : false,
+  );
+
   // Only the topmost unhandled-exception filter runs, so the library's is worth nothing if
   // the engine, the Dart VM or a plugin installs one after it. This process is a Flutter
   // engine with the Dart VM started, as the app is.

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'data/repositories/git_timeout_multiplier_sync.dart';
 import 'features/app_lifecycle/app_exit_session_cleanup.dart';
+import 'features/app_lifecycle/auto_reopen_host.dart';
 import 'features/app_lifecycle/clone_job_listener.dart';
 import 'features/app_lifecycle/native_error_log_listener.dart';
 import 'features/update/auto_update_check.dart';
@@ -57,7 +58,9 @@ class GbmApp extends ConsumerWidget {
             // and its success navigation live up here too.
             child: CloneJobListener(
               child: NativeErrorLogListener(
-                child: child ?? const SizedBox.shrink(),
+                // Above the router for the same reason: the session it waits
+                // on outlives the workspace that opened it.
+                child: AutoReopenHost(child: child ?? const SizedBox.shrink()),
               ),
             ),
           ),

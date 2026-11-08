@@ -86,6 +86,11 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
   不會卡；main 上這時什麼都不送。另外 `ctest -R ReadFailure` 只跑到 14 個，`PostRead.*` 的 2 個要
   `-R "ReadFailure|PostRead"`。
 
+- 第一次 CI：Linux 的三個 job（capi、asan+ubsan、tsan）在 `Session.cpp` 編不過，原因是 `requestSquashMessage`
+  的 `fail` lambda 參數 `source` 遮住函式參數，GCC `-Wshadow -Werror` 報錯，macOS 的 Clang 不報。
+  參數改名為 `squashSource`。本機用 `g++-16 -fsyntax-only -Wshadow` 檢查 `Session.cpp`、`NativeError.cpp`、
+  `ReadFailureApiTest.cpp`，只有這一處。推送前沒用 GCC 檢查是這一輪漏掉的步驟。
+
 ### 已知缺口
 
 - `scripts/check-read-pool-posts.py` 只認 `sharedReadPool().post(` 與 `ThreadPool& x = sharedReadPool()`；

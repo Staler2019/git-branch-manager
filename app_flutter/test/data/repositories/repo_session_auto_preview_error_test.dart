@@ -83,6 +83,20 @@ GbmEvent _prunePreviewError(String remote) => GbmEvent(
   ),
 );
 
+/// What `postRead` replies when the preview throws before git runs
+/// (`Session::requestRemotePrunePreview`'s failure reply): no global flags,
+/// since no command was built, but the same arguments, which is all the
+/// matcher reads. Byte-for-byte the payload `ReadFailureApiTest.cpp`'s
+/// `APrunePreviewThatThrowsCarriesItsDryRunArgv` asserts.
+GbmEvent _thrownPrunePreviewError(String remote) => GbmEvent(
+  GbmEventType.errorOccurred,
+  utf8.encode(
+    '{"code":0,"codeName":"Unknown","message":"The read failed unexpectedly",'
+    '"detail":"std::runtime_error: injected read failure",'
+    '"argv":["git","remote","prune","$remote","--dry-run"],"exitCode":0}',
+  ),
+);
+
 GbmEvent _unrelatedError() => GbmEvent(
   GbmEventType.errorOccurred,
   utf8.encode(
@@ -244,6 +258,29 @@ void main() {
       c.debugHandleEvent(_prunePreviewError('origin'));
 
       expect(errorRows(c), 0);
+    });
+  });
+
+  group('an automatic preview that threw before running git', () {
+    test('stays out of the banner', () {
+      final FakeRepoSessionController c = controller();
+      fetchAndAwaitPreview(c, 'origin');
+
+      c.debugHandleEvent(_thrownPrunePreviewError('origin'));
+
+      expect(c.state.lastError, isNull);
+    });
+
+    test('uses up its in-flight marker, so the next failure surfaces', () {
+      // A leaked marker would make the Prune dialog's own preview of origin
+      // count as automatic.
+      final FakeRepoSessionController c = controller();
+      fetchAndAwaitPreview(c, 'origin');
+      c.debugHandleEvent(_thrownPrunePreviewError('origin'));
+
+      c.debugHandleEvent(_thrownPrunePreviewError('origin'));
+
+      expect(c.state.lastError?.codeName, 'Unknown');
     });
   });
 }

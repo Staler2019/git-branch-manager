@@ -67,7 +67,10 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 
 - capi（`capi-only`）1085 個 100% 通過（c2 之後）。
 - `read_failure_real_library_test.dart` 在 macOS 本機連跑 10 次，10/10 綠。
-- G3 與 verifier 的結果見下方。
+- G3：`flutter analyze` 無問題、`dart format` 無變更、`flutter test` 4598 過 19 skip；wiring-auditor 對本輪符號
+  沒有找到無呼叫者／無讀取者。
+- verifier（fresh context）：**CONFIRMED**。自行重跑 ctest 1085/1085、真 library 3/3、檢查腳本 8/8、
+  auto preview 測試；以 `git diff -w main...HEAD` 逐一比對 34 個 site（main 上 34 個 post，HEAD 上 34 個 `postRead`）。
 
 ### 和計畫不同的地方
 
@@ -78,7 +81,15 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 - Dart 的 prune 預覽測試用的是字面 payload，C++ 端拿掉 argv 不會讓它變紅；它釘的是 Dart 認得這個形狀，C++ 端由
   `APrunePreviewThatThrowsCarriesItsDryRunArgv` 釘（[TEST-fixture-cannot-disagree] 9）。
 
+- verifier 指出（P4，記錄不改）：`refreshLfs` 的一般失敗路徑不算錯誤、仍送 `LFS_UPDATED`，丟例外時卻送
+  `ERROR_OCCURRED`，所以「26 個 ERROR site 的一般失敗都是 ERROR」對它不成立。Dart 沒有東西在等 `LFS_UPDATED`，
+  不會卡；main 上這時什麼都不送。另外 `ctest -R ReadFailure` 只跑到 14 個，`PostRead.*` 的 2 個要
+  `-R "ReadFailure|PostRead"`。
+
 ### 已知缺口
+
+- `scripts/check-read-pool-posts.py` 只認 `sharedReadPool().post(` 與 `ThreadPool& x = sharedReadPool()`；
+  `auto& pool = sharedReadPool()` 會漏（wiring-auditor）。目前 `src/` 沒有這種寫法。
 
 - void 匯出在把 task 排進 pool 之前就丟例外（例如 `toOidVector` 配置失敗），匯出的 catch 只寫 log，不回覆。
 - 不在 read pool 上的執行緒（`CloneJob`、`AskpassPoller`、`Scanner`、`DelayTimer`、`CatFileBatch` 的 watchdog）沒有處理。

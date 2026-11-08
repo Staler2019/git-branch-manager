@@ -106,3 +106,15 @@ advisories（未修，依 P3/P4 預設 defer）：
   在「開啟完成就清」的裁定範圍內；要不要在正常結束時也清標記，留給使用者決定。~~ 使用者決定「要加」，commit 4 修正。
 - P4：讀取期間任何一個讀取的 `errorOccurred` 設了 `lastError` 就算「完成」，比 doc comment 寫的寬；working copy 的第一次讀取可能還在跑（已在已知缺口）。
 - P4：`readNativeErrorLogPath` 在 microtask 裡沒有 try/catch，binding 丟例外時這一列不會寫出；這是刻意的（fake 少成員就該當場失敗），正式版 library 一定帶這個匯出。
+
+### verifier 的結果（commit 4、5）
+
+fresh `verifier` 對 `2212e432`、`c2eaa785` 判定 **CONFIRMED**。它在 `app_flutter` 的副本上重做 mutation（不碰工作樹）：commit 5 的四個和 ledger
+數字相同（1、5、2、1），另加做「clear 移到 `closeAll()` 之前」只紅 cleanup 測試一個；指定的 71 個測試與 analyze 通過。結束路徑 grep：
+File → Exit（`SystemNavigator.pop`）、Cmd+Q、視窗關閉都走 `onExitRequested`；更新安裝經 `beforeExit` = `_closeSessions`；`update_watchdog.dart`
+的 `exit(0)` 只在 `beforeExit` 卡住時觸發，此時標記留下，下次被當成異常結束，方向正確。`pubspec.lock` 鎖的是 2.5.6（第 505 行，main session 補確認）。
+
+advisories（P4，依預設 defer）：
+
+- P4：`update_dialog_test.dart` 只檢查標記已清，沒有釘住「在 `closeAll()` 之後」的順序（cleanup 測試有）；對調兩行推斷仍綠，未實跑。
+- P4：Cmd+Q／視窗關閉在真機上觸發 `onExitRequested` 是原本 `closeAll` 就依賴的路徑，這兩個 commit 沒改，未在 device 上跑。

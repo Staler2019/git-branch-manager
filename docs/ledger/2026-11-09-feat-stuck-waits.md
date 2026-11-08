@@ -90,6 +90,9 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
   的 `fail` lambda 參數 `source` 遮住函式參數，GCC `-Wshadow -Werror` 報錯，macOS 的 Clang 不報。
   參數改名為 `squashSource`。本機用 `g++-16 -fsyntax-only -Wshadow` 檢查 `Session.cpp`、`NativeError.cpp`、
   `ReadFailureApiTest.cpp`，只有這一處。推送前沒用 GCC 檢查是這一輪漏掉的步驟。
+- 第二次 CI：capi Windows 的 `CrashFilterApiTest.AStackOverflowIsLoggedWithNoBox` 紅一次（子程序 stack overflow 後
+  log 沒有 `unhandled SEH exception` 那一行，也沒有 `code=0xc00000fd`，marker 是空的）。本輪沒有改到 crash filter，
+  第一次 CI 同一個測試是綠的；只重跑失敗的 job 後轉綠。這是第一次記錄到它偶發，原因沒有查。
 
 ### 已知缺口
 

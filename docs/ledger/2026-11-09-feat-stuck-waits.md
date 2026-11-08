@@ -100,7 +100,9 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
   `ReadFailureApiTest.cpp`，只有這一處。推送前沒用 GCC 檢查是這一輪漏掉的步驟。
 - 第二次 CI：capi Windows 的 `CrashFilterApiTest.AStackOverflowIsLoggedWithNoBox` 紅一次（子程序 stack overflow 後
   log 沒有 `unhandled SEH exception` 那一行，也沒有 `code=0xc00000fd`，marker 是空的）。本輪沒有改到 crash filter，
-  第一次 CI 同一個測試是綠的；只重跑失敗的 job 後轉綠。這是第一次記錄到它偶發，原因沒有查。
+  第一次 CI 同一個測試是綠的；只重跑失敗的 job 後轉綠。這是第一次記錄到它偶發，~~原因沒有查~~ 使用者要求查並開 issue：
+  log 與 marker 都不存在，兩層 filter 都沒完成；推測是溢位後剩下的 stack 不夠 filter 用，第二次 fault 直接結束 process（未驗證，
+  缺子程序 exit code 與失敗頻率）。記在 **#214**。
 
 ### 已知缺口
 

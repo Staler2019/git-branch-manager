@@ -57,6 +57,29 @@ class ReadPoolPosts(unittest.TestCase):
         write(self.root, 'src/capi/Other.cpp', 'ThreadPool& pool = sharedReadPool();\n')
         self.assertEqual(len(self.found()), 1)
 
+    def test_a_pool_taken_by_auto_reference_is_reported(self):
+        write(self.root, 'src/capi/Other.cpp', 'auto& pool = sharedReadPool();\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_a_pool_taken_by_pointer_is_reported(self):
+        write(self.root, 'src/capi/Other.cpp',
+              'ThreadPool* a = &sharedReadPool();\n'
+              'auto* b = &sharedReadPool();\n')
+        self.assertEqual(len(self.found()), 2)
+
+    def test_a_pool_handed_to_another_function_is_reported(self):
+        write(self.root, 'src/capi/Other.cpp', 'schedule(sharedReadPool(), [] {});\n')
+        self.assertEqual(len(self.found()), 1)
+
+    def test_the_declaration_and_definition_are_not_reported(self):
+        write(self.root, 'src/capi/Session.h', 'ThreadPool& sharedReadPool();\n')
+        write(self.root, 'src/capi/Session.cpp',
+              _POST_READ + 'ThreadPool& sharedReadPool() {\n'
+              '    static ThreadPool pool;\n'
+              '    return pool;\n'
+              '}\n')
+        self.assertEqual(self.found(), [])
+
     def test_draining_the_pool_is_not_reported(self):
         write(self.root, 'src/capi/Session.cpp',
               _POST_READ + 'Session::~Session() {\n'

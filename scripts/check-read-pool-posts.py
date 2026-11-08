@@ -3,8 +3,9 @@
 
 pool 自己的 catch 只寫 log（ThreadPool.cpp 的 workerLoop），read 丟例外就不會有回覆，Dart 那邊
 等它的 isRefreshing、Completer 會一直等下去。postRead 接住例外後送出這個 read 原本的失敗回覆。
-所以 src/ 裡除了 postRead 本身，不得直接 post／postFront，也不得把 pool 取成參照再 post。
-drain、cancelQueuedAndDrain 不送工作，不受限。
+所以 src/ 裡除了 postRead 本身，不得直接 post／postFront，也不得把 pool 拿出去（參照、指標、
+auto、當引數傳）再 post。採白名單：postRead 之外，sharedReadPool() 只能出現在它的宣告與定義，
+或直接接 drain()／cancelQueuedAndDrain()——這兩個不送工作。
 
 從 repo 根目錄跑：python3 scripts/check-read-pool-posts.py
 """
@@ -13,8 +14,10 @@ import os, re, sys
 # postRead 的定義是唯一允許的地方。
 _HELPER_FILE = 'src/capi/Session.cpp'
 _HELPER_START = re.compile(r'^void postRead\(')
-_RAW_POST = re.compile(r'sharedReadPool\(\)\s*\.\s*post(?:Front)?\s*\(')
-_POOL_REFERENCE = re.compile(r'ThreadPool\s*&\s*\w+\s*=\s*sharedReadPool\(\)')
+_USE = re.compile(r'sharedReadPool\(\)')
+_RAW_POST = re.compile(r'\s*\.\s*post(?:Front)?\s*\(')
+_DRAIN = re.compile(r'\s*\.\s*(?:drain|cancelQueuedAndDrain)\s*\(')
+_DECLARATION = re.compile(r'ThreadPool\s*&\s*sharedReadPool\(\)\s*[;{]')
 
 
 def _strip_comment(line):
@@ -49,12 +52,12 @@ def findings(root):
         allowed = _helper_lines(rel, lines)
         code = [_strip_comment(line) for line in lines]
         text = '\n'.join(code)
-        for pattern, what in ((_RAW_POST, 'raw post'), (_POOL_REFERENCE, 'pool taken by reference')):
-            for match in pattern.finditer(text):
-                index = text.count('\n', 0, match.start())
-                if index in allowed:
-                    continue
-                out.append(f'{rel}:{index + 1}: {what}, use postRead: {lines[index].strip()}')
+        for match in _USE.finditer(text):
+            index = text.count('\n', 0, match.start())
+            if index in allowed or _DRAIN.match(text, match.end()) or _DECLARATION.match(code[index]):
+                continue
+            what = 'raw post' if _RAW_POST.match(text, match.end()) else 'pool taken out of postRead'
+            out.append(f'{rel}:{index + 1}: {what}, use postRead: {lines[index].strip()}')
     return out
 
 

@@ -149,4 +149,33 @@ void main() {
       expect(launch.sessions, isEmpty, reason: 'nothing reopened');
     },
   );
+
+  // Two copies of the app share one preferences store. A second launch while the first is
+  // still opening reads the first's marker as a crash: it lands on welcome and removes the
+  // marker, and the first copy's later clear is then a no-op rather than an error.
+  testWidgets(
+    'a second copy launched while the first is opening skips the reopen',
+    (WidgetTester tester) async {
+      final _Launch first = await _bootstrap(const <String, Object>{});
+      await tester.pumpWidget(first.app);
+      await tester.pump();
+      expect(first.prefs.getString(_key), _workDir);
+
+      final Widget second = await bootstrapApp(
+        openBindings: _LogPathBindings.new,
+        loadPrefs: () async => first.prefs,
+        install: ({required ExternalErrorReport report}) => () {},
+        child: const SizedBox(),
+      );
+      expect(first.prefs.containsKey(_key), isFalse);
+      expect(second, isNotNull);
+
+      first.sessions[RepoIdentity.forWorkDir(_workDir)]!.emit(
+        const RepoSessionState(isOpen: true),
+      );
+      await tester.pump();
+      expect(first.prefs.containsKey(_key), isFalse);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

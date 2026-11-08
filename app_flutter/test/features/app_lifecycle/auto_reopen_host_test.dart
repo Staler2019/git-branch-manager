@@ -122,6 +122,17 @@ void main() {
       );
     });
 
+    // The ruling's 「開啟完成」 is the first history read; the working copy's first read is
+    // not waited for, and neither is any later one.
+    test('open with history read back is settled though the working copy is unread', () {
+      expect(
+        _settled.refreshTimings.statusAt,
+        isNull,
+        reason: 'no status reply yet',
+      );
+      expect(isFirstLoadSettled(_settled), isTrue);
+    });
+
     test('not open and no error is not settled', () {
       expect(isFirstLoadSettled(const RepoSessionState()), isFalse);
     });

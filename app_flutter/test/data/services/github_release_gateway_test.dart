@@ -183,6 +183,13 @@ void main() {
           downloadUrl: 'https://example.test/windows.msi',
           sizeBytes: 16300000,
         ),
+        // Both Windows architectures, as release.yml now publishes them, so
+        // each test below can say one never takes the other's installer.
+        const ReleaseAsset(
+          name: 'git-branch-manager-0.50.0-windows-arm64.msi',
+          downloadUrl: 'https://example.test/windows-arm64.msi',
+          sizeBytes: 15900000,
+        ),
         const ReleaseAsset(
           name: 'sha256sums.txt',
           downloadUrl: 'https://example.test/sha256sums.txt',
@@ -222,15 +229,28 @@ void main() {
       );
     });
 
-    // release.yml publishes three artifacts and no more. An Intel Mac, an
-    // ARM Linux box or an ARM Windows machine has nothing to install, and
-    // must be told so rather than handed another platform's bundle.
+    test('picks the arm64 .msi on Windows on ARM, never the x64 one', () {
+      expect(
+        selectAssetFor(assets, Abi.windowsArm64)?.name,
+        endsWith('-windows-arm64.msi'),
+      );
+    });
+
+    // Every release before the arm64 leg lists only the x64 installer. An
+    // ARM Windows build is told there is nothing for it there, rather than
+    // handed the x64 one.
+    test('finds nothing for Windows on ARM in an x64-only release', () {
+      final List<ReleaseAsset> x64Only = assets
+          .where((ReleaseAsset a) => !a.name.endsWith('-windows-arm64.msi'))
+          .toList();
+      expect(selectAssetFor(x64Only, Abi.windowsArm64), isNull);
+    });
+
+    // release.yml publishes four artifacts and no more. An Intel Mac or an
+    // ARM Linux box has nothing to install, and must be told so rather than
+    // handed another platform's bundle.
     test('returns null for an ABI this project does not publish', () {
-      for (final Abi abi in <Abi>[
-        Abi.macosX64,
-        Abi.linuxArm64,
-        Abi.windowsArm64,
-      ]) {
+      for (final Abi abi in <Abi>[Abi.macosX64, Abi.linuxArm64]) {
         expect(selectAssetFor(assets, abi), isNull, reason: '$abi');
       }
     });

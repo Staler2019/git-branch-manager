@@ -88,12 +88,27 @@ jobs:
       - uses: lukka/get-cmake@latest
 
       - uses: subosito/flutter-action@v2
+        if: matrix.name != 'Windows arm64'
         with:
           channel: stable
           # Kept in lockstep with ci.yml's pin (see its "every
           # flutter-action use must pin flutter-version" lint step) so a
           # release build never diverges from what CI already verified.
           flutter-version: '3.47.4'
+
+      # Flutter publishes no prebuilt Windows arm64 SDK archive, so the action
+      # above fails there ("Unable to determine Flutter version ...
+      # architecture: arm64"). A git checkout of the same tag is how a
+      # developer's arm64 machine gets it (fvm does exactly this); the first
+      # `flutter` run fetches the host's arm64 Dart SDK. Same pin as above --
+      # move the two together.
+      - name: Flutter SDK (Windows arm64, git checkout)
+        if: matrix.name == 'Windows arm64'
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 --branch 3.47.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'

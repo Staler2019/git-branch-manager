@@ -25,6 +25,7 @@ import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dar
 import 'package:gbm_flutter/widgets/gbm_row.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/git_worktree_bytes.dart';
 import 'support/real_repo_harness.dart';
 
 /// Committed content of the fixture file. Five short lines, so a
@@ -146,7 +147,11 @@ void main() {
 
     expect(
       File('$repoPath/fixture.txt').readAsStringSync(),
-      'alpha\nbravo\ncharlie\ndelta\nINSERTED_TWO\necho\n',
+      expectedWorktreeText(
+        repoPath,
+        'fixture.txt',
+        'alpha\nbravo\ncharlie\ndelta\nINSERTED_TWO\necho\n',
+      ),
       reason:
           'INSERTED_ONE reverted, INSERTED_TWO and every committed line '
           'left alone -- a whole-file discard would have removed both',

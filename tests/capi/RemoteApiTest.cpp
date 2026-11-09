@@ -572,7 +572,8 @@ protected:
 TEST_F(SshRemoteApiTest, BackgroundFetchNeverRaisesACredentialPrompt) {
     useSshScript(
         "if [ -n \"$GBM_ASKPASS_DIR\" ]; then\n"
-        "  printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request\"\n"
+        "  printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request.tmp\"\n"
+        "  mv \"$GBM_ASKPASS_DIR/request.tmp\" \"$GBM_ASKPASS_DIR/request\"\n"
         "  sleep 2\n"
         "fi\n"
         "exit 1\n");
@@ -602,7 +603,9 @@ TEST_F(SshRemoteApiTest, PushQueuedBehindABackgroundFetchStillRaisesItsPrompt) {
         "case \"$*\" in\n"
         "  *upload-pack*) sleep 1; exit 1 ;;\n"
         "esac\n"
-        "printf 'Password for push: ' > \"$GBM_ASKPASS_DIR/request\" || exit 1\n"
+        // Through a rename, so the poller never reads a half-written prompt.
+        "printf 'Password for push: ' > \"$GBM_ASKPASS_DIR/request.tmp\" || exit 1\n"
+        "mv \"$GBM_ASKPASS_DIR/request.tmp\" \"$GBM_ASKPASS_DIR/request\" || exit 1\n"
         "while [ ! -f \"$GBM_ASKPASS_DIR/cancel\" ] && [ ! -f \"$GBM_ASKPASS_DIR/response\" ] &&"
         " [ -d \"$GBM_ASKPASS_DIR\" ]; do\n"
         "  sleep 0.05\n"

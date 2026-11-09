@@ -574,9 +574,13 @@ TEST_F(CloneJobApiTest, CancelNeverTouchesADirectoryThatWasNotEmpty) {
 TEST_F(CloneJobApiTest, ACredentialPromptIsRaisedAndAnswered) {
     // The script plays git's askpass client against the job's request
     // directory, which git passes down to its ssh child in GBM_ASKPASS_DIR.
+    // It writes `request` through a rename, as writeHandshakeFile() does: the
+    // poller fires on the file's mere existence, so a plain `> request` can be
+    // read while still empty and the prompt arrives as "".
     const std::filesystem::path answer = base_ / "answer.txt";
     useSshScript(
-        "printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request\"\n"
+        "printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request.tmp\"\n"
+        "mv \"$GBM_ASKPASS_DIR/request.tmp\" \"$GBM_ASKPASS_DIR/request\"\n"
         "while [ ! -f \"$GBM_ASKPASS_DIR/response\" ] && [ -d \"$GBM_ASKPASS_DIR\" ]; do\n"
         "  sleep 0.05\n"
         "done\n"
@@ -610,7 +614,8 @@ TEST_F(CloneJobApiTest, ACredentialPromptIsRaisedAndAnswered) {
 TEST_F(CloneJobApiTest, ACancelledPromptLetsTheCloneFail) {
     const std::filesystem::path marker = base_ / "cancelled.txt";
     useSshScript(
-        "printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request\"\n"
+        "printf 'Password for x: ' > \"$GBM_ASKPASS_DIR/request.tmp\"\n"
+        "mv \"$GBM_ASKPASS_DIR/request.tmp\" \"$GBM_ASKPASS_DIR/request\"\n"
         "while [ ! -f \"$GBM_ASKPASS_DIR/cancel\" ] && [ -d \"$GBM_ASKPASS_DIR\" ]; do\n"
         "  sleep 0.05\n"
         "done\n"

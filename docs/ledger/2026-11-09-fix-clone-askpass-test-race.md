@@ -30,6 +30,7 @@ PR #213 的 diff 沒有碰 clone、credential 或 askpass；同一個 build 單�
 - 先紅：把舊寫法的時間窗拉大成 `{ sleep 0.5; printf ...; } > request` → `ACredentialPromptIsRaisedAndAnswered` 穩定變紅，訊息跟原本偶發失敗完全一樣（`"{\"prompt\":\"\"}"`）。Mutation 執行 1 次，變紅的測試 1 個。
 - 後綠：新寫法套上同樣的 `sleep 0.5`（寫 `request.tmp`，再 `mv`）→ 綠。
 - 拿掉放大條件後：`CloneJobApiTest.*:SshRemoteApiTest.*:RemoteApiTest.*` 40/40 通過；兩個比對 prompt 文字的測試連跑 30 次，0 次失敗。
-- `RemoteApiTest.cpp` 的 push 那一處沒有另外做 mutation；它跟 clone 那處是同一種寫法，這裡照實記下。
+- ~~`RemoteApiTest.cpp` 的 push 那一處沒有另外做 mutation；它跟 clone 那處是同一種寫法，這裡照實記下。~~ 已補做：push 那一處改回舊寫法並拉大時間窗（`{ sleep 0.5; printf ...; } > request`），`SshRemoteApiTest.*` 2 個中只有 `PushQueuedBehindABackgroundFetchStillRaisesItsPrompt` 變紅，訊息同樣是 `"{\"prompt\":\"\"}"`；新寫法套上同樣的 `sleep 0.5`，2/2 通過。Mutation 合計執行 2 次，各有 1 個測試變紅。
+- 另外兩處（`ACancelledPromptLetsTheCloneFail`、`BackgroundFetchNeverRaisesACredentialPrompt`）不比對 prompt 文字，race 不會讓它們變紅，所以沒有可觀察的紅燈；改它們只是為了跟其他地方寫法一致。
 - `tests/` 不在 `format-check.sh` 的範圍內（它只檢查 `src/`）；用 clang-format 22.1.8 比對修改前後，這兩個檔案的格式差異行數不變。
 - 沒有萃取新規則：fixture 旁的註解已經指向 `writeHandshakeFile()`。

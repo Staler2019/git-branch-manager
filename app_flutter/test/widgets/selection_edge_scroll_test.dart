@@ -3,7 +3,7 @@
 // does that by awaiting itself once per 20 px step, so a long hold builds a
 // chain of futures that unwinds in one go on release -- measured in a
 // profile build of the app: fine at ~500 steps, `StackOverflowError` at
-// ~1500 (about 50 s of holding). Every code view goes through
+// ~1500 (about 95 s of holding). Every code view goes through
 // [GbmCodeHScroll], which drives that axis itself instead.
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';

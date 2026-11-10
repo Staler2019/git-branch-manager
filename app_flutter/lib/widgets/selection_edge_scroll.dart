@@ -12,7 +12,7 @@ import 'package:flutter/widgets.dart';
 /// at most 20 px, so a drag held past the edge builds a chain of futures one
 /// level per step, and the release unwinds all of it in one microtask.
 /// Measured in a profile build of the app (5k-line full-file view): fine at
-/// ~500 steps, `StackOverflowError` at ~1500 -- about 50 s of holding. Flutter
+/// ~500 steps, `StackOverflowError` at ~1500 -- about 95 s of holding. Flutter
 /// master still recurses (checked 2026-11-10).
 ///
 /// **How.** Every selection edge update passing through here has its vertical

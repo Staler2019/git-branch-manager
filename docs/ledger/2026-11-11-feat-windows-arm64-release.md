@@ -19,6 +19,19 @@
   - 第 2 次（run 42644430180）綠：WiX 安裝、Release build、`dist/git-branch-manager-99.0.0-windows-arm64.msi`、發布前檢查全部通過。
 - 拿掉 probe：先用 `git branch probe-backup` 保留原分支（`8c473d75`），從 `origin/main`（`a5f858a4`）重建，cherry-pick C1、C2、C3 和修正這四個 commit。重建後的 patch 與原分支扣掉 probe 檔後逐字相同（`diff` 無差異），`git log origin/main..HEAD -- .github/workflows/arm64-package-probe.yml` 為空，HEAD 也沒有這個檔。
 
+### 追加：測試平行化（使用者要求「217順便做test平行跑調整」）
+
+- 這推翻了 plan 的 non-goal「ci.yml 不動」，是使用者的明確要求。
+- 先 rebase 到合併 #216 之後的 main（`1de553b2`），沒有衝突，INDEX 兩行都保留。
+- ctest：test preset 的 `tbase` 原本沒有 `jobs`，是循序跑。在本機（Windows ARM64、4 核）量 `capi-only`：
+  - 循序 575 s；`-j 4` 三次 241 / 242 / 229 s，1085 個測試全過。
+  - 第 4 次改用 preset 的 `"jobs": 4`、不帶 `-j`：237 s，preset 確實生效，但 `SubmoduleApiTest.DeinitSubmoduleEmptiesTheWorkTree` 失敗，`waitFor` 等了 10 秒沒收到 `GBM_EVENT_SUBMODULES_UPDATED`。
+  - 這個測試循序時 7.8 s，`-j 4` 時 13.9 / 14.2 / 14.0 s，原本就貼近上限。第 4 次 ctest 依前幾輪的耗時把最慢的測試排在最前面，一開場 4 個 submodule／git 重操作同時跑，所以超時。
+  - `EventLog` 在 `tests/capi/` 的 35 個檔案裡各自複製一份，`waitFor` 都寫死 10 秒，只有 `CancelOperationApiTest` 是 30 秒。用 md5 比對共有 19 種寫法，差異包括：`clear()`、`payloadsOfType()`、`snapshot()`、`hook`、只存 type 的版本、`waitForSquash` 和 `waitForReady` 這類專用 wait，以及註解和換行。
+  - 使用者裁定：合併成共用 helper，但「之後別輪再做」；ctest `-j 4` 先拿掉，等 helper 那一輪再開。已從分支移除該 commit，原 commit 保留在本機分支 `ctest-j4-backup`。
+- `flutter test`：package:test 預設用一半核心（test_core-0.6.18 `values.dart:14`），4 vCPU 的 runner 只同時跑 2 個。本機量：預設 333 / 307 s，`-j 4` 217 / 211 s，4576 個全過。`ci.yml` 純 Dart 那一步改成 `flutter test -j 4`。real library 那一步只有兩個檔案、共用同一個 log 目錄，不改。
+- device 層（`integration_test/`）不能平行：flutter_tools 在 integration test 一律把 jobs 設成 1（`commands/test.dart:538-548`）。
+
 ## Result
 
 - 本機驗收（這台 ARM64 機器，MSI 取自 probe 的 artifact）：
@@ -55,3 +68,5 @@
   - 依 P3/P4 預設處理，兩個都只記錄。
 - 還沒驗證：release.yml 的 YAML 沒有在本機驗證；arm64 這一路要等下一次 release 才會真的跑。下一次 release 後，要確認 assets 和 `sha256sums.txt` 裡有 `-windows-arm64.msi`，並在這台機器上跑 `update_check_flow_test.dart`。
 - 沒有開 issue。
+
+- 測試平行化：只有 `flutter test -j 4` 進這個 PR，本機 1.5 倍。ctest 維持循序，留給 EventLog 共用 helper 那一輪，到時候用 `-j 4` 連跑數次確認不再超時，再把 `"jobs": 4` 加回 `tbase`。

@@ -77,29 +77,35 @@ void main() {
 
   setUp(() => staged = <({bool staged, int hunk, List<int> lines})>[]);
 
-  Future<void> pumpPane(WidgetTester tester) => pumpGbmWidget(
-    tester,
-    child: Center(
-      child: SizedBox(
-        width: _paneSize.width,
-        height: _paneSize.height,
-        child: WorkingCopyDiffPane(
-          displayPath: 'lib/a.dart',
-          unstagedFile: _tallWideFile(),
-          stagedFile: null,
-          unstagedLoading: false,
-          stagedLoading: false,
-          // Off is the shipped default, and it is the only value that builds
-          // the scrollers this test exists to compete with.
-          softWrap: false,
-          onStageScope: (bool s, int h, List<int> l) =>
-              staged.add((staged: s, hunk: h, lines: l)),
-          onDiscardScope: (int h, List<int> l) {},
-          onTemporaryScopeChanged: (void Function()? s) {},
+  Future<void> pumpPane(WidgetTester tester) async {
+    await pumpGbmWidget(
+      tester,
+      child: Center(
+        child: SizedBox(
+          width: _paneSize.width,
+          height: _paneSize.height,
+          child: WorkingCopyDiffPane(
+            displayPath: 'lib/a.dart',
+            unstagedFile: _tallWideFile(),
+            stagedFile: null,
+            unstagedLoading: false,
+            stagedLoading: false,
+            // Off is the shipped default, and it is the only value that builds
+            // the scrollers this test exists to compete with.
+            softWrap: false,
+            onStageScope: (bool s, int h, List<int> l) =>
+                staged.add((staged: s, hunk: h, lines: l)),
+            onDiscardScope: (int h, List<int> l) {},
+            onTemporaryScopeChanged: (void Function()? s) {},
+          ),
         ),
       ),
-    ),
-  );
+    );
+    // Code wider than the pane nests the selection containers four deep, and
+    // the deepest registers a frame after mount; a press in the mount frame
+    // reaches nothing (`scoped_diff_view_scrolled_drag_test.dart`'s `pump`).
+    await tester.pump();
+  }
 
   /// The `SelectableRegion` drag idiom from `scoped_diff_view_test.dart`,
   /// anchored on the text's left edge rather than its box centre for the same

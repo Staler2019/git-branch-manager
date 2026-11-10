@@ -155,25 +155,35 @@ void main() {
     double contentWidth = 0,
     List<DiffFillRow>? fill,
     double width = 500,
-  }) => pumpGbmWidget(
-    tester,
-    child: Align(
-      alignment: Alignment.topLeft,
-      child: SizedBox(
-        width: width,
-        height: 300,
-        child: ScopedDiffView(
-          softWrap: false,
-          verticalController: vertical,
-          contentWidth: contentWidth,
-          fill: fill,
-          onTemporaryScopeChanged: (void Function()? s) => submit = s,
-          sources:
-              sources ?? <ScopedDiffSource>[unstagedSource(file ?? _file())],
+  }) async {
+    await pumpGbmWidget(
+      tester,
+      child: Align(
+        alignment: Alignment.topLeft,
+        child: SizedBox(
+          width: width,
+          height: 300,
+          child: ScopedDiffView(
+            softWrap: false,
+            verticalController: vertical,
+            contentWidth: contentWidth,
+            fill: fill,
+            onTemporaryScopeChanged: (void Function()? s) => submit = s,
+            sources:
+                sources ?? <ScopedDiffSource>[unstagedSource(file ?? _file())],
+          ),
         ),
       ),
-    ),
-  );
+    );
+    // With code wider than the view, the selection containers nest four
+    // deep (region, sideways scroller, SelectionEdgeScroll, list), and the
+    // framework registers the deepest one a frame after mount
+    // (`MultiSelectableSelectionContainerDelegate._scheduleSelectableUpdate`:
+    // a post-frame callback scheduled from a microtask lands on the next
+    // frame). A press in the mount frame itself reaches nothing; no user is
+    // that fast, a test is.
+    await tester.pump();
+  }
 
   Rect viewport(WidgetTester tester) =>
       tester.getRect(find.byType(ScopedDiffView).first);

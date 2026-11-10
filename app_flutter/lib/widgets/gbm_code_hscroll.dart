@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:gbm_flutter/widgets/selection_edge_scroll.dart';
 
 /// One horizontal scroll region shared by every code row beneath it.
 ///
@@ -154,7 +155,16 @@ class _GbmCodeHScrollState extends State<GbmCodeHScroll> {
           controller: needsHorizontal ? _horizontal : null,
           backdrop: widget.backdrop,
           codeClipWidth: widget.codeClipWidth,
-          child: widget.child,
+          // Directly around the vertical list, so its box is exactly that
+          // list's viewport. Outside the sideways scroller works as well
+          // (measured: the same tests pass there); what does not work is a
+          // press in the mount frame with code wider than the view, which
+          // nests the selection containers four deep -- see
+          // `selection_edge_scroll_test.dart`'s `pump`.
+          child: SelectionEdgeScroll(
+            controller: widget.verticalController,
+            child: widget.child,
+          ),
         );
 
         if (needsHorizontal) {

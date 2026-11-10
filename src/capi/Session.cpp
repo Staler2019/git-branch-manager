@@ -3,6 +3,7 @@
 #include "capi/CloneJob.h"
 #include "capi/JsonCodec.h"
 #include "capi/JsonWriter.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/discovery/RepoClassifier.h"
 #include "core/git/AskpassHelper.h"
@@ -16,6 +17,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <mutex>
+#include <stdexcept>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -24,11 +27,12 @@ namespace gbm::capi {
 namespace {
 
 /// Runs a callback on every exit path out of a scope, including the early
-/// returns a lambda body accumulates. Local to this file because the one
-/// caller (Session::dispatchRefresh) is the only place in capi where missing
-/// a terminal path is silently fatal rather than merely wrong: an unreported
-/// refresh leaves RefreshCoalescer stuck in `running_` and every later
-/// request folds into a batch nothing will ever drive.
+/// returns a lambda body accumulates. Local to this file because its one
+/// caller, postRead()'s onAlways, serves the one place in capi where missing
+/// a terminal path is silently fatal rather than merely wrong
+/// (Session::dispatchRefresh): an unreported refresh leaves RefreshCoalescer
+/// stuck in `running_` and every later request folds into a batch nothing
+/// will ever drive.
 class ScopeExit {
 public:
     explicit ScopeExit(std::function<void()> onExit) : onExit_(std::move(onExit)) {}
@@ -89,6 +93,88 @@ GitResult<GitInstallation>& cachedGitInstallation() {
     return cached;
 }
 
+// The reply payloads a read builds on its ordinary path and again in its
+// postRead() failure reply, so the two cannot drift apart: the caller waits
+// on the reply by a key (requestId, destPath, source, path) that
+// GBM_EVENT_ERROR_OCCURRED does not carry.
+
+std::string messagePayload(const std::string& message, const GitError* error = nullptr) {
+    std::string payload = "{\"message\":";
+    jsonAppendEscaped(payload, message);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string squashMessagePayload(const std::string& source,
+                                 const std::string& headOid,
+                                 const std::string& sourceOid,
+                                 const std::string& message,
+                                 const GitError* error) {
+    std::string payload = "{\"source\":";
+    jsonAppendEscaped(payload, source);
+    payload += ",\"headOid\":";
+    jsonAppendEscaped(payload, headOid);
+    payload += ",\"sourceOid\":";
+    jsonAppendEscaped(payload, sourceOid);
+    payload += ",\"message\":";
+    jsonAppendEscaped(payload, message);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string workingTreeContentPayload(const std::string& path,
+                                      const std::string& content,
+                                      bool editable) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"content\":";
+    jsonAppendEscaped(payload, content);
+    payload += ",\"editable\":";
+    jsonAppendBool(payload, editable);
+    payload += '}';
+    return payload;
+}
+
+std::string fileAtRevisionPayload(const std::string& revision,
+                                  const std::string& path,
+                                  const std::string& destPath,
+                                  const GitError* error) {
+    std::string payload = "{\"revision\":";
+    jsonAppendEscaped(payload, revision);
+    payload += ",\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"destPath\":";
+    jsonAppendEscaped(payload, destPath);
+    payload += ",\"succeeded\":";
+    jsonAppendBool(payload, error == nullptr);
+    if (error != nullptr) {
+        payload += ",\"error\":";
+        payload += toJson(*error);
+    }
+    payload += '}';
+    return payload;
+}
+
+std::string branchDeletionProbePayload(std::uint64_t requestId,
+                                       const std::vector<BranchDeletionProbe>& probes,
+                                       const GitError* error) {
+    std::string payload = "{\"requestId\":";
+    jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += ",\"probes\":";
+    payload += error != nullptr ? std::string("[]") : toJson(probes);
+    payload += '}';
+    return payload;
+}
 }  // namespace
 
 GitResult<GitInstallation> sharedGitInstallation() {
@@ -126,6 +212,77 @@ void resetSharedGitInstallationForTest() {
 ThreadPool& sharedReadPool() {
     static ThreadPool pool("gbm_capi_read", ThreadPool::defaultThreadCount());
     return pool;
+}
+
+#if defined(GBM_CAPI_TEST_EXPORTS)
+namespace {
+
+std::mutex& armedReadFailureMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::string& armedReadFailure() {
+    static std::string where;
+    return where;
+}
+
+/// Compare-and-clear, so a name armed once fails exactly one read posted
+/// under it and no read posted under any other name.
+void throwIfArmedForTest(const std::string& where) {
+    {
+        std::lock_guard<std::mutex> lock(armedReadFailureMutex());
+        if (where.empty() || armedReadFailure() != where) {
+            return;
+        }
+        armedReadFailure().clear();
+    }
+    throw std::runtime_error("injected read failure");
+}
+
+}  // namespace
+
+void failReadForTest(std::string where) {
+    std::lock_guard<std::mutex> lock(armedReadFailureMutex());
+    armedReadFailure() = std::move(where);
+}
+#endif
+
+void postRead(ReadLane lane,
+              std::string where,
+              std::function<void()> task,
+              std::function<void(const GitError&)> onFailure,
+              std::function<void()> onAlways) {
+    auto run = [where = std::move(where),
+                task = std::move(task),
+                onFailure = std::move(onFailure),
+                onAlways = std::move(onAlways)]() {
+        // First, so it covers a throw before `task` starts -- the injected one
+        // below, which is why dispatchRefresh's terminal-path guard lives here.
+        const ScopeExit always(onAlways);
+        try {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+            throwIfArmedForTest(where);
+#endif
+            task();
+        } catch (...) {
+            reportCurrentException(where);
+            // Same shape as OperationRunner's own catch, so Dart reads it like
+            // any other failed git call.
+            try {
+                onFailure(GitError(GitError::Code::Unknown,
+                                   "The read failed unexpectedly",
+                                   describeCurrentException()));
+            } catch (...) {
+                reportCurrentException("postRead failure reply");
+            }
+        }
+    };
+    if (lane == ReadLane::Front) {
+        sharedReadPool().postFront(std::move(run));
+    } else {
+        sharedReadPool().post(std::move(run));
+    }
 }
 
 std::unique_ptr<Session> Session::open(std::string workDir,
@@ -368,6 +525,11 @@ void Session::finishRefresh(RefreshCoalescer::Generation generation) {
     }
 }
 
+std::function<void(const GitError&)> Session::errorReply() {
+    return
+        [this](const GitError& error) { callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error)); };
+}
+
 bool Session::claimPublishLocked(RefreshCoalescer::Generation generation) {
     if (generation < publishedGeneration_) {
         return false;
@@ -379,98 +541,102 @@ bool Session::claimPublishLocked(RefreshCoalescer::Generation generation) {
 void Session::dispatchRefresh(RefreshCoalescer::Generation generation,
                               CancellationToken token,
                               std::uint64_t coversRequest) {
-    sharedReadPool().post([this, generation, token, coversRequest]() {
+    postRead(
+        ReadLane::Back,
+        "Session::dispatchRefresh",
+        [this, generation, token, coversRequest]() {
+            const GitResult<RefSnapshotPtr> refsResult = refStore_->load(token);
+            if (!refsResult) {
+                if (!token.isCancelled()) {
+                    callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(refsResult.error()));
+                }
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(graphMutex_);
+                if (!claimPublishLocked(generation)) {
+                    return;
+                }
+                refs_ = refsResult.value();
+            }
+            callbacks_.emit(GBM_EVENT_REFS_UPDATED,
+                            "{\"coversRequest\":" + std::to_string(coversRequest) + "}");
+
+            HistoryQuery query;
+            query.seedRefs = RefStore::historySeedRefs(*refsResult.value());
+            {
+                std::lock_guard<std::mutex> lock(graphMutex_);
+                // Only refs that still exist. rev-list aborts the *entire* walk
+                // with "unknown revision" on one stale name, so a branch deleted
+                // or pruned while the filter was set would blank the whole graph
+                // rather than just stop narrowing it. Dropping every stale name
+                // can empty the list, which falls back to the unfiltered walk --
+                // the same thing the user sees after clearing the filter.
+                for (const std::string& ref : historyIncludeRefs_) {
+                    if (RefStore::refExists(*refsResult.value(), ref)) {
+                        query.includeRefs.push_back(ref);
+                    }
+                }
+                query.firstParentOnly = historyFirstParentOnly_;
+                query.noMerges = historyNoMerges_;
+            }
+
+            // Lane 0 belongs to HEAD's branch (spec P02's 「目前開發中的分支永遠佔
+            // lane 0」).
+            //
+            // **Only for an unfiltered walk.** A narrowed one need not contain
+            // HEAD's tip at all, and a reservation nothing claims leaves the
+            // leftmost column blank for the whole graph. `includeRefs` is checked
+            // after the loop above, because a filter whose refs have all gone stale
+            // is dropped there and falls back to the unfiltered walk -- reading the
+            // member instead would reserve nothing on exactly that path.
+            if (query.includeRefs.empty()) {
+                // Deliberately re-read HEAD here rather than reusing
+                // refsResult's head.target: that snapshot was captured *before*
+                // refStore_->load()'s own for-each-ref call, and the walk below
+                // spawns a third, independent process that re-resolves
+                // historySeedRefs()'s HEAD *name* fresh, at whatever moment it
+                // actually runs. Anything that moves the branch tip in that
+                // window -- another tool touching this repository, e.g. -- left
+                // this reservation permanently unclaimed by the row that really
+                // is current, so lane 0 stayed blank and History's
+                // uncommitted-row connector never drew. Process creation costs
+                // roughly two orders of magnitude more on Windows than on Linux
+                // (docs/reports/windows-process-cost.md), which is why that
+                // window matters there in particular. This costs one extra git
+                // process on every unfiltered refresh -- the same cost
+                // readHead()'s single-invocation merge was written to avoid --
+                // but a stale trunk-tip identity is a correctness bug, not a
+                // rounding error.
+                //
+                // A failure of this second read must not cost the whole history
+                // walk over a connector-only concern: refs_ and REFS_UPDATED
+                // (already published above) keep today's snapshot regardless, so
+                // falling back to its target here is free.
+                const GitResult<HeadInfo> freshHead = refStore_->readHead(token);
+                query.trunkTip = freshHead ? freshHead->target : refsResult.value()->head.target;
+            }
+
+            const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
+                query,
+                [this, generation](GraphSnapshotPtr chunk) {
+                    publishGraph(std::move(chunk), generation);
+                },
+                token);
+
+            if (!walkResult && !token.isCancelled()) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(walkResult.error()));
+            }
+        },
+        errorReply(),
         // onFinished() must run on *every* terminal path: miss one and the
         // coalescer stays running_ forever, every later request folds into a
         // dirty bit nothing will ever drive, and refreshes silently stop.
-        // The body below has three early returns, so this is a scope guard
-        // rather than a call per path -- the same reasoning that put an
-        // onAlways hook on submitOperation().
-        const ScopeExit finish([this, generation]() { finishRefresh(generation); });
-
-        const GitResult<RefSnapshotPtr> refsResult = refStore_->load(token);
-        if (!refsResult) {
-            if (!token.isCancelled()) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(refsResult.error()));
-            }
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(graphMutex_);
-            if (!claimPublishLocked(generation)) {
-                return;
-            }
-            refs_ = refsResult.value();
-        }
-        callbacks_.emit(GBM_EVENT_REFS_UPDATED,
-                        "{\"coversRequest\":" + std::to_string(coversRequest) + "}");
-
-        HistoryQuery query;
-        query.seedRefs = RefStore::historySeedRefs(*refsResult.value());
-        {
-            std::lock_guard<std::mutex> lock(graphMutex_);
-            // Only refs that still exist. rev-list aborts the *entire* walk
-            // with "unknown revision" on one stale name, so a branch deleted
-            // or pruned while the filter was set would blank the whole graph
-            // rather than just stop narrowing it. Dropping every stale name
-            // can empty the list, which falls back to the unfiltered walk --
-            // the same thing the user sees after clearing the filter.
-            for (const std::string& ref : historyIncludeRefs_) {
-                if (RefStore::refExists(*refsResult.value(), ref)) {
-                    query.includeRefs.push_back(ref);
-                }
-            }
-            query.firstParentOnly = historyFirstParentOnly_;
-            query.noMerges = historyNoMerges_;
-        }
-
-        // Lane 0 belongs to HEAD's branch (spec P02's 「目前開發中的分支永遠佔
-        // lane 0」).
-        //
-        // **Only for an unfiltered walk.** A narrowed one need not contain
-        // HEAD's tip at all, and a reservation nothing claims leaves the
-        // leftmost column blank for the whole graph. `includeRefs` is checked
-        // after the loop above, because a filter whose refs have all gone stale
-        // is dropped there and falls back to the unfiltered walk -- reading the
-        // member instead would reserve nothing on exactly that path.
-        if (query.includeRefs.empty()) {
-            // Deliberately re-read HEAD here rather than reusing
-            // refsResult's head.target: that snapshot was captured *before*
-            // refStore_->load()'s own for-each-ref call, and the walk below
-            // spawns a third, independent process that re-resolves
-            // historySeedRefs()'s HEAD *name* fresh, at whatever moment it
-            // actually runs. Anything that moves the branch tip in that
-            // window -- another tool touching this repository, e.g. -- left
-            // this reservation permanently unclaimed by the row that really
-            // is current, so lane 0 stayed blank and History's
-            // uncommitted-row connector never drew. Process creation costs
-            // roughly two orders of magnitude more on Windows than on Linux
-            // (docs/reports/windows-process-cost.md), which is why that
-            // window matters there in particular. This costs one extra git
-            // process on every unfiltered refresh -- the same cost
-            // readHead()'s single-invocation merge was written to avoid --
-            // but a stale trunk-tip identity is a correctness bug, not a
-            // rounding error.
-            //
-            // A failure of this second read must not cost the whole history
-            // walk over a connector-only concern: refs_ and REFS_UPDATED
-            // (already published above) keep today's snapshot regardless, so
-            // falling back to its target here is free.
-            const GitResult<HeadInfo> freshHead = refStore_->readHead(token);
-            query.trunkTip = freshHead ? freshHead->target : refsResult.value()->head.target;
-        }
-
-        const GitResult<GraphSnapshotPtr> walkResult = history_->walk(
-            query,
-            [this, generation](GraphSnapshotPtr chunk) {
-                publishGraph(std::move(chunk), generation);
-            },
-            token);
-
-        if (!walkResult && !token.isCancelled()) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(walkResult.error()));
-        }
-    });
+        // postRead's onAlways rather than a guard inside the body, which has
+        // three early returns and is not even entered when a read fails before
+        // it starts -- the same reasoning that put an onAlways hook on
+        // submitOperation().
+        [this, generation]() { finishRefresh(generation); });
 }
 
 void Session::setHistoryFilter(std::vector<std::string> includeRefs,
@@ -599,19 +765,23 @@ void Session::maybeRefreshIndex() {
 
 void Session::refreshWorkingCopy() {
     maybeRefreshIndex();
-    sharedReadPool().post([this]() {
-        const GitResult<WorkingCopyStatusPtr> result =
-            workingCopyStatusReader_->read(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(workingCopyMutex_);
-            workingCopyStatus_ = result.value();
-        }
-        callbacks_.emitEmpty(GBM_EVENT_WORKING_COPY_STATUS_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshWorkingCopy",
+        [this]() {
+            const GitResult<WorkingCopyStatusPtr> result =
+                workingCopyStatusReader_->read(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(workingCopyMutex_);
+                workingCopyStatus_ = result.value();
+            }
+            callbacks_.emitEmpty(GBM_EVENT_WORKING_COPY_STATUS_UPDATED);
+        },
+        errorReply());
 }
 
 WorkingCopyStatusPtr Session::currentWorkingCopyStatus() const {
@@ -623,21 +793,31 @@ void Session::requestWorkingCopyDiff(std::string path, std::string oldPath, bool
     // postFront, like requestBlame(): the user is looking at this exact file
     // right now, and the diff pane must not sit behind a refreshRepoStatus()
     // sweep's other members -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().postFront(
+    postRead(
+        ReadLane::Front,
+        "Session::requestWorkingCopyDiff",
         [this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
             emitWorkingCopyDiff(
                 path, oldPath, staged, DiffOptions{}, GBM_EVENT_WORKING_COPY_DIFF_READY);
-        });
+        },
+        errorReply());
 }
 
 void Session::requestWorkingCopyFullDiff(std::string path, std::string oldPath, bool staged) {
     // post, not postFront: this only fills the rows between the -U3 cards the
     // user is already looking at, so it must not take an interactive read's
     // place in the queue -- [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().post([this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
-        emitWorkingCopyDiff(
-            path, oldPath, staged, DiffOptions::fullFile(), GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestWorkingCopyFullDiff",
+        [this, path = std::move(path), oldPath = std::move(oldPath), staged]() {
+            emitWorkingCopyDiff(path,
+                                oldPath,
+                                staged,
+                                DiffOptions::fullFile(),
+                                GBM_EVENT_WORKING_COPY_FULL_DIFF_READY);
+        },
+        errorReply());
 }
 
 void Session::emitWorkingCopyDiff(const std::string& path,
@@ -937,60 +1117,73 @@ void Session::resolveConflict(ResolveConflictRequest request) {
 }
 
 void Session::requestOriginalOperationMessage() {
-    sharedReadPool().postFront([this]() {
-        const std::string message = readOriginalOperationMessage(paths_);
-        std::string payload = "{\"message\":";
-        jsonAppendEscaped(payload, message);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestOriginalOperationMessage",
+        [this]() {
+            callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY,
+                            messagePayload(readOriginalOperationMessage(paths_)));
+        },
+        // Its only shape: no message is what the caller already handles when
+        // there is no operation in progress.
+        [this](const GitError&) {
+            callbacks_.emit(GBM_EVENT_ORIGINAL_OPERATION_MESSAGE_READY, messagePayload(""));
+        });
 }
 
 void Session::requestSquashMessage(std::string source) {
     // postFront: the Merge dialog is open and waiting on this
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this, source = std::move(source)]() {
-        const GitResult<SquashMessagePreview> result =
-            squashMessageStore_->preview(source, readCancel_.token());
-        std::string payload = "{\"source\":";
-        jsonAppendEscaped(payload, source);
-        payload += ",\"headOid\":";
-        jsonAppendEscaped(payload, result ? result->headOid.hex() : std::string());
-        payload += ",\"sourceOid\":";
-        jsonAppendEscaped(payload, result ? result->sourceOid.hex() : std::string());
-        payload += ",\"message\":";
-        jsonAppendEscaped(payload, result ? result->message : std::string());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-            // Also the ordinary error event (使用者裁定 2026-10-09「抓不到
-            // capi應該跳錯誤」), so the reason reaches the window's banner and
-            // the Log like any other failure. First, so it is already
-            // recorded when READY ends the dialog's wait.
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY, payload);
-    });
+    auto fail = [this](const std::string& squashSource, const GitError& error) {
+        // Also the ordinary error event (使用者裁定 2026-10-09「抓不到
+        // capi應該跳錯誤」), so the reason reaches the window's banner and
+        // the Log like any other failure. First, so it is already
+        // recorded when READY ends the dialog's wait.
+        callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+        callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY,
+                        squashMessagePayload(squashSource, "", "", "", &error));
+    };
+    postRead(
+        ReadLane::Front,
+        "Session::requestSquashMessage",
+        [this, source, fail]() {
+            const GitResult<SquashMessagePreview> result =
+                squashMessageStore_->preview(source, readCancel_.token());
+            if (!result) {
+                fail(source, result.error());
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_SQUASH_MESSAGE_READY,
+                            squashMessagePayload(source,
+                                                 result->headOid.hex(),
+                                                 result->sourceOid.hex(),
+                                                 result->message,
+                                                 nullptr));
+        },
+        [source, fail](const GitError& error) { fail(source, error); });
 }
 
 void Session::requestPreparedMessage() {
     // postFront: the Working Copy box is waiting on this to fill itself
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this]() {
-        const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
-        std::string payload = "{\"message\":";
-        jsonAppendEscaped(payload, result ? *result : std::string());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-            // First, like requestSquashMessage(): the reason reaches the
-            // window's banner and the Log before READY ends the wait.
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, payload);
-    });
+    auto fail = [this](const GitError& error) {
+        // First, like requestSquashMessage(): the reason reaches the
+        // window's banner and the Log before READY ends the wait.
+        callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+        callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, messagePayload("", &error));
+    };
+    postRead(
+        ReadLane::Front,
+        "Session::requestPreparedMessage",
+        [this, fail]() {
+            const GitResult<std::string> result = preparedMessageStore_->read(readCancel_.token());
+            if (!result) {
+                fail(result.error());
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_PREPARED_MESSAGE_READY, messagePayload(*result));
+        },
+        fail);
 }
 
 void Session::requestWorkingTreeContent(std::string path) {
@@ -998,90 +1191,90 @@ void Session::requestWorkingTreeContent(std::string path) {
     // window's own file read, and it must not sit behind a
     // refreshRepoStatus() sweep's other members either --
     // [CPP-interactive-reads-go-to-the-front].
-    sharedReadPool().postFront([this, path = std::move(path)]() {
-        // Above this, a conflicted file is treated the same as binary: shown
-        // as "not editable" rather than loaded whole into the resolve
-        // editor -- mirrors RepositorySession::requestWorkingTreeContent's
-        // own cap exactly.
-        constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
-        const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
-        const std::optional<std::string> raw =
-            fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
+    postRead(
+        ReadLane::Front,
+        "Session::requestWorkingTreeContent",
+        [this, path]() {
+            // Above this, a conflicted file is treated the same as binary: shown
+            // as "not editable" rather than loaded whole into the resolve
+            // editor -- mirrors RepositorySession::requestWorkingTreeContent's
+            // own cap exactly.
+            constexpr std::size_t kMaxEditableWorkingTreeBytes = 8u * 1024u * 1024u;
+            const std::filesystem::path target = paths_.workDir() / fsutil::pathFromUtf8(path);
+            const std::optional<std::string> raw =
+                fsutil::readSmallFile(target, kMaxEditableWorkingTreeBytes);
 
-        bool editable = false;
-        std::string content;
-        if (raw.has_value()) {
-            const TextTraits traits = detectTextTraits(*raw);
-            // A conflicted path that fails this is shown read-only instead
-            // of risking silent corruption from a lossy UTF-8 decode --
-            // detectTextTraits already folds an embedded NUL into
-            // EncodingKind::Binary, matching RepositorySession's own check.
-            editable =
-                traits.encoding == EncodingKind::Utf8 || traits.encoding == EncodingKind::Utf8Bom;
-            if (editable) {
-                content = *raw;
+            bool editable = false;
+            std::string content;
+            if (raw.has_value()) {
+                const TextTraits traits = detectTextTraits(*raw);
+                // A conflicted path that fails this is shown read-only instead
+                // of risking silent corruption from a lossy UTF-8 decode --
+                // detectTextTraits already folds an embedded NUL into
+                // EncodingKind::Binary, matching RepositorySession's own check.
+                editable = traits.encoding == EncodingKind::Utf8 ||
+                           traits.encoding == EncodingKind::Utf8Bom;
+                if (editable) {
+                    content = *raw;
+                }
             }
-        }
 
-        std::string payload = "{\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"content\":";
-        jsonAppendEscaped(payload, content);
-        payload += ",\"editable\":";
-        jsonAppendBool(payload, editable);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY, payload);
-    });
+            callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY,
+                            workingTreeContentPayload(path, content, editable));
+        },
+        // What an unreadable file already gets: shown, not editable.
+        [this, path](const GitError&) {
+            callbacks_.emit(GBM_EVENT_WORKING_TREE_CONTENT_READY,
+                            workingTreeContentPayload(path, "", false));
+        });
 }
 
 void Session::exportFileAtRevision(std::string revision, std::string path, std::string destPath) {
-    sharedReadPool().post([this,
-                           revision = std::move(revision),
-                           path = std::move(path),
-                           destPath = std::move(destPath)]() {
-        FileAtRevisionRequest request;
-        request.revision = revision;
-        request.path = path;
-        request.destination = fsutil::pathFromUtf8(destPath);
-        const GitResult<std::uint64_t> result =
-            blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
+    postRead(
+        ReadLane::Back,
+        "Session::exportFileAtRevision",
+        [this, revision, path, destPath]() {
+            FileAtRevisionRequest request;
+            request.revision = revision;
+            request.path = path;
+            request.destination = fsutil::pathFromUtf8(destPath);
+            const GitResult<std::uint64_t> result =
+                blobStore_->exportFileAtRevision(std::move(request), readCancel_.token());
 
-        // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
-        // caller is waiting on this specific export to decide whether to
-        // open the file or tell the user it was saved, and a separate error
-        // event carries nothing to match it against.
-        std::string payload = "{\"revision\":";
-        jsonAppendEscaped(payload, revision);
-        payload += ",\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"destPath\":";
-        jsonAppendEscaped(payload, destPath);
-        payload += ",\"succeeded\":";
-        jsonAppendBool(payload, result.hasValue());
-        if (!result) {
-            payload += ",\"error\":";
-            payload += toJson(result.error());
-        }
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED, payload);
-    });
+            // Reported in the reply rather than as GBM_EVENT_ERROR_OCCURRED: the
+            // caller is waiting on this specific export to decide whether to
+            // open the file or tell the user it was saved, and a separate error
+            // event carries nothing to match it against.
+            callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED,
+                            fileAtRevisionPayload(
+                                revision, path, destPath, result ? nullptr : &result.error()));
+        },
+        [this, revision, path, destPath](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_FILE_AT_REVISION_EXPORTED,
+                            fileAtRevisionPayload(revision, path, destPath, &error));
+        });
 }
 
 // --- Stashes -------------------------------------------------------------
 
 void Session::refreshStashes() {
-    sharedReadPool().post([this]() {
-        const GitResult<std::vector<StashEntry>> result = stashStore_->list(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            stashes_ = std::make_shared<const std::vector<StashEntry>>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_STASHES_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshStashes",
+        [this]() {
+            const GitResult<std::vector<StashEntry>> result =
+                stashStore_->list(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                stashes_ = std::make_shared<const std::vector<StashEntry>>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_STASHES_UPDATED);
+        },
+        errorReply());
 }
 
 StashListPtr Session::currentStashes() const {
@@ -1122,20 +1315,24 @@ void Session::branchFromStash(StashBranchRequest request) {
 }
 
 void Session::requestStashDiff(int index) {
-    sharedReadPool().post([this, index]() {
-        const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->stashDiff(index, /*includeUntracked=*/true, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"index\":";
-        jsonAppendInt(payload, index);
-        payload += ",\"diff\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, payload);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestStashDiff",
+        [this, index]() {
+            const GitResult<DiffService::ParsedDiffPtr> result = diffs_->stashDiff(
+                index, /*includeUntracked=*/true, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"index\":";
+            jsonAppendInt(payload, index);
+            payload += ",\"diff\":";
+            payload += toJson(*result.value());
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, payload);
+        },
+        errorReply());
 }
 
 // --- Tags ------------------------------------------------------------------
@@ -1165,39 +1362,47 @@ void Session::pushTag(PushTagRequest request) {
 // --- Worktrees ---------------------------------------------------------
 
 void Session::refreshWorktrees() {
-    sharedReadPool().post([this]() {
-        const GitResult<std::vector<WorktreeInfo>> result =
-            worktreeStore_->list(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshWorktrees",
+        [this]() {
+            const GitResult<std::vector<WorktreeInfo>> result =
+                worktreeStore_->list(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
+        },
+        errorReply());
 }
 
 void Session::requestWorktreePendingCounts() {
-    sharedReadPool().post([this]() {
-        GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        // Re-listed rather than counted onto the published snapshot: that
-        // snapshot may be several operations old, and attaching counts to a
-        // path that has since been removed would publish a number for a row
-        // that no longer exists.
-        attachPendingCounts(*runner_, result.value(), readCancel_.token());
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestWorktreePendingCounts",
+        [this]() {
+            GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            // Re-listed rather than counted onto the published snapshot: that
+            // snapshot may be several operations old, and attaching counts to a
+            // path that has since been removed would publish a number for a row
+            // that no longer exists.
+            attachPendingCounts(*runner_, result.value(), readCancel_.token());
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                worktrees_ = std::make_shared<const std::vector<WorktreeInfo>>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
+        },
+        errorReply());
 }
 
 WorktreeListPtr Session::currentWorktrees() const {
@@ -1244,18 +1449,23 @@ void Session::unlockWorktree(UnlockWorktreeRequest request) {
 // --- Remotes -----------------------------------------------------------
 
 void Session::refreshRemotes() {
-    sharedReadPool().post([this]() {
-        const GitResult<std::vector<RemoteInfo>> result = remoteStore_->list(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            remotes_ = std::make_shared<const std::vector<RemoteInfo>>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_REMOTES_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshRemotes",
+        [this]() {
+            const GitResult<std::vector<RemoteInfo>> result =
+                remoteStore_->list(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                remotes_ = std::make_shared<const std::vector<RemoteInfo>>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_REMOTES_UPDATED);
+        },
+        errorReply());
 }
 
 RemoteListPtr Session::currentRemotes() const {
@@ -1310,38 +1520,54 @@ void Session::pushChanges(PushRequest request) {
 }
 
 void Session::requestRemotePrunePreview(std::string remoteName) {
-    sharedReadPool().postFront([this, remoteName = std::move(remoteName)]() {
-        const GitResult<std::vector<RemotePrunePreviewEntry>> result =
-            remoteStore_->prunePreview(remoteName, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"remote\":";
-        jsonAppendEscaped(payload, remoteName);
-        payload += ",\"refs\":";
-        payload += toJson(result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestRemotePrunePreview",
+        // Copied, not moved: the failure reply below needs the name too, and
+        // the order these two arguments are built in is unspecified.
+        [this, remoteName]() {
+            const GitResult<std::vector<RemotePrunePreviewEntry>> result =
+                remoteStore_->prunePreview(remoteName, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"remote\":";
+            jsonAppendEscaped(payload, remoteName);
+            payload += ",\"refs\":";
+            payload += toJson(result.value());
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_REMOTE_PRUNE_PREVIEW_READY, payload);
+        },
+        [this, remoteName](const GitError& thrown) {
+            // Dart tells a fetch-triggered preview's failure from the Prune
+            // dialog's by this argv alone (_isSuppressedAutoPrunePreviewError),
+            // so a failure that never ran git still names the command it stood
+            // for -- RemoteOps.cpp's prunePreview arguments.
+            GitError error = thrown;
+            error.argv = {"git", "remote", "prune", remoteName, "--dry-run"};
+            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(error));
+        });
 }
 
 void Session::requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names) {
     // postFront: a delete dialog's button waits on this reply
     // ([CPP-interactive-reads-go-to-the-front]).
-    sharedReadPool().postFront([this, requestId, names = std::move(names)]() mutable {
-        BranchStore store(*runner_, paths_);
-        const GitResult<std::vector<BranchDeletionProbe>> result =
-            store.probeDeletion(std::move(names), readCancel_.token());
-        std::string payload = "{\"requestId\":";
-        jsonAppendInt(payload, static_cast<std::int64_t>(requestId));
-        payload += ",\"error\":";
-        payload += result ? std::string("null") : toJson(result.error());
-        payload += ",\"probes\":";
-        payload += result ? toJson(result.value()) : std::string("[]");
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestBranchDeletionProbe",
+        [this, requestId, names = std::move(names)]() mutable {
+            BranchStore store(*runner_, paths_);
+            const GitResult<std::vector<BranchDeletionProbe>> result =
+                store.probeDeletion(std::move(names), readCancel_.token());
+            callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY,
+                            result ? branchDeletionProbePayload(requestId, result.value(), nullptr)
+                                   : branchDeletionProbePayload(requestId, {}, &result.error()));
+        },
+        [this, requestId](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BRANCH_DELETION_PROBE_READY,
+                            branchDeletionProbePayload(requestId, {}, &error));
+        });
 }
 
 void Session::pruneRemote(PruneRemoteRequest request) {
@@ -1440,7 +1666,9 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
     // postFront, not post: a newer blame/file-history/line-history request
     // supersedes an older, still-queued one in interactive priority --
     // matches RepositorySession::requestBlame()'s use of readPool_.postFront.
-    sharedReadPool().postFront(
+    postRead(
+        ReadLane::Front,
+        "Session::requestBlame",
         [this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
             const GitResult<BlameResultPtr> result =
                 blameStore_->blame(path, revision, startLine, endLine, readCancel_.token());
@@ -1449,82 +1677,101 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
                 return;
             }
             callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
-        });
+        },
+        errorReply());
 }
 
 void Session::requestCommitMeta(std::vector<std::string> oids) {
     // postFront, like requestBlame(): a newer viewport (fast scroll) should
     // not wait behind a stale one still being answered.
-    sharedReadPool().postFront([this, oids = std::move(oids)]() {
-        std::vector<ObjectId> parsed;
-        parsed.reserve(oids.size());
-        for (const std::string& oid : oids) {
-            parsed.push_back(ObjectId::fromHex(oid));
-        }
-        const std::vector<CommitMeta> result = commitMetaStore_->read(parsed, readCancel_.token());
-        callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitMeta",
+        [this, oids = std::move(oids)]() {
+            std::vector<ObjectId> parsed;
+            parsed.reserve(oids.size());
+            for (const std::string& oid : oids) {
+                parsed.push_back(ObjectId::fromHex(oid));
+            }
+            const std::vector<CommitMeta> result =
+                commitMetaStore_->read(parsed, readCancel_.token());
+            callbacks_.emit(GBM_EVENT_COMMIT_META_READY, toJson(result));
+        },
+        // gbm_capi.h promises this always replies and never raises the error
+        // event: an unanswered oid is simply missing from the batch.
+        [this](const GitError&) { callbacks_.emit(GBM_EVENT_COMMIT_META_READY, "[]"); });
 }
 
 void Session::requestCommitFileCounts(std::vector<std::string> oids) {
     // postFront, like requestCommitMeta(): both answer the same viewport, and
     // a fast scroll should not leave the newest request behind a stale one.
-    sharedReadPool().postFront([this, oids = std::move(oids)]() {
-        std::vector<ObjectId> parsed;
-        parsed.reserve(oids.size());
-        for (const std::string& oid : oids) {
-            parsed.push_back(ObjectId::fromHex(oid));
-        }
-        const GitResult<std::vector<CommitFileCount>> result =
-            diffs_->commitFileCounts(parsed, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            // Deliberately not an error event. This backs a column that is off
-            // by default and shows a number; failing the whole session's error
-            // channel because one viewport could not be counted would be
-            // louder than the feature is important. The caller sees the
-            // absence instead, which is the same thing it must already handle
-            // for an individual unanswerable oid.
-            callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]");
-            return;
-        }
-        std::string payload = "[";
-        bool first = true;
-        for (const CommitFileCount& entry : *result) {
-            if (!first) {
-                payload += ',';
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitFileCounts",
+        [this, oids = std::move(oids)]() {
+            std::vector<ObjectId> parsed;
+            parsed.reserve(oids.size());
+            for (const std::string& oid : oids) {
+                parsed.push_back(ObjectId::fromHex(oid));
             }
-            first = false;
-            payload += "{\"oid\":";
-            jsonAppendEscaped(payload, entry.commit.hex());
-            payload += ",\"fileCount\":";
-            payload += std::to_string(entry.fileCount);
-            payload += '}';
-        }
-        payload += ']';
-        callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, payload);
-    });
+            const GitResult<std::vector<CommitFileCount>> result =
+                diffs_->commitFileCounts(parsed, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                // Deliberately not an error event. This backs a column that is off
+                // by default and shows a number; failing the whole session's error
+                // channel because one viewport could not be counted would be
+                // louder than the feature is important. The caller sees the
+                // absence instead, which is the same thing it must already handle
+                // for an individual unanswerable oid.
+                callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]");
+                return;
+            }
+            std::string payload = "[";
+            bool first = true;
+            for (const CommitFileCount& entry : *result) {
+                if (!first) {
+                    payload += ',';
+                }
+                first = false;
+                payload += "{\"oid\":";
+                jsonAppendEscaped(payload, entry.commit.hex());
+                payload += ",\"fileCount\":";
+                payload += std::to_string(entry.fileCount);
+                payload += '}';
+            }
+            payload += ']';
+            callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, payload);
+        },
+        // The same deliberate no-error shape as a failed count above.
+        [this](const GitError&) { callbacks_.emit(GBM_EVENT_COMMIT_FILE_COUNTS_READY, "[]"); });
 }
 
 void Session::requestCommitFiles(std::string oid) {
-    sharedReadPool().postFront([this, oid = std::move(oid)]() {
-        const ObjectId commitOid = ObjectId::fromHex(oid);
-        const GitResult<DiffService::ChangedFilesPtr> result =
-            diffs_->changedFiles(commitOid, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"oid\":";
-        jsonAppendEscaped(payload, oid);
-        payload += ",\"files\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMMIT_FILES_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitFiles",
+        [this, oid = std::move(oid)]() {
+            const ObjectId commitOid = ObjectId::fromHex(oid);
+            const GitResult<DiffService::ChangedFilesPtr> result =
+                diffs_->changedFiles(commitOid, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"oid\":";
+            jsonAppendEscaped(payload, oid);
+            payload += ",\"files\":";
+            payload += toJson(*result.value());
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMMIT_FILES_READY, payload);
+        },
+        errorReply());
 }
 
 void Session::requestCommitFileDiff(std::string oid, std::string path, std::string oldPath) {
-    sharedReadPool().postFront(
+    postRead(
+        ReadLane::Front,
+        "Session::requestCommitFileDiff",
         [this, oid = std::move(oid), path = std::move(path), oldPath = std::move(oldPath)]() {
             const ObjectId commitOid = ObjectId::fromHex(oid);
             const GitResult<DiffService::ParsedDiffPtr> result = diffs_->commitFileDiff(
@@ -1549,11 +1796,14 @@ void Session::requestCommitFileDiff(std::string oid, std::string path, std::stri
             payload += toJson(onlyRequested);
             payload += '}';
             callbacks_.emit(GBM_EVENT_COMMIT_FILE_DIFF_READY, payload);
-        });
+        },
+        errorReply());
 }
 
 void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool threeDot) {
-    sharedReadPool().postFront(
+    postRead(
+        ReadLane::Front,
+        "Session::requestCompareRefs",
         [this, leftRef = std::move(leftRef), rightRef = std::move(rightRef), threeDot]() {
             CompareRequest request;
             request.leftRef = leftRef;
@@ -1579,7 +1829,8 @@ void Session::requestCompareRefs(std::string leftRef, std::string rightRef, bool
             payload += toJson(result->files);
             payload += '}';
             callbacks_.emit(GBM_EVENT_COMPARE_READY, payload);
-        });
+        },
+        errorReply());
 }
 
 void Session::requestCompareFileDiff(std::string leftRef,
@@ -1587,69 +1838,80 @@ void Session::requestCompareFileDiff(std::string leftRef,
                                      bool threeDot,
                                      std::string path,
                                      std::string oldPath) {
-    sharedReadPool().postFront([this,
-                                leftRef = std::move(leftRef),
-                                rightRef = std::move(rightRef),
-                                threeDot,
-                                path = std::move(path),
-                                oldPath = std::move(oldPath)]() {
-        CompareFileDiffRequest request;
-        request.leftRef = leftRef;
-        request.rightRef = rightRef;
-        request.threeDot = threeDot;
-        request.path = path;
-        request.oldPath = oldPath;
-        GitResult<ParsedDiff> result =
-            compareStore_->compareFileDiff(std::move(request), readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        // Same as emitWorkingCopyDiff: two pathspecs can answer with two
-        // files, and the reply describes only the one it names.
-        if (!oldPath.empty() && oldPath != path) {
-            std::erase_if(result->files,
-                          [&path](const DiffFile& file) { return file.newPath != path; });
-        }
-        std::string payload = "{\"left\":";
-        jsonAppendEscaped(payload, leftRef);
-        payload += ",\"right\":";
-        jsonAppendEscaped(payload, rightRef);
-        payload += ",\"threeDot\":";
-        jsonAppendBool(payload, threeDot);
-        payload += ",\"path\":";
-        jsonAppendEscaped(payload, path);
-        payload += ",\"diff\":";
-        payload += toJson(result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMPARE_FILE_DIFF_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestCompareFileDiff",
+        [this,
+         leftRef = std::move(leftRef),
+         rightRef = std::move(rightRef),
+         threeDot,
+         path = std::move(path),
+         oldPath = std::move(oldPath)]() {
+            CompareFileDiffRequest request;
+            request.leftRef = leftRef;
+            request.rightRef = rightRef;
+            request.threeDot = threeDot;
+            request.path = path;
+            request.oldPath = oldPath;
+            GitResult<ParsedDiff> result =
+                compareStore_->compareFileDiff(std::move(request), readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            // Same as emitWorkingCopyDiff: two pathspecs can answer with two
+            // files, and the reply describes only the one it names.
+            if (!oldPath.empty() && oldPath != path) {
+                std::erase_if(result->files,
+                              [&path](const DiffFile& file) { return file.newPath != path; });
+            }
+            std::string payload = "{\"left\":";
+            jsonAppendEscaped(payload, leftRef);
+            payload += ",\"right\":";
+            jsonAppendEscaped(payload, rightRef);
+            payload += ",\"threeDot\":";
+            jsonAppendBool(payload, threeDot);
+            payload += ",\"path\":";
+            jsonAppendEscaped(payload, path);
+            payload += ",\"diff\":";
+            payload += toJson(result.value());
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMPARE_FILE_DIFF_READY, payload);
+        },
+        errorReply());
 }
 
 void Session::requestCompareWithWorkingCopy(std::string ref) {
-    sharedReadPool().postFront([this, ref = std::move(ref)]() {
-        const GitResult<ObjectId> resolved = refStore_->resolveRevision(ref, readCancel_.token());
-        if (!resolved) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(resolved.error()));
-            return;
-        }
-        const GitResult<DiffService::ParsedDiffPtr> result =
-            diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        std::string payload = "{\"ref\":";
-        jsonAppendEscaped(payload, ref);
-        payload += ",\"diff\":";
-        payload += toJson(*result.value());
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, payload);
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestCompareWithWorkingCopy",
+        [this, ref = std::move(ref)]() {
+            const GitResult<ObjectId> resolved =
+                refStore_->resolveRevision(ref, readCancel_.token());
+            if (!resolved) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(resolved.error()));
+                return;
+            }
+            const GitResult<DiffService::ParsedDiffPtr> result =
+                diffs_->commitVsWorkingTree(*resolved, DiffOptions{}, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            std::string payload = "{\"ref\":";
+            jsonAppendEscaped(payload, ref);
+            payload += ",\"diff\":";
+            payload += toJson(*result.value());
+            payload += '}';
+            callbacks_.emit(GBM_EVENT_COMPARE_WITH_WORKING_COPY_READY, payload);
+        },
+        errorReply());
 }
 
 void Session::requestFileHistory(std::string path, std::string startRevision) {
-    sharedReadPool().postFront(
+    postRead(
+        ReadLane::Front,
+        "Session::requestFileHistory",
         [this, path = std::move(path), startRevision = std::move(startRevision)]() {
             const GitResult<std::vector<FileHistoryEntry>> result =
                 fileHistoryStore_->fileHistory(path, startRevision, readCancel_.token());
@@ -1658,26 +1920,31 @@ void Session::requestFileHistory(std::string path, std::string startRevision) {
                 return;
             }
             callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
-        });
+        },
+        errorReply());
 }
 
 void Session::requestLineHistory(std::string path,
                                  int startLine,
                                  int endLine,
                                  std::string startRevision) {
-    sharedReadPool().postFront([this,
-                                path = std::move(path),
-                                startLine,
-                                endLine,
-                                startRevision = std::move(startRevision)]() {
-        const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
-            path, startLine, endLine, startRevision, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
-    });
+    postRead(
+        ReadLane::Front,
+        "Session::requestLineHistory",
+        [this,
+         path = std::move(path),
+         startLine,
+         endLine,
+         startRevision = std::move(startRevision)]() {
+            const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
+                path, startLine, endLine, startRevision, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+        },
+        errorReply());
 }
 
 void Session::requestReflog(std::string ref) {
@@ -1685,15 +1952,19 @@ void Session::requestReflog(std::string ref) {
     // one read-store request among these four that is not treated as
     // preempting other queued reads (see the M6 capi research notes on why
     // the Qt original draws that line here).
-    sharedReadPool().post([this, ref = std::move(ref)]() {
-        const GitResult<std::vector<ReflogEntry>> result =
-            reflogStore_->list(ref, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_REFLOG_READY, toJson(result.value()));
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestReflog",
+        [this, ref = std::move(ref)]() {
+            const GitResult<std::vector<ReflogEntry>> result =
+                reflogStore_->list(ref, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_REFLOG_READY, toJson(result.value()));
+        },
+        errorReply());
 }
 
 void Session::refreshUndoJournalCache() {
@@ -1734,16 +2005,20 @@ void Session::restorePaths(RestoreRequest request) {
 }
 
 void Session::requestCleanPreview(bool includeIgnored) {
-    sharedReadPool().post([this, includeIgnored]() {
-        CleanPreviewer previewer(*runner_, paths_);
-        const GitResult<std::vector<CleanEntry>> result =
-            previewer.preview(includeIgnored, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_CLEAN_PREVIEW_READY, toJson(result.value()));
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestCleanPreview",
+        [this, includeIgnored]() {
+            CleanPreviewer previewer(*runner_, paths_);
+            const GitResult<std::vector<CleanEntry>> result =
+                previewer.preview(includeIgnored, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_CLEAN_PREVIEW_READY, toJson(result.value()));
+        },
+        errorReply());
 }
 
 void Session::cleanUntracked(CleanRequest request) {
@@ -1754,16 +2029,20 @@ void Session::cleanUntracked(CleanRequest request) {
 // --- Rebase ------------------------------------------------------------
 
 void Session::requestRebasePlan(std::string upstream) {
-    sharedReadPool().post([this, upstream = std::move(upstream)]() {
-        RebasePlanner planner(*runner_, paths_);
-        const GitResult<std::vector<RebaseTodoEntry>> result =
-            planner.plan(upstream, readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY, toJson(result.value()));
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::requestRebasePlan",
+        [this, upstream = std::move(upstream)]() {
+            RebasePlanner planner(*runner_, paths_);
+            const GitResult<std::vector<RebaseTodoEntry>> result =
+                planner.plan(upstream, readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY, toJson(result.value()));
+        },
+        errorReply());
 }
 
 void Session::startInteractiveRebase(RebaseInteractiveRequest request) {
@@ -1795,19 +2074,23 @@ void Session::abortRebase() {
 // --- Submodules ------------------------------------------------------------
 
 void Session::refreshSubmodules() {
-    sharedReadPool().post([this]() {
-        const GitResult<std::vector<SubmoduleInfo>> result =
-            submoduleStore_->list(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            submodules_ = std::make_shared<const std::vector<SubmoduleInfo>>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_SUBMODULES_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshSubmodules",
+        [this]() {
+            const GitResult<std::vector<SubmoduleInfo>> result =
+                submoduleStore_->list(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                submodules_ = std::make_shared<const std::vector<SubmoduleInfo>>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_SUBMODULES_UPDATED);
+        },
+        errorReply());
 }
 
 SubmoduleListPtr Session::currentSubmodules() const {
@@ -1855,18 +2138,22 @@ void Session::deinitSubmodules(DeinitSubmodulesRequest request) {
 // --- Bisect ------------------------------------------------------------
 
 void Session::refreshBisectStatus() {
-    sharedReadPool().post([this]() {
-        const GitResult<BisectStatus> result = bisectStore_->status(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            bisectStatus_ = std::make_shared<const BisectStatus>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_BISECT_STATUS_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshBisectStatus",
+        [this]() {
+            const GitResult<BisectStatus> result = bisectStore_->status(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                bisectStatus_ = std::make_shared<const BisectStatus>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_BISECT_STATUS_UPDATED);
+        },
+        errorReply());
 }
 
 BisectStatusPtr Session::currentBisectStatus() const {
@@ -1905,48 +2192,55 @@ void Session::refreshLfs() {
         std::lock_guard<std::mutex> lock(auxMutex_);
         return !lfsInstallation_.has_value();
     }();
-    sharedReadPool().post([this, needsInstallationProbe]() {
-        bool available;
-        if (needsInstallationProbe) {
-            // detectLfs() never fails (a missing `git-lfs` is a normal
-            // result, not an error -- see its doc comment), so there is no
-            // error branch to handle here.
-            const LfsInstallation installation =
-                detectLfs(*runner_, paths_, readCancel_.token()).value();
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            lfsInstallation_ = installation;
-            available = installation.available;
-        } else {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            available = lfsInstallation_->available;
-        }
+    postRead(
+        ReadLane::Back,
+        "Session::refreshLfs",
+        [this, needsInstallationProbe]() {
+            bool available;
+            if (needsInstallationProbe) {
+                // detectLfs() never fails (a missing `git-lfs` is a normal
+                // result, not an error -- see its doc comment), so there is no
+                // error branch to handle here.
+                const LfsInstallation installation =
+                    detectLfs(*runner_, paths_, readCancel_.token()).value();
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                lfsInstallation_ = installation;
+                available = installation.available;
+            } else {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                available = lfsInstallation_->available;
+            }
 
-        if (!available) {
-            // Matches RepositorySession::refreshLfs(): with no `git-lfs` on
-            // PATH, `git lfs track`/`git lfs ls-files` would themselves fail
-            // (git does not recognise the subcommand), so skip them rather
-            // than surfacing that as an error -- there is nothing to list.
+            if (!available) {
+                // Matches RepositorySession::refreshLfs(): with no `git-lfs` on
+                // PATH, `git lfs track`/`git lfs ls-files` would themselves fail
+                // (git does not recognise the subcommand), so skip them rather
+                // than surfacing that as an error -- there is nothing to list.
+                callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+                return;
+            }
+
+            // Matches RepositorySession::refreshLfs(): an individual read
+            // failing here is not fatal to the refresh as a whole -- whichever
+            // of patterns/files succeeded is still published.
+            const GitResult<std::vector<std::string>> patterns =
+                lfsStore_->trackedPatterns(readCancel_.token());
+            const GitResult<std::vector<LfsFileInfo>> files =
+                lfsStore_->listFiles(readCancel_.token());
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                if (patterns) {
+                    lfsPatterns_ =
+                        std::make_shared<const std::vector<std::string>>(patterns.value());
+                }
+                if (files) {
+                    lfsFiles_ = std::make_shared<const std::vector<LfsFileInfo>>(files.value());
+                }
+            }
             callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
-            return;
-        }
-
-        // Matches RepositorySession::refreshLfs(): an individual read
-        // failing here is not fatal to the refresh as a whole -- whichever
-        // of patterns/files succeeded is still published.
-        const GitResult<std::vector<std::string>> patterns =
-            lfsStore_->trackedPatterns(readCancel_.token());
-        const GitResult<std::vector<LfsFileInfo>> files = lfsStore_->listFiles(readCancel_.token());
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            if (patterns) {
-                lfsPatterns_ = std::make_shared<const std::vector<std::string>>(patterns.value());
-            }
-            if (files) {
-                lfsFiles_ = std::make_shared<const std::vector<LfsFileInfo>>(files.value());
-            }
-        }
-        callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
-    });
+        },
+        // A failed read is not an error here either: answer with whatever was last published.
+        [this](const GitError&) { callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED); });
 }
 
 std::optional<LfsInstallation> Session::currentLfsInstallation() const {
@@ -2034,18 +2328,22 @@ void Session::abortImport() {
 // --- Local Git identity / commit-graph maintenance ------------------------
 
 void Session::refreshLocalIdentity() {
-    sharedReadPool().post([this]() {
-        const GitResult<LocalIdentity> result = localIdentityStore_->read(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            localIdentity_ = std::make_shared<const LocalIdentity>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_LOCAL_IDENTITY_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshLocalIdentity",
+        [this]() {
+            const GitResult<LocalIdentity> result = localIdentityStore_->read(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                localIdentity_ = std::make_shared<const LocalIdentity>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_LOCAL_IDENTITY_UPDATED);
+        },
+        errorReply());
 }
 
 LocalIdentityPtr Session::currentLocalIdentity() const {
@@ -2054,19 +2352,23 @@ LocalIdentityPtr Session::currentLocalIdentity() const {
 }
 
 void Session::refreshEffectiveIdentity() {
-    sharedReadPool().post([this]() {
-        const GitResult<EffectiveIdentity> result =
-            localIdentityStore_->readEffective(readCancel_.token());
-        if (!result) {
-            callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-            return;
-        }
-        {
-            std::lock_guard<std::mutex> lock(auxMutex_);
-            effectiveIdentity_ = std::make_shared<const EffectiveIdentity>(result.value());
-        }
-        callbacks_.emitEmpty(GBM_EVENT_EFFECTIVE_IDENTITY_UPDATED);
-    });
+    postRead(
+        ReadLane::Back,
+        "Session::refreshEffectiveIdentity",
+        [this]() {
+            const GitResult<EffectiveIdentity> result =
+                localIdentityStore_->readEffective(readCancel_.token());
+            if (!result) {
+                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                return;
+            }
+            {
+                std::lock_guard<std::mutex> lock(auxMutex_);
+                effectiveIdentity_ = std::make_shared<const EffectiveIdentity>(result.value());
+            }
+            callbacks_.emitEmpty(GBM_EVENT_EFFECTIVE_IDENTITY_UPDATED);
+        },
+        errorReply());
 }
 
 EffectiveIdentityPtr Session::currentEffectiveIdentity() const {

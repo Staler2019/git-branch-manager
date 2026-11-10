@@ -1422,8 +1422,9 @@ GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target);
 // prompts through GBM_EVENT_CREDENTIAL_REQUESTED like gbm_remote_fetch().
 
 /// Detects `git-lfs` (once per session, cached) and re-reads tracked
-/// patterns and file status. Async: fires GBM_EVENT_LFS_UPDATED on success
-/// or GBM_EVENT_ERROR_OCCURRED on failure.
+/// patterns and file status. Async: always fires GBM_EVENT_LFS_UPDATED,
+/// never GBM_EVENT_ERROR_OCCURRED -- a read that fails leaves its part of the
+/// snapshot as it was.
 GBM_API void gbm_lfs_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with `{"available": bool, "version":

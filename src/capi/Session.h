@@ -105,6 +105,30 @@ void resetSharedGitInstallationForTest();
 /// (Discovery.cpp uses none yet; scans run synchronously in M0).
 ThreadPool& sharedReadPool();
 
+/// Which end of sharedReadPool()'s queue a read joins: Front for a read the
+/// user is waiting on, Back for a sweep member
+/// ([CPP-interactive-reads-go-to-the-front]).
+enum class ReadLane { Back, Front };
+
+/// The only way a Session posts a read to sharedReadPool(). A `task` that
+/// throws is logged under `where` as the pool's own catch would, and then
+/// `onFailure` gets an Unknown GitError, so the read still answers: the pool
+/// alone would leave Dart waiting for a reply that never comes. `onFailure`
+/// emits whatever the read's ordinary failure path emits. `onAlways` runs
+/// once on every path, including a throw before `task` starts. `where` is a
+/// function name, never user data ([CPP-exception-text-reaches-the-screen]).
+void postRead(ReadLane lane,
+              std::string where,
+              std::function<void()> task,
+              std::function<void(const GitError&)> onFailure,
+              std::function<void()> onAlways = {});
+
+#if defined(GBM_CAPI_TEST_EXPORTS)
+/// Test-only: the next read posted under `where` throws before its task runs.
+/// An empty name disarms. Behind gbm_test_fail_read().
+void failReadForTest(std::string where);
+#endif
+
 class Session {
 public:
     static std::unique_ptr<Session> open(std::string workDir,
@@ -562,6 +586,10 @@ private:
     /// re-drives the timer immediately when a request folded in while it was
     /// running (RefreshCoalescer::onFinished()'s contract).
     void finishRefresh(RefreshCoalescer::Generation generation);
+
+    /// postRead()'s onFailure for a read whose ordinary failure path is
+    /// GBM_EVENT_ERROR_OCCURRED with the GitError.
+    std::function<void(const GitError&)> errorReply();
 
     /// Called on the refresh timer's own thread once the coalescing window
     /// has settled: takes the merged batch and dispatches it.

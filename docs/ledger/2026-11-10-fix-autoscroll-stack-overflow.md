@@ -83,7 +83,7 @@ probe 前兩次沒量到東西，原因各一：12000 行超過 `fullFileViewMax
   | 2700 | 54,006 px | 136 s | 正常 |
 
   - 速度：舊版在實機約 313～316 px/s，新版約 385～395 px/s，快約 1.25 倍。widget 層的假時鐘固定每幀 16 ms，量到的舊版速度是 415 px/s，與實機不同。
-  - 舊框架的速度是「33 ms 動畫，再加上等到下一幀」，本來就隨實際幀率變動，所以沒有單一的「原本速度」可以對齊。沒有改參數，只記下這筆數字，留給使用者決定。
+  - 舊框架的速度是「33 ms 動畫，再加上等到下一幀」，本來就隨實際幀率變動，所以沒有單一的「原本速度」可以對齊。~~沒有改參數，只記下這筆數字，留給使用者決定。~~ 使用者裁定「維持看機器設定 這部分不改」：保持每秒 20 步。新程式依實際經過時間計算步長，速度不隨幀率變動。
 - 改用架構測試、不寫成規則：memory-steward 判定 `[FLU-selection-autoscroll-recurses]` 的兩行都是 ENCODE。
   - Rule 那一行：`selection_edge_scroll.dart` 的 doc comment 加上 2000 步的測試已經涵蓋。
   - Do 那一行（「新的可選取區要經過 `GbmCodeHScroll`」）：新增 `test/architecture/selection_area_scroll_test.dart`。`lib/` 裡凡是出現 `SelectionArea(` 或 `SelectableRegion(` 的檔案，都必須也出現 `GbmCodeHScroll(`，而且至少要掃到 4 個檔，避免空掃描也算通過。

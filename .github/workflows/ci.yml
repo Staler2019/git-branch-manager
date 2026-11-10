@@ -166,12 +166,10 @@ jobs:
         run: flutter analyze
 
       # Pure-Dart tests: no native library needed, which is why this runs
-      # before the gbm_capi build below rather than after it. package:test
-      # defaults to half the cores (2 on a 4-vCPU runner); 4 measured 1.5x
-      # faster on a 4-core machine with the same 4576 passing.
+      # before the gbm_capi build below rather than after it.
       - name: flutter test
         working-directory: app_flutter
-        run: flutter test -j 4
+        run: flutter test
 
       - name: Install Linux desktop build dependencies
         if: runner.os == 'Linux'

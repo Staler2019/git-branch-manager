@@ -100,6 +100,13 @@ jobs:
           python3 scripts/test_check_native_exception_guards.py
           python3 scripts/check-native-exception-guards.py
 
+      # The read pool's own catch only logs, so a read that throws never
+      # answers and Dart waits on it for good; postRead replies instead.
+      - name: reads go through postRead
+        run: |
+          python3 scripts/test_check_read_pool_posts.py
+          python3 scripts/check-read-pool-posts.py
+
       - name: core must not depend on Qt
         run: |
           if grep -rEn '#include\s*[<"]Q' src/core; then

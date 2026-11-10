@@ -79,7 +79,11 @@ jobs:
 
       - name: Real library reports across FFI
         working-directory: app_flutter
-        run: flutter test test/data/ffi/native_error_real_library_test.dart
+        # The second file injects read failures through the same test-only exports.
+        run: >-
+          flutter test
+          test/data/ffi/native_error_real_library_test.dart
+          test/data/ffi/read_failure_real_library_test.dart
         env:
           GBM_CAPI_LIBRARY_PATH: ${{ github.workspace }}/build/capi-only/src/capi/${{ matrix.lib }}
           GBM_NATIVE_ERROR_LOG_DIR: ${{ runner.temp }}/gbm-native-errors

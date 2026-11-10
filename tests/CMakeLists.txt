@@ -220,6 +220,7 @@ if(GBM_BUILD_CAPI)
         capi/OperationLogApiTest.cpp
         capi/OriginalOperationMessageApiTest.cpp
         capi/PatchApiTest.cpp
+        capi/ReadFailureApiTest.cpp
         capi/RebaseApiTest.cpp
         capi/ReflogApiTest.cpp
         capi/RemoteApiTest.cpp

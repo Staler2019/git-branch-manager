@@ -102,4 +102,12 @@ GBM_API void gbm_test_raise_native_error(const char* message) try {
 } catch (...) {
     reportCurrentException(__func__);
 }
+
+GBM_API void gbm_test_fail_read(const char* where);
+
+GBM_API void gbm_test_fail_read(const char* where) try {
+    failReadForTest(where != nullptr ? where : "");
+} catch (...) {
+    reportCurrentException(__func__);
+}
 #endif

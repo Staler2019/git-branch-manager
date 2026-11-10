@@ -16,6 +16,7 @@ import 'package:gbm_flutter/features/sidebar/widgets/branch_tree_item.dart';
 import 'package:gbm_flutter/widgets/gbm_dialog_shell.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/git_worktree_bytes.dart';
 import 'support/real_repo_harness.dart';
 
 const String _source = 'topic';
@@ -53,6 +54,17 @@ String _gitsSquashMsg(String repoPath) {
       .resolveSymbolicLinksSync();
   addTearDown(() => deleteTempGitRepo(clone));
   Process.runSync('git', <String>['clone', '--quiet', repoPath, clone]);
+  // A non-fast-forward squash needs an identity, and a clone does not copy
+  // local config. Take the repository's own, so the reference git runs as
+  // the app's git does -- relying on a global identity failed on a machine
+  // that has none.
+  for (final String key in <String>['user.name', 'user.email']) {
+    runGit(clone, <String>[
+      'config',
+      key,
+      _git(repoPath, <String>['config', key]),
+    ]);
+  }
   runGit(clone, <String>['merge', '--squash', 'origin/$_source']);
   return File('$clone/.git/SQUASH_MSG').readAsStringSync();
 }
@@ -138,7 +150,7 @@ void main() {
       );
       expect(
         File('$repoPath/topic.txt').readAsStringSync(),
-        'one\ntwo\n',
+        expectedWorktreeText(repoPath, 'topic.txt', 'one\ntwo\n'),
         reason: "the source's changes are in the commit",
       );
       expect(

@@ -21,6 +21,7 @@ import 'package:gbm_flutter/features/working_copy/widgets/working_copy_board.dar
 import 'package:gbm_flutter/widgets/gbm_icon_button.dart';
 import 'package:integration_test/integration_test.dart';
 
+import 'support/git_worktree_bytes.dart';
 import 'support/key_shortcuts.dart';
 import 'support/real_repo_harness.dart';
 
@@ -178,7 +179,11 @@ void main() {
 
       expect(
         File('$repo/fixture.txt').readAsStringSync(),
-        _lines(26, <int, String>{5: 'ONE', 22: 'THREE'}),
+        expectedWorktreeText(
+          repo,
+          'fixture.txt',
+          _lines(26, <int, String>{5: 'ONE', 22: 'THREE'}),
+        ),
       );
     });
 

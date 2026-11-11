@@ -28,7 +28,7 @@
   - 第 4 次改用 preset 的 `"jobs": 4`、不帶 `-j`：237 s，preset 確實生效，但 `SubmoduleApiTest.DeinitSubmoduleEmptiesTheWorkTree` 失敗，`waitFor` 等了 10 秒沒收到 `GBM_EVENT_SUBMODULES_UPDATED`。
   - 這個測試循序時 7.8 s，`-j 4` 時 13.9 / 14.2 / 14.0 s，原本就貼近上限。第 4 次 ctest 依前幾輪的耗時把最慢的測試排在最前面，一開場 4 個 submodule／git 重操作同時跑，所以超時。
   - `EventLog` 在 `tests/capi/` 的 35 個檔案裡各自複製一份，`waitFor` 都寫死 10 秒，只有 `CancelOperationApiTest` 是 30 秒。用 md5 比對共有 19 種寫法，差異包括：`clear()`、`payloadsOfType()`、`snapshot()`、`hook`、只存 type 的版本、`waitForSquash` 和 `waitForReady` 這類專用 wait，以及註解和換行。
-  - 使用者裁定：合併成共用 helper，但「之後別輪再做」；ctest `-j 4` 先拿掉，等 helper 那一輪再開。已從分支移除該 commit，原 commit 保留在本機分支 `ctest-j4-backup`。
+  - 使用者裁定：合併成共用 helper，但「之後別輪再做」；ctest `-j 4` 先拿掉，等 helper 那一輪再開。已從分支移除該 commit，~~原 commit 保留在本機分支 `ctest-j4-backup`。~~ 原 commit 只改一行：`CMakePresets.json` 的 `tbase` preset 在 `execution` 加上 `"jobs": 4`。helper 那一輪照這行重加即可，不需要本機分支 `ctest-j4-backup`（該分支已排定清除）。
 - `flutter test`：package:test 預設用一半核心（test_core-0.6.18 `values.dart:14`），4 vCPU 的 runner 只同時跑 2 個。本機量：預設 333 / 307 s，`-j 4` 217 / 211 s，4576 個全過。~~`ci.yml` 純 Dart 那一步改成 `flutter test -j 4`。~~ `ci.yml` 純 Dart 那一步一度改成 `flutter test -j 4`，CI 上看不出加速，已 revert（見 Result）。real library 那一步只有兩個檔案、共用同一個 log 目錄，不改。
 - device 層（`integration_test/`）不能平行：flutter_tools 在 integration test 一律把 jobs 設成 1（`commands/test.dart:538-548`）。
 

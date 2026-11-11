@@ -65,6 +65,52 @@ jobs:
       - name: Build and test gbm_capi
         run: cmake --workflow --preset capi-only
 
+      # TEMPORARY (#214), reverted once read: how often a stack overflow loses the crash line,
+      # with which exit code, and how much stack the earlier filter had left, by frame size.
+      - name: "Measure: stack overflow crash line (temporary)"
+        if: always() && runner.os == 'Windows'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem build/capi-only -Recurse -Filter gbm_crash_now.exe | Select-Object -First 1).FullName
+          $tests = (Get-ChildItem build/capi-only -Recurse -Filter gbm_capi_tests.exe | Select-Object -First 1).FullName
+          $env:GBM_CAPI_LIBRARY_PATH = (Resolve-Path build/capi-only/src/capi/gbm_capi.dll).Path
+          $env:GBM_CRASH_NO_DIALOG = '1'
+          $root = Join-Path $env:RUNNER_TEMP 'so-measure'
+          $plan = [System.Collections.Generic.List[int]]::new()
+          1..200 | ForEach-Object { $plan.Add(0) }
+          foreach ($k in 0..63) { 1..4 | ForEach-Object { $plan.Add(4096 + 64 * $k) } }
+          $rows = [System.Collections.Generic.List[object]]::new()
+          $i = 0
+          foreach ($frame in $plan) {
+            $i++
+            $dir = Join-Path $root "$i"
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            $env:GBM_NATIVE_ERROR_LOG_DIR = $dir
+            $env:GBM_CRASH_LOG = Join-Path $dir 'gbm-native-errors.log'
+            $env:GBM_CRASH_MARKER = Join-Path $dir 'marker'
+            $argv = if ($frame -eq 0) { @('--stack-overflow') } else { @('--stack-overflow', "$frame") }
+            $p = Start-Process -FilePath $exe -ArgumentList $argv -PassThru -Wait -NoNewWindow
+            $line = (Test-Path $env:GBM_CRASH_LOG) -and ((Get-Content -Raw $env:GBM_CRASH_LOG) -match 'code=0xc00000fd')
+            $marker = if (Test-Path $env:GBM_CRASH_MARKER) { "$(Get-Content -Raw $env:GBM_CRASH_MARKER)" } else { 'missing' }
+            $leftFile = "$($env:GBM_CRASH_MARKER).left"
+            $left = if (Test-Path $leftFile) { "$(Get-Content -Raw $leftFile)" } else { '' }
+            $rows.Add([pscustomobject]@{ frame = $frame; exit = ('0x{0:X8}' -f $p.ExitCode); line = $line; marker = $marker; left = $left })
+          }
+          '=== outcomes (count, exit/line/marker) over ' + $rows.Count + ' runs'
+          $rows | Group-Object exit, line, marker | Sort-Object Count -Descending | ForEach-Object { '{0,5}  {1}' -f $_.Count, $_.Name }
+          '=== runs that lost the line'
+          $rows | Where-Object { -not $_.line } | Format-Table -AutoSize | Out-String -Width 200
+          '=== stack left at the earlier filter, by frame size (0 = default)'
+          $rows | Where-Object { $_.left } | Group-Object frame | ForEach-Object {
+            $m = $_.Group | ForEach-Object { [int64]$_.left } | Measure-Object -Minimum -Maximum
+            '{0,6}  n {1,3}  min {2,7}  max {3,7}' -f $_.Name, $_.Count, $m.Minimum, $m.Maximum
+          }
+          Remove-Item Env:GBM_NATIVE_ERROR_LOG_DIR, Env:GBM_CRASH_LOG, Env:GBM_CRASH_MARKER
+          '=== the test itself, 200 repeats'
+          & $tests --gtest_filter=CrashFilterApiTest.AStackOverflowIsLoggedWithNoBox --gtest_repeat=200 --gtest_brief=1 2>&1 | Select-String -Pattern 'exit code|FAILED|PASSED' | Select-Object -Last 40
+          exit 0
+
       # In this job because the library it needs is the one just built: `flutter-ci`'s is built
       # without tests, and a job of its own would add only a wait and a transfer to the same
       # Flutter setup. It is the only place a real library meets Dart on Linux and Windows.

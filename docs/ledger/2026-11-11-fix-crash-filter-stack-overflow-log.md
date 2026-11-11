@@ -56,3 +56,20 @@ G2 與 mutation：
 - 它的作用要等真的失敗時，在失敗訊息裡才看得到。
 
 `feat/stuck-waits` 的 ledger 裡記著這個推測，已經在原處補上量測結論。
+
+### 追加：本機 Windows 重現嘗試
+
+CI 那 456 次只直接執行 fixture，沒有照 CI 的順序跑整組 test；frame 也只量了 4096..8128。這次在本機補上這兩項，看能不能重現。
+
+環境：Windows 11（build 26200）ARM64，是 Apple silicon 上的 VMware 虛擬機。`build/capi-only` 用 MSVC 14.51 Hostx64/x64 編譯，設定是 RelWithDebInfo。binary 是 x64，透過 Windows on ARM 的 x64 模擬執行，不是 CI 那種原生 x64。程式碼是本分支的 `bb015df6`。
+
+| 條件 | 次數 | 失敗 |
+|---|---|---|
+| `ctest -R '^CrashFilterApiTest\.'` 照 CI 順序跑 7 個 test，無負載 | 100 輪 = 700 次 | 0 |
+| 同上，另開 8 個 busy loop 佔滿 4 核 | 100 輪 = 700 次 | 0 |
+| 直接執行 `gbm_crash_now --stack-overflow <frame>`，frame 256..4096，每 16 bytes 一組，每組 3 次 | 723 次 | 0 |
+
+- 直接執行的 723 次，exit code 都是 `0xC00000FD`，log 裡都有 `code=0xc00000fd` 那一行，marker 都是 "after"。sentinel 的剩餘 stack 最少 10,672 bytes，CI 量到的是 10,384，兩者接近。
+- 每個 ctest test 都是獨立的 `gbm_capi_tests.exe` process，`ProcessTempDir` 讓 log 和 marker 都放在 `gbm-proc-<pid>` 底下。CI 那次失敗時 ctest 也是依序執行（`tbase` 沒設 `jobs`），所以排除「前一個 test 刪掉這個 test 的檔案」。
+- 結論不變：本機重現不出來，也沒有證據支持「第二次 fault」。#214 繼續等 CI 下次失敗，再用 `describeExit()` 的 exit code 判斷原因。
+- 限制：x64 模擬執行和原生 x64 在 stack guard page、例外派送上可能不一樣，這組數字不能取代原生 x64 的量測。

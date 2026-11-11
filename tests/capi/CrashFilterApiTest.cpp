@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 
 #if defined(_WIN32)
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -74,6 +75,7 @@ public:
         std::error_code ec;
         std::filesystem::remove(log_, ec);
         std::filesystem::remove(marker_, ec);
+        std::filesystem::remove(stackLeftPath(), ec);
         const std::wstring library = std::filesystem::path(GBM_CAPI_LIBRARY_FILE).wstring();
         const EnvScope scope{{L"GBM_CRASH_MARKER", marker_.c_str()},
                              {L"GBM_CRASH_LOG", log_.c_str()},
@@ -120,6 +122,19 @@ public:
     bool markerExists() const { return std::filesystem::exists(marker_); }
     std::wstring logPath() const { return log_.wstring(); }
 
+    /// What a failure needs to say which fault ended the child: 0xC00000FD alone is the
+    /// overflow; anything else is a fault while handling it. `stack left` is what the
+    /// earlier filter still had, empty when it never ran.
+    std::string describeExit() const {
+        DWORD code = 0;
+        ::GetExitCodeProcess(child_.hProcess, &code);
+        char hex[16];
+        std::snprintf(hex, sizeof hex, "0x%08lX", code);
+        return std::string("exit code ") + hex + ", marker " +
+               (markerExists() ? "\"" + marker() + "\"" : std::string("missing")) +
+               ", stack left " + readFile(stackLeftPath());
+    }
+
     /// The child's visible message box, polled for up to `milliseconds`.
     HWND waitForDialog(DWORD milliseconds) const {
         for (DWORD waited = 0; waited < milliseconds; waited += 100) {
@@ -157,6 +172,12 @@ private:
         Search search{child_.dwProcessId, nullptr};
         ::EnumWindows(&matchDialog, reinterpret_cast<LPARAM>(&search));
         return search.found;
+    }
+
+    std::filesystem::path stackLeftPath() const {
+        std::filesystem::path path = marker_;
+        path += ".left";
+        return path;
     }
 
     std::filesystem::path log_;
@@ -275,9 +296,10 @@ TEST(CrashFilterApiTest, AStackOverflowIsLoggedWithNoBox) {
 
     ASSERT_TRUE(run.exitsWithin(15000)) << "a box held the process";
     const std::string text = run.log();
-    EXPECT_EQ(countOf(text, "unhandled SEH exception"), 1u) << text;
-    EXPECT_NE(text.find("code=0xc00000fd"), std::string::npos) << text;
-    EXPECT_EQ(run.marker(), "after");
+    EXPECT_EQ(countOf(text, "unhandled SEH exception"), 1u) << text << "\n" << run.describeExit();
+    EXPECT_NE(text.find("code=0xc00000fd"), std::string::npos) << text << "\n"
+                                                               << run.describeExit();
+    EXPECT_EQ(run.marker(), "after") << run.describeExit();
 }
 
 }  // namespace

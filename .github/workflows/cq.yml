@@ -171,6 +171,42 @@ jobs:
           fi
           echo "every flutter-action use pins flutter-version"
 
+      # The step above proves each flutter-action use has a pin, not that the
+      # pins agree. release.yml's Windows arm64 leg clones flutter at a tag
+      # (no prebuilt arm64 SDK exists) and the session-start hook installs one
+      # too; a release built on another SDK than CI formatted and tested on is
+      # the drift this catches.
+      - name: every Flutter pin names the same version
+        shell: bash
+        run: |
+          set -euo pipefail
+          pins=$(
+            {
+              grep -Hno "flutter-version: *'[^']*'" .github/workflows/*.yml || true
+              grep -Hn 'flutter/flutter\.git' .github/workflows/*.yml || true
+              grep -Hno 'FLUTTER_VERSION="[^"]*"' .claude/hooks/session-start.sh || true
+            } | sed -n \
+              -e "s/^\([^:]*:[0-9]*\):.*flutter-version: *'\([^']*\)'.*/\1 \2/p" \
+              -e 's/^\([^:]*:[0-9]*\):.*--branch \([^ ]*\).*flutter\/flutter\.git.*/\1 \2/p' \
+              -e 's/^\([^:]*:[0-9]*\):FLUTTER_VERSION="\([^"]*\)"/\1 \2/p'
+          )
+          echo "$pins"
+          clones=$(grep -h 'flutter/flutter\.git' .github/workflows/*.yml || true)
+          if [ -n "$clones" ] && grep -qv -- '--branch ' <<<"$clones"; then
+            echo "::error::a git clone of flutter/flutter.git has no --branch pin"
+            exit 1
+          fi
+          if ! grep -q '^\.claude/hooks/session-start\.sh:' <<<"$pins"; then
+            echo "::error file=.claude/hooks/session-start.sh::no FLUTTER_VERSION pin found"
+            exit 1
+          fi
+          distinct=$(awk '{print $2}' <<<"$pins" | sort -u)
+          if [ "$(wc -l <<<"$distinct")" -ne 1 ]; then
+            echo "::error::Flutter pins disagree: $(echo $distinct)"
+            exit 1
+          fi
+          echo "every Flutter pin is $distinct"
+
   # The generated PowerShell updater is the one artefact of this repository
   # that nothing else parses or runs. ci.yml's flutter-ci Windows leg runs
   # the Dart tests, but update_installer_script_test.dart is

@@ -24,7 +24,7 @@ or test now enforces live at that site, with the reason in its comment; history 
 ## [CI-dart-sdk-floor] Dart ≥ 3.13.0
 
 - **Rule**: `app_flutter/pubspec.yaml` has `sdk: ^3.13.0`; Flutter 3.47.4 ships Dart 3.13.3.
-- **Do**: four pins move together — `ci.yml`, `cq.yml`, `release.yml`, `.claude/hooks/session-start.sh` (all 3.47.4); `cq.yml` lints only that a pin exists, not that they agree. The floor sets the language version `dart format` styles by, so raising it reformats the tree: do it in the pin's round.
+- **Do**: ~~four pins~~ the pins move together — `ci.yml`, `cq.yml`, `release.yml` (`flutter-version` and the arm64 leg's `git clone --branch`), `.claude/hooks/session-start.sh` (all 3.47.4); `cq.yml` ~~lints only that a pin exists, not that they agree~~ fails when they disagree (step "every Flutter pin names the same version"). The floor sets the language version `dart format` styles by, so raising it reformats the tree: do it in the pin's round.
 - **Evidence**: [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md)
 
 ## [CI-formatter-version-drift] Both formatters drift by version, in both directions
@@ -32,8 +32,7 @@ or test now enforces live at that site, with the reason in its comment; history 
 - **Rule**: `dart format` output differs across Dart SDKs; `clang-format` is pinned to ~~v18~~ v22 (`cq.yml`, `.pre-commit-config.yaml`, `_resolve-clang-format.sh`); ~~a local v22 reformats lines v18 left alone~~ 18→22 rewrote `struct stat st {}` as `st{}`, so any other major does the same kind of thing. A local Flutter that differs from the pin also rewrites `pubspec.lock` and `analysis_options.yaml`.
 - **Do**: never run either formatter wholesale on a local version that differs from CI's pin; restore the file and re-apply only the intended edit. With `flutter --version` equal to the pin, `dart format .` is safe.
 - **Do**: check `.clang-format` first — a suggestion from the repo's own config applies to v22 too.
-- **Do**: `.claude/hooks/format-cpp.sh` formats each file an agent edits under `src/` with v22, one file at a time; a resolver or formatter failure comes back as exit 2 and means CI would go red on that file.
-- **Evidence**: ledger: Known gaps; [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md); [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md); [ledger: chore/clang-format-post-edit-hook](../../docs/ledger/2026-11-04-chore-clang-format-post-edit-hook.md); [ledger: chore/clang-format-22](../../docs/ledger/2026-11-07-chore-clang-format-22.md)
+- **Evidence**: ledger: Known gaps; [ledger: flutter-upgrade](../../docs/ledger/2026-10-04-flutter-upgrade.md); [ledger: fix/windows-host-updater-tests](../../docs/ledger/2026-09-19-fix-windows-host-updater-tests.md); [ledger: chore/clang-format-22](../../docs/ledger/2026-11-07-chore-clang-format-22.md)
 
 ## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout
 
@@ -51,7 +50,7 @@ or test now enforces live at that site, with the reason in its comment; history 
 
 ## [CI-windows-detached-never-runs] On Windows, `ProcessStartMode.detached` reports success and ~~the child~~ a console program never runs
 
-- **Rule**: `Process.start` returns a pid that is already gone; measured with `powershell.exe -File` and `cmd.exe /c`, from `dart run`, an AOT exe and a WMI-created process, outside any job. ~~(any child)~~ GUI programs (`charmap.exe`, `wt.exe`, `explorer.exe`) do run (2026-10-14).
+- **Rule**: `Process.start` returns a pid that is already gone (measured; list in `detached_process.dart`'s doc). ~~(any child)~~ GUI programs (`charmap.exe`, `wt.exe`, `explorer.exe`) do run (2026-10-14).
 - **Consequence**: nothing in the app can tell; the updater's `.ps1` sat in temp with no log beside it, and `DesktopLauncher`'s `cmd /c start` and `powershell.exe` opened nothing.
 - **Do**: start every external program through `startDetachedProcess` (`detached_process.dart`; ~~`startUpdaterProcess` in `update_installer.dart`~~), which relays via `Start-Process` and waits for the relay; prove a start with a mark the child writes itself (`detached_process_test.dart`). A relayed argument is quoted only when it holds whitespace: `cmd.exe` given `"/c"` runs nothing.
 - **Evidence**: [ledger: Release 改發 MSI](../../docs/ledger/2026-10-14-feat-release-msi-installer.md)

@@ -73,6 +73,12 @@ jobs:
           # be built and shipped for nobody.
           - { name: macOS arm64,   os: macos-26,       arch: arm64 }
           - { name: Windows x64,   os: windows-latest, arch: x64 }
+          # Native arm64 runner, not a cross-compile: Flutter builds Windows
+          # arm64 only on an arm64 host. If this leg fails, `publish` (needs
+          # the whole matrix) is skipped for every platform after `tag`
+          # already pushed: re-run the failed job first; a second red is a
+          # ruling (delete the tag or hotfix), never automatic.
+          - { name: Windows arm64, os: windows-11-arm, arch: arm64 }
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,6 +88,7 @@ jobs:
       - uses: lukka/get-cmake@latest
 
       - uses: subosito/flutter-action@v2
+        if: matrix.name != 'Windows arm64'
         with:
           channel: stable
           # Kept in lockstep with ci.yml's pin (see its "every
@@ -89,9 +96,27 @@ jobs:
           # release build never diverges from what CI already verified.
           flutter-version: '3.47.4'
 
+      # Flutter publishes no prebuilt Windows arm64 SDK archive, so the action
+      # above fails there ("Unable to determine Flutter version ...
+      # architecture: arm64"). A git checkout of the same tag is how a
+      # developer's arm64 machine gets it (fvm does exactly this); the first
+      # `flutter` run fetches the host's arm64 Dart SDK. Same pin as above --
+      # move the two together.
+      - name: Flutter SDK (Windows arm64, git checkout)
+        if: matrix.name == 'Windows arm64'
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 --branch 3.47.4 https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
+
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
+        with:
+          # The action's default is x64 whatever the host; on the arm64 leg
+          # that would build an x64 gbm_capi.dll into an arm64 bundle.
+          arch: ${{ matrix.arch == 'arm64' && 'arm64' || 'x64' }}
 
       # Pinned, and to 5.x: WiX 6 requires accepting the Open Source
       # Maintenance Fee EULA, and an unpinned install would pick it up the
@@ -207,7 +232,7 @@ jobs:
           echo "$WINDOWS_CERT_PFX" | base64 --decode > "$pfx"
           signtool sign /f "$pfx" /p "$WINDOWS_CERT_PASSWORD" /fd SHA256 \
             /tr http://timestamp.digicert.com /td SHA256 \
-            "app_flutter/build/windows/x64/runner/Release/gbm_flutter.exe"
+            "app_flutter/build/windows/${{ matrix.arch }}/runner/Release/gbm_flutter.exe"
         continue-on-error: true
 
       # A per-user Windows Installer package (app_flutter/windows/installer/
@@ -220,7 +245,7 @@ jobs:
         run: |
           $version = "${{ needs.tag.outputs.new_version }}"
           $name = "git-branch-manager-$version-windows-${{ matrix.arch }}"
-          ./app_flutter/scripts/build_msi.ps1 -Version $version -OutFile "dist/$name.msi"
+          ./app_flutter/scripts/build_msi.ps1 -Version $version -Arch ${{ matrix.arch }} -OutFile "dist/$name.msi"
 
       - name: Sign the installer (Windows)
         if: runner.os == 'Windows'
@@ -250,7 +275,7 @@ jobs:
         run: |
           set -euo pipefail
           ls -la dist
-          unexpected=$(find dist -type f ! -name '*-windows-x64.msi')
+          unexpected=$(find dist -type f ! -name '*-windows-${{ matrix.arch }}.msi')
           if [ -n "$unexpected" ]; then
             echo "Unexpected files in dist/: $unexpected"
             exit 1

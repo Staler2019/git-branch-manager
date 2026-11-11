@@ -101,7 +101,7 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 - 第二次 CI：capi Windows 的 `CrashFilterApiTest.AStackOverflowIsLoggedWithNoBox` 紅一次（子程序 stack overflow 後
   log 沒有 `unhandled SEH exception` 那一行，也沒有 `code=0xc00000fd`，marker 是空的）。本輪沒有改到 crash filter，
   第一次 CI 同一個測試是綠的；只重跑失敗的 job 後轉綠。這是第一次記錄到它偶發，~~原因沒有查~~ 使用者要求查並開 issue：
-  log 與 marker 都不存在，兩層 filter 都沒完成；推測是溢位後剩下的 stack 不夠 filter 用，第二次 fault 直接結束 process（未驗證，
+  log 與 marker 都不存在，兩層 filter 都沒完成；~~推測是溢位後剩下的 stack 不夠 filter 用，第二次 fault 直接結束 process（未驗證，~~ 推測是溢位後剩下的 stack 不夠 filter 用，第二次 fault 直接結束 process；後續量測不支持：456 次 0 遺失，filter 之後至少還剩 10 KB stack（[ledger: fix/crash-filter-stack-overflow-log](2026-11-11-fix-crash-filter-stack-overflow-log.md)；推測當時
   缺子程序 exit code 與失敗頻率）。記在 **#214**。
 
 ### 已知缺口

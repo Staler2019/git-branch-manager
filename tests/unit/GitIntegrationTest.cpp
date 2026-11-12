@@ -7070,6 +7070,60 @@ TEST_F(BranchTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysAlways) {
     EXPECT_EQ(upstreamOf("fresh"), "");
 }
 
+/// Checking a remote branch out as a local one (Checkout dialog, the
+/// sidebar's remote row) must leave that local tracking the remote one --
+/// whatever branch.autoSetupMerge says, `false` included.
+OperationOutcome checkOutAsLocal(OperationRunner& operations,
+                                 const std::string& target,
+                                 const std::string& local) {
+    CheckoutRequest request;
+    request.target = target;
+    request.createBranch = true;
+    request.newBranchName = local;
+    OperationOutcome outcome;
+    operations.submit(makeCheckoutOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    return outcome;
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteBranchAsLocalTracksIt) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteBranchAsLocalTracksItEvenWhenConfigSaysFalse) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("false", "origin/topic", ""));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteRefByFullNameTracksItEvenWhenConfigSaysFalse) {
+    // The sidebar's remote row passes `refs/remotes/<remote>/<branch>`, the
+    // Checkout dialog the short `<remote>/<branch>`.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("false", "origin/topic", ""));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "refs/remotes/origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
 class WorktreeTrackingTest : public BranchTrackingTest {
 protected:
     /// Adds a linked worktree holding a new branch `name` started at `start`

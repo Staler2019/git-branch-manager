@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <gtest/gtest.h>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <vector>
@@ -253,6 +254,41 @@ TEST(AskpassPollerTest, StopReleasesAClientStillWaitingForAnAnswer) {
 
     EXPECT_EQ(client.exitCode(), 1);
     EXPECT_LT(std::chrono::steady_clock::now() - stoppedAt, std::chrono::seconds(2));
+}
+
+TEST(AskpassPollerTest, APollerThatThrowsReleasesTheWaitingClient) {
+    // onPrompt emits into the session; if it throws, the poller's thread ends and
+    // nobody will ever answer. The client must not wait out its ten minutes, and
+    // the operation's idle deadline is suspended for as long as it does.
+    const auto dir = askpass::makeRequestDir();
+    ASSERT_FALSE(dir.empty());
+    AskpassPoller poller;
+    poller.start(dir, [](std::string) { throw std::runtime_error("onPrompt failed"); });
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool done = false;
+    ScopedClient client(dir, "Password: ");
+    std::thread waiter([&] {
+        client.join();
+        std::lock_guard<std::mutex> lock(mutex);
+        done = true;
+        cv.notify_all();
+    });
+    bool released = false;
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        released = cv.wait_for(lock, std::chrono::seconds(5), [&] { return done; });
+    }
+    // Read before stop(), which would clear it either way.
+    const bool pending = askpass::isPromptPending(dir);
+    // Lets a still-waiting client go either way, so the test ends.
+    poller.stop();
+    waiter.join();
+
+    EXPECT_TRUE(released) << "the client was still waiting 5 s after the poller died";
+    EXPECT_EQ(client.exitCode(), 1);
+    EXPECT_FALSE(pending) << "a dead poller must not hold the idle deadline off";
 }
 
 }  // namespace

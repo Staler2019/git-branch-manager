@@ -115,7 +115,9 @@ enum class ReadLane { Back, Front };
 /// `onFailure` gets an Unknown GitError, so the read still answers: the pool
 /// alone would leave Dart waiting for a reply that never comes. `onFailure`
 /// emits whatever the read's ordinary failure path emits. `onAlways` runs
-/// once on every path, including a throw before `task` starts. `where` is a
+/// once on every path, including a throw before `task` starts. If the read
+/// cannot be handed to the pool at all, both answer inline on the caller's
+/// thread, so a caller must not hold a lock either one takes. `where` is a
 /// function name, never user data ([CPP-exception-text-reaches-the-screen]).
 void postRead(ReadLane lane,
               std::string where,
@@ -124,9 +126,16 @@ void postRead(ReadLane lane,
               std::function<void()> onAlways = {});
 
 #if defined(GBM_CAPI_TEST_EXPORTS)
-/// Test-only: the next read posted under `where` throws before its task runs.
-/// An empty name disarms. Behind gbm_test_fail_read().
+/// Test-only: the next read posted under `where` throws before its task runs;
+/// `post:<where>` fails the hand-off to the pool instead. An empty name
+/// disarms. Behind gbm_test_fail_read().
 void failReadForTest(std::string where);
+
+/// Test-only: the next operation submitted through the funnel named `where`
+/// (`Session::submitOperation` and the like) throws once it has been handed to
+/// OperationRunner::submit; `after:<where>` throws right after submit()
+/// returns instead. An empty name disarms. Behind gbm_test_fail_submit().
+void failSubmitForTest(std::string where);
 #endif
 
 class Session {
@@ -201,12 +210,12 @@ public:
     void releaseExportedGraph();
 
     /// Async: see gbm_branch_checkout()'s doc comment in gbm_capi.h.
-    void checkout(CheckoutRequest request);
+    bool checkout(CheckoutRequest request);
 
     /// Async: see gbm_branch_create()/_rename()/_delete()'s doc comments.
     void createBranch(CreateBranchRequest request);
     void renameBranch(RenameBranchRequest request);
-    void deleteBranch(DeleteBranchRequest request);
+    bool deleteBranch(DeleteBranchRequest request);
 
     /// Async: see gbm_reset_to()'s doc comment in gbm_capi.h.
     void resetTo(ResetRequest request);
@@ -351,7 +360,7 @@ public:
     /// Async: see gbm_remote_fetch()/gbm_pull()/gbm_push()'s doc comments.
     /// Each wires a fresh askpass request directory into its request before
     /// submitting, per beginAskpass()'s doc comment.
-    void fetchRemote(FetchRequest request);
+    bool fetchRemote(FetchRequest request);
     void pullChanges(PullRequest request);
     void pushChanges(PushRequest request);
 
@@ -362,7 +371,7 @@ public:
     void requestBranchDeletionProbe(std::uint64_t requestId, std::vector<std::string> names);
 
     /// Async: see gbm_remote_prune()'s doc comment.
-    void pruneRemote(PruneRemoteRequest request);
+    bool pruneRemote(PruneRemoteRequest request);
 
     /// Async: see gbm_remote_add()/gbm_remote_remove()'s doc comments.
     void addRemote(AddRemoteRequest request);
@@ -614,14 +623,14 @@ private:
     /// RepositorySession::submitAndRefresh (the same helper in the Qt app,
     /// despite the different names -- every M3+ domain mutation there goes
     /// through it, not just the working-copy-specific ones).
-    void submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
+    bool submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
                                     std::function<void()> onSuccess,
                                     std::function<void()> onAlways = nullptr);
 
     /// The same, for the one caller whose follow-up depends on what the
     /// operation reported: the background fetch reads
     /// OperationOutcome::refsMoved to decide whether to walk history.
-    void submitWorkingCopyOperationReading(std::unique_ptr<Operation> operation,
+    bool submitWorkingCopyOperationReading(std::unique_ptr<Operation> operation,
                                            std::function<void(const OperationOutcome&)> onSuccess);
 
     /// Creates a fresh askpass request directory and starts polling it,
@@ -678,7 +687,7 @@ private:
     /// last and only on success -- e.g. bisect operations use it to also
     /// refresh their own status snapshot, which nothing else here knows to
     /// do. Same two-callback shape as submitWorkingCopyOperation() above.
-    void submitOperation(std::unique_ptr<Operation> operation,
+    bool submitOperation(std::unique_ptr<Operation> operation,
                          bool refreshHistoryOnSuccess,
                          std::function<void()> onSuccess = nullptr,
                          std::function<void()> onAlways = nullptr);

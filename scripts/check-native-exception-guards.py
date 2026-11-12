@@ -21,12 +21,17 @@ _BARE_THREAD = re.compile(
 # 回傳值的匯出失敗時回 -1 或 nullptr（gbm_capi.h 的慣例）；這些的 -1 會被 Dart 當成長度或旗標。
 _OWN_FAILURE_VALUE = {
     'gbm_askpass_main': '1',
+    # 1 = queued, 0 = nothing queued (gbm_capi.h): Dart drops its pending entry on 0.
+    'gbm_branch_checkout': '0',
+    'gbm_branch_delete': '0',
     'gbm_graph_snapshot_complete': '0',
     'gbm_graph_snapshot_lane_count': '0',
     'gbm_graph_snapshot_truncated': '0',
     'gbm_has_commit_graph': '0',
     'gbm_history_refresh': '0',
     'gbm_last_result_json_len': '0',
+    'gbm_remote_fetch': '0',
+    'gbm_remote_prune': '0',
 }
 _VOID_CATCH = re.compile(r'(gbm::)?reportCurrentException\(__func__\);$')
 _VALUE_CATCH = re.compile(r'(gbm::(capi::)?)?reportNativeException\(__func__\);$')

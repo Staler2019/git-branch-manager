@@ -25,7 +25,15 @@ void AskpassPoller::start(std::filesystem::path dir, std::function<void(std::str
         answered_ = false;
     }
     running_ = true;
-    thread_ = guardedThread("AskpassPoller thread", [this] { pollLoop(); });
+    thread_ = guardedThread(
+        "AskpassPoller thread",
+        [this] { pollLoop(); },
+        [this] {
+            // Nobody answers once this thread is gone. Cancelled, the waiting client
+            // fails now instead of after kResponseTimeout, and isPromptPending() stops
+            // holding the operation's idle deadline off.
+            cancelPrompt();
+        });
 }
 
 void AskpassPoller::stop() {

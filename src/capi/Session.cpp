@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <mutex>
 #include <stdexcept>
@@ -217,71 +218,158 @@ ThreadPool& sharedReadPool() {
 #if defined(GBM_CAPI_TEST_EXPORTS)
 namespace {
 
-std::mutex& armedReadFailureMutex() {
-    static std::mutex mutex;
-    return mutex;
+struct ArmedFailure {
+    std::mutex mutex;
+    std::string where;
+    const char* what;
+};
+
+ArmedFailure& armedReadFailure() {
+    static ArmedFailure armed{{}, {}, "injected read failure"};
+    return armed;
 }
 
-std::string& armedReadFailure() {
-    static std::string where;
-    return where;
+ArmedFailure& armedSubmitFailure() {
+    static ArmedFailure armed{{}, {}, "injected submit failure"};
+    return armed;
 }
 
-/// Compare-and-clear, so a name armed once fails exactly one read posted
-/// under it and no read posted under any other name.
-void throwIfArmedForTest(const std::string& where) {
+/// Compare-and-clear, so a name armed once fails exactly one read (or
+/// submit) under it and none under any other name.
+void throwIfArmedForTest(ArmedFailure& armed, const std::string& where) {
     {
-        std::lock_guard<std::mutex> lock(armedReadFailureMutex());
-        if (where.empty() || armedReadFailure() != where) {
+        std::lock_guard<std::mutex> lock(armed.mutex);
+        if (where.empty() || armed.where != where) {
             return;
         }
-        armedReadFailure().clear();
+        armed.where.clear();
     }
-    throw std::runtime_error("injected read failure");
+    throw std::runtime_error(armed.what);
+}
+
+void throwIfArmedForTest(const std::string& where) {
+    throwIfArmedForTest(armedReadFailure(), where);
+}
+
+void arm(ArmedFailure& armed, std::string where) {
+    std::lock_guard<std::mutex> lock(armed.mutex);
+    armed.where = std::move(where);
 }
 
 }  // namespace
 
 void failReadForTest(std::string where) {
-    std::lock_guard<std::mutex> lock(armedReadFailureMutex());
-    armedReadFailure() = std::move(where);
+    arm(armedReadFailure(), std::move(where));
+}
+
+void failSubmitForTest(std::string where) {
+    arm(armedSubmitFailure(), std::move(where));
 }
 #endif
+
+namespace {
+
+/// The one place a Session funnel hands work to its OperationRunner. Both
+/// arguments are taken by value, so by the time anything here throws the
+/// operation and its callback have left the funnel's hands, as they have
+/// when the runner's own push_back throws.
+OperationRunner::Handle submitToRunner(OperationRunner& runner,
+                                       std::unique_ptr<Operation> operation,
+                                       OperationRunner::CompletionCallback onDone,
+                                       const std::string& where) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    throwIfArmedForTest(armedSubmitFailure(), where);
+#else
+    (void)where;
+#endif
+    return runner.submit(std::move(operation), std::move(onDone));
+}
+
+/// For a callback a funnel or postRead still owes after the hand-off failed:
+/// it runs on an FFI caller's thread, where an escaping throw would end the
+/// process.
+void runGuarded(const std::function<void()>& fn, std::string_view where) {
+    try {
+        if (fn) {
+            fn();
+        }
+    } catch (...) {
+        reportCurrentException(where);
+    }
+}
+
+void reportException(const std::exception_ptr& failure, std::string_view where) {
+    try {
+        std::rethrow_exception(failure);
+    } catch (...) {
+        reportCurrentException(where);
+    }
+}
+
+}  // namespace
+
+namespace {
+
+/// Same shape as OperationRunner's own catch, so Dart reads it like any other
+/// failed git call. Called from inside a catch block.
+void replyReadFailed(const std::function<void(const GitError&)>& onFailure) {
+    try {
+        onFailure(GitError(
+            GitError::Code::Unknown, "The read failed unexpectedly", describeCurrentException()));
+    } catch (...) {
+        reportCurrentException("postRead failure reply");
+    }
+}
+
+/// `job` is taken by value, so by the time anything here throws the read has
+/// left postRead's hands, as it has when the pool's own push_back throws.
+void handToReadPool(ReadLane lane, std::function<void()> job, const std::string& where) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    throwIfArmedForTest("post:" + where);
+#else
+    (void)where;
+#endif
+    if (lane == ReadLane::Front) {
+        sharedReadPool().postFront(std::move(job));
+    } else {
+        sharedReadPool().post(std::move(job));
+    }
+}
+
+}  // namespace
 
 void postRead(ReadLane lane,
               std::string where,
               std::function<void()> task,
               std::function<void(const GitError&)> onFailure,
               std::function<void()> onAlways) {
-    auto run = [where = std::move(where),
-                task = std::move(task),
-                onFailure = std::move(onFailure),
-                onAlways = std::move(onAlways)]() {
-        // First, so it covers a throw before `task` starts -- the injected one
-        // below, which is why dispatchRefresh's terminal-path guard lives here.
-        const ScopeExit always(onAlways);
-        try {
-#if defined(GBM_CAPI_TEST_EXPORTS)
-            throwIfArmedForTest(where);
-#endif
-            task();
-        } catch (...) {
-            reportCurrentException(where);
-            // Same shape as OperationRunner's own catch, so Dart reads it like
-            // any other failed git call.
+    // Shared with `run`, so a hand-off that throws after `run` has been moved
+    // away can still answer from here.
+    const auto failure =
+        std::make_shared<const std::function<void(const GitError&)>>(std::move(onFailure));
+    const auto always = std::make_shared<const std::function<void()>>(std::move(onAlways));
+    try {
+        auto run = [where, task = std::move(task), failure, always]() {
+            // First, so it covers a throw before `task` starts -- the injected one
+            // below, which is why dispatchRefresh's terminal-path guard lives here.
+            const ScopeExit runAlways(*always);
             try {
-                onFailure(GitError(GitError::Code::Unknown,
-                                   "The read failed unexpectedly",
-                                   describeCurrentException()));
+#if defined(GBM_CAPI_TEST_EXPORTS)
+                throwIfArmedForTest(where);
+#endif
+                task();
             } catch (...) {
-                reportCurrentException("postRead failure reply");
+                reportCurrentException(where);
+                replyReadFailed(*failure);
             }
-        }
-    };
-    if (lane == ReadLane::Front) {
-        sharedReadPool().postFront(std::move(run));
-    } else {
-        sharedReadPool().post(std::move(run));
+        };
+        handToReadPool(lane, std::move(run), where);
+    } catch (...) {
+        // Nothing reached a worker: answer here, on the caller's thread. No
+        // call site holds a lock either callback takes.
+        reportCurrentException(where);
+        replyReadFailed(*failure);
+        runGuarded(*always, "postRead onAlways");
     }
 }
 
@@ -718,9 +806,10 @@ void Session::publishGraph(GraphSnapshotPtr snapshot, RefreshCoalescer::Generati
     callbacks_.emit(GBM_EVENT_GRAPH_UPDATED, payload);
 }
 
-void Session::checkout(CheckoutRequest request) {
+bool Session::checkout(CheckoutRequest request) {
     // The worktree list is republished by submitOperation, with the refs.
-    submitOperation(makeCheckoutOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    return submitOperation(makeCheckoutOperation(std::move(request)),
+                           /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::createBranch(CreateBranchRequest request) {
@@ -742,9 +831,9 @@ void Session::renameBranch(RenameBranchRequest request) {
         /*onAlways=*/needsAskpass ? std::function<void()>([this]() { endAskpass(); }) : nullptr);
 }
 
-void Session::deleteBranch(DeleteBranchRequest request) {
-    submitOperation(makeDeleteBranchOperation(std::move(request)),
-                    /*refreshHistoryOnSuccess=*/true);
+bool Session::deleteBranch(DeleteBranchRequest request) {
+    return submitOperation(makeDeleteBranchOperation(std::move(request)),
+                           /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::resetTo(ResetRequest request) {
@@ -862,35 +951,56 @@ void Session::emitWorkingCopyDiff(const std::string& path,
     callbacks_.emit(eventType, payload);
 }
 
-void Session::submitWorkingCopyOperationReading(
+bool Session::submitWorkingCopyOperationReading(
     std::unique_ptr<Operation> operation, std::function<void(const OperationOutcome&)> onSuccess) {
-    operations_->submit(
-        std::move(operation), [this, onSuccess = std::move(onSuccess)](OperationOutcome outcome) {
-            refreshUndoJournalCache();
-            callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
-            if (outcome.succeeded && onSuccess) {
-                onSuccess(outcome);
-            }
-        });
+    try {
+        submitToRunner(
+            *operations_,
+            std::move(operation),
+            [this, onSuccess = std::move(onSuccess)](OperationOutcome outcome) {
+                refreshUndoJournalCache();
+                callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
+                if (outcome.succeeded && onSuccess) {
+                    onSuccess(outcome);
+                }
+            },
+            "Session::submitWorkingCopyOperationReading");
+    } catch (...) {
+        reportCurrentException("Session::submitWorkingCopyOperationReading");
+        return false;
+    }
+    return true;
 }
 
-void Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
+bool Session::submitWorkingCopyOperation(std::unique_ptr<Operation> operation,
                                          std::function<void()> onSuccess,
                                          std::function<void()> onAlways) {
-    operations_->submit(std::move(operation),
-                        [this, onSuccess = std::move(onSuccess), onAlways = std::move(onAlways)](
-                            OperationOutcome outcome) {
-                            const bool succeeded = outcome.succeeded;
-                            refreshUndoJournalCache();
-                            callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
-                                            toJson(outcome));
-                            if (onAlways) {
-                                onAlways();
-                            }
-                            if (succeeded && onSuccess) {
-                                onSuccess();
-                            }
-                        });
+    // Shared with the callback, so a hand-off that throws after the callback
+    // has been moved away can still end what the caller began (an askpass
+    // watch, say).
+    const auto always = std::make_shared<const std::function<void()>>(std::move(onAlways));
+    try {
+        submitToRunner(
+            *operations_,
+            std::move(operation),
+            [this, onSuccess = std::move(onSuccess), always](OperationOutcome outcome) {
+                const bool succeeded = outcome.succeeded;
+                refreshUndoJournalCache();
+                callbacks_.emit(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED, toJson(outcome));
+                if (*always) {
+                    (*always)();
+                }
+                if (succeeded && onSuccess) {
+                    onSuccess();
+                }
+            },
+            "Session::submitWorkingCopyOperation");
+    } catch (...) {
+        reportCurrentException("Session::submitWorkingCopyOperation");
+        runGuarded(*always, "Session::submitWorkingCopyOperation onAlways");
+        return false;
+    }
+    return true;
 }
 
 void Session::stageFiles(std::vector<std::string> paths) {
@@ -1009,7 +1119,7 @@ std::int32_t Session::cancelOperation(std::uint64_t id) {
     return -1;
 }
 
-void Session::submitOperation(std::unique_ptr<Operation> operation,
+bool Session::submitOperation(std::unique_ptr<Operation> operation,
                               bool refreshHistoryOnSuccess,
                               std::function<void()> onSuccess,
                               std::function<void()> onAlways) {
@@ -1030,52 +1140,80 @@ void Session::submitOperation(std::unique_ptr<Operation> operation,
     // waits on the worker, so holding a second mutex across it cannot
     // deadlock.
     auto idSlot = std::make_shared<std::uint64_t>(0);
-    std::lock_guard<std::mutex> registration(inFlightMutex_);
-
-    const auto handle =
-        operations_->submit(std::move(operation),
-                            [this,
-                             idSlot,
-                             refreshHistoryOnSuccess,
-                             onSuccess = std::move(onSuccess),
-                             onAlways = std::move(onAlways)](OperationOutcome outcome) {
-                                {
-                                    std::lock_guard<std::mutex> lock(inFlightMutex_);
-                                    inFlight_.erase(*idSlot);
-                                }
-                                const bool succeeded = outcome.succeeded;
-                                // "Failed" and "changed nothing" are not the same claim. `git
-                                // branch -d a b` deletes what it can and still exits 1 for the
-                                // rest, so a refused multi-branch delete routinely lands here
-                                // having already moved refs/heads -- and refs read only on
-                                // `succeeded` left the sidebar drawing branches that no longer
-                                // existed. Only an operation that measured the change sets this
-                                // (see OperationOutcome::mutatedRefs); the AND with
-                                // refreshHistoryOnSuccess is kept, so no operation starts
-                                // refreshing that was not already going to.
-                                const bool changedRefs = succeeded || outcome.mutatedRefs;
-                                refreshUndoJournalCache();
-                                callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
-                                refreshWorkingCopy();
-                                if (onAlways) {
-                                    onAlways();
-                                }
-                                if (changedRefs && refreshHistoryOnSuccess) {
-                                    refreshHistory();
-                                    // Each worktree's branch and headOid are refs too: the
-                                    // worktree panel draws them, keys its pending counts on
-                                    // `path@headOid`, and the Add worktree dialog's "already
-                                    // checked out" gate reads the branch. A checkout, rename,
-                                    // reset, merge or rebase changes them; ~6 ms on vscode.
-                                    refreshWorktrees();
-                                }
-                                if (succeeded && onSuccess) {
-                                    onSuccess();
-                                }
-                            });
-
-    *idSlot = handle.id;
-    inFlight_.emplace(handle.id, handle.cancel);
+    // Shared with the callback, so a hand-off that throws after the callback
+    // has been moved away can still end what the caller began.
+    const auto always = std::make_shared<const std::function<void()>>(std::move(onAlways));
+    // Both are reported, and `onAlways` run, only once the lock is released:
+    // endAskpass() joins the poller's thread.
+    std::exception_ptr handOffFailure;
+    std::exception_ptr bookkeepingFailure;
+    {
+        std::lock_guard<std::mutex> registration(inFlightMutex_);
+        try {
+            const auto handle = submitToRunner(
+                *operations_,
+                std::move(operation),
+                [this, idSlot, refreshHistoryOnSuccess, onSuccess = std::move(onSuccess), always](
+                    OperationOutcome outcome) {
+                    {
+                        std::lock_guard<std::mutex> lock(inFlightMutex_);
+                        inFlight_.erase(*idSlot);
+                    }
+                    const bool succeeded = outcome.succeeded;
+                    // "Failed" and "changed nothing" are not the same claim. `git
+                    // branch -d a b` deletes what it can and still exits 1 for the
+                    // rest, so a refused multi-branch delete routinely lands here
+                    // having already moved refs/heads -- and refs read only on
+                    // `succeeded` left the sidebar drawing branches that no longer
+                    // existed. Only an operation that measured the change sets this
+                    // (see OperationOutcome::mutatedRefs); the AND with
+                    // refreshHistoryOnSuccess is kept, so no operation starts
+                    // refreshing that was not already going to.
+                    const bool changedRefs = succeeded || outcome.mutatedRefs;
+                    refreshUndoJournalCache();
+                    callbacks_.emit(GBM_EVENT_OPERATION_FINISHED, toJson(outcome));
+                    refreshWorkingCopy();
+                    if (*always) {
+                        (*always)();
+                    }
+                    if (changedRefs && refreshHistoryOnSuccess) {
+                        refreshHistory();
+                        // Each worktree's branch and headOid are refs too: the
+                        // worktree panel draws them, keys its pending counts on
+                        // `path@headOid`, and the Add worktree dialog's "already
+                        // checked out" gate reads the branch. A checkout, rename,
+                        // reset, merge or rebase changes them; ~6 ms on vscode.
+                        refreshWorktrees();
+                    }
+                    if (succeeded && onSuccess) {
+                        onSuccess();
+                    }
+                },
+                "Session::submitOperation");
+            // Queued is queued from here on: a throw costs this operation its
+            // cancel-by-id, never its outcome.
+            try {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+                throwIfArmedForTest(armedSubmitFailure(), "after:Session::submitOperation");
+#endif
+                *idSlot = handle.id;
+                inFlight_.emplace(handle.id, handle.cancel);
+            } catch (...) {
+                bookkeepingFailure = std::current_exception();
+            }
+        } catch (...) {
+            handOffFailure = std::current_exception();
+        }
+    }
+    if (bookkeepingFailure) {
+        reportException(bookkeepingFailure, "Session::submitOperation bookkeeping");
+    }
+    if (handOffFailure) {
+        reportException(handOffFailure, "Session::submitOperation");
+        runGuarded(*always, "Session::submitOperation onAlways");
+        return false;
+    }
+    return true;
 }
 
 void Session::mergeBranch(MergeRequest request) {
@@ -1473,7 +1611,7 @@ RemoteListPtr Session::currentRemotes() const {
     return remotes_;
 }
 
-void Session::fetchRemote(FetchRequest request) {
+bool Session::fetchRemote(FetchRequest request) {
     if (request.background) {
         // No askpass watch at all: there is one poller per session, so a
         // background fetch that took it -- and released it on finishing --
@@ -1481,17 +1619,16 @@ void Session::fetchRemote(FetchRequest request) {
         // ran, and that push's password prompt would never appear.
         // FetchOperation refuses every prompt for a background fetch anyway.
         request.refsBefore = currentRefs();
-        submitWorkingCopyOperationReading(makeFetchOperation(std::move(request)),
-                                          [this](const OperationOutcome& outcome) {
-                                              // A quiet remote costs no walk.
-                                              if (outcome.refsMoved.value_or(true)) {
-                                                  refreshHistory();
-                                              }
-                                          });
-        return;
+        return submitWorkingCopyOperationReading(makeFetchOperation(std::move(request)),
+                                                 [this](const OperationOutcome& outcome) {
+                                                     // A quiet remote costs no walk.
+                                                     if (outcome.refsMoved.value_or(true)) {
+                                                         refreshHistory();
+                                                     }
+                                                 });
     }
     request.askpassDir = beginAskpass();
-    submitWorkingCopyOperation(
+    return submitWorkingCopyOperation(
         makeFetchOperation(std::move(request)),
         [this]() { refreshHistory(); },
         [this]() { endAskpass(); });
@@ -1570,13 +1707,14 @@ void Session::requestBranchDeletionProbe(std::uint64_t requestId, std::vector<st
         });
 }
 
-void Session::pruneRemote(PruneRemoteRequest request) {
+bool Session::pruneRemote(PruneRemoteRequest request) {
     // Not submitWorkingCopyOperation: pruning remote-tracking refs never
     // touches the working tree or index, only refs -- same shape as
     // deleteBranch(), which is why this reports through the plain
     // GBM_EVENT_OPERATION_FINISHED channel below (submitOperation), not
     // GBM_EVENT_WORKING_COPY_OPERATION_FINISHED.
-    submitOperation(makePruneRemoteOperation(std::move(request)), /*refreshHistoryOnSuccess=*/true);
+    return submitOperation(makePruneRemoteOperation(std::move(request)),
+                           /*refreshHistoryOnSuccess=*/true);
 }
 
 void Session::addRemote(AddRemoteRequest request) {

@@ -100,6 +100,7 @@ class _FetchRecordingBindings extends FakeGbmBindings {
         int background,
       ) {
         backgroundArgs.add(background);
+        return 1;
       };
 }
 

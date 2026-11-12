@@ -2875,7 +2875,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     final Pointer<Utf8> targetPtr = target.toNativeUtf8();
     final Pointer<Utf8> newBranchPtr = newBranchName.toNativeUtf8();
     try {
-      _bindings.branchCheckout(
+      final int queued = _bindings.branchCheckout(
         _session,
         targetPtr,
         detach ? 1 : 0,
@@ -2885,6 +2885,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         stashFirst ? 1 : 0,
         recurseSubmodules ? 1 : 0,
       );
+      // 0: nothing was queued and no outcome will come. The native error
+      // channel has already put the exception in the Log.
+      if (queued == 0) _pending.dropLastCheckout();
     } finally {
       malloc.free(targetPtr);
       malloc.free(newBranchPtr);
@@ -3108,7 +3111,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       for (int i = 0; i < entries.length; i++) {
         forces[i] = entries[i].force ? 1 : 0;
       }
-      _withNativeStringArray(
+      final int queued = _withNativeStringArray(
         <String>[for (final DeleteBranchEntry e in entries) e.name],
         (names, count) => _withNativeStringArray(
           <String>[for (final DeleteBranchEntry e in entries) e.expectedTipOid],
@@ -3123,6 +3126,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           ),
         ),
       );
+      // Same as checkout().
+      if (queued == 0) _pending.dropLastDeleteBranch();
     } finally {
       malloc.free(forces);
       malloc.free(remoteNamePtr);
@@ -4072,7 +4077,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
-      _withNativeStringArray(
+      final int queued = _withNativeStringArray(
         refs,
         (array, count) => _bindings.remoteFetch(
           _session,
@@ -4084,6 +4089,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           background ? 1 : 0,
         ),
       );
+      // Same as checkout().
+      if (queued == 0) _pending.dropLastFetch();
     } finally {
       malloc.free(remotePtr);
     }
@@ -4409,11 +4416,13 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     );
     final Pointer<Utf8> remotePtr = remoteName.toNativeUtf8();
     try {
-      _withNativeStringArray(
+      final int queued = _withNativeStringArray(
         args,
         (array, count) =>
             _bindings.remotePrune(_session, remotePtr, array, count),
       );
+      // Same as checkout().
+      if (queued == 0) _pending.dropLastPruneRemote();
     } finally {
       malloc.free(remotePtr);
     }
@@ -5040,17 +5049,18 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// Marshals `paths` into a native `const char* const*` for the lifetime of
-  /// `body`, then frees every string and the array itself.
-  void _withNativeStringArray(
+  /// `body`, then frees every string and the array itself. Returns what
+  /// `body` returns.
+  T _withNativeStringArray<T>(
     List<String> paths,
-    void Function(Pointer<Pointer<Utf8>> array, int count) body,
+    T Function(Pointer<Pointer<Utf8>> array, int count) body,
   ) {
     final Pointer<Pointer<Utf8>> array = malloc<Pointer<Utf8>>(paths.length);
     try {
       for (int i = 0; i < paths.length; i++) {
         array[i] = paths[i].toNativeUtf8();
       }
-      body(array, paths.length);
+      return body(array, paths.length);
     } finally {
       for (int i = 0; i < paths.length; i++) {
         malloc.free(array[i]);

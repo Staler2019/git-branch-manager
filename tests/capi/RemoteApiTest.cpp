@@ -17,6 +17,8 @@
 #include <string>
 #include <vector>
 
+GBM_API void gbm_test_fail_submit(const char* where);
+
 namespace gbm::capi {
 namespace {
 
@@ -519,6 +521,114 @@ TEST_F(RemoteApiTest, AForegroundFetchOutcomeCarriesNoRefsMovedKey) {
     const std::string outcome = log_.lastPayloadOfType(GBM_EVENT_WORKING_COPY_OPERATION_FINISHED);
     EXPECT_EQ(outcome.find("refsMoved"), std::string::npos)
         << "every other outcome's JSON stays byte-identical: " << outcome;
+}
+
+// An operation that cannot be queued. gbm_test_fail_submit() arms one submit funnel by name;
+// it throws after the operation and its callback have been handed to OperationRunner::submit,
+// where an allocation failure in the runner's push_back would land. Dart records a pending
+// entry before each of these four calls and pairs outcomes with entries in order, so the call
+// itself has to say "not queued": an outcome sent instead would overtake one already queued.
+
+std::size_t countOfType(const std::vector<std::pair<int32_t, std::string>>& events, int32_t type) {
+    std::size_t n = 0;
+    for (const auto& [eventType, payload] : events) {
+        if (eventType == type) ++n;
+    }
+    return n;
+}
+
+std::size_t askpassDirCount() {
+    std::size_t n = 0;
+    for (const auto& entry :
+         std::filesystem::directory_iterator(std::filesystem::temp_directory_path())) {
+        if (entry.path().filename().string().rfind("gbm-askpass-", 0) == 0) ++n;
+    }
+    return n;
+}
+
+bool waitForOperationsFinished(EventLog& log, int32_t type, std::size_t n) {
+    return log.waitFor([&](const auto& events) { return countOfType(events, type) >= n; });
+}
+
+TEST_F(RemoteApiTest, ACheckoutThatCannotBeQueuedSaysSoAndSendsNoOutcome) {
+    gbm_test_fail_submit("Session::submitOperation");
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 0);
+
+    // One worker, in order: once the next checkout's outcome is here, any for the first is too.
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(countOfType(log_.events, GBM_EVENT_OPERATION_FINISHED), 1u);
+}
+
+TEST_F(RemoteApiTest, ACheckoutThatCannotBeQueuedDoesNotOvertakeOneAlreadyQueued) {
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 1);
+    gbm_test_fail_submit("Session::submitOperation");
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 0);
+
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    const char* refs[] = {"main"};
+    EXPECT_EQ(gbm_remote_prune(session_, "origin", refs, 0), 1);
+    ASSERT_TRUE(waitForOperationsFinished(log_, GBM_EVENT_OPERATION_FINISHED, 2));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    std::size_t checkouts = 0;
+    for (const auto& [type, payload] : log_.events) {
+        if (type == GBM_EVENT_OPERATION_FINISHED &&
+            payload.find("\"kind\":\"checkout\"") != std::string::npos) {
+            ++checkouts;
+        }
+    }
+    EXPECT_EQ(checkouts, 1u);
+}
+
+TEST_F(RemoteApiTest, ABranchDeleteAndAPruneThatCannotBeQueuedSaySo) {
+    const char* names[] = {"nothing-here"};
+    gbm_test_fail_submit("Session::submitOperation");
+    EXPECT_EQ(gbm_branch_delete(session_, names, 1, nullptr, nullptr, 0, ""), 0);
+    gbm_test_fail_submit("Session::submitOperation");
+    EXPECT_EQ(gbm_remote_prune(session_, "origin", names, 1), 0);
+
+    EXPECT_EQ(gbm_branch_delete(session_, names, 1, nullptr, nullptr, 0, ""), 1);
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(countOfType(log_.events, GBM_EVENT_OPERATION_FINISHED), 1u);
+}
+
+TEST_F(RemoteApiTest, AFetchThatCannotBeQueuedSaysSoAndEndsItsAskpassWatch) {
+    const std::size_t before = askpassDirCount();
+    gbm_test_fail_submit("Session::submitWorkingCopyOperation");
+    EXPECT_EQ(gbm_remote_fetch(session_, "origin", nullptr, 0, 0, 0, /*background=*/0), 0);
+    // endAskpass() removes the directory beginAskpass() made; left running, the poller would
+    // hold it until the session closes.
+    EXPECT_EQ(askpassDirCount(), before);
+
+    EXPECT_EQ(gbm_remote_fetch(session_, "origin", nullptr, 0, 0, 0, /*background=*/0), 1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(countOfType(log_.events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED), 1u);
+}
+
+TEST_F(RemoteApiTest, ABackgroundFetchThatCannotBeQueuedSaysSo) {
+    gbm_test_fail_submit("Session::submitWorkingCopyOperationReading");
+    EXPECT_EQ(gbm_remote_fetch(session_, "origin", nullptr, 0, 0, 0, /*background=*/1), 0);
+
+    EXPECT_EQ(gbm_remote_fetch(session_, "origin", nullptr, 0, 0, 0, /*background=*/1), 1);
+    ASSERT_TRUE(waitForWorkingCopyOperationFinished(log_));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(countOfType(log_.events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED), 1u);
+}
+
+// Queued is queued: a throw in the funnel's own bookkeeping afterwards costs a cancel-by-id, and
+// the outcome still comes.
+TEST_F(RemoteApiTest, AThrowAfterACheckoutIsQueuedStillSaysQueued) {
+    gbm_test_fail_submit("after:Session::submitOperation");
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 1);
+
+    ASSERT_TRUE(waitForOperationFinished(log_));
+    EXPECT_EQ(gbm_branch_checkout(session_, "main", 0, 0, "", 0, 0, 0), 1);
+    ASSERT_TRUE(waitForOperationsFinished(log_, GBM_EVENT_OPERATION_FINISHED, 2));
+    std::lock_guard<std::mutex> lock(log_.mutex);
+    EXPECT_EQ(countOfType(log_.events, GBM_EVENT_OPERATION_FINISHED), 2u);
 }
 
 void setEnv(const char* name, const std::string& value) {

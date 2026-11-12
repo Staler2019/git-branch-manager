@@ -110,4 +110,12 @@ GBM_API void gbm_test_fail_read(const char* where) try {
 } catch (...) {
     reportCurrentException(__func__);
 }
+
+GBM_API void gbm_test_fail_submit(const char* where);
+
+GBM_API void gbm_test_fail_submit(const char* where) try {
+    failSubmitForTest(where != nullptr ? where : "");
+} catch (...) {
+    reportCurrentException(__func__);
+}
 #endif

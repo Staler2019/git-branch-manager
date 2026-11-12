@@ -718,6 +718,7 @@ void main() {
       expect(added.args['branch'], 'origin/hotfix/9');
       expect(added.args['createBranch'], isTrue);
       expect(added.args['newBranchName'], 'hotfix/9');
+      expect(added.args['track'], isTrue);
     });
 
     testWidgets(
@@ -766,6 +767,25 @@ void main() {
       expect(added.args['branch'], 'main');
       expect(added.args['createBranch'], isTrue);
       expect(added.args['newBranchName'], 'feature/z');
+      expect(added.args['track'], isFalse);
+    });
+
+    // The reported defect: a new branch started at a remote branch came out
+    // tracking it. A new branch's upstream is never implied by its start.
+    testWidgets('a new branch started at a remote branch does not track it', (
+      tester,
+    ) async {
+      final FakeRepoSessionController fake = await _pump(tester);
+      await _pickCreateNew(tester);
+      await _pick(tester, 'origin/hotfix/9');
+      await _typeNewBranchName(tester, 'feature/z');
+      await _typePath(tester, '/src/worktrees/feature-z');
+      await _submit(tester);
+
+      final FakeCommand added = _added(fake);
+      expect(added.args['branch'], 'origin/hotfix/9');
+      expect(added.args['createBranch'], isTrue);
+      expect(added.args['track'], isFalse);
     });
   });
 

@@ -582,5 +582,20 @@ TEST(CreateBranchOperation, ReportsCheckoutFailureAfterBranchWasAlreadyCreated) 
     EXPECT_NE(outcome.summary.find("overwritten"), std::string::npos);
 }
 
+TEST(CreateBranchOperation, RefusesImplicitTrackingWithoutAnUpstreamRequest) {
+    FakeProcessRunner runner;
+
+    CreateBranchRequest request;
+    request.name = "feature";
+    request.startPoint = "origin/main";
+    auto operation = makeCreateBranchOperation(request);
+
+    OperationOutcome outcome = operation->run(runner, testPaths(), CancellationToken{});
+
+    ASSERT_TRUE(outcome.succeeded);
+    const std::vector<std::string> args = runner.invokedArgs(0);
+    EXPECT_NE(std::find(args.begin(), args.end(), "--no-track"), args.end());
+}
+
 }  // namespace
 }  // namespace gbm

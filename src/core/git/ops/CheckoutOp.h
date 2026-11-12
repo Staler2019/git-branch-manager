@@ -10,6 +10,12 @@ namespace gbm {
 struct CheckoutRequest {
     std::string target;   ///< Branch name, tag, or commit-ish.
     bool detach = false;  ///< Check out a commit without moving a branch.
+    /// Creates [newBranchName] at [target] tracking it (`--track`): the
+    /// checkout-a-remote-branch-as-local path, so [target] is a
+    /// remote-tracking ref. git refuses `--track` from a raw commit id, a
+    /// tag, or a `refs/remotes/` ref no configured remote's fetch refspec
+    /// maps (measured, git 2.56); a symbolic ref such as `HEAD` is accepted
+    /// and tracks the local branch it names.
     bool createBranch = false;
     std::string newBranchName;  ///< Used when createBranch is set.
 

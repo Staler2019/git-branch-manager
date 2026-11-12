@@ -491,6 +491,7 @@ class FakeRepoSessionController extends RepoSessionController {
     String newBranchName = '',
     bool detach = false,
     bool force = false,
+    bool track = false,
   }) {
     commandLog.add(
       FakeCommand('addWorktree', <String, Object?>{
@@ -500,6 +501,7 @@ class FakeRepoSessionController extends RepoSessionController {
         'newBranchName': newBranchName,
         'detach': detach,
         'force': force,
+        'track': track,
       }),
     );
   }
@@ -690,8 +692,6 @@ class FakeRepoSessionController extends RepoSessionController {
     required String name,
     String startPoint = '',
     bool checkoutAfter = false,
-    bool setUpstream = false,
-    String upstream = '',
   }) {
     commandLog.add(
       FakeCommand('createBranch', <String, Object?>{
@@ -704,8 +704,6 @@ class FakeRepoSessionController extends RepoSessionController {
         // ([TEST-fake-seam-fails-loudly]).
         'startPoint': startPoint,
         'checkoutAfter': checkoutAfter,
-        'setUpstream': setUpstream,
-        'upstream': upstream,
       }),
     );
   }

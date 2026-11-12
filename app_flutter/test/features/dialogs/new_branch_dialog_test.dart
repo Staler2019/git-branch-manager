@@ -398,26 +398,6 @@ void main() {
       expect(push.args['branches'], <String>['feature/x']);
       expect(push.args['setUpstream'], isTrue);
     });
-
-    // createBranch's own setUpstream/upstream params stay unused by this
-    // dialog on purpose -- they run `git branch --track <upstream>`, which
-    // needs the remote-tracking ref to already exist. A first push has no
-    // such ref yet, so that path is the wrong tool; pushChanges'
-    // --set-upstream is what actually publishes the branch.
-    testWidgets('createBranch itself is dispatched with setUpstream false', (
-      tester,
-    ) async {
-      final FakeRepoSessionController fake = await _pump(
-        tester,
-        state: _session(remotes: const <RemoteInfo>[_origin]),
-      );
-      await _name(tester, 'feature/x');
-      await tester.tap(find.text('同時 push 並設為 upstream'));
-      await tester.pumpAndSettle();
-      await _create(tester);
-
-      expect(_created(fake).args['setUpstream'], isFalse);
-    });
   });
 
   group('input height and radius (G4)', () {

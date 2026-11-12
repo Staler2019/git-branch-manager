@@ -37,7 +37,7 @@ or test now enforces live at that site, with the reason in its comment; history 
 ## [CI-no-ctest-timeout] `enable_testing()` without `include(CTest)` means there is **no** per-test timeout
 
 - **Rule**: root `CMakeLists.txt` calls `enable_testing()` only, so ctest has no default deadline and a hanging test runs to GitHub's 6-hour cap.
-- **Do**: the deadline is `tbase.execution.timeout` in `CMakePresets.json` (all five test presets inherit it; an explicit `TIMEOUT` property still wins) plus `timeout-minutes` on every `ci.yml` job. A job timeout cancels, so `if: failure()` log upload never runs; only the ctest timeout leaves a named `***Timeout`.
+- **Do**: the deadline is `tbase.execution.timeout` in `CMakePresets.json` (all five test presets inherit it; an explicit `TIMEOUT` property still wins) ~~plus `timeout-minutes` on every `ci.yml` job~~ alone: `ci.yml`/`cq.yml` set no `timeout-minutes` (user ruling), so a hang outside ctest runs to GitHub's 6-hour cap. Only the ctest timeout leaves a named `***Timeout`; a job timeout cancels, so `if: failure()` log upload never runs (`perf-nightly.yml` still sets 30).
 - **Do not**: `include(CTest)` (its `BUILD_TESTING` fights `GBM_BUILD_TESTS`; adds CDash targets) or `gtest_discover_tests(PROPERTIES TIMEOUT)` (misses `add_test()` fixtures).
 - **Evidence**: [ledger: 追加，Windows CI 卡 81 分鐘](../../docs/ledger/2026-09-05-fix-benign-exit-not-logged-as-error.md)
 

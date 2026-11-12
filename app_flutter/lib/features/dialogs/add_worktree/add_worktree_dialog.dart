@@ -296,6 +296,7 @@ class _AddWorktreeDialogContentState
               branch: entry.name,
               createBranch: true,
               newBranchName: local,
+              track: true,
             );
           }
         } else {
@@ -308,6 +309,9 @@ class _AddWorktreeDialogContentState
       case WorktreeSource.createNew:
         final String newName = _newBranchNameController.text.trim();
         if (newName.isEmpty) return;
+        // No `track`: a new branch's upstream is never implied by where it
+        // starts. Left to git, `origin/develop` as the start point made the
+        // new branch track origin/develop (使用者回報).
         controller.addWorktree(
           path,
           branch: _picked?.name ?? '',

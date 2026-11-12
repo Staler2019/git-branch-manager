@@ -39,10 +39,10 @@ import '../branch_name_validation.dart';
 /// exactly one remote -- the same "none or several, don't guess" rule
 /// `branch_bulk_actions.dart`'s `soleRemoteName()` already uses for bulk
 /// push. It dispatches a *second* operation, `pushChanges(remoteName:,
-/// branches: [name], setUpstream: true)`, never `createBranch`'s own
-/// `setUpstream`/`upstream` params -- those run `git branch --track
-/// &lt;upstream&gt;`, which needs the remote-tracking ref to already exist, and a
-/// first push has no such ref yet. `RepoSessionState.remotes` is not
+/// branches: [name], setUpstream: true)`. `createBranch` itself takes no
+/// upstream: `git branch --track` needs the remote-tracking ref to already
+/// exist, and a first push has no such ref yet, so its unused
+/// `setUpstream`/`upstream` params were removed. `RepoSessionState.remotes` is not
 /// populated at session open, so this dialog asks for it itself in
 /// `initState`, the way the manage-remotes panel does.
 ///

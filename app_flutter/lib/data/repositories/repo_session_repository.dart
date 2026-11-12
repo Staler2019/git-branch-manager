@@ -3001,34 +3001,29 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     state = state.copyWith(checkoutChoices: const <OperationChoice>[]);
   }
 
-  /// `git branch <name> [<startPoint>]`, optionally checking it out and/or
-  /// setting an upstream. `startPoint` empty means HEAD. Async: a failure
-  /// surfaces through [RepoSessionState.lastError], and on success this
-  /// refreshes refs (and history, if [checkoutAfter] moved HEAD).
+  /// `git branch <name> [<startPoint>] --no-track`, optionally checking it
+  /// out. Never sets an upstream: that is [pushChanges] with `setUpstream`.
+  /// `startPoint` empty means HEAD. Async: a failure surfaces through
+  /// [RepoSessionState.lastError], and on success this refreshes refs (and
+  /// history, if [checkoutAfter] moved HEAD).
   void createBranch({
     required String name,
     String startPoint = '',
     bool checkoutAfter = false,
-    bool setUpstream = false,
-    String upstream = '',
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> namePtr = name.toNativeUtf8();
     final Pointer<Utf8> startPointPtr = startPoint.toNativeUtf8();
-    final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     try {
       _bindings.branchCreate(
         _session,
         namePtr,
         startPointPtr,
         checkoutAfter ? 1 : 0,
-        setUpstream ? 1 : 0,
-        upstreamPtr,
       );
     } finally {
       malloc.free(namePtr);
       malloc.free(startPointPtr);
-      malloc.free(upstreamPtr);
     }
   }
 

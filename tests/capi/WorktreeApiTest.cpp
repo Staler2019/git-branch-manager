@@ -309,7 +309,7 @@ TEST_F(WorktreeApiTest, ACheckoutRepublishesTheWorktreeListWithTheNewBranch) {
 // checked out on creation, and a rename -- including a rename of the branch
 // *another* worktree has checked out, which `git branch -m` allows.
 TEST_F(WorktreeApiTest, CreatingAndCheckingOutABranchRepublishesTheWorktreeList) {
-    gbm_branch_create(session_, "fresh", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
+    gbm_branch_create(session_, "fresh", "", /*checkoutAfter=*/1);
     ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }))
         << "a branch created and checked out must republish the worktree list";
     EXPECT_NE(worktreesJson().find("\"branch\":\"fresh\""), std::string::npos) << worktreesJson();

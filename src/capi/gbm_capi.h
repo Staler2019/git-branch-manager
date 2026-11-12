@@ -563,16 +563,16 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
                                  int32_t stashFirst,
                                  int32_t recurseSubmodules);
 
-/// `git branch <name> [<startPoint>]`, optionally followed by a checkout
-/// and/or `--track`/`-u <upstream>`. `startPoint` empty means HEAD. Async:
-/// fires GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs (and
-/// history, if `checkoutAfter` moved HEAD).
+/// `git branch <name> [<startPoint>] --no-track`, optionally followed by a
+/// checkout. The new branch never gets an upstream here, whatever
+/// branch.autoSetupMerge says; one comes from a later push with
+/// `setUpstream`. `startPoint` empty means HEAD. Async: fires
+/// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs (and history,
+/// if `checkoutAfter` moved HEAD).
 GBM_API void gbm_branch_create(GbmSessionHandle session,
                                const char* name,
                                const char* startPoint,
-                               int32_t checkoutAfter,
-                               int32_t setUpstream,
-                               const char* upstream);
+                               int32_t checkoutAfter);
 
 /// `git branch -m <from> <to>` (`-M` when `force`).
 ///

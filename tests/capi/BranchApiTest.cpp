@@ -206,7 +206,7 @@ protected:
 };
 
 TEST_F(BranchApiTest, CreateBranchAddsALocalBranchWithoutMovingHead) {
-    gbm_branch_create(session_, "feature-1", "", /*checkoutAfter=*/0, /*setUpstream=*/0, "");
+    gbm_branch_create(session_, "feature-1", "", /*checkoutAfter=*/0);
     ASSERT_TRUE(waitForOperationFinished());
 
     // CreateBranchOperation does not override Operation::kind(), so JsonCodec
@@ -224,7 +224,7 @@ TEST_F(BranchApiTest, CreateBranchAddsALocalBranchWithoutMovingHead) {
 }
 
 TEST_F(BranchApiTest, CreateBranchWithCheckoutAfterMovesHead) {
-    gbm_branch_create(session_, "feature-2", "", /*checkoutAfter=*/1, /*setUpstream=*/0, "");
+    gbm_branch_create(session_, "feature-2", "", /*checkoutAfter=*/1);
     ASSERT_TRUE(waitForOperationFinished());
 
     EXPECT_EQ(GitCli::capture(repo_, {"symbolic-ref", "--short", "HEAD"}).firstLine(),

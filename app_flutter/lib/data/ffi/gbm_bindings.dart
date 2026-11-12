@@ -244,16 +244,12 @@ typedef _BranchCreateNative = Void Function(
   Pointer<Utf8> name,
   Pointer<Utf8> startPoint,
   Int32 checkoutAfter,
-  Int32 setUpstream,
-  Pointer<Utf8> upstream,
 );
 typedef BranchCreateDart = void Function(
   Pointer<Void> session,
   Pointer<Utf8> name,
   Pointer<Utf8> startPoint,
   int checkoutAfter,
-  int setUpstream,
-  Pointer<Utf8> upstream,
 );
 
 typedef _BranchRenameNative = Void Function(

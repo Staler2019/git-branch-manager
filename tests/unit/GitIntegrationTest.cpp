@@ -7005,5 +7005,24 @@ TEST_F(RealRepoTest, AFullFileDiffRunsUnderTheMultipliedDeadline) {
     EXPECT_EQ(armed.front(), 3 * 180 * 1000);
 }
 
+TEST_F(RemoteRepoTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
+    // New branch's only upstream route is its「同時 push 並設為 upstream」
+    // checkbox. Without an explicit --no-track, `git branch <n> origin/main`
+    // sets one anyway under branch.autoSetupMerge's default.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    CreateBranchRequest create;
+    create.name = "feature";
+    create.startPoint = "origin/main";
+    auto created = submitAndWait(operations, makeCreateBranchOperation(create));
+    ASSERT_TRUE(created.succeeded) << (created.error ? created.error->detail : "");
+
+    auto upstream = run({"for-each-ref", "--format=%(upstream)", "refs/heads/feature"});
+    ASSERT_TRUE(upstream);
+    EXPECT_EQ(upstream->out, "");
+}
+
 }  // namespace
 }  // namespace gbm

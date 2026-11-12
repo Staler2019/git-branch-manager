@@ -213,6 +213,22 @@ class PendingOperationTracker {
   PendingPruneRemoteRequest? takePruneRemote() =>
       _pruneRemoteQueue.isEmpty ? null : _pruneRemoteQueue.removeFirst();
 
+  /// Removes the request just recorded, for a call whose native side
+  /// answered 0: nothing was queued, so no outcome will come to take it, and
+  /// left in place it would take the outcome of the next call of its kind.
+  /// Recorded before the call and dropped after it, never recorded after,
+  /// because a test fake can emit the outcome during the call itself.
+  void dropLastCheckout() => _checkoutQueue.removeLast();
+
+  /// Same contract as [dropLastCheckout], for delete-branch.
+  void dropLastDeleteBranch() => _deleteBranchQueue.removeLast();
+
+  /// Same contract as [dropLastCheckout], for fetch.
+  void dropLastFetch() => _fetchQueue.removeLast();
+
+  /// Same contract as [dropLastCheckout], for prune-remote.
+  void dropLastPruneRemote() => _pruneRemoteQueue.removeLast();
+
   /// Drops every pending request without producing outcomes for them --
   /// called when the session closes, since no further
   /// GBM_EVENT_OPERATION_FINISHED events will arrive to consume them.

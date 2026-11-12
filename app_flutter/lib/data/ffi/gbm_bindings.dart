@@ -218,7 +218,7 @@ typedef GraphIntQueryDart = int Function(Pointer<Void> session);
 typedef _GraphReleaseNative = Void Function(Pointer<Void> session);
 typedef GraphReleaseDart = void Function(Pointer<Void> session);
 
-typedef _BranchCheckoutNative = Void Function(
+typedef _BranchCheckoutNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> target,
   Int32 detach,
@@ -228,7 +228,7 @@ typedef _BranchCheckoutNative = Void Function(
   Int32 stashFirst,
   Int32 recurseSubmodules,
 );
-typedef BranchCheckoutDart = void Function(
+typedef BranchCheckoutDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> target,
   int detach,
@@ -273,7 +273,7 @@ typedef BranchRenameDart = void Function(
   Pointer<Utf8> remoteName,
 );
 
-typedef _BranchDeleteNative = Void Function(
+typedef _BranchDeleteNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Pointer<Utf8>> names,
   Int32 nameCount,
@@ -282,7 +282,7 @@ typedef _BranchDeleteNative = Void Function(
   Int32 isRemote,
   Pointer<Utf8> remoteName,
 );
-typedef BranchDeleteDart = void Function(
+typedef BranchDeleteDart = int Function(
   Pointer<Void> session,
   Pointer<Pointer<Utf8>> names,
   int nameCount,
@@ -722,7 +722,7 @@ typedef RemoteRefreshDart = void Function(Pointer<Void> session);
 typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
 typedef RemotesJsonDart = int Function(Pointer<Void> session);
 
-typedef _RemoteFetchNative = Void Function(
+typedef _RemoteFetchNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> remoteName,
   Pointer<Pointer<Utf8>> refs,
@@ -731,7 +731,7 @@ typedef _RemoteFetchNative = Void Function(
   Int32 tags,
   Int32 background,
 );
-typedef RemoteFetchDart = void Function(
+typedef RemoteFetchDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> remoteName,
   Pointer<Pointer<Utf8>> refs,
@@ -894,13 +894,13 @@ typedef RequestCompareWithWorkingCopyDart = void Function(
   Pointer<Utf8> ref,
 );
 
-typedef _RemotePruneNative = Void Function(
+typedef _RemotePruneNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> remoteName,
   Pointer<Pointer<Utf8>> refs,
   Int32 refCount,
 );
-typedef RemotePruneDart = void Function(
+typedef RemotePruneDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> remoteName,
   Pointer<Pointer<Utf8>> refs,

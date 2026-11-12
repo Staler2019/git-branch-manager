@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -695,9 +696,13 @@ public:
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
+        // Set by the stderr pump if `onProgress` throws, and rethrown once it has been
+        // joined, so a throwing sink ends the run as it does on POSIX.
+        std::exception_ptr stderrFailure;
         if (stderrHandle_ != nullptr) {
-            stderrThread =
-                guardedThread("ProcessRunner stderr pump", [this, stderrText, &onProgress] {
+            stderrThread = guardedThread(
+                "ProcessRunner stderr pump",
+                [this, stderrText, &onProgress] {
                     std::vector<char> buffer(16 * 1024);
                     for (;;) {
                         DWORD read = 0;
@@ -719,6 +724,11 @@ public:
                             onProgress(chunk);
                         }
                     }
+                },
+                [this, &stderrFailure] {
+                    stderrFailure = std::current_exception();
+                    // Unblocks the stdout read below; nothing drains stderr any more.
+                    terminate();
                 });
         }
 
@@ -896,6 +906,9 @@ public:
         // the caller's bool is never written by two at once.
         if (timedOut_.load()) {
             *timedOut = true;
+        }
+        if (stderrFailure) {
+            std::rethrow_exception(stderrFailure);
         }
     }
 
@@ -1145,15 +1158,34 @@ private:
         ProcessResult result;
         LineSplitter splitter(separator, onLine);
         bool sinkStopped = false;
-        child->pump(splitter,
-                    &result.err,
-                    onProgress,
-                    command.stdinData ? &*command.stdinData : nullptr,
-                    deadlines.total,
-                    deadlines.idle,
-                    askpassDirOf(command),
-                    &result.timedOut,
-                    &sinkStopped);
+        try {
+            child->pump(splitter,
+                        &result.err,
+                        onProgress,
+                        command.stdinData ? &*command.stdinData : nullptr,
+                        deadlines.total,
+                        deadlines.idle,
+                        askpassDirOf(command),
+                        &result.timedOut,
+                        &sinkStopped);
+        } catch (...) {
+            // A sink is the caller's code and may throw. The child must not outlive
+            // the run, and its running Log row needs an outcome; the exception is the
+            // caller's to report.
+            child->terminate();
+            const int exitCode = child->wait();
+            cancelReg.reset();
+            recordOperation(operationId,
+                            deadlines,
+                            command,
+                            argv,
+                            collapseCarriageReturns(result.err),
+                            exitCode,
+                            started,
+                            false,
+                            false);
+            throw;
+        }
 
         result.exitCode = child->wait();
         result.duration =

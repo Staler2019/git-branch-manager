@@ -6484,6 +6484,37 @@ TEST(ProcessRunnerTimeout, ProgressOnStderrAloneKeepsAChildAlive) {
     EXPECT_NE(progress.find("100%"), std::string::npos) << progress;
 }
 
+// A progress sink is the caller's code (a session emits each chunk), so it can
+// throw. The run then ends at once with that exception on both platforms, and
+// the child does not outlive it: Windows reads stderr on a thread of its own,
+// where a throw used to end only that thread and leave the run waiting on its
+// idle deadline; POSIX threw straight out and left the child running.
+TEST(ProcessRunnerTimeout, AProgressSinkThatThrowsEndsTheRunWithItsException) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    // Drips once and then hangs, so only a kill ends it before the idle limit.
+    GitCommand command({}, {"--gbm-hang-forever", "--drip-stderr", "1"});
+    command.idleTimeout = std::chrono::seconds(10);
+
+    RecordSpy spy;
+    const auto started = std::chrono::steady_clock::now();
+    bool threw = false;
+    try {
+        (void)runner->stream(
+            command, [](std::string_view) { return true; },
+            [](std::string_view) { throw std::runtime_error("progress sink failed"); },
+            CancellationToken{});
+    } catch (const std::runtime_error& error) {
+        threw = std::string(error.what()) == "progress sink failed";
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_TRUE(threw) << "the run did not end with the sink's exception";
+    EXPECT_LT(elapsed, std::chrono::seconds(5)) << "the run waited for its idle deadline";
+    // lastEndingWith() skips running rows: none finished means the Log row stays RUNNING.
+    EXPECT_TRUE(spy.lastEndingWith({"--drip-stderr", "1"}).has_value())
+        << "the Log row was left RUNNING";
+}
+
 /// Puts the process-wide multiplier back to 1 whatever the test did, so no
 /// later test in this binary inherits a stretched deadline.
 struct TimeoutMultiplierReset {

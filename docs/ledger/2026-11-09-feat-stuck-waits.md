@@ -109,7 +109,7 @@ fixture 分不出成功與失敗（[TEST-fixture-cannot-disagree] 1）。改成�
 - ~~`scripts/check-read-pool-posts.py` 只認 `sharedReadPool().post(` 與 `ThreadPool& x = sharedReadPool()`；
   `auto& pool = sharedReadPool()` 會漏（wiring-auditor）。目前 `src/` 沒有這種寫法。~~ 已由 commit 7 補上。
 
-- void 匯出在把 task 排進 pool 之前就丟例外（例如 `toOidVector` 配置失敗），匯出的 catch 只寫 log，不回覆。
-- 不在 read pool 上的執行緒（`CloneJob`、`AskpassPoller`、`Scanner`、`DelayTimer`、`CatFileBatch` 的 watchdog）沒有處理。
+- ~~void 匯出在把 task 排進 pool 之前就丟例外（例如 `toOidVector` 配置失敗），匯出的 catch 只寫 log，不回覆。~~ 2026-11-12 收窄：交出那一步本身丟例外（`postRead` 交給 pool、三個 submit funnel 交給 runner）已由 [ledger: fix/stuck-waits-threads-and-pre-post](2026-11-12-fix-stuck-waits-threads-and-pre-post.md) 處理；`gbm_branch_checkout`／`gbm_branch_delete`／`gbm_remote_fetch`／`gbm_remote_prune` 在呼叫 Session 前丟例外也回 0，Dart 撤回 pending。其餘匯出在交出之前的配置失敗（例如 `toOidVector`）仍只寫 log、不回覆。
+- ~~不在 read pool 上的執行緒（`CloneJob`、`AskpassPoller`、`Scanner`、`DelayTimer`、`CatFileBatch` 的 watchdog）沒有處理。~~ 2026-11-12 更正：清單有一半不對。`CloneJob` 與 `Scanner` 在本輪之前就已處理；`DelayTimer` 的 `run()` 本來就接住 `onFire_` 的例外，只剩它觸發的 refresh 在 `postRead` 交出時丟例外會讓 coalescer 卡住，與 `AskpassPoller` 一起由 [ledger: fix/stuck-waits-threads-and-pre-post](2026-11-12-fix-stuck-waits-threads-and-pre-post.md) 處理。仍未處理：Windows 的 deadline 執行緒、`CatFileBatch` 的 watchdog。
 - `CallbackRegistry::emit` 在沒有 callback 或 malloc 失敗時丟掉事件。
 - session 關閉時 `cancelQueuedAndDrain` 丟掉的 read 不回覆；這時 controller 也正在關閉。

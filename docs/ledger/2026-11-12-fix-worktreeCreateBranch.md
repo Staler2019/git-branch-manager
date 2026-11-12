@@ -42,6 +42,14 @@
 
 **不寫規則**：`memory-steward` 判 ENCODE。兩個點已由測試與 site comment 守住；「每個建立分支的指令都要明示」的通則與 `CheckoutOp.cpp` 的 `git switch --create`（checkout 遠端成本地，刻意追蹤）矛盾，寫成規則會誤導下一輪。
 
+**追加（使用者第二次裁定）**：三件事。
+
+1. 「`autoSetupMerge=always` 加測試，要驗環境」。新 fixture `BranchTrackingTest::useAutoSetupMerge(value, controlStart, controlUpstream)`：設定後讀回確認，再跑一個不帶 flag 的 `git branch env-control <controlStart>`，斷言它**確實**得到 `controlUpstream`——設定在此環境沒生效時測試紅在這一步，不會假綠。New branch 與 worktree 各補一條 `always`（本地起點，git 以 remote "." 追蹤 `main`）；既有 inherit 測試改走同一個驗證。commit `9fd198ab`。
+2. 「`CreateBranchRequest` 為什麼沒用到，是因為都用 checkout -b 嗎」。不是：New branch 對話框每次都走 `CreateBranchOperation`；沒有呼叫者的只是 `setUpstream`/`upstream` 兩個欄位，因為對話框設 upstream 是另送 `push -u`（新分支第一次 push 前沒有遠端 ref 可追蹤）。`git switch --create` 只用在 checkout 遠端成本地。
+3. 「Checkout 遠端分支成本地，要加測試，商業邏輯要保住」。實測 `git -c branch.autoSetupMerge=false switch --create s1 origin/develop` 沒有 upstream，加 `--track` 則有——`CheckoutOp` 原本沒帶 flag，這條商業邏輯在 `false` 下是破的。`CheckoutOp` 建立分支時改為明示 `--track`。不需改 capi：這個 op 建立分支的呼叫端（Checkout 對話框 `_createsLocalBranch` 只在選遠端時、側邊欄 `checkoutRemoteAsNewLocal`）都傳 remote-tracking ref；「stash 後重試」沿用同一個 request，也帶得到。commit `14c3b151`。
+
+**一個假紅**：C5 的 `false` 測試第一次紅在環境驗證那步，不是主斷言：對照組用了 `origin/main`，但 fixture 只 push 了 `main:topic`。改成 `origin/topic` 後才是真紅（`upstreamOf("topic")` 為空）。環境驗證本身攔下了一個寫錯的 fixture。
+
 ## Result
 
 Mutation（每次先備份到 scratchpad、跑完從備份還原）：
@@ -61,6 +69,17 @@ Suites：`ctest --preset capi-only` 1092/1092；`flutter test` 4613 passed / 19 
 
 Post-implementation `verifier`：**CONFIRMED**（`af2cd96b`）。它自己重跑 device tier 4/4、目標 gtest 9/9 與 `WorktreeApiTest` 16/16、dialog 與 `gbm_capi_signature_parity_test.dart` 202 passed，並在 scratch repo（git 2.56.1）以 true / always / inherit 三種設定、remote / 本地 / 無起點三種起點確認 `--no-track -b` 都沒有 upstream，舊 argv 則重現 `origin/develop`。兩條 P4 建議，皆 DEFER：A1 device tier 的建立新分支用的是 inherit + 本地起點，不是使用者原本的 `origin/develop` 起點（該輸入已由 core 測試 `ANewBranchFromARemoteStartPointHasNoUpstream` 與 dialog 測試 `track: false` 覆蓋）；A2 `autoSetupMerge=always` 只有手動驗證（修正靠明示 flag，不依賴設定值）。
 
-**留給使用者裁定的觀察（未開 issue）**：`CreateBranchRequest.setUpstream=true` 送的是 `git branch <n> <start> --track <upstream>`，而 `--track` 的選擇性參數只吃 `=` 形式，`<upstream>` 會被當成第三個位置參數。目前 `lib/` 沒有任何呼叫者傳 `setUpstream: true`（[CULT-orphan-wiring] 的形狀），所以沒有使用者看得到的影響。`CheckoutOp` 的「checkout 遠端成本地會追蹤」也沒有測試釘住（memory-steward 指出），本輪未動。
+**留給使用者裁定的觀察（未開 issue）**：`CreateBranchRequest.setUpstream=true` 送的是 `git branch <n> <start> --track <upstream>`，而 `--track` 的選擇性參數只吃 `=` 形式，`<upstream>` 會被當成第三個位置參數。目前 `lib/` 沒有任何呼叫者傳 `setUpstream: true`（[CULT-orphan-wiring] 的形狀），所以沒有使用者看得到的影響。~~`CheckoutOp` 的「checkout 遠端成本地會追蹤」也沒有測試釘住（memory-steward 指出），本輪未動。~~ `CheckoutOp` 的「checkout 遠端成本地會追蹤」也沒有測試釘住（memory-steward 指出）。使用者裁定要保住，見下方追加段：它在 `autoSetupMerge=false` 下其實不追蹤，已修。
 
-不在範圍：`git checkout -b`／checkout 遠端成本地（`checkout_dialog.dart`、`checkoutRemoteAsNewLocal`）：那是「把遠端分支拿到本地」，追蹤是預期。
+~~不在範圍：`git checkout -b`／checkout 遠端成本地（`checkout_dialog.dart`、`checkoutRemoteAsNewLocal`）：那是「把遠端分支拿到本地」，追蹤是預期。~~ checkout 遠端成本地（`checkout_dialog.dart`、`checkoutRemoteAsNewLocal`）追蹤是預期行為；原本以為它不受影響而列為範圍外，實測 `autoSetupMerge=false` 下不追蹤，見下方追加段。
+
+**追加段的 mutation**：
+
+| # | Mutation | 跑的範圍 | 紅的測試數 | 是哪幾條 |
+|---|---|---|---|---|
+| M7 | BranchOps 拿掉 `--no-track` | 分支追蹤相關 11 條 | 3 | always 新測試、兩條既有 New branch |
+| M8 | WorktreeOps 拿掉 flag | 同上 | 3 | worktree 的 remote 起點、inherit、always |
+| M9 | 環境驗證改成設 `false`、不讀回 | 同上 | 3 | 三條用 `useAutoSetupMerge` 的測試，全紅在對照組 |
+| M10 | CheckoutOp 拿掉 `--track` | `gbm_core_tests` 全部 787 | 2 | `false` 下的短名稱與完整 ref 兩條 |
+
+`ctest --preset capi-only` 1097/1097。沒有改 Dart，`flutter test` 未重跑。device tier 沒有走 checkout 遠端成本地的測試；真實 git 行為由 core 整合測試覆蓋，Dart 端「選遠端時送 `createBranch: true`」由 checkout dialog 的 widget 測試覆蓋。

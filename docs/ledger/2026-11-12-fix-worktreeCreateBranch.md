@@ -52,6 +52,8 @@
 
 C7 `9949e1ad`：移除 `CreateBranchRequest.setUpstream/upstream`、`gbm_branch_create` 的兩個參數、Dart binding、`RepoSessionController.createBranch` 與 fake 的對應參數；`CreateBranchOperation` 一律送 `--no-track`。`CreateBranchRequest` 本身仍被 New branch dialog 使用（`new_branch_dialog.dart` → `createBranch`），不是因為改用 `checkout -b` 而沒用到；沒有呼叫者的只有這兩個參數。新分支的 upstream 仍只由 `pushChanges(setUpstream: true)` 設定。C8 `29d414b9`：依 verifier 回報更正 `CheckoutOp.h` 的註解——git 拒絕 `--track` 的是 raw commit id、tag、以及沒有 remote fetch refspec 對應的 `refs/remotes/` ref；`HEAD` 這類符號 ref 會被接受。
 
+C10：使用者裁定「time limit 移除，目前這limit太極限了」。PR #221 的 `Flutter UI - macOS (arm64)` 每一步都成功（`flutter test` 4612 通過、`flutter build macos` 成功），但 job 跑 25 分 04 秒，被 `timeout-minutes: 25` 取消；`fix/crash-filter-stack-overflow-log`、`fix/stuck-waits-threads-and-pre-post` 近期也有相同的 cancelled。移除 `ci.yml` 6 個、`cq.yml` 4 個 job 的 `timeout-minutes` 與其說明註解，並就地改寫 [CI-no-ctest-timeout]：測試的期限只剩 `CMakePresets.json` 的 `tbase.execution.timeout`（300 秒／測試），ctest 以外的卡死會跑到 GitHub 的 6 小時上限。
+
 ## Result
 
 Mutation（每次先備份到 scratchpad、跑完從備份還原）：

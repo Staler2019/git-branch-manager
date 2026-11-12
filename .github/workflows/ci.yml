@@ -14,15 +14,6 @@ jobs:
   sanitizers:
     name: Sanitizers (asan+ubsan)
     runs-on: ubuntu-22.04
-    # Every job carries one, and it is deliberately the same number for all of
-    # them. A Windows capi run hung for 81 minutes here on a test that never
-    # returned; with no job timeout it would have burned toward GitHub's 6-hour
-    # default, and `flutter-ci` (then `needs: capi-build`) never ran at all.
-    # The slowest measured job is Windows at 9-11 minutes, so 25 is over double the real
-    # ceiling -- this guard is against the black hole, not against a slow run.
-    # Per-job tuning would mean threading a `timeout` through `matrix.include`
-    # for capi-build; not worth a second matrix dimension to save ten minutes.
-    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,7 +32,6 @@ jobs:
   capi-build:
     name: capi (FFI) - ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -87,7 +77,7 @@ jobs:
         env:
           GBM_CAPI_LIBRARY_PATH: ${{ github.workspace }}/build/capi-only/src/capi/${{ matrix.lib }}
           GBM_NATIVE_ERROR_LOG_DIR: ${{ runner.temp }}/gbm-native-errors
-          # A crash here would otherwise wait on a box nobody clicks until the job timeout.
+          # A crash here would otherwise wait on a box nobody clicks, up to GitHub's 6-hour job cap.
           GBM_CRASH_NO_DIALOG: '1'
 
       - name: Upload test logs
@@ -105,7 +95,6 @@ jobs:
     # (`flutter build` compiles gbm_capi itself), so waiting on it only put
     # Windows capi's ~9-10 minutes in front of this job (#151 round).
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
     # Three OSes rather than ubuntu-22.04 alone. Two gaps closed, both of
     # which had been recorded as open rather than unknown:
     #
@@ -198,7 +187,6 @@ jobs:
     # GCC 11 and passes 100% of the time on GCC 13, which 24.04 ships by
     # default. Not an application bug; a toolchain one.
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:

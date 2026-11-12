@@ -7024,7 +7024,53 @@ TEST_F(RemoteRepoTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
     EXPECT_EQ(upstream->out, "");
 }
 
-class WorktreeTrackingTest : public RemoteRepoTest {
+/// For tests whose subject is whether a branch git creates gets an upstream,
+/// which depends on branch.autoSetupMerge. A test that sets the config also
+/// proves the setting takes effect in this environment, so it cannot pass
+/// against a git that ignores it.
+class BranchTrackingTest : public RemoteRepoTest {
+protected:
+    std::string upstreamOf(const std::string& branch) {
+        auto upstream = run({"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + branch});
+        EXPECT_TRUE(upstream);
+        return upstream ? upstream->out : "<failed>";
+    }
+
+    /// Sets branch.autoSetupMerge to `value`, reads it back, and shows a
+    /// plain `git branch <control> <controlStart>` -- no tracking flag --
+    /// does come out tracking `controlUpstream` under it.
+    void useAutoSetupMerge(const std::string& value,
+                           const std::string& controlStart,
+                           const std::string& controlUpstream) {
+        ASSERT_TRUE(run({"config", "branch.autoSetupMerge", value}));
+        auto readBack = run({"config", "--get", "branch.autoSetupMerge"});
+        ASSERT_TRUE(readBack);
+        ASSERT_EQ(readBack->out, value);
+
+        ASSERT_TRUE(run({"branch", "env-control", controlStart}));
+        ASSERT_EQ(upstreamOf("env-control"), controlUpstream)
+            << "branch.autoSetupMerge=" << value << " does not act in this environment";
+        ASSERT_TRUE(run({"branch", "-D", "env-control"}));
+    }
+};
+
+TEST_F(BranchTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysAlways) {
+    // `always` tracks even a local start point (remote "."), so New branch
+    // from `main` is the case only an explicit --no-track survives.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("always", "main", "main"));
+
+    OperationRunner operations(*runner_, paths_);
+    CreateBranchRequest create;
+    create.name = "fresh";
+    create.startPoint = "main";
+    auto created = submitAndWait(operations, makeCreateBranchOperation(create));
+    ASSERT_TRUE(created.succeeded) << (created.error ? created.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("fresh"), "");
+}
+
+class WorktreeTrackingTest : public BranchTrackingTest {
 protected:
     /// Adds a linked worktree holding a new branch `name` started at `start`
     /// and returns that branch's upstream, empty when it has none.
@@ -7043,10 +7089,7 @@ protected:
         add.track = track;
         auto added = submitAndWait(operations, makeAddWorktreeOperation(add));
         EXPECT_TRUE(added.succeeded) << (added.error ? added.error->detail : "");
-
-        auto upstream = run({"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + name});
-        EXPECT_TRUE(upstream);
-        return upstream ? upstream->out : "<failed>";
+        return upstreamOf(name);
     }
 };
 
@@ -7064,7 +7107,14 @@ TEST_F(WorktreeTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysInherit) {
     // fix that only reacted to remote start points would still leak one.
     commitFile("a.txt", "1\n", "c1");
     ASSERT_TRUE(run({"push", "--set-upstream", "origin", "main"}));
-    ASSERT_TRUE(run({"config", "branch.autoSetupMerge", "inherit"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("inherit", "main", "origin/main"));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysAlways) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("always", "main", "main"));
 
     EXPECT_EQ(addAndReadUpstream("fresh", "main", /*track=*/false), "");
 }

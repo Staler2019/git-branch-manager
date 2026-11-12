@@ -248,40 +248,76 @@ void failReadForTest(std::string where) {
 }
 #endif
 
+namespace {
+
+/// Same shape as OperationRunner's own catch, so Dart reads it like any other
+/// failed git call. Called from inside a catch block.
+void replyReadFailed(const std::function<void(const GitError&)>& onFailure) {
+    try {
+        onFailure(GitError(
+            GitError::Code::Unknown, "The read failed unexpectedly", describeCurrentException()));
+    } catch (...) {
+        reportCurrentException("postRead failure reply");
+    }
+}
+
+/// `job` is taken by value, so by the time anything here throws the read has
+/// left postRead's hands, as it has when the pool's own push_back throws.
+void handToReadPool(ReadLane lane, std::function<void()> job, const std::string& where) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    throwIfArmedForTest("post:" + where);
+#else
+    (void)where;
+#endif
+    if (lane == ReadLane::Front) {
+        sharedReadPool().postFront(std::move(job));
+    } else {
+        sharedReadPool().post(std::move(job));
+    }
+}
+
+}  // namespace
+
 void postRead(ReadLane lane,
               std::string where,
               std::function<void()> task,
               std::function<void(const GitError&)> onFailure,
               std::function<void()> onAlways) {
-    auto run = [where = std::move(where),
-                task = std::move(task),
-                onFailure = std::move(onFailure),
-                onAlways = std::move(onAlways)]() {
-        // First, so it covers a throw before `task` starts -- the injected one
-        // below, which is why dispatchRefresh's terminal-path guard lives here.
-        const ScopeExit always(onAlways);
-        try {
-#if defined(GBM_CAPI_TEST_EXPORTS)
-            throwIfArmedForTest(where);
-#endif
-            task();
-        } catch (...) {
-            reportCurrentException(where);
-            // Same shape as OperationRunner's own catch, so Dart reads it like
-            // any other failed git call.
+    // Shared with `run`, so a hand-off that throws after `run` has been moved
+    // away can still answer from here.
+    const auto failure =
+        std::make_shared<const std::function<void(const GitError&)>>(std::move(onFailure));
+    const auto always = std::make_shared<const std::function<void()>>(std::move(onAlways));
+    try {
+        auto run = [where, task = std::move(task), failure, always]() {
+            // First, so it covers a throw before `task` starts -- the injected one
+            // below, which is why dispatchRefresh's terminal-path guard lives here.
+            const ScopeExit runAlways(*always);
             try {
-                onFailure(GitError(GitError::Code::Unknown,
-                                   "The read failed unexpectedly",
-                                   describeCurrentException()));
+#if defined(GBM_CAPI_TEST_EXPORTS)
+                throwIfArmedForTest(where);
+#endif
+                task();
             } catch (...) {
-                reportCurrentException("postRead failure reply");
+                reportCurrentException(where);
+                replyReadFailed(*failure);
             }
+        };
+        handToReadPool(lane, std::move(run), where);
+    } catch (...) {
+        // Nothing reached a worker: answer here, on the caller's thread. No
+        // call site holds a lock either callback takes.
+        reportCurrentException(where);
+        replyReadFailed(*failure);
+        // Guarded rather than a ScopeExit: this is an FFI caller's thread, and a
+        // throw out of a destructor would end the process.
+        try {
+            if (*always) {
+                (*always)();
+            }
+        } catch (...) {
+            reportCurrentException("postRead onAlways");
         }
-    };
-    if (lane == ReadLane::Front) {
-        sharedReadPool().postFront(std::move(run));
-    } else {
-        sharedReadPool().post(std::move(run));
     }
 }
 

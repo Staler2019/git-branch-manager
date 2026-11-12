@@ -115,7 +115,9 @@ enum class ReadLane { Back, Front };
 /// `onFailure` gets an Unknown GitError, so the read still answers: the pool
 /// alone would leave Dart waiting for a reply that never comes. `onFailure`
 /// emits whatever the read's ordinary failure path emits. `onAlways` runs
-/// once on every path, including a throw before `task` starts. `where` is a
+/// once on every path, including a throw before `task` starts. If the read
+/// cannot be handed to the pool at all, both answer inline on the caller's
+/// thread, so a caller must not hold a lock either one takes. `where` is a
 /// function name, never user data ([CPP-exception-text-reaches-the-screen]).
 void postRead(ReadLane lane,
               std::string where,

@@ -486,6 +486,71 @@ TEST(PostRead, ConcurrentReadsEachAnswerExactlyOnce) {
     EXPECT_GE(failed, (kReads + 4) / 5);
 }
 
+// A `post:` name fails the hand-off itself, after the read has been moved into the pool's
+// argument -- where an allocation failure in the pool's push_back would land. Nothing reaches a
+// worker, so postRead answers inline, on the caller's thread.
+
+TEST_F(ReadFailureApiTest, AHistoryRefreshThatCannotBePostedRepliesWithAnErrorAndIsLogged) {
+    gbm_test_fail_read("post:Session::dispatchRefresh");
+    gbm_history_refresh(session_);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    const std::string error = *firstOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED);
+    EXPECT_TRUE(contains(error, "\"codeName\":\"Unknown\"")) << error;
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::dispatchRefresh\"")) << reports[0];
+}
+
+// finishRefresh is the refresh's onAlways: skipped, the coalescer stays running and every later
+// request folds into a dirty bit nothing drives.
+TEST_F(ReadFailureApiTest, HistoryStillRefreshesAfterARefreshThatCannotBePosted) {
+    gbm_test_fail_read("post:Session::dispatchRefresh");
+    gbm_history_refresh(session_);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+
+    const uint64_t second = gbm_history_refresh(session_);
+    ASSERT_NE(second, 0u);
+    const std::string covers = "\"coversRequest\":" + std::to_string(second);
+    EXPECT_TRUE(log_.waitFor([&](const Events& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_REFS_UPDATED && contains(payload, covers)) return true;
+        }
+        return false;
+    }));
+}
+
+TEST_F(ReadFailureApiTest, ABranchDeletionProbeThatCannotBePostedRepliesUnderItsRequestId) {
+    gbm_test_fail_read("post:Session::requestBranchDeletionProbe");
+    const char* names[] = {"main"};
+    gbm_request_branch_deletion_probe(session_, 4243, names, 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BRANCH_DELETION_PROBE_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BRANCH_DELETION_PROBE_READY);
+    EXPECT_TRUE(contains(reply, "\"requestId\":4243")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST(PostRead, AReadThatCannotBePostedAnswersOnceAndRunsOnAlwaysOnce) {
+    PostReadProbe probe;
+    std::atomic<bool> taskRan{false};
+    gbm_test_fail_read("post:PostReadTest::unposted");
+    postRead(
+        ReadLane::Back,
+        "PostReadTest::unposted",
+        [&] { taskRan = true; },
+        [&](const GitError&) { probe.bump(probe.failures); },
+        [&] { probe.bump(probe.always); });
+    sharedReadPool().drain();
+
+    EXPECT_FALSE(taskRan);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    EXPECT_EQ(probe.failures, 1);
+    EXPECT_EQ(probe.always, 1);
+}
+
 TEST(PostRead, AFailureReplyThatThrowsIsLoggedAndGoesNoFurther) {
     std::pair<std::mutex, std::vector<std::string>> reports;
     gbm_set_native_error_callback(&recordNativeError, &reports);

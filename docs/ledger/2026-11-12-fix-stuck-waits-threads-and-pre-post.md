@@ -53,3 +53,6 @@ S4 (c) 第一輪 delete、prune 兩個呼叫點沒有變紅（沒有 controller 
 - Windows 的 deadline 執行緒、`CatFileBatch` 的 watchdog 執行緒死掉時沒有處理。
 - `maybeRefreshIndex`（null callback，沒人等）與 `writeCommitGraph`（`COMMIT_GRAPH_WRITE_FINISHED`，Dart 沒有請求在等）仍直接呼叫 `operations_->submit`，不經 funnel。
 - 四個匯出的 catch 經 `reportNativeException` 寫 staging buffer，沒有人讀；與 `gbm_history_refresh` 同樣接受。
+
+- Windows CI 證據（PR #220，run 43229568624，job `capi (FFI) - Windows`）：暫時 commit `3169ae58` 把 Windows stderr pump 的 onException 改成什麼都不做。1097 個測試只紅 1 個，正是 `ProcessRunnerTimeout.AProgressSinkThatThrowsEndsTheRunWithItsException`：`threw` 為 false（「the run did not end with the sink's exception」），耗時 10.22 s，等到 idle deadline 才結束。讀完後以 force-push 移除該 commit；修正版的 Windows 綠燈見 PR 最終 head 的 CI。
+- fresh verifier 對最終 candidate `f16a1a70` 的六項主張回 CONFIRMED（`gbm_capi_tests` 320/320、`gbm_core_tests` 777/777、無殘留 `hang_forever`、去掉 `GBM_CAPI_TEST_EXPORTS` 後測試開關不留符號）。兩則 P4 提醒都延後：Windows 半邊由上面的 CI 證據補上；若交出 refresh 在正式環境持續失敗（例如反覆 `bad_alloc`），內聯的 `finishRefresh` 會在有待處理請求時以 0 ms 重新排程，每次重試都再記一筆 log。這是推測，沒有重現，也不處理。

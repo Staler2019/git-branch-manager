@@ -41,7 +41,8 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               int32_t createBranch,
                               const char* newBranchName,
                               int32_t detach,
-                              int32_t force) try {
+                              int32_t force,
+                              int32_t track) try {
     AddWorktreeRequest request;
     request.path = fsutil::pathFromUtf8(path != nullptr ? path : "");
     request.branch = branch != nullptr ? branch : "";
@@ -49,6 +50,7 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
     request.newBranchName = newBranchName != nullptr ? newBranchName : "";
     request.detach = detach != 0;
     request.force = force != 0;
+    request.track = track != 0;
     toSession(session)->addWorktree(std::move(request));
 } catch (...) {
     reportCurrentException(__func__);

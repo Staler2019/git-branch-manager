@@ -126,8 +126,14 @@ protected:
 };
 
 TEST_F(WorktreeApiTest, AddWorktreeCreatesANewCheckout) {
-    gbm_worktree_add(
-        session_, extra_.string().c_str(), "", /*createBranch=*/1, "feature", /*detach=*/0, /*force=*/0);
+    gbm_worktree_add(session_,
+                     extra_.string().c_str(),
+                     "",
+                     /*createBranch=*/1,
+                     "feature",
+                     /*detach=*/0,
+                     /*force=*/0,
+                     /*track=*/0);
     ASSERT_TRUE(log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKTREES_UPDATED); }));
 
     EXPECT_TRUE(std::filesystem::exists(extra_ / "file.txt"));

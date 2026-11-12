@@ -491,6 +491,7 @@ class FakeRepoSessionController extends RepoSessionController {
     String newBranchName = '',
     bool detach = false,
     bool force = false,
+    bool track = false,
   }) {
     commandLog.add(
       FakeCommand('addWorktree', <String, Object?>{
@@ -500,6 +501,7 @@ class FakeRepoSessionController extends RepoSessionController {
         'newBranchName': newBranchName,
         'detach': detach,
         'force': force,
+        'track': track,
       }),
     );
   }

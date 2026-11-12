@@ -173,6 +173,11 @@ struct AddWorktreeRequest {
     /// `--force`: lets a branch already checked out elsewhere be checked out
     /// again. Only ever set after the user is told exactly what that means.
     bool force = false;
+    /// With [createBranch]: `--track` when true, `--no-track` when false --
+    /// always one of the two, never git's branch.autoSetupMerge. Its default
+    /// makes a remote-tracking start point the new branch's upstream, and
+    /// `inherit` hands a local start point's upstream on.
+    bool track = false;
 };
 
 struct RemoveWorktreeRequest {

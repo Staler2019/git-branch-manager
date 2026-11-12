@@ -671,6 +671,7 @@ typedef _WorktreeAddNative = Void Function(
   Pointer<Utf8> newBranchName,
   Int32 detach,
   Int32 force,
+  Int32 track,
 );
 typedef WorktreeAddDart = void Function(
   Pointer<Void> session,
@@ -680,6 +681,7 @@ typedef WorktreeAddDart = void Function(
   Pointer<Utf8> newBranchName,
   int detach,
   int force,
+  int track,
 );
 
 typedef _WorktreeRemoveNative = Void Function(

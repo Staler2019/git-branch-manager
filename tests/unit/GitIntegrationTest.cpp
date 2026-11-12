@@ -7024,5 +7024,59 @@ TEST_F(RemoteRepoTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
     EXPECT_EQ(upstream->out, "");
 }
 
+class WorktreeTrackingTest : public RemoteRepoTest {
+protected:
+    /// Adds a linked worktree holding a new branch `name` started at `start`
+    /// and returns that branch's upstream, empty when it has none.
+    std::string addAndReadUpstream(const std::string& name, const std::string& start, bool track) {
+        const std::filesystem::path linked =
+            repo_.parent_path() / (repo_.filename().string() + "-" + name);
+        std::filesystem::remove_all(linked);
+        extraDirs_.push_back(linked);
+
+        OperationRunner operations(*runner_, paths_);
+        AddWorktreeRequest add;
+        add.path = linked;
+        add.branch = start;
+        add.createBranch = true;
+        add.newBranchName = name;
+        add.track = track;
+        auto added = submitAndWait(operations, makeAddWorktreeOperation(add));
+        EXPECT_TRUE(added.succeeded) << (added.error ? added.error->detail : "");
+
+        auto upstream = run({"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + name});
+        EXPECT_TRUE(upstream);
+        return upstream ? upstream->out : "<failed>";
+    }
+};
+
+TEST_F(WorktreeTrackingTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
+    // The reported defect: 建立新分支 from origin/develop came out tracking
+    // origin/develop, because git's default autoSetupMerge decided it.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "origin/main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysInherit) {
+    // autoSetupMerge=inherit hands a *local* start point's upstream on, so a
+    // fix that only reacted to remote start points would still leak one.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "--set-upstream", "origin", "main"}));
+    ASSERT_TRUE(run({"config", "branch.autoSetupMerge", "inherit"}));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, CheckingOutARemoteOnlyBranchStillTracksIt) {
+    // Add worktree's checkout-existing arm for `origin/topic` with no local
+    // `topic`: that local is meant to track the remote one.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+
+    EXPECT_EQ(addAndReadUpstream("topic", "origin/topic", /*track=*/true), "origin/topic");
+}
+
 }  // namespace
 }  // namespace gbm

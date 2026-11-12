@@ -3971,7 +3971,8 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// `git worktree add`. See gbm_worktree_add()'s doc comment: on success
-  /// refreshes the worktree list.
+  /// refreshes the worktree list. With [createBranch], [track] decides the
+  /// new branch's upstream outright (`--track` / `--no-track`).
   void addWorktree(
     String path, {
     String branch = '',
@@ -3979,6 +3980,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     String newBranchName = '',
     bool detach = false,
     bool force = false,
+    bool track = false,
   }) {
     if (_session == nullptr) return;
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
@@ -3993,6 +3995,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         newBranchPtr,
         detach ? 1 : 0,
         force ? 1 : 0,
+        track ? 1 : 0,
       );
     } finally {
       malloc.free(pathPtr);

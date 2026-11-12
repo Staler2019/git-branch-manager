@@ -999,14 +999,17 @@ GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session);
 GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session);
 
 /// `git worktree add`. Async: fires GBM_EVENT_WORKING_COPY_OPERATION_FINISHED,
-/// and on success refreshes the worktree list.
+/// and on success refreshes the worktree list. `track` applies only with
+/// `createBranch`: nonzero passes `--track`, zero `--no-track`, so the new
+/// branch's upstream never depends on the user's branch.autoSetupMerge.
 GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               const char* path,
                               const char* branch,
                               int32_t createBranch,
                               const char* newBranchName,
                               int32_t detach,
-                              int32_t force);
+                              int32_t force,
+                              int32_t track);
 
 GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force);
 GBM_API void gbm_worktree_prune(GbmSessionHandle session);

@@ -166,6 +166,7 @@ public:
             args.emplace_back("--force");
         }
         if (request_.createBranch) {
+            args.emplace_back(request_.track ? "--track" : "--no-track");
             args.emplace_back("-b");
             args.push_back(request_.newBranchName);
         } else if (request_.detach) {

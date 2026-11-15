@@ -841,15 +841,26 @@ void Session::resetTo(ResetRequest request) {
 }
 
 void Session::maybeRefreshIndex() {
+    decltype(lastIndexRefresh_) previous;
     {
         const auto now = std::chrono::steady_clock::now();
         std::lock_guard<std::mutex> lock(indexRefreshMutex_);
         if (!shouldRefreshIndex(lastIndexRefresh_, now)) {
             return;
         }
+        previous = lastIndexRefresh_;
         lastIndexRefresh_ = now;
     }
-    operations_->submit(makeRefreshIndexOperation(), nullptr);
+    try {
+        submitToRunner(
+            *operations_, makeRefreshIndexOperation(), nullptr, "Session::maybeRefreshIndex");
+    } catch (...) {
+        // Nothing was refreshed, so the interval has not started: the next refresh
+        // tries again instead of being suppressed for kIndexRefreshMinInterval.
+        reportCurrentException("Session::maybeRefreshIndex");
+        std::lock_guard<std::mutex> lock(indexRefreshMutex_);
+        lastIndexRefresh_ = previous;
+    }
 }
 
 void Session::refreshWorkingCopy() {
@@ -2536,19 +2547,30 @@ void Session::writeCommitGraph() {
     WriteCommitGraphRequest request;
     request.split = installation_.capabilities.commitGraphSplit;
     request.changedPaths = installation_.capabilities.changedPathBloom;
-    operations_->submit(makeWriteCommitGraphOperation(request), [this](OperationOutcome outcome) {
-        // Keeps undoJournalCache_ in sync with operations_->undoJournal(),
-        // exactly like submitOperation()/submitWorkingCopyOperation() do --
-        // this bypasses both helpers (it needs its own event, see
-        // GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED's doc comment), but still
-        // goes through operations_->submit(), so OperationRunner::
-        // recordUndoPoint() still ran and appended an entry.
-        refreshUndoJournalCache();
-        std::string payload = "{\"succeeded\":";
-        jsonAppendBool(payload, outcome.succeeded);
-        payload += '}';
-        callbacks_.emit(GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED, payload);
-    });
+    try {
+        submitToRunner(
+            *operations_,
+            makeWriteCommitGraphOperation(request),
+            [this](OperationOutcome outcome) {
+                // Keeps undoJournalCache_ in sync with operations_->undoJournal(),
+                // exactly like submitOperation()/submitWorkingCopyOperation() do --
+                // this bypasses both helpers (it needs its own event, see
+                // GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED's doc comment), but still
+                // goes through submitToRunner(), so OperationRunner::
+                // recordUndoPoint() still ran and appended an entry.
+                refreshUndoJournalCache();
+                std::string payload = "{\"succeeded\":";
+                jsonAppendBool(payload, outcome.succeeded);
+                payload += '}';
+                callbacks_.emit(GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED, payload);
+            },
+            "Session::writeCommitGraph");
+    } catch (...) {
+        // Nothing was queued, so nothing will ever finish. Dart pairs nothing with
+        // this event, so failing it inline cannot overtake another write.
+        reportCurrentException("Session::writeCommitGraph");
+        callbacks_.emit(GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED, "{\"succeeded\":false}");
+    }
 }
 
 }  // namespace gbm::capi

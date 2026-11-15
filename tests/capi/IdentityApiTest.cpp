@@ -15,6 +15,8 @@
 #include <string>
 #include <vector>
 
+GBM_API void gbm_test_fail_submit(const char* where);
+
 namespace gbm::capi {
 namespace {
 
@@ -165,6 +167,25 @@ TEST_F(IdentityApiTest, WriteCommitGraphCreatesAGraphFile) {
         log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED); }));
 
     EXPECT_EQ(gbm_has_commit_graph(session_), 1);
+}
+
+// Nothing is queued, so nothing would ever finish: the Performance tab would show no
+// result at all. The failure is the result.
+TEST_F(IdentityApiTest, AWriteThatCannotBeQueuedFinishesAsFailed) {
+    gbm_test_fail_submit("Session::writeCommitGraph");
+    gbm_write_commit_graph(session_);
+    ASSERT_TRUE(
+        log_.waitFor([](const auto& events) { return anyEventOfType(events, GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED); }));
+
+    std::string payload;
+    {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        for (const auto& [type, body] : log_.events) {
+            if (type == GBM_EVENT_COMMIT_GRAPH_WRITE_FINISHED) payload = body;
+        }
+    }
+    EXPECT_EQ(payload, "{\"succeeded\":false}");
+    EXPECT_EQ(gbm_has_commit_graph(session_), 0);
 }
 
 }  // namespace

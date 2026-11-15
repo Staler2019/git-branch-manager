@@ -40,6 +40,7 @@ class ThemeVariantController extends StateNotifier<GbmThemeVariant> {
       'lightIde' => GbmThemeVariant.lightIde,
       'neutralProfessional' => GbmThemeVariant.neutralProfessional,
       'darkTechnical' => GbmThemeVariant.darkTechnical,
+      'dimGray' => GbmThemeVariant.dimGray,
       _ => GbmThemeVariant.darkTechnical,
     };
   }

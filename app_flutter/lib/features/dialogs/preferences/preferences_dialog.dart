@@ -913,13 +913,14 @@ class _AppearanceSection extends ConsumerWidget {
             const ThemeSwitcherButtons(),
             const SizedBox(width: GbmSpacing.space3),
             Text(
-              // 三個主題名稱維持英文 -- 跟 theme_switcher_buttons.dart 的
+              // 主題名稱維持英文 -- 跟 theme_switcher_buttons.dart 的
               // tooltip 是同一組字面值，那個檔案不在 G1 的 30 個對話框範圍
               // 內，只翻這裡會讓同一個名稱一半中文一半英文。
               switch (variant) {
                 GbmThemeVariant.darkTechnical => 'Dark technical',
                 GbmThemeVariant.lightIde => 'Light IDE',
                 GbmThemeVariant.neutralProfessional => 'Neutral professional',
+                GbmThemeVariant.dimGray => 'Dim gray',
               },
               style: TextStyle(
                 fontSize: GbmTypography.textSm,

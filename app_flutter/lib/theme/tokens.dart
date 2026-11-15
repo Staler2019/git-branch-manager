@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 /// The three theme variants defined in docs/design/tokens-reference.md's
-/// `colors.css` (`[data-theme="..."]` selectors), ported verbatim.
+/// `colors.css` (`[data-theme="..."]` selectors), ported verbatim, plus
+/// [dimGray] from docs/claude-design-demo/dim-gray-theme-spec.html.
 enum GbmThemeVariant {
   darkTechnical(isDark: true),
   lightIde(isDark: false),
-  neutralProfessional(isDark: false);
+  neutralProfessional(isDark: false),
+  dimGray(isDark: true);
 
   const GbmThemeVariant({required this.isDark});
 
@@ -386,11 +388,63 @@ const GbmColors _lightIde = GbmColors(
   refChipText: _accent700,
 );
 
+/// dim-gray-theme-spec.html's token table: a grey dark theme for displays
+/// where darkTechnical's near-black panel makes text hard to read. Every
+/// text tier clears 4.5:1 on the panel and on a selected row.
+const GbmColors _dimGray = GbmColors(
+  surfaceApp: Color(0xFF262C33),
+  surfacePanel: Color(0xFF262C33),
+  surfacePanelRaised: Color(0xFF2F363E),
+  surfaceSunken: Color(0xFF171B1F),
+  surfaceHover: Color(0xFF2F363E),
+  surfaceSelected: Color(0xFF1D3657),
+  surfaceOverlay: Color(0xFF2F363E),
+  borderSubtle: Color(0xFF3A424C),
+  borderDefault: Color(0xFF4F5966),
+  borderStrong: Color(0xFF6B7684),
+  borderFocus: Color(0xFF2F81F7),
+  textPrimary: Color(0xFFF7F8F9),
+  textSecondary: Color(0xFFC3CAD1),
+  textTertiary: Color(0xFF98A3AD),
+  textOnAccent: _white,
+  textLink: Color(0xFF7AAEF9),
+  accent: Color(0xFF2F81F7),
+  accentHover: Color(0xFF4C9BFF),
+  accentActive: Color(0xFF1F6CE0),
+  accentSubtle: Color(0xFF1D3657),
+  success: Color(0xFF3FB950),
+  danger: Color(0xFFFF6A63),
+  warning: Color(0xFFD29922),
+  // _darkTechnical's twelve, unchanged: lane 0 is accentHover there too.
+  graphLanes: <Color>[
+    Color(0xFF4C9BFF),
+    Color(0xFF9387FC),
+    Color(0xFFC176E0),
+    Color(0xFFE06AB1),
+    Color(0xFFEF6877),
+    Color(0xFFEC7333),
+    Color(0xFFCD8C08),
+    Color(0xFFA89F06),
+    Color(0xFF68B13C),
+    Color(0xFF02B685),
+    Color(0xFF01B0B2),
+    Color(0xFF0DAAD7),
+  ],
+  diffAddBg: Color(0xFF1F3D2B),
+  diffAddText: Color(0xFF7EE2A8),
+  diffDelBg: Color(0xFF4A2626),
+  diffDelText: Color(0xFFFF9B93),
+  scrollbarThumb: Color(0xFF4F5966),
+  refChipFill: Color(0xFF335F94),
+  refChipText: Color(0xFFEAF1FE),
+);
+
 GbmColors tokensFor(GbmThemeVariant variant) {
   return switch (variant) {
     GbmThemeVariant.darkTechnical => _darkTechnical,
     GbmThemeVariant.lightIde => _lightIde,
     GbmThemeVariant.neutralProfessional => _neutralProfessional,
+    GbmThemeVariant.dimGray => _dimGray,
   };
 }
 

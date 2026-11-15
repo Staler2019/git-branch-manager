@@ -5,7 +5,7 @@ import '../theme/theme_mode_provider.dart';
 import '../theme/tokens.dart';
 import 'gbm_icon_button.dart';
 
-/// The design doc's three theme swatches (`.gbm-iconbtn` row), shared by
+/// The design doc's theme swatches, one per [GbmThemeVariant] (`.gbm-iconbtn` row), shared by
 /// every surface that needs a theme-switching entry point -- currently
 /// Preferences → Appearance only. ~~[TopBar] (workspace) and
 /// `WelcomeScreen`~~: neither draws it any more; `WelcomeScreen` lost its
@@ -56,5 +56,10 @@ const List<_ThemeSwatch> _themeSwatches = <_ThemeSwatch>[
     GbmThemeVariant.neutralProfessional,
     'Neutral professional',
     Icons.contrast,
+  ),
+  _ThemeSwatch(
+    GbmThemeVariant.dimGray,
+    'Dim gray',
+    Icons.brightness_4_outlined,
   ),
 ];

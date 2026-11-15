@@ -158,5 +158,11 @@ void main() {
       tokensFor(GbmThemeVariant.darkTechnical).graphLanes.first.toARGB32(),
       tokensFor(GbmThemeVariant.darkTechnical).accentHover.toARGB32(),
     );
+    // dimGray reuses darkTechnical's twelve lanes, so its lane 0 is the
+    // same brighter blue -- and its own accentHover is that blue too.
+    expect(
+      tokensFor(GbmThemeVariant.dimGray).graphLanes.first.toARGB32(),
+      tokensFor(GbmThemeVariant.dimGray).accentHover.toARGB32(),
+    );
   });
 }

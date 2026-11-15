@@ -2,16 +2,47 @@
 // which variants are dark (the single source `GbmThemeVariant.isDark`), and
 // that the shadow tokens follow the theme's brightness rather than one named
 // variant.
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/theme/gbm_theme.dart';
 import 'package:gbm_flutter/theme/tokens.dart';
 
 void main() {
-  test('only darkTechnical is dark among the shipped variants', () {
+  test('darkTechnical and dimGray are the dark variants', () {
     expect(GbmThemeVariant.darkTechnical.isDark, isTrue);
     expect(GbmThemeVariant.lightIde.isDark, isFalse);
     expect(GbmThemeVariant.neutralProfessional.isDark, isFalse);
+    expect(GbmThemeVariant.dimGray.isDark, isTrue);
+  });
+
+  group('dimGray contrast (dim-gray-theme-spec.html contrast table)', () {
+    double contrast(Color a, Color b) {
+      final double la = a.computeLuminance();
+      final double lb = b.computeLuminance();
+      return (math.max(la, lb) + 0.05) / (math.min(la, lb) + 0.05);
+    }
+
+    final GbmColors c = tokensFor(GbmThemeVariant.dimGray);
+
+    // The theme exists for text read on a grey panel; every text tier must
+    // clear WCAG AA there, tertiary included.
+    test('every text tier is >= 4.5:1 on surfacePanel', () {
+      expect(contrast(c.textPrimary, c.surfacePanel), greaterThan(4.5));
+      expect(contrast(c.textSecondary, c.surfacePanel), greaterThan(4.5));
+      expect(contrast(c.textTertiary, c.surfacePanel), greaterThan(4.5));
+    });
+
+    // Selected rows keep their tertiary metadata (dates, hashes) readable.
+    test('textTertiary is >= 4.5:1 on surfaceSelected', () {
+      expect(contrast(c.textTertiary, c.surfaceSelected), greaterThan(4.5));
+    });
+
+    // A ref chip on a selected row must still read as a chip.
+    test('refChipFill separates from surfaceSelected by >= 1.7:1', () {
+      expect(contrast(c.refChipFill, c.surfaceSelected), greaterThan(1.7));
+    });
   });
 
   for (final GbmThemeVariant variant in GbmThemeVariant.values) {

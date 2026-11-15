@@ -12,6 +12,7 @@
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 #include <system_error>
 #include <typeinfo>
 #include <utility>
@@ -366,5 +367,37 @@ std::filesystem::path nativeErrorLogPath() {
 void installTerminateHandler() noexcept {
     std::set_terminate(&onTerminate);
 }
+
+#if defined(GBM_TEST_FAULT_HOOKS)
+namespace {
+
+struct ArmedThread {
+    std::mutex mutex;
+    std::string name;
+};
+
+ArmedThread& armedThread() {
+    static ArmedThread armed;
+    return armed;
+}
+
+}  // namespace
+
+void failNextThreadForTest(std::string name) {
+    ArmedThread& armed = armedThread();
+    std::lock_guard<std::mutex> lock(armed.mutex);
+    armed.name = std::move(name);
+}
+
+void throwIfThreadArmedForTest(const std::string& name) {
+    ArmedThread& armed = armedThread();
+    std::lock_guard<std::mutex> lock(armed.mutex);
+    if (armed.name.empty() || armed.name != name) {
+        return;
+    }
+    armed.name.clear();
+    throw std::runtime_error("injected thread failure");
+}
+#endif
 
 }  // namespace gbm

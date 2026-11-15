@@ -63,6 +63,15 @@ std::filesystem::path nativeErrorLogPath();
 /// for what they cannot catch, such as a throw out of a noexcept.
 void installTerminateHandler() noexcept;
 
+#if defined(GBM_TEST_FAULT_HOOKS)
+/// Test builds only: the next guardedThread started under `name` throws before its
+/// body, through the same report and onException path a real failure takes. One arm
+/// fails one thread; an empty name disarms. Compiled whenever GBM_BUILD_TESTS is on,
+/// which includes the macOS app's capi-only dylib, where it is inert unless armed.
+void failNextThreadForTest(std::string name);
+void throwIfThreadArmedForTest(const std::string& name);
+#endif
+
 /// The only way this tree starts a thread. A thread entry has no caller, so an
 /// exception leaving it is std::terminate with no message. `onException` runs
 /// inside the handler, so it can call describeCurrentException(), and is where a
@@ -75,6 +84,9 @@ std::thread guardedThread(std::string name, Body body, OnException onException) 
                         onException = std::move(onException)]() mutable {
         installTerminateHandler();
         try {
+#if defined(GBM_TEST_FAULT_HOOKS)
+            throwIfThreadArmedForTest(name);
+#endif
             body();
         } catch (...) {
             reportCurrentException(name);

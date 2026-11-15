@@ -96,3 +96,11 @@ endif()
 # user's session mid-operation.
 target_compile_definitions(gbm_core PUBLIC
     $<$<CONFIG:Debug,RelWithDebInfo>:GBM_ENABLE_THREAD_CHECKS>)
+
+# guardedThread's fault hook (ExceptionDiagnostic.h). PUBLIC because the template
+# that reads it is in the header: every TU linking gbm_core must see the same value.
+# The macOS app's capi-only preset has tests on, so its dylib carries the hook, inert
+# unless armed; the Windows and Linux app builds force tests off.
+if(GBM_BUILD_TESTS)
+    target_compile_definitions(gbm_core PUBLIC GBM_TEST_FAULT_HOOKS)
+endif()

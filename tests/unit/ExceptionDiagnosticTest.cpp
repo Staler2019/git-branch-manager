@@ -645,6 +645,39 @@ TEST_F(ExceptionDiagnosticTest, AGuardedThreadReportsAndGivesTheHandlerTheExcept
     EXPECT_NE(log.find("from the handler"), std::string::npos) << log;
 }
 
+TEST_F(ExceptionDiagnosticTest, AnArmedThreadNameFailsItsNextThreadOnceBeforeTheBody) {
+    failNextThreadForTest("armed thread");
+    bool bodyRan = false;
+    int handled = 0;
+    std::string seen;
+    guardedThread(
+        "armed thread",
+        [&] { bodyRan = true; },
+        [&] {
+            ++handled;
+            seen = describeCurrentException();
+        })
+        .join();
+
+    EXPECT_FALSE(bodyRan);
+    EXPECT_EQ(handled, 1);
+    EXPECT_NE(seen.find("injected thread failure"), std::string::npos) << seen;
+
+    bool secondRan = false;
+    guardedThread("armed thread", [&] { secondRan = true; }, [&] { ++handled; }).join();
+    EXPECT_TRUE(secondRan) << "one arm fails one thread";
+    EXPECT_EQ(handled, 1);
+}
+
+TEST_F(ExceptionDiagnosticTest, AnArmedNameLeavesThreadsOfOtherNamesAlone) {
+    failNextThreadForTest("some other thread");
+    bool ran = false;
+    guardedThread("not armed", [&] { ran = true; }).join();
+    failNextThreadForTest("");
+
+    EXPECT_TRUE(ran);
+}
+
 TEST_F(ExceptionDiagnosticTest, AThrowingPoolTaskIsReportedAndThePoolKeepsRunning) {
     ThreadPool pool("diagnostic", 1);
     bool ranAfter = false;

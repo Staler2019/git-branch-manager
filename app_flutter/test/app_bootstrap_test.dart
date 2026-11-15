@@ -86,15 +86,25 @@ void main() {
         },
         child: const SizedBox(),
       );
-      await tester.pumpWidget(app);
+      // An outer scope's value shows through only if bootstrapApp's own
+      // scope does not override the provider. Asserting that reading it
+      // throws instead depended on the real library being absent, so it went
+      // red on any machine that had run build_capi.sh into build/native/.
+      final GbmBindings outer = _Bindings();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: <Override>[gbmBindingsProvider.overrideWithValue(outer)],
+          child: app,
+        ),
+      );
 
       expect(installs, 0);
       final ProviderContainer container = ProviderScope.containerOf(
         tester.element(find.byType(SizedBox)),
       );
       expect(
-        () => container.read(gbmBindingsProvider),
-        throwsA(anything),
+        container.read(gbmBindingsProvider),
+        same(outer),
         reason: 'not overridden, so it opens the library itself, as before',
       );
     },

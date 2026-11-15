@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Read Failure States</title>
+<style>
+/* ---------- page chrome (--pg-*), not part of the spec ---------- */
+:root{--pg-bg:#f6f7f9;--pg-text:#1c2128;--pg-muted:#57606a;--pg-line:#dcdfe4;--pg-card:#ffffff;--pg-accent:#1f6ce0;--pg-code:#eef0f2}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--pg-bg:#0d1117;--pg-text:#e6edf3;--pg-muted:#9198a1;--pg-line:#30363d;--pg-card:#161b22;--pg-accent:#4c9bff;--pg-code:#21262d}}
+:root[data-theme="dark"]{--pg-bg:#0d1117;--pg-text:#e6edf3;--pg-muted:#9198a1;--pg-line:#30363d;--pg-card:#161b22;--pg-accent:#4c9bff;--pg-code:#21262d}
+body{margin:0;background:var(--pg-bg);color:var(--pg-text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang TC","Noto Sans TC",sans-serif}
+main{max-width:1040px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 4px}h2{font-size:17px;margin:36px 0 8px;padding-top:8px;border-top:1px solid var(--pg-line)}h3{font-size:14.5px;margin:20px 0 6px}
+p,li{color:var(--pg-text)}.muted{color:var(--pg-muted)}
+code{font:12.5px "JetBrains Mono","SF Mono",Consolas,monospace;background:var(--pg-code);padding:1px 4px;border-radius:4px}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}
+th,td{border:1px solid var(--pg-line);padding:5px 7px;text-align:left;vertical-align:top}
+th{background:var(--pg-card)}
+.scroll{overflow-x:auto}
+.card{background:var(--pg-card);border:1px solid var(--pg-line);border-radius:8px;padding:12px 14px;margin:10px 0}
+.flag{display:inline-block;font-size:11.5px;font-weight:600;padding:0 6px;border-radius:4px;border:1px solid var(--pg-line)}
+.toggle{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 14px}
+.toggle button{font:inherit;font-size:12.5px;padding:3px 10px;border:1px solid var(--pg-line);border-radius:6px;background:var(--pg-card);color:var(--pg-text);cursor:pointer}
+.toggle button[aria-pressed="true"]{border-color:var(--pg-accent);color:var(--pg-accent)}
+.pair{display:grid;grid-template-columns:1fr;gap:18px}
+@media (min-width:900px){.pair{grid-template-columns:1fr 1fr}}
+.cap{font-size:12.5px;color:var(--pg-muted);margin:4px 0 0}
+
+/* ---------- mockup tokens (--gbm-*), defined on .stage only ---------- */
+.stage{border-radius:8px;padding:14px;background:var(--gbm-surface-app); /* radius/padding: page chrome, not spec */
+  --gbm-font-ui:"Inter",-apple-system,"Segoe UI",sans-serif; /* [TOK] typography.css --font-ui */
+  --gbm-text-xs:11px;      /* [KIT] --text-xs */
+  --gbm-text-sm:12.5px;    /* [KIT] --text-sm */
+  --gbm-radius-md:6px;     /* [KIT] --radius-md */
+  --gbm-radius-lg:10px;    /* [KIT] --radius-lg */
+  --gbm-space-2:8px;       /* [KIT] --space-2 */
+  --gbm-space-4:16px;      /* [KIT] --space-4 */
+}
+/* [TOK] docs/design/tokens-reference.md colors.css, verbatim per palette */
+.stage[data-pal="neutral-professional"]{--gbm-surface-app:#f7f8f9;--gbm-surface-panel:#ffffff;--gbm-surface-panel-raised:#ffffff;--gbm-surface-sunken:#eef0f2;--gbm-border-subtle:#dfe3e7;--gbm-border-default:#c3cad1;--gbm-text-primary:#171b1f;--gbm-text-secondary:#4f5966;--gbm-text-tertiary:#6b7684;--gbm-accent:#2f81f7;--gbm-warning:#c97a17;--gbm-diff-del-bg:#fbeaea;--gbm-diff-del-text:#a32e2e}
+.stage[data-pal="dark-technical"]{--gbm-surface-app:#0d1117;--gbm-surface-panel:#0d1117;--gbm-surface-panel-raised:#161b22;--gbm-surface-sunken:#010409;--gbm-border-subtle:#21262d;--gbm-border-default:#30363d;--gbm-text-primary:#e6edf3;--gbm-text-secondary:#9198a1;--gbm-text-tertiary:#6e7681;--gbm-accent:#2f81f7;--gbm-warning:#d29922;--gbm-diff-del-bg:#3a1414;--gbm-diff-del-text:#ff9b93}
+.stage[data-pal="light-ide"]{--gbm-surface-app:#ffffff;--gbm-surface-panel:#ffffff;--gbm-surface-panel-raised:#ffffff;--gbm-surface-sunken:#f5f6f8;--gbm-border-subtle:#eaecef;--gbm-border-default:#dcdfe4;--gbm-text-primary:#1c2128;--gbm-text-secondary:#57606a;--gbm-text-tertiary:#8b949e;--gbm-accent:#2f81f7;--gbm-warning:#9a6700;--gbm-diff-del-bg:#ffebe9;--gbm-diff-del-text:#82241f}
+
+/* GbmPanelTabShell frame — P19 mock */
+.stage *{box-sizing:border-box} /* [KIT] *{box-sizing:border-box} */
+.gbm-panel-tab-shell{position:relative;background:var(--gbm-surface-panel);border:1px solid var(--gbm-border-default);border-radius:var(--gbm-radius-lg);overflow:hidden;font-family:var(--gbm-font-ui);color:var(--gbm-text-primary)} /* [P19] .mock */
+.gbm-tab-row{display:flex;align-items:center;gap:2px;height:30px;padding:0 8px;background:var(--gbm-surface-sunken);border-bottom:1px solid var(--gbm-border-subtle)} /* [P19] tab row */
+.gbm-tab-row span{font-size:11px;color:var(--gbm-text-tertiary);padding:0 9px} /* [P19] inactive tab */
+.gbm-tab-row .on{display:inline-flex;align-items:center;height:30px;color:var(--gbm-text-primary);border-bottom:2px solid var(--gbm-accent);box-sizing:border-box} /* [P19] active tab */
+.panel-toolbar{display:flex;align-items:center;gap:7px;height:34px;padding:0 10px;background:var(--gbm-surface-panel-raised);border-bottom:1px solid var(--gbm-border-subtle)} /* [P19] .mkbar height:34px;gap:7px */
+.gbm-btn{font-family:var(--gbm-font-ui);font-weight:500;border-radius:var(--gbm-radius-md);display:inline-flex;align-items:center;border:1px solid transparent;white-space:nowrap;cursor:pointer} /* [KIT] .gbm-btn */
+.gbm-btn-sm{height:24px;font-size:var(--gbm-text-xs);padding:0 var(--gbm-space-2)} /* [KIT] .gbm-btn-sm */
+.gbm-btn-ghost{background:transparent;color:var(--gbm-text-secondary)} /* [KIT] .gbm-btn-ghost */
+.cols{display:flex;height:150px} /* height: drawing only, not a spec value */
+.mkpane{background:var(--gbm-surface-panel);min-width:0;overflow:hidden} /* [P19] .mkpane */
+.mkpane.list{width:280px;display:flex;flex-direction:column} /* [APP] tokens.dart splitterPanelList defaultExtent 280 (P19 rule 3 floor 220; mock draws 300) */
+.panel-empty-list{flex:1;display:flex;align-items:center;justify-content:center;font-size:var(--gbm-text-sm);color:var(--gbm-text-tertiary)} /* [APP] panel_widgets.dart PanelEmptyList: textSm, textTertiary, centred */
+.split-v{width:5px;background:var(--gbm-border-subtle);flex-shrink:0} /* [KIT] .split-v; P19 mock separates the panes with it */
+.mkpane.detail{flex:1;display:flex;align-items:center;justify-content:center;font-size:var(--gbm-text-sm);color:var(--gbm-text-tertiary)} /* [APP] gbm_panel_tab_shell.dart emptyDetailMessage: textSm, textTertiary */
+.mklbl{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--gbm-text-tertiary);padding:6px 10px;border-bottom:1px solid var(--gbm-border-subtle);white-space:nowrap} /* [P19] .mklbl */
+.panel-status-bar{display:flex;align-items:center;gap:8px;height:24px;padding:0 10px;border-top:1px solid var(--gbm-border-subtle);background:var(--gbm-surface-panel-raised);font-size:10.5px;color:var(--gbm-text-tertiary)} /* [P19] status bar */
+
+/* Candidate A — GbmWarningBanner = .gbm-banner + .gbm-banner-warning, in the shell's banner slot */
+.gbm-warning-banner{display:flex;align-items:center;gap:var(--gbm-space-2);padding:var(--gbm-space-2) var(--gbm-space-4);font-size:var(--gbm-text-sm);border-bottom:1px solid var(--gbm-border-subtle);background:var(--gbm-diff-del-bg);color:var(--gbm-diff-del-text)} /* [KIT] .gbm-banner(-warning); gap 8 = [P07] mock gap:8px = [APP] (kit says space-3); 12.5 = [KIT]/[APP] ([P07] mock overrides 11px) */
+.gbm-warning-banner .msg{flex:1;min-width:0} /* [P07] <span style="flex:1">; min-width:0 glue */
+.gbm-warning-banner .msg{overflow:hidden;text-overflow:ellipsis;white-space:nowrap} /* one line: INFERRED */
+.gbm-btn-secondary{background:var(--gbm-surface-panel-raised);border-color:var(--gbm-border-default);color:var(--gbm-text-primary)} /* [KIT] .gbm-btn-secondary; in-banner button = [P07] */
+
+/* Candidate B — P19 callout 5: sunken note */
+.panel-note{display:flex;gap:8px;padding:9px 10px;margin:8px 10px;background:var(--gbm-surface-sunken);border:1px solid var(--gbm-border-subtle);border-radius:var(--gbm-radius-lg)} /* [P19] callout 5; margin 8/10 INFERRED */
+.panel-note .txt{font-size:10.5px;color:var(--gbm-text-secondary);line-height:1.6} /* [P19] callout 5 */
+.panel-note .txt{flex:1;min-width:0} /* INFERRED: lets the button sit at the end */
+.panel-note .gbm-btn{align-self:center} /* INFERRED: button in callout 5 has no source */
+.ico{flex:none;display:inline-block} /* glue */
+.panel-note .ico{margin-top:1px} /* [P19] margin-top:1px */
+</style>
+</head>
+<body>
+<main>
+<h1>Read 失敗時，畫面怎麼表現</h1>
+<p class="muted">R-B 設計稿 · 分支 <code>fix/read-failure-states</code> · 2026-11-15 · 實作前需使用者裁定</p>
+
+<div class="card">
+<strong>先更正我上一則的說法。</strong>我問「面板內一行失敗訊息」時，說 spec「沒有規定面板內的樣子」。<s>spec 沒有規定面板內的樣子</s> 這是錯的：P19 樣板規則 5 寫明<b>「例外狀態用面板內 banner，不用 dialog、不用 toast。」</b>所以你的裁定對 12 個 <code>GbmPanelTabShell</code> 面板有 spec 依據；其餘畫面（compare 頁、History 明細、Working copy diff、對話框）不是 P19 面板，仍然沒有出處，列在第 4 節另外裁定。
+</div>
+
+<h2>1. 規則來源</h2>
+<table>
+<tr><th>出處</th><th>原文</th><th>用在</th></tr>
+<tr><td>P19 樣板規則 5</td><td>例外狀態用面板內 banner，不用 dialog、不用 toast。</td><td>12 個面板的失敗狀態</td></tr>
+<tr><td>P10「什麼時候才開視窗」</td><td>預設不開。錯誤先進 log，並在 status bar 留一則常駐可點的摘要（10-3）。只有兩種情況升級成視窗：使用者剛剛主動按下的動作失敗了，或需要使用者做決定才能繼續。</td><td>read 失敗不開視窗；log 與 status bar 照舊</td></tr>
+<tr><td>P15「錯誤訊息的寫法」</td><td>標題寫哪個動作失敗了，用產品的話；內文寫為什麼，一到兩句，講具體條件與實際數字……不寫「發生未知錯誤」。</td><td>banner 文案</td></tr>
+<tr><td>P15 錯誤視窗</td><td>（概括，非逐字）按鈕列依序為 Copy details、Open log、空白、Close、主要按鈕；Open log 是 <code>gbm-btn gbm-btn-ghost gbm-btn-sm</code></td><td>「Open log」的字與按鈕</td></tr>
+<tr><td>P07 conflict mock</td><td><code>&lt;div class="gbm-banner gbm-banner-warning" style="font-size:11px;gap:8px"&gt;</code> 圖示、<code>flex:1</code> 文字、<code>Abort</code>／<code>Resolve…</code> 兩顆 <code>gbm-btn-sm</code></td><td>banner 裡可以放按鈕的先例</td></tr>
+</table>
+
+<h2>2. 面板的失敗狀態：兩個候選元件</h2>
+<p>P19 的文字說「banner」；P19 的 mock 把例外狀態（callout 5，路徑失效的 worktree）畫成明細欄裡一張凹陷的小卡。app 的 shell 已有 <code>banner</code> 插槽，放的是 <code>GbmWarningBanner</code>（kit 的 <code>.gbm-banner-warning</code>），worktrees 面板正在用。P19 的紀錄只寫「shell 沒有 banner 槽」就補上了，沒有記錄過文字與 mock 的取捨。<b>這是文字對 mock 的衝突，請裁定，我不會取兩者之間的第三種。</b></p>
+
+<div class="toggle" role="group" aria-label="palette">
+<button type="button" data-p="neutral-professional" aria-pressed="true">neutral-professional</button>
+<button type="button" data-p="dark-technical" aria-pressed="false">dark-technical</button>
+<button type="button" data-p="light-ide" aria-pressed="false">light-ide</button>
+</div>
+
+<div class="pair">
+<div>
+<div class="stage" data-pal="neutral-professional">
+<div class="gbm-panel-tab-shell">
+<div class="gbm-tab-row"><span>History</span><span class="on">Blame: a.dart</span></div>
+<div class="panel-toolbar"><button class="gbm-btn gbm-btn-sm gbm-btn-ghost" type="button">Previous revision</button></div>
+<div class="gbm-warning-banner" data-candidate="A">
+<svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+<span class="msg">無法載入 lib/a.dart 的 blame。git blame 以 exit 128 結束：fatal: no such path 'lib/a.dart' in HEAD</span>
+<button class="gbm-btn gbm-btn-sm gbm-btn-secondary" type="button">Open log</button>
+</div>
+<div class="cols"><div class="mkpane list"><div class="mklbl">Lines · 0</div><div class="panel-empty-list">No blame information</div></div><div class="split-v"></div><div class="mkpane detail">Select a line to see the commit that wrote it</div></div>
+<div class="panel-status-bar"><span>0 lines</span></div>
+</div>
+</div>
+<p class="cap"><b>A · shell 的 banner 插槽 + GbmWarningBanner</b>。跨整個面板、在工具列下方。現有元件，worktrees 已在用。按鈕照 P07 mock 的 banner（Abort／Resolve…）用 secondary sm。文案內的路徑、exit code 與 git 訊息是示意字串。</p>
+</div>
+<div>
+<div class="stage" data-pal="neutral-professional">
+<div class="gbm-panel-tab-shell">
+<div class="gbm-tab-row"><span>History</span><span class="on">Blame: a.dart</span></div>
+<div class="panel-toolbar"><button class="gbm-btn gbm-btn-sm gbm-btn-ghost" type="button">Previous revision</button></div>
+<div class="panel-note" data-candidate="B">
+<svg class="ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--gbm-warning)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+<span class="txt">無法載入 lib/a.dart 的 blame。git blame 以 exit 128 結束：fatal: no such path 'lib/a.dart' in HEAD</span>
+<button class="gbm-btn gbm-btn-sm gbm-btn-ghost" type="button">Open log</button>
+</div>
+<div class="cols" style="height:104px"><div class="mkpane list"><div class="mklbl">Lines · 0</div><div class="panel-empty-list">No blame information</div></div><div class="split-v"></div><div class="mkpane detail">Select a line to see the commit that wrote it</div></div>
+<div class="panel-status-bar"><span>0 lines</span></div>
+</div>
+</div>
+<p class="cap"><b>B · P19 mock 的凹陷小卡</b>（callout 5 的數值）。mock 把它放在明細欄裡；失敗屬於整個面板，所以這裡改放在工具列下方，這個位置是推斷的。文案同 A，是示意字串。</p>
+</div>
+</div>
+
+<h3>數值來源</h3>
+<div class="scroll"><table>
+<tr><th>元素</th><th>數值</th><th>出處</th><th>app 現況</th></tr>
+<tr><td>A 底色／文字色</td><td><code>--diff-del-bg</code> / <code>--diff-del-text</code></td><td>KIT <code>.gbm-banner-warning</code></td><td>同（<code>gbm_banner.dart</code>）</td></tr>
+<tr><td>A padding</td><td>8 / 16</td><td>KIT <code>.gbm-banner</code> space-2 / space-4</td><td>同</td></tr>
+<tr><td>A 元素間距</td><td>8</td><td>P07 mock <code>gap:8px</code>；KIT <code>.gbm-banner</code> 寫 space-3 = 12</td><td>8（<code>SizedBox(width: space2)</code>）；app 與 P07 mock 一致、與 kit 不一致，照實列出</td></tr>
+<tr><td>A 文字</td><td>12.5px</td><td>KIT <code>--text-sm</code>（P07 mock 覆寫成 11px）</td><td>12.5，與 kit 一致</td></tr>
+<tr><td>A 圖示</td><td>alert-triangle 14，<code>--diff-del-text</code></td><td>APP；P07 mock 的 <code>icAlert</code> 是 13</td><td>14，與 P07 mock 差 1px，照實列出</td></tr>
+<tr><td>B 外框</td><td>sunken 底、1px <code>--border-subtle</code>、padding 9/10、gap 8</td><td>P19 callout 5</td><td>app 沒有這個元件</td></tr>
+<tr><td>B 文字</td><td>10.5px <code>--text-secondary</code>、行高 1.6</td><td>P19 callout 5</td><td>—</td></tr>
+<tr><td>B 圖示</td><td>alert-triangle 12，<code>--warning</code></td><td>P19 <code>icWarn</code></td><td>—</td></tr>
+<tr><td>Open log 按鈕（A）</td><td><code>.gbm-btn .gbm-btn-secondary .gbm-btn-sm</code></td><td>P07 mock 的 banner 按鈕</td><td><code>GbmWarningBanner</code> 沒有按鈕插槽，要新增</td></tr>
+<tr><td>Open log 按鈕（B）</td><td><code>.gbm-btn .gbm-btn-ghost .gbm-btn-sm</code></td><td>P15 錯誤視窗的 Open log；放進小卡是推斷</td><td>—</td></tr>
+<tr><td>面板空狀態文字</td><td>12.5px <code>--text-tertiary</code></td><td>APP <code>gbm_panel_tab_shell.dart</code></td><td>同</td></tr>
+<tr><td>兩欄分隔</td><td>5px <code>--border-subtle</code></td><td>KIT <code>.split-v</code>（P19 mock）</td><td>不在本輪範圍</td></tr>
+<tr><td>面板外框、分頁列、工具列、狀態列</td><td>見 CSS 註解</td><td>P19 mock</td><td>不在本輪範圍，不變。工具列只畫了一顆按鈕（app 另有 Ignore whitespace、Go to commit 與篩選欄）。清單標題照 spec 的 <code>.mklbl</code> 畫；app 的 <code>PanelListHeaderText</code> 是 11px、w600、<code>--text-secondary</code>、不轉大寫，這是既有差異，不在本輪處理</td></tr>
+</table></div>
+
+<h2>3. 34 個 read：現在怎麼表現，之後怎麼表現</h2>
+<p class="muted">類別：K＝失敗時已有自己的回覆（帶 key）；R＝刷新類（成功時重讀清單）；C＝成功帶 key、失敗時只送不帶 key 的 ERROR_OCCURRED；U＝兩邊都不帶 key。「現況」是讀程式碼得到的，不是實機觀察。</p>
+<div class="scroll"><table>
+<tr><th>#</th><th>read</th><th>類</th><th>畫面</th><th>現況：失敗時</th><th>之後</th></tr>
+<tr><td>17</td><td>blame</td><td>U</td><td>Blame 面板</td><td>顯示上一個檔案的 blame 或空白（<code>lastBlame</code> 不分路徑）</td><td>面板 banner</td></tr>
+<tr><td>25</td><td>file history</td><td>U</td><td>File history 面板</td><td>清單維持舊的或空白</td><td>面板 banner</td></tr>
+<tr><td>21</td><td>commit file diff</td><td>C</td><td>File history 明細、History 明細</td><td>一直轉（<code>diff == null</code>）</td><td>面板 banner；History 見第 4 節</td></tr>
+<tr><td>26</td><td>line history</td><td>U</td><td>Line history 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>27</td><td>reflog</td><td>U</td><td>Reflog 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>29</td><td>rebase plan</td><td>U</td><td>Interactive rebase 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>10, 11</td><td>stashes、stash diff</td><td>R, C</td><td>Stashes 面板</td><td>清單維持舊的；明細一直轉</td><td>面板 banner</td></tr>
+<tr><td>12, 13</td><td>worktrees、pending counts</td><td>R</td><td>Worktrees 面板</td><td>維持舊的</td><td>面板 banner（與「路徑失效」banner 同時出現的處理見裁定 3）</td></tr>
+<tr><td>14</td><td>remotes</td><td>R</td><td>Remotes 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>30</td><td>submodules</td><td>R</td><td>Submodules 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>31</td><td>bisect</td><td>R</td><td>Bisect 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
+<tr><td>32</td><td>lfs</td><td>R</td><td>LFS 面板</td><td>送空的 LFS_UPDATED，畫面像「沒有 LFS」</td><td>面板 banner</td></tr>
+<tr><td>22, 23, 24</td><td>compare refs / file diff / with WC</td><td>C</td><td>Compare 頁</td><td>一直轉（以 key 查不到結果）</td><td>第 4 節（無出處）</td></tr>
+<tr><td>20</td><td>commit files</td><td>C</td><td>History 明細</td><td>維持上一個 commit 的檔案</td><td>第 4 節</td></tr>
+<tr><td>18, 19</td><td>commit meta、file counts</td><td>K</td><td>History 明細、各面板明細</td><td>回 <code>[]</code>，meta 永遠 null，明細一直轉</td><td>第 4 節</td></tr>
+<tr><td>3, 4</td><td>WC diff、full diff</td><td>C</td><td>Working copy diff 窗格</td><td>窗格已有「in flight / refused」一行；ERROR_OCCURRED 不會結束 loading</td><td>第 4 節：沿用該窗格現有的那一行</td></tr>
+<tr><td>28</td><td>clean preview</td><td>U</td><td>Clean untracked 對話框</td><td>顯示舊的預覽清單，Delete 按鈕照舊可按</td><td>第 4 節：dialog 的 <code>warn</code> 欄位</td></tr>
+<tr><td>33, 34</td><td>local / effective identity</td><td>R</td><td>Repository settings 對話框、commit 方塊</td><td>維持舊值</td><td>第 4 節</td></tr>
+<tr><td>1, 2</td><td>history refresh、WC refresh</td><td>R</td><td>History 圖、Working copy 清單</td><td>維持舊的；錯誤進 log 與 status bar</td><td>不變（P10：status bar + log）</td></tr>
+<tr><td>5–9, 15, 16</td><td>original message、squash、prepared、working tree content、export、prune preview、deletion probe</td><td>K</td><td>衝突視窗、merge／commit、對話框</td><td>已有失敗回覆；Dart 端是否都處理到待逐一確認</td><td>只補缺的部分，不新增畫面</td></tr>
+</table></div>
+
+<h2>4. 裁定（2026-11-15）</h2>
+<div class="card">
+<p>使用者裁定：「1,2 用a」「3照你說的做ok」，以及「4照你說，2照你原本提案」。</p>
+<ol>
+<li>面板失敗狀態用 <b>A</b>（<code>GbmWarningBanner</code>，放在 shell 的 banner 插槽，加一顆 Open log）。</li>
+<li>非 P19 畫面照原提案：compare 頁與 History 明細用 A，放在窗格頂端；WC diff 沿用窗格現有的那一行；對話框用 <code>warn</code> 欄位，預覽失敗時停用 Delete。</li>
+<li>兩則 banner 同時出現時，只顯示失敗那一則。</li>
+<li>舊內容屬於別的對象（U／C 類）就清空；屬於同一個對象（R 類清單）就保留並加 banner。</li>
+</ol>
+</div>
+<h3>裁定前的提問（保留原文）</h3>
+<ol>
+<li><b>面板失敗狀態用哪個元件</b>：A（現有 <code>GbmWarningBanner</code>，跨整個面板）或 B（P19 mock 的凹陷小卡）。我建議 A：worktrees 已在用、同一面板裡不會出現兩種例外樣式，而且規則 5 的文字寫的是 banner。</li>
+<li><b>非 P19 畫面</b>（compare 頁、History 明細、Working copy diff 窗格、Clean 對話框、Repository settings）：spec 沒有出處。我的提案是：compare 頁與 History 明細用同一個 A 元件放在窗格頂端；WC diff 沿用窗格現有的「refused」那一行；對話框用 dlgFields 的 <code>warn</code> 欄位，並在預覽失敗時停用 Delete。每一項都是推斷，請逐項同意或否決。</li>
+<li><b>兩個 banner 同時出現</b>：worktrees 刷新失敗時，又剛好有路徑失效的項目。我建議失敗那一則在上、只顯示一則，失效那一則等下次成功刷新再出現。推斷。</li>
+<li><b>失敗後畫面上要不要保留舊內容</b>：U／C 類的舊內容可能屬於另一個對象（blame 是別的檔案），我建議清空。R 類的舊清單仍然是同一個對象，我建議保留並加 banner。推斷。</li>
+</ol>
+
+<h2>5. Inferred（沒有出處、由我推斷的部分）</h2>
+<ul>
+<li>失敗 banner 放「Open log」：P19 的 banner 沒有按鈕；按鈕放在 banner 裡有 P07 mock 的先例，「Open log」這個動作來自 P15 錯誤視窗與 P10 10-3「status bar 常駐可點的摘要」。把兩者組合起來是推斷。</li>
+<li>B 的小卡裡放按鈕、按鈕垂直置中、文字 <code>flex:1</code>：callout 5 沒有按鈕。</li>
+<li>文案壓成一行、超出時以 … 截斷：P15 的寫法是為錯誤視窗寫的（標題 + 一到兩句），濃縮成一行是我的組合。文案用中文句子，git 名詞與原始訊息保持英文，跟隨 worktrees banner 現有的寫法。</li>
+<li>B 放在工具列下方、上下 8px、左右 10px 外距：mock 把它畫在明細欄裡。</li>
+<li>面板高度（150／104px）只是畫圖用；警告圖示的路徑取自 lucide 的 alert-triangle，spec 原始碼讀不到路徑資料。</li>
+</ul>
+
+<h2>6. 檢查結果</h2>
+<ul>
+<li>spec-auditor 第二輪：55 個值，43 符合（其中 3 項附 kit 與 P07 mock 的差異，已在表中列出）、3 不符、9 無出處（8 項已列為推斷或示意）。3 項不符與 1 項未標示的示意字串已在本版修正：分頁標題、左清單寬度、左清單空狀態文字、B 的示意字串標註。</li>
+<li>spec-auditor 第一輪：60 個值，40 符合、6 不符、8 無出處、6 正確列為推斷；另有 1 項本來有出處卻被我標成推斷。不符與無出處的全部已在本版修正或補進 Inferred：字型家族、全域 <code>box-sizing</code>、兩欄分隔改用 <code>.split-v</code>、空狀態字級 11→12.5、分頁標題改成 app 實際的 <code>Blame: a.dart</code>（<s>改成 app 實際的 <code>Blame</code></s> 第二輪稽核指出 app 對有對象的分頁會畫「種類: 檔名」）、左清單改用 app 預設寬 280 與它的空狀態文字、A 的按鈕改用 P07 的 secondary、A 圖示不再套 B 的 <code>margin-top</code>。</li>
+<li>HTML 格式：不對稱的標籤 0、沒關閉的標籤 0。</li>
+<li>Token：用到但沒定義的 0；三套 palette 定義的 token 完全相同；沒用到的 2 個已刪除。</li>
+<li>對比度（WCAG）：A 的文字 6.04／8.03／8.24，B 的文字 6.22／7.05／5.91，皆 ≥ 4.5。<b>低於門檻、照實列出、沒有修改</b>（數值來自 tokens-reference.md，改了就和 spec 不同步）：
+  <code>--text-tertiary</code> 在面板底上，dark-technical 4.12（狀態列 3.77），light-ide 3.08；B 的警告圖示在 neutral-professional 只有 2.93（圖形門檻是 3:1）。前者是現有狀態列與空狀態本來的對比，不是本輪新增的。</li>
+</ul>
+
+<h2>7. 不需要畫面裁定的 native 部分</h2>
+<p>每個 C／U 類 read 的失敗回覆改成帶上成功回覆同一個 key（path／oid／ref／requestId），Dart 才能把失敗對應到畫面；匯出函式在交出前丟例外時也走同一個失敗回覆；<code>CallbackRegistry::emit</code> 在 malloc 失敗時（缺口 3b）要有替代的通知。這屬於跨 FFI 的 wire 變更，計畫要先經 plan-verifier。key 要對到哪個欄位，取決於上面的畫面裁定，所以等裁定後再寫。</p>
+</main>
+<script>
+document.querySelectorAll('.toggle button').forEach(function(b){
+  b.addEventListener('click',function(){
+    document.querySelectorAll('.toggle button').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false')});
+    document.querySelectorAll('.stage').forEach(function(s){s.setAttribute('data-pal',b.getAttribute('data-p'))});
+  });
+});
+</script>
+</body>
+</html>

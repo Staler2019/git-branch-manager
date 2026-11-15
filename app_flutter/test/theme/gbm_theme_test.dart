@@ -25,6 +25,15 @@ void main() {
     });
   }
 
+  test('light-ide link and accent hover are the spec accent-600', () {
+    // colors.css `[data-theme="light-ide"]`: `--text-link:#1f6ce0;
+    // --accent-hover:#1f6ce0`. The Qt port had it (ThemeTokens.cpp kLightIde);
+    // the Flutter port wrote accent-700 with no ruling behind it.
+    final GbmColors colors = tokensFor(GbmThemeVariant.lightIde);
+    expect(colors.textLink.toARGB32(), 0xFF1F6CE0);
+    expect(colors.accentHover.toARGB32(), 0xFF1F6CE0);
+  });
+
   test('shadow alpha is the deep set on dark, the light set on light', () {
     double alphaOf(List<BoxShadow> shadows) => shadows.single.color.a;
 

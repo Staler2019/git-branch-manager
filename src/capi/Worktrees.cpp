@@ -65,10 +65,11 @@ GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int
     reportCurrentException(__func__);
 }
 
-GBM_API void gbm_worktree_prune(GbmSessionHandle session) try {
-    toSession(session)->pruneWorktrees();
+GBM_API int32_t gbm_worktree_prune(GbmSessionHandle session) try {
+    return toSession(session)->pruneWorktrees() ? 1 : 0;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason) try {

@@ -33,22 +33,23 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session) try {
     return -1;
 }
 
-GBM_API void gbm_remote_fetch(GbmSessionHandle session,
-                              const char* remoteName,
-                              const char* const* refs,
-                              int32_t refCount,
-                              int32_t prune,
-                              int32_t tags,
-                              int32_t background) try {
+GBM_API int32_t gbm_remote_fetch(GbmSessionHandle session,
+                                 const char* remoteName,
+                                 const char* const* refs,
+                                 int32_t refCount,
+                                 int32_t prune,
+                                 int32_t tags,
+                                 int32_t background) try {
     FetchRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.refs = toStringVector(refs, refCount);
     request.prune = prune != 0;
     request.tags = tags != 0;
     request.background = background != 0;
-    toSession(session)->fetchRemote(std::move(request));
+    return toSession(session)->fetchRemote(std::move(request)) ? 1 : 0;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API void gbm_pull(GbmSessionHandle session,
@@ -91,16 +92,17 @@ GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session,
     reportCurrentException(__func__);
 }
 
-GBM_API void gbm_remote_prune(GbmSessionHandle session,
-                              const char* remoteName,
-                              const char* const* refs,
-                              int32_t refCount) try {
+GBM_API int32_t gbm_remote_prune(GbmSessionHandle session,
+                                 const char* remoteName,
+                                 const char* const* refs,
+                                 int32_t refCount) try {
     PruneRemoteRequest request;
     request.remoteName = remoteName != nullptr ? remoteName : "";
     request.refs = toStringVector(refs, refCount);
-    toSession(session)->pruneRemote(std::move(request));
+    return toSession(session)->pruneRemote(std::move(request)) ? 1 : 0;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API void gbm_remote_add(GbmSessionHandle session, const char* name, const char* url) try {

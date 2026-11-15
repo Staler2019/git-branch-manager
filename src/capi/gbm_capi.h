@@ -348,9 +348,12 @@ GBM_API void gbm_session_close(GbmSessionHandle session);
 /// Registers the event callback for this session. Replaces any previously
 /// registered callback. Must be called before any async-producing call
 /// (gbm_history_refresh, gbm_branch_checkout) if events are to be observed.
-GBM_API void gbm_register_callback(GbmSessionHandle session,
-                                   GbmEventCallback callback,
-                                   void* userData);
+/// Returns 1 when registered, 0 when it failed: the session then emits nothing,
+/// so a caller treats it as a failed open (close the session, read the error
+/// with gbm_last_result_json_len()/_copy()).
+GBM_API int32_t gbm_register_callback(GbmSessionHandle session,
+                                      GbmEventCallback callback,
+                                      void* userData);
 
 // --- Repository state --------------------------------------------------
 
@@ -554,14 +557,21 @@ GBM_API void gbm_graph_snapshot_release(GbmSessionHandle session);
 /// same refresh gbm_history_refresh() would (so REFS_UPDATED/GRAPH_UPDATED
 /// follow). String parameters must be UTF-8 and non-null (pass "" for
 /// absent); boolean parameters are 0/1.
-GBM_API void gbm_branch_checkout(GbmSessionHandle session,
-                                 const char* target,
-                                 int32_t detach,
-                                 int32_t createBranch,
-                                 const char* newBranchName,
-                                 int32_t force,
-                                 int32_t stashFirst,
-                                 int32_t recurseSubmodules);
+///
+/// Returns 1 once the operation is queued: its GBM_EVENT_OPERATION_FINISHED follows, even if
+/// something after queueing throws. Returns 0 if nothing was queued -- the
+/// call failed before or while handing it over, the native error channel has
+/// the exception, and no outcome event follows. Dart drops the pending entry
+/// it recorded for this call on 0 (PendingOperationTracker), since outcomes
+/// are paired with entries in order.
+GBM_API int32_t gbm_branch_checkout(GbmSessionHandle session,
+                                    const char* target,
+                                    int32_t detach,
+                                    int32_t createBranch,
+                                    const char* newBranchName,
+                                    int32_t force,
+                                    int32_t stashFirst,
+                                    int32_t recurseSubmodules);
 
 /// `git branch <name> [<startPoint>] --no-track`, optionally followed by a
 /// checkout. The new branch never gets an upstream here, whatever
@@ -609,13 +619,20 @@ GBM_API void gbm_branch_rename(GbmSessionHandle session,
 /// reply. A forced name with no tip fails with MissingBranchTip, a moved one
 /// with StaleBranchTip, and in both cases nothing is deleted. Async: fires
 /// GBM_EVENT_OPERATION_FINISHED, and on success refreshes refs.
-GBM_API void gbm_branch_delete(GbmSessionHandle session,
-                               const char* const* names,
-                               int32_t nameCount,
-                               const int32_t* forces,
-                               const char* const* expectedTips,
-                               int32_t isRemote,
-                               const char* remoteName);
+///
+/// Returns 1 once the operation is queued: its GBM_EVENT_OPERATION_FINISHED follows, even if
+/// something after queueing throws. Returns 0 if nothing was queued -- the
+/// call failed before or while handing it over, the native error channel has
+/// the exception, and no outcome event follows. Dart drops the pending entry
+/// it recorded for this call on 0 (PendingOperationTracker), since outcomes
+/// are paired with entries in order.
+GBM_API int32_t gbm_branch_delete(GbmSessionHandle session,
+                                  const char* const* names,
+                                  int32_t nameCount,
+                                  const int32_t* forces,
+                                  const char* const* expectedTips,
+                                  int32_t isRemote,
+                                  const char* remoteName);
 
 /// Reads, for each local branch in `names`, what deleting it would lose
 /// against its own upstream (BranchStore::probeDeletion) -- read before the
@@ -1012,7 +1029,9 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               int32_t track);
 
 GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force);
-GBM_API void gbm_worktree_prune(GbmSessionHandle session);
+/// Returns 1 when the prune was queued, 0 when it was not (its outcome will
+/// never arrive): Dart pairs outcomes with dispatches in queue order.
+GBM_API int32_t gbm_worktree_prune(GbmSessionHandle session);
 GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason);
 GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path);
 
@@ -1049,13 +1068,19 @@ GBM_API int32_t gbm_remotes_json(GbmSessionHandle session);
 /// askpass::wireRefusing), the session's askpass watch is left alone for a
 /// foreground operation submitted meanwhile, and git skips auto maintenance
 /// and FETCH_HEAD.
-GBM_API void gbm_remote_fetch(GbmSessionHandle session,
-                              const char* remoteName,
-                              const char* const* refs,
-                              int32_t refCount,
-                              int32_t prune,
-                              int32_t tags,
-                              int32_t background);
+///
+/// Returns 1 once the operation is queued: its GBM_EVENT_WORKING_COPY_OPERATION_FINISHED follows,
+/// even if something after queueing throws. Returns 0 if nothing was queued -- the call failed
+/// before or while handing it over, the native error channel has the exception, and no outcome
+/// event follows. Dart drops the pending entry it recorded for this call on 0
+/// (PendingOperationTracker), since outcomes are paired with entries in order.
+GBM_API int32_t gbm_remote_fetch(GbmSessionHandle session,
+                                 const char* remoteName,
+                                 const char* const* refs,
+                                 int32_t refCount,
+                                 int32_t prune,
+                                 int32_t tags,
+                                 int32_t background);
 
 /// `git pull` (merge, or `--rebase` when `rebase` is set). `remoteName`
 /// empty uses the branch's configured upstream. Async: fires
@@ -1108,10 +1133,17 @@ GBM_API void gbm_request_remote_prune_preview(GbmSessionHandle session, const ch
 /// GBM_EVENT_WORKING_COPY_OPERATION_FINISHED -- nothing here touches the
 /// working tree or index, only remote-tracking refs), and on success also
 /// triggers the same refresh gbm_history_refresh() would.
-GBM_API void gbm_remote_prune(GbmSessionHandle session,
-                              const char* remoteName,
-                              const char* const* refs,
-                              int32_t refCount);
+///
+/// Returns 1 once the operation is queued: its GBM_EVENT_OPERATION_FINISHED follows, even if
+/// something after queueing throws. Returns 0 if nothing was queued -- the
+/// call failed before or while handing it over, the native error channel has
+/// the exception, and no outcome event follows. Dart drops the pending entry
+/// it recorded for this call on 0 (PendingOperationTracker), since outcomes
+/// are paired with entries in order.
+GBM_API int32_t gbm_remote_prune(GbmSessionHandle session,
+                                 const char* remoteName,
+                                 const char* const* refs,
+                                 int32_t refCount);
 
 /// `git remote add <name> <url>`. Async: fires GBM_EVENT_OPERATION_FINISHED
 /// (same channel as gbm_remote_prune() -- adding a remote touches only repo

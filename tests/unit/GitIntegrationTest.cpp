@@ -6,6 +6,7 @@
 // immediately — the kind that random DAG tests cannot see because they never
 // touch git itself.
 #include "core/base/CancellationToken.h"
+#include "core/base/ExceptionDiagnostic.h"
 #include "core/base/FsUtil.h"
 #include "core/base/Logging.h"
 #include "core/git/AskpassHelper.h"
@@ -44,6 +45,9 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 
+#include <future>
+#include <memory>
+#include <optional>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -6484,6 +6488,93 @@ TEST(ProcessRunnerTimeout, ProgressOnStderrAloneKeepsAChildAlive) {
     EXPECT_NE(progress.find("100%"), std::string::npos) << progress;
 }
 
+// A progress sink is the caller's code (a session emits each chunk), so it can
+// throw. The run then ends at once with that exception on both platforms, and
+// the child does not outlive it: Windows reads stderr on a thread of its own,
+// where a throw used to end only that thread and leave the run waiting on its
+// idle deadline; POSIX threw straight out and left the child running.
+TEST(ProcessRunnerTimeout, AProgressSinkThatThrowsEndsTheRunWithItsException) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    // Drips once and then hangs, so only a kill ends it before the idle limit.
+    GitCommand command({}, {"--gbm-hang-forever", "--drip-stderr", "1"});
+    command.idleTimeout = std::chrono::seconds(10);
+
+    RecordSpy spy;
+    const auto started = std::chrono::steady_clock::now();
+    bool threw = false;
+    try {
+        (void)runner->stream(
+            command, [](std::string_view) { return true; },
+            [](std::string_view) { throw std::runtime_error("progress sink failed"); },
+            CancellationToken{});
+    } catch (const std::runtime_error& error) {
+        threw = std::string(error.what()) == "progress sink failed";
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+
+    EXPECT_TRUE(threw) << "the run did not end with the sink's exception";
+    EXPECT_LT(elapsed, std::chrono::seconds(5)) << "the run waited for its idle deadline";
+    // lastEndingWith() skips running rows: none finished means the Log row stays RUNNING.
+    EXPECT_TRUE(spy.lastEndingWith({"--drip-stderr", "1"}).has_value())
+        << "the Log row was left RUNNING";
+}
+
+#ifdef _WIN32
+// Windows only: POSIX pumps in one poll() loop with no helper threads
+// ([CPP-windows-terminate-hangs-join]). A helper thread that dies must end the run with
+// its exception at once. The backstop cancel turns the unfixed hang into a red
+// assertion instead of a ctest timeout.
+std::pair<bool, std::chrono::steady_clock::duration> runWithDeadHelper(
+    const char* threadName,
+    GitCommand command) {
+    auto runner = makeProcessRunner(std::filesystem::path(GBM_HANG_FOREVER_EXE));
+    CancellationSource backstop;
+    std::thread canceller([&backstop] {
+        std::this_thread::sleep_for(std::chrono::seconds(8));
+        backstop.cancel();
+    });
+    failNextThreadForTest(threadName);
+    const auto started = std::chrono::steady_clock::now();
+    bool threw = false;
+    try {
+        (void)runner->run(command, backstop.token());
+    } catch (const std::runtime_error& error) {
+        threw = std::string(error.what()) == "injected thread failure";
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    failNextThreadForTest("");
+    canceller.join();
+    return {threw, elapsed};
+}
+
+TEST(ProcessRunnerTimeout, ADeadDeadlineThreadEndsTheRunWithItsException) {
+    GitCommand command({}, {"--gbm-hang-forever", "--dead-deadline"});
+    command.idleTimeout = std::chrono::seconds(30);
+
+    RecordSpy spy;
+    const auto [threw, elapsed] = runWithDeadHelper("ProcessRunner deadline", command);
+
+    EXPECT_TRUE(threw) << "the run did not end with the watchdog's exception";
+    EXPECT_LT(elapsed, std::chrono::seconds(5)) << "nothing ended the stdout read";
+    EXPECT_TRUE(spy.lastEndingWith({"--dead-deadline"}).has_value())
+        << "the Log row was left RUNNING";
+}
+
+TEST(ProcessRunnerTimeout, ADeadStdinPumpEndsTheRunWithItsException) {
+    GitCommand command({}, {"--gbm-hang-forever", "--dead-stdin"});
+    command.idleTimeout = std::chrono::seconds(30);
+    command.stdinData = std::string("input the child never gets\n");
+
+    RecordSpy spy;
+    const auto [threw, elapsed] = runWithDeadHelper("ProcessRunner stdin pump", command);
+
+    EXPECT_TRUE(threw) << "the run did not end with the stdin pump's exception";
+    EXPECT_LT(elapsed, std::chrono::seconds(5)) << "the run waited for a deadline";
+    EXPECT_TRUE(spy.lastEndingWith({"--dead-stdin"}).has_value())
+        << "the Log row was left RUNNING";
+}
+#endif
+
 /// Puts the process-wide multiplier back to 1 whatever the test did, so no
 /// later test in this binary inherits a stretched deadline.
 struct TimeoutMultiplierReset {
@@ -6675,6 +6766,60 @@ TEST(CatFileBatchDeadline, AChildThatNeverAnswersIsStoppedAndLogged) {
     const auto records = spy.allEndingWith({"cat-file", "--batch"});
     ASSERT_EQ(records.size(), 2u);
     EXPECT_NE(records[0].id, records[1].id);
+}
+
+// A dead watchdog enforces no deadline, so a read on a silent child would block
+// for as long as the child lives. Read on a thread so the unfixed hang is a red
+// assertion: on a timeout the thread and the batch it holds are left behind on
+// purpose, since destroying the batch under a blocked read would be a use-after-free.
+std::optional<GitResult<CatFileBatch::Object>> readWithin(std::shared_ptr<CatFileBatch> batch,
+                                                          std::chrono::milliseconds limit) {
+    auto done = std::make_shared<std::promise<GitResult<CatFileBatch::Object>>>();
+    auto future = done->get_future();
+    std::thread([batch, done] { done->set_value(batch->read("HEAD")); }).detach();
+    if (future.wait_for(limit) != std::future_status::ready) {
+        return std::nullopt;
+    }
+    return future.get();
+}
+
+std::shared_ptr<CatFileBatch> silentBatch() {
+    return std::make_shared<CatFileBatch>(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                                          RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                                          std::chrono::milliseconds(1000));
+}
+
+// The child is killed while idle, before any request is written, so the request's
+// write meets a closed pipe: on POSIX that is SIGPIPE, which must not end the process.
+TEST(CatFileBatchDeadline, ADeadWatchdogKillsTheChildAndTheNextChildIsHealthy) {
+    auto batch = silentBatch();
+    failNextThreadForTest("CatFileBatch watchdog");
+    ASSERT_TRUE(batch->start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    const auto first = readWithin(batch, std::chrono::seconds(3));
+    ASSERT_TRUE(first.has_value()) << "the read waited on a child nothing will stop";
+    ASSERT_FALSE(*first);
+    EXPECT_EQ(first->error().code, GitError::Code::Io);
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto second = readWithin(batch, std::chrono::seconds(5));
+    ASSERT_TRUE(second.has_value());
+    ASSERT_FALSE(*second);
+    EXPECT_EQ(second->error().code, GitError::Code::Timeout) << "a new watchdog enforces the deadline";
+    EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(900));
+}
+
+TEST(CatFileBatchDeadline, AWatchdogThatDiesDuringARequestEndsItPromptly) {
+    auto batch = silentBatch();
+    failNextThreadForTest("CatFileBatch watchdog");
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto first = readWithin(batch, std::chrono::seconds(3));
+    ASSERT_TRUE(first.has_value()) << "the read waited on a child nothing will stop";
+    EXPECT_FALSE(*first);
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(900))
+        << "ended by the deadline, not by the kill";
 }
 
 // The per-request deadline is a declared value like any other, so the user's

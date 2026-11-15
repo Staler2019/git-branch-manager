@@ -3,9 +3,16 @@
 #ifndef _WIN32
 
 #include <fcntl.h>
+#include <mutex>
+#include <signal.h>
 #include <unistd.h>
 
 namespace gbm::posix {
+
+void ignoreSigPipeOnce() {
+    static std::once_flag flag;
+    std::call_once(flag, [] { ::signal(SIGPIPE, SIG_IGN); });
+}
 
 int makeCloexecPipe(int fds[2]) {
 #if defined(__linux__)

@@ -13,6 +13,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstring>
+#include <exception>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -158,13 +159,6 @@ std::vector<std::string> buildArgv(const std::filesystem::path& exe, const GitCo
 
 #if !defined(_WIN32)
 
-/// Ignores SIGPIPE exactly once per process. Without this, writing a patch to a
-/// git process that has already exited kills the whole application.
-void ignoreSigPipeOnce() {
-    static std::once_flag flag;
-    std::call_once(flag, [] { ::signal(SIGPIPE, SIG_IGN); });
-}
-
 class PosixChild {
 public:
     ~PosixChild() { closeAll(); }
@@ -172,7 +166,7 @@ public:
     GitResult<void> spawn(const std::vector<std::string>& argv,
                           const GitCommand& command,
                           bool wantStdin) {
-        ignoreSigPipeOnce();
+        posix::ignoreSigPipeOnce();
 
         int outPipe[2] = {-1, -1};
         int errPipe[2] = {-1, -1};
@@ -695,9 +689,26 @@ public:
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
+        // The first helper thread to die (the stderr pump if `onProgress` throws, the
+        // stdin pump, or the deadline watchdog) stores its exception here and
+        // terminates the child, which unblocks the stdout read below; it is rethrown
+        // once every helper has been joined, so the run ends with it as on POSIX.
+        // Locked because three threads can write it.
+        std::mutex failureMutex;
+        std::exception_ptr firstFailure;
+        const auto failHelper = [this, &failureMutex, &firstFailure] {
+            {
+                std::lock_guard<std::mutex> lock(failureMutex);
+                if (!firstFailure) {
+                    firstFailure = std::current_exception();
+                }
+            }
+            terminate();
+        };
         if (stderrHandle_ != nullptr) {
-            stderrThread =
-                guardedThread("ProcessRunner stderr pump", [this, stderrText, &onProgress] {
+            stderrThread = guardedThread(
+                "ProcessRunner stderr pump",
+                [this, stderrText, &onProgress] {
                     std::vector<char> buffer(16 * 1024);
                     for (;;) {
                         DWORD read = 0;
@@ -719,31 +730,37 @@ public:
                             onProgress(chunk);
                         }
                     }
-                });
+                },
+                // Nothing drains stderr any more.
+                failHelper);
         }
 
         std::thread stdinThread;
         if (stdinHandle_ != nullptr) {
-            stdinThread = guardedThread("ProcessRunner stdin pump", [this, stdinData] {
-                if (stdinData != nullptr) {
-                    std::size_t offset = 0;
-                    while (offset < stdinData->size()) {
-                        DWORD written = 0;
-                        if (!::WriteFile(stdinHandle_,
-                                         stdinData->data() + offset,
-                                         static_cast<DWORD>(stdinData->size() - offset),
-                                         &written,
-                                         nullptr) ||
-                            written == 0) {
-                            break;
+            stdinThread = guardedThread(
+                "ProcessRunner stdin pump",
+                [this, stdinData] {
+                    if (stdinData != nullptr) {
+                        std::size_t offset = 0;
+                        while (offset < stdinData->size()) {
+                            DWORD written = 0;
+                            if (!::WriteFile(stdinHandle_,
+                                             stdinData->data() + offset,
+                                             static_cast<DWORD>(stdinData->size() - offset),
+                                             &written,
+                                             nullptr) ||
+                                written == 0) {
+                                break;
+                            }
+                            lastProgress_.store(nowMs());
+                            offset += written;
                         }
-                        lastProgress_.store(nowMs());
-                        offset += written;
                     }
-                }
-                ::CloseHandle(stdinHandle_);
-                stdinHandle_ = nullptr;
-            });
+                    ::CloseHandle(stdinHandle_);
+                    stdinHandle_ = nullptr;
+                },
+                // A child still waiting for the rest of its input would never exit.
+                failHelper);
         }
 
         // The deadline watchdog.
@@ -837,7 +854,9 @@ public:
                         while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
                             ::CancelSynchronousIo(pumpThread);
                         }
-                    });
+                    },
+                    // No deadline can reach the stdout read any more.
+                    failHelper);
             }
         }
 
@@ -896,6 +915,9 @@ public:
         // the caller's bool is never written by two at once.
         if (timedOut_.load()) {
             *timedOut = true;
+        }
+        if (firstFailure) {
+            std::rethrow_exception(firstFailure);
         }
     }
 
@@ -1145,15 +1167,34 @@ private:
         ProcessResult result;
         LineSplitter splitter(separator, onLine);
         bool sinkStopped = false;
-        child->pump(splitter,
-                    &result.err,
-                    onProgress,
-                    command.stdinData ? &*command.stdinData : nullptr,
-                    deadlines.total,
-                    deadlines.idle,
-                    askpassDirOf(command),
-                    &result.timedOut,
-                    &sinkStopped);
+        try {
+            child->pump(splitter,
+                        &result.err,
+                        onProgress,
+                        command.stdinData ? &*command.stdinData : nullptr,
+                        deadlines.total,
+                        deadlines.idle,
+                        askpassDirOf(command),
+                        &result.timedOut,
+                        &sinkStopped);
+        } catch (...) {
+            // A sink is the caller's code and may throw. The child must not outlive
+            // the run, and its running Log row needs an outcome; the exception is the
+            // caller's to report.
+            child->terminate();
+            const int exitCode = child->wait();
+            cancelReg.reset();
+            recordOperation(operationId,
+                            deadlines,
+                            command,
+                            argv,
+                            collapseCarriageReturns(result.err),
+                            exitCode,
+                            started,
+                            false,
+                            false);
+            throw;
+        }
 
         result.exitCode = child->wait();
         result.duration =

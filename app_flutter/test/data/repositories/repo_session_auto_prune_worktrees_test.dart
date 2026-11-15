@@ -13,7 +13,10 @@
 // 這個 session 內還沒被試過」，不是「這個 path 現在還 prunable」，跟
 // worktrees 面板的 `path@headOid` 快取把 `failed` 也寫進去是同一個教訓。
 import 'dart:convert';
+import 'dart:ffi';
+import 'dart:typed_data';
 
+import 'package:ffi/ffi.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
@@ -47,28 +50,113 @@ WorktreeInfo _wt(
   createdAt: null,
 );
 
-/// An outcome carrying no `kind`, which is what a worktree prune's really
-/// looks like — `PendingOperationKind` has no arm for it, so attribution is
-/// unavailable and the suppressor has to match on `argv`.
-GbmEvent _pruneFailed() => GbmEvent(
-  GbmEventType.operationFinished,
-  utf8.encode(
-    jsonEncode(<String, dynamic>{
-      'succeeded': false,
-      'error': <String, dynamic>{
-        'code': 1,
-        'codeName': 'Unknown',
-        'message': 'fatal: could not remove .git/worktrees/gone',
-        'detail': '',
-        'argv': <String>['worktree', 'prune', '--verbose'],
-        'exitCode': 1,
-      },
-      'choices': <dynamic>[],
-      'summary': 'Prune worktrees',
-      'kind': '',
-    }),
-  ),
-);
+/// A worktree prune's outcome as the library really sends it: through the
+/// working-copy funnel, so on `workingCopyOperationFinished`, stamped
+/// `prune-worktrees`. The controller pairs these with the prunes it
+/// dispatched, in queue order, to tell its own background prune from the
+/// user's.
+GbmEvent _outcome({required bool succeeded, String kind = 'prune-worktrees'}) =>
+    GbmEvent(
+      GbmEventType.workingCopyOperationFinished,
+      utf8.encode(
+        jsonEncode(<String, dynamic>{
+          'succeeded': succeeded,
+          'error': succeeded
+              ? null
+              : <String, dynamic>{
+                  'code': 1,
+                  'codeName': 'Unknown',
+                  'message': 'fatal: could not remove .git/worktrees/gone',
+                  'detail': '',
+                  'argv': <String>['worktree', 'prune', '--verbose'],
+                  'exitCode': 1,
+                },
+          'choices': <dynamic>[],
+          'summary': 'Prune worktrees',
+          'kind': kind,
+        }),
+      ),
+    );
+
+/// A real controller over an open fake session, so the real `pruneWorktrees`
+/// body and its binding call run. Each prune answers the next value of
+/// [pruneAnswers] (1 when empty), as `gbm_worktree_prune` would.
+class _PruneBindings extends FakeGbmBindings {
+  final List<int> pruneAnswers = <int>[];
+  int pruneCalls = 0;
+  Uint8List _staged = Uint8List(0);
+
+  @override
+  RepoStateJsonDart get repoStateJson => (Pointer<Void> session) {
+    _staged = utf8.encode(
+      jsonEncode(<String, dynamic>{
+        'flags': 0,
+        'isClean': true,
+        'isSequencerOperation': false,
+        'rebaseStep': 0,
+        'rebaseTotal': 0,
+        'rebaseOntoLabel': '',
+        'indexLocked': false,
+        'indexLockAgeSeconds': null,
+        'preparedMessagePending': false,
+        'describe': '',
+      }),
+    );
+    return 0;
+  };
+
+  @override
+  LastResultJsonLenDart get lastResultJsonLen =>
+      () => _staged.length;
+
+  @override
+  LastResultJsonCopyDart get lastResultJsonCopy =>
+      (Pointer<Uint8> out, int outLen) {
+        out.asTypedList(outLen).setAll(0, _staged);
+      };
+
+  @override
+  SessionOpenDart get sessionOpen =>
+      (Pointer<Utf8> workDir, Pointer<Utf8> gitDir, Pointer<Utf8> commonDir) =>
+          Pointer<Void>.fromAddress(1);
+
+  @override
+  SessionCloseDart get sessionClose => (Pointer<Void> session) {};
+
+  @override
+  RegisterCallbackDart get registerCallback =>
+      (
+        Pointer<Void> session,
+        Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+        Pointer<Void> userData,
+      ) => 1;
+
+  @override
+  HistoryRefreshDart get historyRefresh =>
+      (Pointer<Void> session) => 1;
+
+  @override
+  WorkingCopyRefreshDart get workingCopyRefresh => (Pointer<Void> session) {};
+
+  @override
+  LocalIdentityRefreshDart get localIdentityRefresh =>
+      (Pointer<Void> session) {};
+
+  @override
+  EffectiveIdentityRefreshDart get effectiveIdentityRefresh =>
+      (Pointer<Void> session) {};
+
+  @override
+  WorktreePruneDart get worktreePrune => (Pointer<Void> session) {
+    pruneCalls++;
+    return pruneAnswers.isEmpty ? 1 : pruneAnswers.removeAt(0);
+  };
+}
+
+class _NoopRecents extends FakeRecentsRepository {
+  @override
+  Future<void> recordOpen(String workDir) async {}
+}
 
 int _prunes(FakeRepoSessionController c) => c.commandLog
     .where((FakeCommand cmd) => cmd.name == 'pruneWorktrees')
@@ -147,10 +235,22 @@ void main() {
   });
 
   group('a background prune failing does not interrupt the user', () {
+    late _PruneBindings bindings;
+    late RepoSessionController c;
+
+    setUp(() {
+      bindings = _PruneBindings();
+      c = RepoSessionController(bindings, _identity, _NoopRecents());
+      addTearDown(c.dispose);
+    });
+
+    void autoPrune(String path) =>
+        c.publishWorktrees(<WorktreeInfo>[_wt(path, prunable: true)]);
+
     test('its error is kept out of lastError', () {
-      final FakeRepoSessionController c = controller();
-      c.publishWorktrees(<WorktreeInfo>[_wt('/src/wt/gone', prunable: true)]);
-      c.debugHandleEvent(_pruneFailed());
+      autoPrune('/src/wt/gone');
+      expect(bindings.pruneCalls, 1);
+      c.debugHandleEvent(_outcome(succeeded: false));
 
       expect(
         c.state.lastError,
@@ -161,12 +261,65 @@ void main() {
       );
     });
 
-    test('a second failure with nothing in flight does surface', () {
-      final FakeRepoSessionController c = controller();
-      // No auto-prune was ever dispatched, so this one can only be the user's
-      // own `Prune` button, and they are owed the reason it failed.
-      c.debugHandleEvent(_pruneFailed());
+    test("a user's prune failing with nothing automatic queued surfaces", () {
+      c.pruneWorktrees();
+      c.debugHandleEvent(_outcome(succeeded: false));
       expect(c.state.lastError, isNotNull);
+    });
+
+    // A background prune that succeeded is accounted for too: otherwise it
+    // stays "in flight" and swallows the user's next failure.
+    test("an automatic prune's success does not hide the user's later "
+        'failure', () {
+      autoPrune('/src/wt/gone');
+      c.debugHandleEvent(_outcome(succeeded: true));
+
+      c.pruneWorktrees();
+      c.debugHandleEvent(_outcome(succeeded: false));
+      expect(c.state.lastError, isNotNull);
+    });
+
+    test('outcomes are paired with prunes in queue order', () {
+      c.pruneWorktrees();
+      autoPrune('/src/wt/gone');
+
+      c.debugHandleEvent(_outcome(succeeded: false));
+      final Object? users = c.state.lastError;
+      expect(users, isNotNull, reason: "the first was the user's");
+
+      // Suppression means "do not write": the user's error stays on screen.
+      c.debugHandleEvent(_outcome(succeeded: false));
+      expect(
+        c.state.lastError,
+        same(users),
+        reason: 'the second was automatic',
+      );
+    });
+
+    // An automatic prune that was never queued has no outcome coming; left
+    // in the queue, it would be paired with the user's next prune and hide
+    // its failure.
+    test('an automatic prune that was not queued takes no outcome', () {
+      bindings.pruneAnswers.add(0);
+      autoPrune('/src/wt/gone');
+
+      c.pruneWorktrees();
+      c.debugHandleEvent(_outcome(succeeded: false));
+      expect(c.state.lastError, isNotNull);
+    });
+
+    test('an outcome of another kind leaves the queue alone', () {
+      autoPrune('/src/wt/gone');
+      c.debugHandleEvent(_outcome(succeeded: false, kind: 'stage'));
+      final Object? stage = c.state.lastError;
+      expect(stage, isNotNull, reason: 'a stage failure surfaces');
+
+      c.debugHandleEvent(_outcome(succeeded: false));
+      expect(
+        c.state.lastError,
+        same(stage),
+        reason: 'still the automatic prune',
+      );
     });
   });
 }

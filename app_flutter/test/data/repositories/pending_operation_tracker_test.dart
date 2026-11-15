@@ -253,6 +253,64 @@ void main() {
     });
   });
 
+  // A call whose native side answered 0 queued nothing, so the entry it
+  // recorded must go and every entry recorded before it must stay.
+  group('dropLast removes only the newest entry of its own kind', () {
+    test('checkout', () {
+      final tracker = PendingOperationTracker()
+        ..recordCheckout(_checkoutA)
+        ..recordCheckout(_checkoutB)
+        ..recordDeleteBranch(_deleteA);
+      tracker.dropLastCheckout();
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+      expect(tracker.takeCheckout(), isNull);
+      expect(tracker.takeDeleteBranch()?.names, <String>['gone-a']);
+    });
+
+    test('delete-branch', () {
+      final tracker = PendingOperationTracker()
+        ..recordDeleteBranch(_deleteA)
+        ..recordDeleteBranch(_deleteB)
+        ..recordCheckout(_checkoutA);
+      tracker.dropLastDeleteBranch();
+      expect(tracker.takeDeleteBranch()?.names, <String>['gone-a']);
+      expect(tracker.takeDeleteBranch(), isNull);
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+    });
+
+    test('fetch', () {
+      final tracker = PendingOperationTracker()
+        ..recordFetch(const PendingFetchRequest(remoteName: 'origin'))
+        ..recordFetch(const PendingFetchRequest(remoteName: 'upstream'))
+        ..recordCheckout(_checkoutA);
+      tracker.dropLastFetch();
+      expect(tracker.takeFetch()?.remoteName, 'origin');
+      expect(tracker.takeFetch(), isNull);
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+    });
+
+    test('prune-remote', () {
+      final tracker = PendingOperationTracker()
+        ..recordPruneRemote(
+          const PendingPruneRemoteRequest(
+            remoteName: 'origin',
+            refs: <String>[],
+          ),
+        )
+        ..recordPruneRemote(
+          const PendingPruneRemoteRequest(
+            remoteName: 'upstream',
+            refs: <String>[],
+          ),
+        )
+        ..recordCheckout(_checkoutA);
+      tracker.dropLastPruneRemote();
+      expect(tracker.takePruneRemote()?.remoteName, 'origin');
+      expect(tracker.takePruneRemote(), isNull);
+      expect(tracker.takeCheckout()?.target, 'branch-a');
+    });
+  });
+
   group('PendingOperationKind wire names', () {
     test('fetch round-trips through the wire name', () {
       // Must match FetchOperation::kind() in RemoteOps.cpp exactly -- the

@@ -558,7 +558,7 @@ class FakeRepoSessionController extends RepoSessionController {
   // silently**, so a test cannot tell a background prune that fired from one
   // that never did.
   @override
-  void pruneWorktrees() {
+  void pruneWorktrees({bool automatic = false}) {
     commandLog.add(const FakeCommand('pruneWorktrees'));
   }
 

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -27,6 +28,7 @@
 #include <vector>
 
 GBM_API void gbm_test_fail_read(const char* where);
+GBM_API void gbm_test_fail_register(void);
 
 namespace gbm::capi {
 namespace {
@@ -486,6 +488,71 @@ TEST(PostRead, ConcurrentReadsEachAnswerExactlyOnce) {
     EXPECT_GE(failed, (kReads + 4) / 5);
 }
 
+// A `post:` name fails the hand-off itself, after the read has been moved into the pool's
+// argument -- where an allocation failure in the pool's push_back would land. Nothing reaches a
+// worker, so postRead answers inline, on the caller's thread.
+
+TEST_F(ReadFailureApiTest, AHistoryRefreshThatCannotBePostedRepliesWithAnErrorAndIsLogged) {
+    gbm_test_fail_read("post:Session::dispatchRefresh");
+    gbm_history_refresh(session_);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    const std::string error = *firstOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED);
+    EXPECT_TRUE(contains(error, "\"codeName\":\"Unknown\"")) << error;
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::dispatchRefresh\"")) << reports[0];
+}
+
+// finishRefresh is the refresh's onAlways: skipped, the coalescer stays running and every later
+// request folds into a dirty bit nothing drives.
+TEST_F(ReadFailureApiTest, HistoryStillRefreshesAfterARefreshThatCannotBePosted) {
+    gbm_test_fail_read("post:Session::dispatchRefresh");
+    gbm_history_refresh(session_);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+
+    const uint64_t second = gbm_history_refresh(session_);
+    ASSERT_NE(second, 0u);
+    const std::string covers = "\"coversRequest\":" + std::to_string(second);
+    EXPECT_TRUE(log_.waitFor([&](const Events& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_REFS_UPDATED && contains(payload, covers)) return true;
+        }
+        return false;
+    }));
+}
+
+TEST_F(ReadFailureApiTest, ABranchDeletionProbeThatCannotBePostedRepliesUnderItsRequestId) {
+    gbm_test_fail_read("post:Session::requestBranchDeletionProbe");
+    const char* names[] = {"main"};
+    gbm_request_branch_deletion_probe(session_, 4243, names, 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BRANCH_DELETION_PROBE_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BRANCH_DELETION_PROBE_READY);
+    EXPECT_TRUE(contains(reply, "\"requestId\":4243")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST(PostRead, AReadThatCannotBePostedAnswersOnceAndRunsOnAlwaysOnce) {
+    PostReadProbe probe;
+    std::atomic<bool> taskRan{false};
+    gbm_test_fail_read("post:PostReadTest::unposted");
+    postRead(
+        ReadLane::Back,
+        "PostReadTest::unposted",
+        [&] { taskRan = true; },
+        [&](const GitError&) { probe.bump(probe.failures); },
+        [&] { probe.bump(probe.always); });
+    sharedReadPool().drain();
+
+    EXPECT_FALSE(taskRan);
+    std::lock_guard<std::mutex> lock(probe.mutex);
+    EXPECT_EQ(probe.failures, 1);
+    EXPECT_EQ(probe.always, 1);
+}
+
 TEST(PostRead, AFailureReplyThatThrowsIsLoggedAndGoesNoFurther) {
     std::pair<std::mutex, std::vector<std::string>> reports;
     gbm_set_native_error_callback(&recordNativeError, &reports);
@@ -507,6 +574,52 @@ TEST(PostRead, AFailureReplyThatThrowsIsLoggedAndGoesNoFurther) {
         << reports.second[0];
     EXPECT_TRUE(contains(reports.second[1], "\"where\":\"postRead failure reply\""))
         << reports.second[1];
+}
+
+
+// Gap 3a: a registration that fails leaves the session silent for good, so the export
+// says so and Dart treats it as a failed open.
+TEST_F(ReadFailureApiTest, ACallbackRegistrationThatFailsSaysSoAndLeavesTheError) {
+    gbm_test_fail_register();
+    EXPECT_EQ(gbm_register_callback(session_, &logCallback, &log_), 0);
+
+    std::string json(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(json.data()), static_cast<int32_t>(json.size()));
+    EXPECT_TRUE(contains(json, "Native error in gbm_register_callback")) << json;
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_register_callback\"")) << reports[0];
+
+    EXPECT_EQ(gbm_register_callback(session_, &logCallback, &log_), 1) << "one arm fails one call";
+}
+
+// Measures what a refresh does when every hand-off to the pool fails: each failed
+// post replies and runs finishRefresh, which re-arms only for a request that arrived
+// meanwhile. The number of attempts must be bounded by the requests, not grow on its own.
+// Spaced wider than RefreshCoalescer::kDelay (150 ms) so no request is debounced into
+// another: the worst case, one attempt per request. (At 30 ms, 20 requests made 1.)
+TEST_F(ReadFailureApiTest, ARefreshThatCanNeverBePostedRetriesNoMoreThanItIsAsked) {
+    constexpr int kRequests = 20;
+    gbm_test_fail_read("sticky:post:Session::dispatchRefresh");
+    for (int i = 0; i < kRequests; ++i) {
+        gbm_history_refresh(session_);
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    const auto attempts = [this] {
+        std::size_t n = 0;
+        for (const std::string& report : nativeErrors()) {
+            if (contains(report, "\"where\":\"Session::dispatchRefresh\"")) ++n;
+        }
+        return n;
+    };
+    const std::size_t settled = attempts();
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
+    std::printf("[measure] %d requests -> %zu failed hand-offs\n", kRequests, settled);
+    EXPECT_GE(settled, 1u);
+    EXPECT_LE(settled, static_cast<std::size_t>(kRequests));
+    EXPECT_EQ(attempts(), settled) << "attempts kept growing with no new request";
 }
 
 }  // namespace

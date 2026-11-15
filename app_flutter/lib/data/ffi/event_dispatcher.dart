@@ -34,14 +34,27 @@ typedef _EmitDart = void Function(
 class GbmSessionEvents {
   GbmSessionEvents(this._bindings, this._session) {
     _callable = NativeCallable<GbmEventCallbackNative>.listener(_onEvent);
-    _bindings.registerCallback(_session, _callable.nativeFunction, nullptr);
+    registered =
+        _bindings.registerCallback(
+          _session,
+          _callable.nativeFunction,
+          nullptr,
+        ) ==
+        1;
   }
+
+  /// False when `gbm_register_callback` failed: the session will never emit,
+  /// so its owner treats the open as failed (the error is in the staging
+  /// buffer). Always true for [GbmSessionEvents.unregistered], which a clone
+  /// job hands its callback to at construction instead.
+  late final bool registered;
 
   /// For a caller that hands the callback over itself rather than registering
   /// it on a session: a clone job passes [nativeFunction] to
   /// `gbm_clone_start`. Same payload copying, freeing and drained close.
   GbmSessionEvents.unregistered(this._bindings) : _session = nullptr {
     _callable = NativeCallable<GbmEventCallbackNative>.listener(_onEvent);
+    registered = true;
   }
 
   /// The native callback to hand to a capi call that takes one.

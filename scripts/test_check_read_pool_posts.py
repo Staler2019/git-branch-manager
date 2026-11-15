@@ -38,6 +38,23 @@ class ReadPoolPosts(unittest.TestCase):
         write(self.root, 'src/capi/Session.cpp', _POST_READ)
         self.assertEqual(self.found(), [])
 
+    def test_post_reads_hand_off_step_is_not_reported(self):
+        write(self.root, 'src/capi/Session.cpp',
+              'void handToReadPool(ReadLane lane, std::function<void()> job) {\n'
+              '    sharedReadPool().postFront(std::move(job));\n'
+              '}\n' + _POST_READ)
+        self.assertEqual(self.found(), [])
+
+    def test_a_raw_post_after_the_hand_off_step_is_still_reported(self):
+        write(self.root, 'src/capi/Session.cpp',
+              'void handToReadPool(ReadLane lane, std::function<void()> job) {\n'
+              '    sharedReadPool().post(std::move(job));\n'
+              '}\n'
+              'void Session::requestX() {\n'
+              '    sharedReadPool().post([this]() { run(); });\n'
+              '}\n')
+        self.assertEqual(len(self.found()), 1)
+
     def test_a_raw_post_in_a_session_method_is_reported(self):
         write(self.root, 'src/capi/Session.cpp',
               _POST_READ + 'void Session::requestX() {\n'

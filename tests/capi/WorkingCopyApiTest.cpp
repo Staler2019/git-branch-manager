@@ -22,6 +22,8 @@
 #include <thread>
 #include <vector>
 
+GBM_API void gbm_test_fail_submit(const char* where);
+
 namespace gbm::capi {
 namespace {
 
@@ -865,6 +867,24 @@ TEST_F(WorkingCopyApiTest, RefreshingTheWorkingCopyAlsoRefreshesTheIndexStatCach
     gbm_working_copy_refresh(session_);
 
     EXPECT_TRUE(refreshUntilStatClean("same.txt"));
+}
+
+// A refresh whose index refresh could not be handed to the runner did not refresh
+// anything, so it must not start the interval: the next refresh refreshes.
+TEST_F(WorkingCopyApiTest, AnIndexRefreshThatCannotBeQueuedDoesNotStartTheInterval) {
+    std::ofstream(repo_ / "same.txt") << "same\n";
+    ASSERT_EQ(runGit({"add", "same.txt"}), 0);
+    ASSERT_EQ(runGit({"commit", "--quiet", "-m", "Add same"}), 0);
+    gbm_test_fail_submit("Session::maybeRefreshIndex");
+    gbm_working_copy_refresh(session_);
+    // Lets an index refresh that did get queued finish before the file is aged, so
+    // it cannot be what cleans it below.
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    makeStatDirty("same.txt", std::chrono::hours(1));
+    gbm_working_copy_refresh(session_);
+
+    EXPECT_TRUE(refreshUntilStatClean("same.txt")) << "the failed hand-off started the interval";
 }
 
 TEST_F(WorkingCopyApiTest, TheIndexStatCacheIsRefreshedAtMostOnceInTheInterval) {

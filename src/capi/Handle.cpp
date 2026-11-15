@@ -91,12 +91,14 @@ GBM_API void gbm_session_close(GbmSessionHandle session) try {
     reportCurrentException(__func__);
 }
 
-GBM_API void gbm_register_callback(GbmSessionHandle session,
-                                   GbmEventCallback callback,
-                                   void* userData) try {
+GBM_API int32_t gbm_register_callback(GbmSessionHandle session,
+                                      GbmEventCallback callback,
+                                      void* userData) try {
     toSession(session)->registerCallback(callback, userData);
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_repo_state_json(GbmSessionHandle session) try {

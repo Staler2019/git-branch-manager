@@ -33,6 +33,11 @@ ThemeData buildGbmTheme(GbmThemeVariant variant) {
     dividerColor: colors.borderSubtle,
     fontFamily: GbmTypography.fontUi,
     splashFactory: NoSplash.splashFactory,
+    // spec `::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb)}`;
+    // left unset, every Scrollbar painted Material's onSurface-derived grey.
+    scrollbarTheme: ScrollbarThemeData(
+      thumbColor: WidgetStatePropertyAll<Color>(colors.scrollbarThumb),
+    ),
     appBarTheme: AppBarTheme(
       backgroundColor: colors.surfacePanel,
       foregroundColor: colors.textPrimary,

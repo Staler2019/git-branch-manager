@@ -25,6 +25,18 @@ void main() {
     });
   }
 
+  for (final GbmThemeVariant variant in GbmThemeVariant.values) {
+    test('scrollbar thumb is the scrollbarThumb token ($variant)', () {
+      // spec: `::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb)}`.
+      // Unset, every Scrollbar painted Material's onSurface-derived default.
+      final ThemeData theme = buildGbmTheme(variant);
+      expect(
+        theme.scrollbarTheme.thumbColor?.resolve(<WidgetState>{})?.toARGB32(),
+        tokensFor(variant).scrollbarThumb.toARGB32(),
+      );
+    });
+  }
+
   test('light-ide link and accent hover are the spec accent-600', () {
     // colors.css `[data-theme="light-ide"]`: `--text-link:#1f6ce0;
     // --accent-hover:#1f6ce0`. The Qt port had it (ThemeTokens.cpp kLightIde);

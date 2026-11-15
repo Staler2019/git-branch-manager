@@ -159,13 +159,6 @@ std::vector<std::string> buildArgv(const std::filesystem::path& exe, const GitCo
 
 #if !defined(_WIN32)
 
-/// Ignores SIGPIPE exactly once per process. Without this, writing a patch to a
-/// git process that has already exited kills the whole application.
-void ignoreSigPipeOnce() {
-    static std::once_flag flag;
-    std::call_once(flag, [] { ::signal(SIGPIPE, SIG_IGN); });
-}
-
 class PosixChild {
 public:
     ~PosixChild() { closeAll(); }
@@ -173,7 +166,7 @@ public:
     GitResult<void> spawn(const std::vector<std::string>& argv,
                           const GitCommand& command,
                           bool wantStdin) {
-        ignoreSigPipeOnce();
+        posix::ignoreSigPipeOnce();
 
         int outPipe[2] = {-1, -1};
         int errPipe[2] = {-1, -1};

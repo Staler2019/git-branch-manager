@@ -25,6 +25,12 @@ int makeCloexecPipe(int fds[2]);
 /// Returns 0 on success; the caller destroys the attr either way it is used.
 int initSpawnAttr(posix_spawnattr_t* attr);
 
+/// Ignores SIGPIPE exactly once per process. Without this, writing to a git process
+/// that has already exited -- a patch on stdin, or a `cat-file --batch` request to a
+/// child its watchdog killed -- kills the whole application. Every spawn site that
+/// writes to a child calls it before spawning.
+void ignoreSigPipeOnce();
+
 }  // namespace gbm::posix
 
 #endif

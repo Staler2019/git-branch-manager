@@ -45,6 +45,9 @@
 #include "core/git/ops/UndoOps.h"
 #include "core/git/ops/WorktreeOps.h"
 
+#include <future>
+#include <memory>
+#include <optional>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -6763,6 +6766,60 @@ TEST(CatFileBatchDeadline, AChildThatNeverAnswersIsStoppedAndLogged) {
     const auto records = spy.allEndingWith({"cat-file", "--batch"});
     ASSERT_EQ(records.size(), 2u);
     EXPECT_NE(records[0].id, records[1].id);
+}
+
+// A dead watchdog enforces no deadline, so a read on a silent child would block
+// for as long as the child lives. Read on a thread so the unfixed hang is a red
+// assertion: on a timeout the thread and the batch it holds are left behind on
+// purpose, since destroying the batch under a blocked read would be a use-after-free.
+std::optional<GitResult<CatFileBatch::Object>> readWithin(std::shared_ptr<CatFileBatch> batch,
+                                                          std::chrono::milliseconds limit) {
+    auto done = std::make_shared<std::promise<GitResult<CatFileBatch::Object>>>();
+    auto future = done->get_future();
+    std::thread([batch, done] { done->set_value(batch->read("HEAD")); }).detach();
+    if (future.wait_for(limit) != std::future_status::ready) {
+        return std::nullopt;
+    }
+    return future.get();
+}
+
+std::shared_ptr<CatFileBatch> silentBatch() {
+    return std::make_shared<CatFileBatch>(std::filesystem::path(GBM_HANG_FOREVER_EXE),
+                                          RepoPaths(std::filesystem::temp_directory_path(), {}, {}),
+                                          std::chrono::milliseconds(1000));
+}
+
+// The child is killed while idle, before any request is written, so the request's
+// write meets a closed pipe: on POSIX that is SIGPIPE, which must not end the process.
+TEST(CatFileBatchDeadline, ADeadWatchdogKillsTheChildAndTheNextChildIsHealthy) {
+    auto batch = silentBatch();
+    failNextThreadForTest("CatFileBatch watchdog");
+    ASSERT_TRUE(batch->start());
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    const auto first = readWithin(batch, std::chrono::seconds(3));
+    ASSERT_TRUE(first.has_value()) << "the read waited on a child nothing will stop";
+    ASSERT_FALSE(*first);
+    EXPECT_EQ(first->error().code, GitError::Code::Io);
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto second = readWithin(batch, std::chrono::seconds(5));
+    ASSERT_TRUE(second.has_value());
+    ASSERT_FALSE(*second);
+    EXPECT_EQ(second->error().code, GitError::Code::Timeout) << "a new watchdog enforces the deadline";
+    EXPECT_GE(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(900));
+}
+
+TEST(CatFileBatchDeadline, AWatchdogThatDiesDuringARequestEndsItPromptly) {
+    auto batch = silentBatch();
+    failNextThreadForTest("CatFileBatch watchdog");
+
+    const auto started = std::chrono::steady_clock::now();
+    const auto first = readWithin(batch, std::chrono::seconds(3));
+    ASSERT_TRUE(first.has_value()) << "the read waited on a child nothing will stop";
+    EXPECT_FALSE(*first);
+    EXPECT_LT(std::chrono::steady_clock::now() - started, std::chrono::milliseconds(900))
+        << "ended by the deadline, not by the kill";
 }
 
 // The per-request deadline is a declared value like any other, so the user's

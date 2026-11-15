@@ -99,7 +99,16 @@ public:
         auto spawned = spawnPosix(argv);
 #endif
         if (spawned) {
-            watchdog_ = guardedThread("CatFileBatch watchdog", [this] { watch(); });
+            watchdog_ = guardedThread(
+                "CatFileBatch watchdog",
+                [this] { watch(); },
+                [this] {
+                    // No deadline reaches this child any more: kill it, so a read blocked
+                    // on it sees the dead pipe and fails with Io, and the next read()
+                    // respawns with a new watchdog, as after any I/O failure.
+                    std::lock_guard<std::mutex> lock(watchMutex_);
+                    killChild();
+                });
         }
         return spawned;
     }
@@ -362,6 +371,7 @@ private:
     HANDLE stdinHandle_ = nullptr;
 #else
     GitResult<void> spawnPosix(const std::vector<std::string>& argv) {
+        posix::ignoreSigPipeOnce();
         int outPipe[2] = {-1, -1};
         int inPipe[2] = {-1, -1};
         if (posix::makeCloexecPipe(outPipe) != 0) {

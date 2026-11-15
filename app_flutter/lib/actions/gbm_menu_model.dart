@@ -29,10 +29,11 @@ class GbmMenuItemModel {
   /// Two shapes share this flag:
   ///
   /// - [GbmActionId.viewGraphColumns] and [GbmActionId.viewTheme] leave
-  ///   [children] empty and have their submenu content built at the widget
-  ///   layer, because it is *dynamic* (the live column set, the available
-  ///   theme variants). Both also resolve to a real handler, so their parent
-  ///   row stays clickable as a one-click path to the same thing.
+  ///   [children] empty because their content is *dynamic* (the live column
+  ///   set, the available theme variants). No surface builds a nested
+  ///   submenu for them: each resolves to a real handler (a columns picker
+  ///   dialog, a cycle through the variants), and the parent row is that
+  ///   action.
   /// - [GbmActionId.toolsRewriteHistory] declares its [children] here,
   ///   because they are three ordinary, fixed action items (spec page 14
   ///   rule 2: "破壞性或多步驟的三項…收進 Rewrite history 第二層"). It has no

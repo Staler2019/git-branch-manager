@@ -124,14 +124,14 @@ class GbmColors extends ThemeExtension<GbmColors> {
 
   /// Not part of the design doc's token set -- see "Departure from the
   /// source" in docs/design/tokens-reference.md. `.gbm-tag-branch`'s
-  /// `--accent-subtle` fill is byte-identical to `--surface-selected` in two
-  /// of the three themes, which makes a non-current branch chip disappear on
-  /// a selected commit row. These two tokens exist purely to fix that; do
-  /// not "correct" them back to accentSubtle.
+  /// `--accent-subtle` fill is byte-identical to `--surface-selected` in
+  /// every theme but light-ide, which makes a non-current branch chip
+  /// disappear on a selected commit row. These two tokens exist purely to
+  /// fix that; do not "correct" them back to accentSubtle.
   final Color refChipFill;
   final Color refChipText;
 
-  /// Not implemented as a real per-field interpolation: the three variants
+  /// Not implemented as a real per-field interpolation: the variants
   /// are discrete design choices, not points on a gradient, and every place
   /// this app switches variant rebuilds `ThemeData` wholesale rather than
   /// animating between them (see theme_mode_provider.dart) -- `t < 0.5`

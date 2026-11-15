@@ -1,7 +1,7 @@
 // Verifies CommitRow's design-doc field order (graph · [HEAD] · hash ·
 // subject · author · date), the loading-state skeleton, and selected/hover
-// background -- colors read from tokensFor() across all three theme
-// variants, per gbm_components_test.dart's convention.
+// background -- colors read from tokensFor() across every theme variant,
+// per gbm_components_test.dart's convention.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';

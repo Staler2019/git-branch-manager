@@ -1032,9 +1032,9 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
         await ref.read(panelLayoutRepositoryProvider).clear();
         ref.read(panelLayoutGenerationProvider.notifier).state++;
       },
-      // A submenu parent -- MenuBarRow builds the three variant items from
-      // this id; invoking the parent itself cycles to the next variant, so
-      // the keyboard path is not a dead end.
+      // A submenu parent with no children on any menu surface: invoking it
+      // is the whole action, a cycle to the next variant in
+      // GbmThemeVariant.values order, from the menu and the keyboard alike.
       GbmActionId.viewTheme: () {
         final GbmThemeVariant current = ref.read(themeVariantProvider);
         const List<GbmThemeVariant> order = GbmThemeVariant.values;

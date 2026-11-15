@@ -152,12 +152,11 @@ class MenuBarRow extends StatelessWidget {
       );
     }
 
-    // Submenu parents whose children are dynamic (viewGraphColumns,
+    // Submenu parents with no declared children (viewGraphColumns,
     // viewTheme) are still clickable: both resolve to a real handler (a
     // columns picker dialog, and cycling the theme variant), so rendering
-    // them inert made two working actions look broken. The nested submenu
-    // itself is a separate affordance; the parent stays the one-click path
-    // to the same thing.
+    // them inert made two working actions look broken. Neither has a nested
+    // submenu; the handler is the whole action.
     final VoidCallback? handler = _resolveHandler(context, itemModel.id);
 
     return GbmMenuItem(

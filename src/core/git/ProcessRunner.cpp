@@ -696,9 +696,22 @@ public:
               bool* timedOut,
               bool* sinkStopped) {
         std::thread stderrThread;
-        // Set by the stderr pump if `onProgress` throws, and rethrown once it has been
-        // joined, so a throwing sink ends the run as it does on POSIX.
-        std::exception_ptr stderrFailure;
+        // The first helper thread to die (the stderr pump if `onProgress` throws, the
+        // stdin pump, or the deadline watchdog) stores its exception here and
+        // terminates the child, which unblocks the stdout read below; it is rethrown
+        // once every helper has been joined, so the run ends with it as on POSIX.
+        // Locked because three threads can write it.
+        std::mutex failureMutex;
+        std::exception_ptr firstFailure;
+        const auto failHelper = [this, &failureMutex, &firstFailure] {
+            {
+                std::lock_guard<std::mutex> lock(failureMutex);
+                if (!firstFailure) {
+                    firstFailure = std::current_exception();
+                }
+            }
+            terminate();
+        };
         if (stderrHandle_ != nullptr) {
             stderrThread = guardedThread(
                 "ProcessRunner stderr pump",
@@ -725,35 +738,36 @@ public:
                         }
                     }
                 },
-                [this, &stderrFailure] {
-                    stderrFailure = std::current_exception();
-                    // Unblocks the stdout read below; nothing drains stderr any more.
-                    terminate();
-                });
+                // Nothing drains stderr any more.
+                failHelper);
         }
 
         std::thread stdinThread;
         if (stdinHandle_ != nullptr) {
-            stdinThread = guardedThread("ProcessRunner stdin pump", [this, stdinData] {
-                if (stdinData != nullptr) {
-                    std::size_t offset = 0;
-                    while (offset < stdinData->size()) {
-                        DWORD written = 0;
-                        if (!::WriteFile(stdinHandle_,
-                                         stdinData->data() + offset,
-                                         static_cast<DWORD>(stdinData->size() - offset),
-                                         &written,
-                                         nullptr) ||
-                            written == 0) {
-                            break;
+            stdinThread = guardedThread(
+                "ProcessRunner stdin pump",
+                [this, stdinData] {
+                    if (stdinData != nullptr) {
+                        std::size_t offset = 0;
+                        while (offset < stdinData->size()) {
+                            DWORD written = 0;
+                            if (!::WriteFile(stdinHandle_,
+                                             stdinData->data() + offset,
+                                             static_cast<DWORD>(stdinData->size() - offset),
+                                             &written,
+                                             nullptr) ||
+                                written == 0) {
+                                break;
+                            }
+                            lastProgress_.store(nowMs());
+                            offset += written;
                         }
-                        lastProgress_.store(nowMs());
-                        offset += written;
                     }
-                }
-                ::CloseHandle(stdinHandle_);
-                stdinHandle_ = nullptr;
-            });
+                    ::CloseHandle(stdinHandle_);
+                    stdinHandle_ = nullptr;
+                },
+                // A child still waiting for the rest of its input would never exit.
+                failHelper);
         }
 
         // The deadline watchdog.
@@ -847,7 +861,9 @@ public:
                         while (::WaitForSingleObject(pumpDone, 50) == WAIT_TIMEOUT) {
                             ::CancelSynchronousIo(pumpThread);
                         }
-                    });
+                    },
+                    // No deadline can reach the stdout read any more.
+                    failHelper);
             }
         }
 
@@ -907,8 +923,8 @@ public:
         if (timedOut_.load()) {
             *timedOut = true;
         }
-        if (stderrFailure) {
-            std::rethrow_exception(stderrFailure);
+        if (firstFailure) {
+            std::rethrow_exception(firstFailure);
         }
     }
 

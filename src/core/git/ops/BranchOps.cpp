@@ -184,10 +184,11 @@ public:
         if (!request_.startPoint.empty()) {
             args.push_back(request_.startPoint);
         }
-        if (request_.setUpstream && !request_.upstream.empty()) {
-            args.emplace_back("--track");
-            args.push_back(request_.upstream);
-        }
+        // Explicit, not left to branch.autoSetupMerge: under its default a
+        // remote-tracking start point (`origin/develop`) becomes the new
+        // branch's upstream, and under `inherit` so does a local one's. New
+        // branch sets an upstream only by pushing (`git push -u`).
+        args.emplace_back("--no-track");
 
         GitCommand command(paths.commandDir(), std::move(args));
         command.timeout = std::chrono::seconds(60);

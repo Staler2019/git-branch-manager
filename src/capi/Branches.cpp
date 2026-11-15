@@ -36,15 +36,11 @@ GBM_API void gbm_branch_checkout(GbmSessionHandle session,
 GBM_API void gbm_branch_create(GbmSessionHandle session,
                                const char* name,
                                const char* startPoint,
-                               int32_t checkoutAfter,
-                               int32_t setUpstream,
-                               const char* upstream) try {
+                               int32_t checkoutAfter) try {
     CreateBranchRequest request;
     request.name = name != nullptr ? name : "";
     request.startPoint = startPoint != nullptr ? startPoint : "";
     request.checkoutAfter = checkoutAfter != 0;
-    request.setUpstream = setUpstream != 0;
-    request.upstream = upstream != nullptr ? upstream : "";
 
     toSession(session)->createBranch(std::move(request));
 } catch (...) {

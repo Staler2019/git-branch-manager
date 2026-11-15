@@ -7005,5 +7005,182 @@ TEST_F(RealRepoTest, AFullFileDiffRunsUnderTheMultipliedDeadline) {
     EXPECT_EQ(armed.front(), 3 * 180 * 1000);
 }
 
+TEST_F(RemoteRepoTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
+    // New branch's only upstream route is its「同時 push 並設為 upstream」
+    // checkbox. Without an explicit --no-track, `git branch <n> origin/main`
+    // sets one anyway under branch.autoSetupMerge's default.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+
+    OperationRunner operations(*runner_, paths_);
+    CreateBranchRequest create;
+    create.name = "feature";
+    create.startPoint = "origin/main";
+    auto created = submitAndWait(operations, makeCreateBranchOperation(create));
+    ASSERT_TRUE(created.succeeded) << (created.error ? created.error->detail : "");
+
+    auto upstream = run({"for-each-ref", "--format=%(upstream)", "refs/heads/feature"});
+    ASSERT_TRUE(upstream);
+    EXPECT_EQ(upstream->out, "");
+}
+
+/// For tests whose subject is whether a branch git creates gets an upstream,
+/// which depends on branch.autoSetupMerge. A test that sets the config also
+/// proves the setting takes effect in this environment, so it cannot pass
+/// against a git that ignores it.
+class BranchTrackingTest : public RemoteRepoTest {
+protected:
+    std::string upstreamOf(const std::string& branch) {
+        auto upstream = run({"for-each-ref", "--format=%(upstream:short)", "refs/heads/" + branch});
+        EXPECT_TRUE(upstream);
+        return upstream ? upstream->out : "<failed>";
+    }
+
+    /// Sets branch.autoSetupMerge to `value`, reads it back, and shows a
+    /// plain `git branch <control> <controlStart>` -- no tracking flag --
+    /// does come out tracking `controlUpstream` under it.
+    void useAutoSetupMerge(const std::string& value,
+                           const std::string& controlStart,
+                           const std::string& controlUpstream) {
+        ASSERT_TRUE(run({"config", "branch.autoSetupMerge", value}));
+        auto readBack = run({"config", "--get", "branch.autoSetupMerge"});
+        ASSERT_TRUE(readBack);
+        ASSERT_EQ(readBack->out, value);
+
+        ASSERT_TRUE(run({"branch", "env-control", controlStart}));
+        ASSERT_EQ(upstreamOf("env-control"), controlUpstream)
+            << "branch.autoSetupMerge=" << value << " does not act in this environment";
+        ASSERT_TRUE(run({"branch", "-D", "env-control"}));
+    }
+};
+
+TEST_F(BranchTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysAlways) {
+    // `always` tracks even a local start point (remote "."), so New branch
+    // from `main` is the case only an explicit --no-track survives.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("always", "main", "main"));
+
+    OperationRunner operations(*runner_, paths_);
+    CreateBranchRequest create;
+    create.name = "fresh";
+    create.startPoint = "main";
+    auto created = submitAndWait(operations, makeCreateBranchOperation(create));
+    ASSERT_TRUE(created.succeeded) << (created.error ? created.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("fresh"), "");
+}
+
+/// Checking a remote branch out as a local one (Checkout dialog, the
+/// sidebar's remote row) must leave that local tracking the remote one --
+/// whatever branch.autoSetupMerge says, `false` included.
+OperationOutcome checkOutAsLocal(OperationRunner& operations,
+                                 const std::string& target,
+                                 const std::string& local) {
+    CheckoutRequest request;
+    request.target = target;
+    request.createBranch = true;
+    request.newBranchName = local;
+    OperationOutcome outcome;
+    operations.submit(makeCheckoutOperation(request),
+                      [&outcome](OperationOutcome result) { outcome = std::move(result); });
+    operations.drain();
+    return outcome;
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteBranchAsLocalTracksIt) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteBranchAsLocalTracksItEvenWhenConfigSaysFalse) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("false", "origin/topic", ""));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
+TEST_F(BranchTrackingTest, CheckingOutARemoteRefByFullNameTracksItEvenWhenConfigSaysFalse) {
+    // The sidebar's remote row passes `refs/remotes/<remote>/<branch>`, the
+    // Checkout dialog the short `<remote>/<branch>`.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("false", "origin/topic", ""));
+
+    OperationRunner operations(*runner_, paths_);
+    auto outcome = checkOutAsLocal(operations, "refs/remotes/origin/topic", "topic");
+    ASSERT_TRUE(outcome.succeeded) << (outcome.error ? outcome.error->detail : "");
+
+    EXPECT_EQ(upstreamOf("topic"), "origin/topic");
+}
+
+class WorktreeTrackingTest : public BranchTrackingTest {
+protected:
+    /// Adds a linked worktree holding a new branch `name` started at `start`
+    /// and returns that branch's upstream, empty when it has none.
+    std::string addAndReadUpstream(const std::string& name, const std::string& start, bool track) {
+        const std::filesystem::path linked =
+            repo_.parent_path() / (repo_.filename().string() + "-" + name);
+        std::filesystem::remove_all(linked);
+        extraDirs_.push_back(linked);
+
+        OperationRunner operations(*runner_, paths_);
+        AddWorktreeRequest add;
+        add.path = linked;
+        add.branch = start;
+        add.createBranch = true;
+        add.newBranchName = name;
+        add.track = track;
+        auto added = submitAndWait(operations, makeAddWorktreeOperation(add));
+        EXPECT_TRUE(added.succeeded) << (added.error ? added.error->detail : "");
+        return upstreamOf(name);
+    }
+};
+
+TEST_F(WorktreeTrackingTest, ANewBranchFromARemoteStartPointHasNoUpstream) {
+    // The reported defect: 建立新分支 from origin/develop came out tracking
+    // origin/develop, because git's default autoSetupMerge decided it.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main"}));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "origin/main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysInherit) {
+    // autoSetupMerge=inherit hands a *local* start point's upstream on, so a
+    // fix that only reacted to remote start points would still leak one.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "--set-upstream", "origin", "main"}));
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("inherit", "main", "origin/main"));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, ANewBranchHasNoUpstreamEvenWhenConfigSaysAlways) {
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_NO_FATAL_FAILURE(useAutoSetupMerge("always", "main", "main"));
+
+    EXPECT_EQ(addAndReadUpstream("fresh", "main", /*track=*/false), "");
+}
+
+TEST_F(WorktreeTrackingTest, CheckingOutARemoteOnlyBranchStillTracksIt) {
+    // Add worktree's checkout-existing arm for `origin/topic` with no local
+    // `topic`: that local is meant to track the remote one.
+    commitFile("a.txt", "1\n", "c1");
+    ASSERT_TRUE(run({"push", "origin", "main:topic"}));
+
+    EXPECT_EQ(addAndReadUpstream("topic", "origin/topic", /*track=*/true), "origin/topic");
+}
+
 }  // namespace
 }  // namespace gbm

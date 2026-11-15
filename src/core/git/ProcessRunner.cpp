@@ -760,7 +760,7 @@ public:
                     stdinHandle_ = nullptr;
                 },
                 // A child still waiting for the rest of its input would never exit.
-                [] {});
+                failHelper);
         }
 
         // The deadline watchdog.
@@ -856,7 +856,7 @@ public:
                         }
                     },
                     // No deadline can reach the stdout read any more.
-                    [] {});
+                    failHelper);
             }
         }
 

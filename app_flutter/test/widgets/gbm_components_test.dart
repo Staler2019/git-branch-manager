@@ -1,6 +1,6 @@
 // Verifies the `.gbm-btn`/`.gbm-iconbtn`/`.gbm-badge`/`.gbm-row` component
 // variants against docs/design/tokens-reference.md's components.css, across
-// all three theme variants -- colors are read from `tokensFor()` rather than
+// every theme variant -- colors are read from `tokensFor()` rather than
 // hardcoded so a token change doesn't silently desync these assertions.
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';

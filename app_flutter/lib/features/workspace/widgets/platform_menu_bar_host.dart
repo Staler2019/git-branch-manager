@@ -90,8 +90,8 @@ class PlatformMenuBarHost extends StatefulWidget {
                 // Rewrite history) becomes a real nested macOS submenu.
                 // The two dynamic submenu parents (viewGraphColumns,
                 // viewTheme) declare no children and stay flat items, as
-                // they were -- their content is built at the widget layer
-                // and has no PlatformMenu equivalent.
+                // they were -- each one's handler (a picker dialog, a theme
+                // cycle) is the whole action, so there is no submenu here.
                 if (item.isSubmenuParent && item.children.isNotEmpty)
                   PlatformMenu(
                     label: item.label,

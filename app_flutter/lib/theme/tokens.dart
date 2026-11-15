@@ -1,8 +1,22 @@
 import 'package:flutter/material.dart';
 
 /// The three theme variants defined in docs/design/tokens-reference.md's
-/// `colors.css` (`[data-theme="..."]` selectors), ported verbatim.
-enum GbmThemeVariant { darkTechnical, lightIde, neutralProfessional }
+/// `colors.css` (`[data-theme="..."]` selectors), ported verbatim, plus
+/// [dimGray] from docs/claude-design-demo/dim-gray-theme-spec.html.
+enum GbmThemeVariant {
+  darkTechnical(isDark: true),
+  lightIde(isDark: false),
+  neutralProfessional(isDark: false),
+  dimGray(isDark: true);
+
+  const GbmThemeVariant({required this.isDark});
+
+  /// The one place that says which variants are dark: `buildGbmTheme`'s
+  /// [Brightness] reads it, and the shadow tokens follow that brightness.
+  /// Comparing against one named variant instead silently files any new
+  /// dark variant under light.
+  final bool isDark;
+}
 
 /// One theme variant's full semantic color set, so components never branch
 /// on which variant is active -- mirrors the design doc's own stated intent
@@ -34,15 +48,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
     required this.accentSubtle,
     required this.success,
     required this.danger,
-    required this.dangerHover,
     required this.warning,
     required this.graphLanes,
     required this.diffAddBg,
     required this.diffAddText,
     required this.diffDelBg,
     required this.diffDelText,
-    required this.diffAddStrong,
-    required this.diffDelStrong,
     required this.scrollbarThumb,
     required this.refChipFill,
     required this.refChipText,
@@ -74,7 +85,6 @@ class GbmColors extends ThemeExtension<GbmColors> {
 
   final Color success;
   final Color danger;
-  final Color dangerHover;
   final Color warning;
 
   /// The commit graph's lane colours, indexed by `GraphRow.color` /
@@ -109,21 +119,19 @@ class GbmColors extends ThemeExtension<GbmColors> {
   final Color diffAddText;
   final Color diffDelBg;
   final Color diffDelText;
-  final Color diffAddStrong;
-  final Color diffDelStrong;
 
   final Color scrollbarThumb;
 
   /// Not part of the design doc's token set -- see "Departure from the
   /// source" in docs/design/tokens-reference.md. `.gbm-tag-branch`'s
-  /// `--accent-subtle` fill is byte-identical to `--surface-selected` in two
-  /// of the three themes, which makes a non-current branch chip disappear on
-  /// a selected commit row. These two tokens exist purely to fix that; do
-  /// not "correct" them back to accentSubtle.
+  /// `--accent-subtle` fill is byte-identical to `--surface-selected` in
+  /// every theme but light-ide, which makes a non-current branch chip
+  /// disappear on a selected commit row. These two tokens exist purely to
+  /// fix that; do not "correct" them back to accentSubtle.
   final Color refChipFill;
   final Color refChipText;
 
-  /// Not implemented as a real per-field interpolation: the three variants
+  /// Not implemented as a real per-field interpolation: the variants
   /// are discrete design choices, not points on a gradient, and every place
   /// this app switches variant rebuilds `ThemeData` wholesale rather than
   /// animating between them (see theme_mode_provider.dart) -- `t < 0.5`
@@ -159,15 +167,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
     Color? accentSubtle,
     Color? success,
     Color? danger,
-    Color? dangerHover,
     Color? warning,
     List<Color>? graphLanes,
     Color? diffAddBg,
     Color? diffAddText,
     Color? diffDelBg,
     Color? diffDelText,
-    Color? diffAddStrong,
-    Color? diffDelStrong,
     Color? scrollbarThumb,
     Color? refChipFill,
     Color? refChipText,
@@ -195,15 +200,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
       accentSubtle: accentSubtle ?? this.accentSubtle,
       success: success ?? this.success,
       danger: danger ?? this.danger,
-      dangerHover: dangerHover ?? this.dangerHover,
       warning: warning ?? this.warning,
       graphLanes: graphLanes ?? this.graphLanes,
       diffAddBg: diffAddBg ?? this.diffAddBg,
       diffAddText: diffAddText ?? this.diffAddText,
       diffDelBg: diffDelBg ?? this.diffDelBg,
       diffDelText: diffDelText ?? this.diffDelText,
-      diffAddStrong: diffAddStrong ?? this.diffAddStrong,
-      diffDelStrong: diffDelStrong ?? this.diffDelStrong,
       scrollbarThumb: scrollbarThumb ?? this.scrollbarThumb,
       refChipFill: refChipFill ?? this.refChipFill,
       refChipText: refChipText ?? this.refChipText,
@@ -229,7 +231,6 @@ const Color _accent700 = Color(0xFF1857B8);
 
 const Color _green500 = Color(0xFF1A8A4A);
 const Color _red500 = Color(0xFFD33D3D);
-const Color _red600 = Color(0xFFB32C2C);
 const Color _amber500 = Color(0xFFC97A17);
 
 /// `[data-theme="neutral-professional"]` in colors.css.
@@ -256,7 +257,6 @@ const GbmColors _neutralProfessional = GbmColors(
   accentSubtle: _accent50,
   success: _green500,
   danger: _red500,
-  dangerHover: _red600,
   warning: _amber500,
   // OkLCH L=0.618 C=0.193 -- _accent500's own lightness and chroma, stepped
   // 30 deg at a time round the wheel, chroma reduced only where sRGB runs out.
@@ -279,8 +279,6 @@ const GbmColors _neutralProfessional = GbmColors(
   diffAddText: Color(0xFF136C37),
   diffDelBg: Color(0xFFFBEAEA),
   diffDelText: Color(0xFFA32E2E),
-  diffAddStrong: Color(0xFFBFE9CD),
-  diffDelStrong: Color(0xFFF3C8C8),
   scrollbarThumb: _gray300,
   refChipFill: Color(0xFFC7DBFA),
   refChipText: _accent700,
@@ -310,7 +308,6 @@ const GbmColors _darkTechnical = GbmColors(
   accentSubtle: Color(0xFF0D2A4D),
   success: Color(0xFF3FB950),
   danger: Color(0xFFF85149),
-  dangerHover: Color(0xFFFF6A63),
   warning: Color(0xFFD29922),
   // OkLCH L=0.687 C=0.167, anchored on this theme's own lane 0 (#4C9BFF,
   // accentHover rather than accent -- the brighter blue reads better on
@@ -333,8 +330,6 @@ const GbmColors _darkTechnical = GbmColors(
   diffAddText: Color(0xFF7EE2A8),
   diffDelBg: Color(0xFF3A1414),
   diffDelText: Color(0xFFFF9B93),
-  diffAddStrong: Color(0xFF173E24),
-  diffDelStrong: Color(0xFF4D1C1C),
   scrollbarThumb: Color(0xFF30363D),
   refChipFill: Color(0xFF1C3F66),
   refChipText: Color(0xFFEAF1FE),
@@ -357,14 +352,13 @@ const GbmColors _lightIde = GbmColors(
   textSecondary: Color(0xFF57606A),
   textTertiary: Color(0xFF8B949E),
   textOnAccent: _white,
-  textLink: _accent700,
+  textLink: _accent600,
   accent: _accent500,
-  accentHover: _accent700,
+  accentHover: _accent600,
   accentActive: Color(0xFF1857B8),
   accentSubtle: _accent50,
   success: Color(0xFF1A7F37),
   danger: Color(0xFFCF222E),
-  dangerHover: Color(0xFFA40E26),
   warning: Color(0xFF9A6700),
   // OkLCH L=0.546 C=0.151 -- the mean of the five GitHub-light lanes this
   // replaces, so the palette stays darker and less saturated than
@@ -389,11 +383,60 @@ const GbmColors _lightIde = GbmColors(
   diffAddText: Color(0xFF116329),
   diffDelBg: Color(0xFFFFEBE9),
   diffDelText: Color(0xFF82241F),
-  diffAddStrong: Color(0xFFC9F0D4),
-  diffDelStrong: Color(0xFFFFC9C2),
   scrollbarThumb: Color(0xFFDCDFE4),
   refChipFill: Color(0xFFC7DBFA),
   refChipText: _accent700,
+);
+
+/// dim-gray-theme-spec.html's token table: a grey dark theme for displays
+/// where darkTechnical's near-black panel makes text hard to read. Every
+/// text tier clears 4.5:1 on the panel and on a selected row.
+const GbmColors _dimGray = GbmColors(
+  surfaceApp: Color(0xFF262C33),
+  surfacePanel: Color(0xFF262C33),
+  surfacePanelRaised: Color(0xFF2F363E),
+  surfaceSunken: Color(0xFF171B1F),
+  surfaceHover: Color(0xFF2F363E),
+  surfaceSelected: Color(0xFF1D3657),
+  surfaceOverlay: Color(0xFF2F363E),
+  borderSubtle: Color(0xFF3A424C),
+  borderDefault: Color(0xFF4F5966),
+  borderStrong: Color(0xFF6B7684),
+  borderFocus: Color(0xFF2F81F7),
+  textPrimary: Color(0xFFF7F8F9),
+  textSecondary: Color(0xFFC3CAD1),
+  textTertiary: Color(0xFF98A3AD),
+  textOnAccent: _white,
+  textLink: Color(0xFF7AAEF9),
+  accent: Color(0xFF2F81F7),
+  accentHover: Color(0xFF4C9BFF),
+  accentActive: Color(0xFF1F6CE0),
+  accentSubtle: Color(0xFF1D3657),
+  success: Color(0xFF3FB950),
+  danger: Color(0xFFFF6A63),
+  warning: Color(0xFFD29922),
+  // _darkTechnical's twelve, unchanged: lane 0 is accentHover there too.
+  graphLanes: <Color>[
+    Color(0xFF4C9BFF),
+    Color(0xFF9387FC),
+    Color(0xFFC176E0),
+    Color(0xFFE06AB1),
+    Color(0xFFEF6877),
+    Color(0xFFEC7333),
+    Color(0xFFCD8C08),
+    Color(0xFFA89F06),
+    Color(0xFF68B13C),
+    Color(0xFF02B685),
+    Color(0xFF01B0B2),
+    Color(0xFF0DAAD7),
+  ],
+  diffAddBg: Color(0xFF1F3D2B),
+  diffAddText: Color(0xFF7EE2A8),
+  diffDelBg: Color(0xFF4A2626),
+  diffDelText: Color(0xFFFF9B93),
+  scrollbarThumb: Color(0xFF4F5966),
+  refChipFill: Color(0xFF335F94),
+  refChipText: Color(0xFFEAF1FE),
 );
 
 GbmColors tokensFor(GbmThemeVariant variant) {
@@ -401,6 +444,7 @@ GbmColors tokensFor(GbmThemeVariant variant) {
     GbmThemeVariant.darkTechnical => _darkTechnical,
     GbmThemeVariant.lightIde => _lightIde,
     GbmThemeVariant.neutralProfessional => _neutralProfessional,
+    GbmThemeVariant.dimGray => _dimGray,
   };
 }
 
@@ -467,39 +511,37 @@ abstract final class GbmSpacing {
   static const double radiusFull = 999;
 }
 
-/// `effects.css`. Shadow alpha differs for dark-technical (deeper shadows on
-/// a dark surface read correctly; the same alpha on light would be nearly
-/// invisible), so this is a function of variant rather than a flat constant.
+/// `effects.css`. Shadow alpha differs on a dark theme (deeper shadows on a
+/// dark surface read correctly; the same alpha on light would be nearly
+/// invisible), so this is a function of brightness rather than a flat
+/// constant.
 abstract final class GbmEffects {
   static const Duration durationFast = Duration(milliseconds: 100);
   static const Duration durationBase = Duration(milliseconds: 160);
   static const Curve easeStandard = Cubic(0.2, 0.8, 0.2, 1);
 
-  static List<BoxShadow> shadowSm(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowSm(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.4 : 0.08,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.4 : 0.08),
       blurRadius: 2,
       offset: const Offset(0, 1),
     ),
   ];
 
-  static List<BoxShadow> shadowMd(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowMd(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.5 : 0.12,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.5 : 0.12),
       blurRadius: 12,
       offset: const Offset(0, 4),
     ),
   ];
 
-  static List<BoxShadow> shadowLg(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowLg(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.6 : 0.18,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.6 : 0.18),
       blurRadius: 32,
       offset: const Offset(0, 12),
     ),

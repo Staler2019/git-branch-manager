@@ -183,3 +183,49 @@ theme:
 Consumed directly by `PillPainter::colorsForRef` (C++), not via an `app.qss`
 `@` placeholder, so there is no corresponding entry in `ThemeManager.cpp`'s
 placeholder table.
+
+## Departure from the source: a fourth theme, `dim-gray`
+
+Not in the design project. Added because `dark-technical`'s near-black panel
+(`#0d1117`) left text hard to read on Windows displays; `--text-tertiary` is
+4.12:1 there. Spec, previews and rulings:
+`docs/claude-design-demo/dim-gray-theme-spec.html`. Implemented as
+`GbmThemeVariant.dimGray` (`isDark: true`), label `Dim gray`, icon
+`Icons.brightness_4_outlined`.
+
+```css
+[data-theme="dim-gray"]{
+--surface-app:#262c33;--surface-panel:#262c33;--surface-panel-raised:#2f363e;--surface-sunken:#171b1f;--surface-hover:#2f363e;--surface-selected:#1d3657;--surface-overlay:#2f363e;
+--border-subtle:#3a424c;--border-default:#4f5966;--border-strong:#6b7684;--border-focus:#2f81f7;
+--text-primary:#f7f8f9;--text-secondary:#c3cad1;--text-tertiary:#98a3ad;--text-on-accent:#ffffff;--text-link:#7aaef9;
+--accent:#2f81f7;--accent-hover:#4c9bff;--accent-active:#1f6ce0;--accent-subtle:#1d3657;
+--success:#3fb950;--danger:#ff6a63;--warning:#d29922;
+--diff-add-bg:#1f3d2b;--diff-add-text:#7ee2a8;--diff-del-bg:#4a2626;--diff-del-text:#ff9b93;
+--scrollbar-thumb:#4f5966;
+--ref-chip-fill:#335f94;--ref-chip-text:#eaf1fe;
+}
+```
+
+Graph lanes are `dark-technical`'s twelve (`tokens.dart`), lane 0 = `--accent-hover`.
+
+| Text on | primary | secondary | tertiary | link |
+|---|---|---|---|---|
+| `--surface-panel` | 13.25 | 8.51 | 5.49 | 6.21 |
+| `--surface-selected` | 11.50 | 7.39 | 4.76 | 5.39 |
+
+`--ref-chip-fill` against `--surface-selected`: 1.87:1. Pinned by
+`app_flutter/test/theme/gbm_theme_test.dart`'s `dimGray contrast` group.
+
+## Departure from the Flutter port: `light-ide` link and accent hover
+
+The source above is right and the port was not: `light-ide`'s `--text-link` and
+`--accent-hover` are `#1f6ce0`, which the Qt port carried (`ThemeTokens.cpp`
+kLightIde) and the Flutter port wrote as `#1857b8` (accent-700). Restored to
+`#1f6ce0` in `tokens.dart`; no doc change, recorded here so the history is findable.
+
+## Departure from the source: three tokens not ported
+
+`--danger-hover`, `--diff-add-strong` and `--diff-del-strong` are defined above
+but no `.gbm-*` rule or page in the spec reads them. The Flutter port carried
+them as `GbmColors` fields with zero readers; they were removed (user ruling
+2026-11-15, 「沒用到，那就移除」). Re-add one only together with its first reader.

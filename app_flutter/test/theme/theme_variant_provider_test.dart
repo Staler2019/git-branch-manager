@@ -40,6 +40,14 @@ void main() {
     expect(controller.state, GbmThemeVariant.neutralProfessional);
   });
 
+  test('dimGray round-trips through the stored name', () async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    ThemeVariantController(prefs).setVariant(GbmThemeVariant.dimGray);
+    expect(prefs.getString('themeVariant'), 'dimGray');
+    // A fresh controller is what the next launch builds.
+    expect(ThemeVariantController(prefs).state, GbmThemeVariant.dimGray);
+  });
+
   test('setVariant updates state and persists under the new key', () async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final ThemeVariantController controller = ThemeVariantController(prefs);

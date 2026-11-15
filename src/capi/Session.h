@@ -350,7 +350,7 @@ public:
     /// doc comments.
     void addWorktree(AddWorktreeRequest request);
     void removeWorktree(RemoveWorktreeRequest request);
-    void pruneWorktrees();
+    bool pruneWorktrees();
     void lockWorktree(LockWorktreeRequest request);
     void unlockWorktree(UnlockWorktreeRequest request);
 

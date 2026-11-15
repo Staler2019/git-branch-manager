@@ -1596,11 +1596,12 @@ void Session::removeWorktree(RemoveWorktreeRequest request) {
     });
 }
 
-void Session::pruneWorktrees() {
-    submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}), [this]() {
-        refreshWorktrees();
-        refreshHistory();
-    });
+bool Session::pruneWorktrees() {
+    return submitWorkingCopyOperation(makePruneWorktreesOperation(PruneWorktreesRequest{}),
+                                      [this]() {
+                                          refreshWorktrees();
+                                          refreshHistory();
+                                      });
 }
 
 void Session::lockWorktree(LockWorktreeRequest request) {

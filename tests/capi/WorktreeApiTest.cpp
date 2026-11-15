@@ -18,6 +18,8 @@
 #include <string>
 #include <vector>
 
+GBM_API void gbm_test_fail_submit(const char* where);
+
 namespace gbm::capi {
 namespace {
 
@@ -166,6 +168,26 @@ TEST_F(WorktreeApiTest, PruneRemovesAdministrativeMetadataForADeletedWorktree) {
 
     const std::string json = worktreesJson();
     EXPECT_EQ(json.find("feature"), std::string::npos) << json;
+}
+
+// Dart pairs each prune outcome with the prune it dispatched, in queue order, to tell
+// its own background prune from the user's: the outcome must name its kind, and an
+// export that queued nothing must say so, or the pairing slips by one for good.
+TEST_F(WorktreeApiTest, APruneSaysWhetherItWasQueuedAndItsOutcomeNamesItsKind) {
+    EXPECT_EQ(gbm_worktree_prune(session_), 1);
+    ASSERT_TRUE(log_.waitFor(
+        [](const auto& events) { return anyEventOfType(events, GBM_EVENT_WORKING_COPY_OPERATION_FINISHED); }));
+    std::string outcome;
+    {
+        std::lock_guard<std::mutex> lock(log_.mutex);
+        for (const auto& [type, payload] : log_.events) {
+            if (type == GBM_EVENT_WORKING_COPY_OPERATION_FINISHED) outcome = payload;
+        }
+    }
+    EXPECT_NE(outcome.find("\"kind\":\"prune-worktrees\""), std::string::npos) << outcome;
+
+    gbm_test_fail_submit("Session::submitWorkingCopyOperation");
+    EXPECT_EQ(gbm_worktree_prune(session_), 0);
 }
 
 // The guard that keeps the per-worktree status pass *out* of the refresh set.

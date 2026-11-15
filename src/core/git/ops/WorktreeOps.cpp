@@ -264,6 +264,8 @@ public:
         : request_(std::move(request)) {}
 
     std::string describe() const override { return "Prune worktrees"; }
+    // Dart pairs each outcome with the prune it dispatched, background or the user's.
+    std::string kind() const override { return "prune-worktrees"; }
 
     OperationOutcome run(IProcessRunner& runner,
                          const RepoPaths& paths,

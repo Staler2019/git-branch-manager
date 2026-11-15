@@ -693,8 +693,8 @@ typedef WorktreeRemoveDart = void Function(
   int force,
 );
 
-typedef _WorktreePruneNative = Void Function(Pointer<Void> session);
-typedef WorktreePruneDart = void Function(Pointer<Void> session);
+typedef _WorktreePruneNative = Int32 Function(Pointer<Void> session);
+typedef WorktreePruneDart = int Function(Pointer<Void> session);
 
 typedef _WorktreeLockNative = Void Function(
   Pointer<Void> session,

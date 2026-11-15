@@ -1026,7 +1026,9 @@ GBM_API void gbm_worktree_add(GbmSessionHandle session,
                               int32_t force);
 
 GBM_API void gbm_worktree_remove(GbmSessionHandle session, const char* path, int32_t force);
-GBM_API void gbm_worktree_prune(GbmSessionHandle session);
+/// Returns 1 when the prune was queued, 0 when it was not (its outcome will
+/// never arrive): Dart pairs outcomes with dispatches in queue order.
+GBM_API int32_t gbm_worktree_prune(GbmSessionHandle session);
 GBM_API void gbm_worktree_lock(GbmSessionHandle session, const char* path, const char* reason);
 GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path);
 

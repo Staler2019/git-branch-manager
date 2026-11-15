@@ -499,6 +499,11 @@ const int _kMaxCommitMetaCacheEntries = 5000;
 /// match the outcome against -- [RepoSessionState.commitOutcomeSeq] counts.
 const String _commitOutcomeKind = 'commit';
 
+/// The `"kind"` WorktreeOps.cpp's `PruneWorktreesOperation::kind()` stamps.
+/// Paired by queue order with [RepoSessionController]'s own record of which
+/// prunes were automatic, since a prune carries no request identity.
+const String _pruneWorktreesOutcomeKind = 'prune-worktrees';
+
 /// Caps [RepoSessionState.commitFileCountCache], for the same reason and by
 /// the same rule as [_kMaxCommitMetaCacheEntries] -- both are viewport-filled
 /// caches with no natural bound. Deliberately the same number rather than a
@@ -1449,11 +1454,19 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           final bool backgroundFetch =
               payload['kind'] == PendingOperationKind.fetch.wireName &&
               (_pending.peekFetch()?.background ?? false);
+          // Popped for every prune outcome, success included: one left behind
+          // would be paired with the next prune. Suppression means "do not
+          // write", not "write null": an unrelated failure already on screen
+          // survives a background prune failing behind it.
+          final bool automaticPrune =
+              payload['kind'] == _pruneWorktreesOutcomeKind &&
+              _worktreePrunesQueued.isNotEmpty &&
+              _worktreePrunesQueued.removeAt(0);
           // One publish for the error and the commit count: a waiter on the
           // count must see the failure in the same state (see
           // [RepoSessionState.commitOutcomeSeq]). Before RepoState is
           // re-read below, so the commit is settled before its merge ends.
-          if ((!succeeded && !backgroundFetch) || isCommit) {
+          if ((!succeeded && !backgroundFetch && !automaticPrune) || isCommit) {
             final GitError? failure =
                 succeeded || error is! Map<String, dynamic>
                 ? null
@@ -1987,12 +2000,14 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// panel's `path@headOid` count cache (`worktrees_panel.dart`).
   final Set<String> _autoPrunedWorktreePaths = <String>{};
 
-  /// True while an automatic prune this class dispatched is unaccounted for,
-  /// so its failure can be kept out of [RepoSessionState.lastError].
-  ///
-  /// A count rather than a bool because two publishes naming different new
-  /// paths can each dispatch before either outcome arrives.
-  int _autoPruneWorktreesInFlight = 0;
+  /// One entry per worktree prune dispatched and queued, oldest first: `true`
+  /// for one this class started in the background, whose outcome must stay
+  /// out of [RepoSessionState.lastError]. A queue rather than a count because
+  /// the runner is one FIFO and every queued prune answers with exactly one
+  /// `prune-worktrees` outcome in that order, so the front entry is always the
+  /// prune an outcome belongs to -- a count cannot tell a user's prune queued
+  /// first from an automatic one.
+  final List<bool> _worktreePrunesQueued = <bool>[];
 
   /// [REF-fetch-auto-prunes] applied to worktrees: a refresh that discovers a
   /// worktree whose directory is gone prunes it without telling anyone.
@@ -2017,27 +2032,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // Recorded *before* dispatching, so a re-entrant publish cannot queue a
     // second prune for the same path.
     _autoPrunedWorktreePaths.addAll(fresh);
-    _autoPruneWorktreesInFlight++;
-    pruneWorktrees();
-  }
-
-  /// True when [error] is a failed `git worktree prune` this class asked for
-  /// itself, in which case it must not reach [RepoSessionState.lastError] —
-  /// `workspace_screen.dart` renders that as a banner, and a background task
-  /// the user did not initiate has no business interrupting them (spec page
-  /// 10).
-  ///
-  /// Matched on [GitError.argv] rather than on `PendingOperationKind`,
-  /// because that enum has no arm for a worktree prune and the capi carries
-  /// no request identity — the same constraint, and the same workaround, as
-  /// [_isSuppressedAutoPrunePreviewError]. Consumes one in-flight marker, so
-  /// a *later* failure of the user's own `Prune` button still surfaces.
-  bool _isSuppressedAutoPruneWorktreesError(GitError error) {
-    if (_autoPruneWorktreesInFlight == 0) return false;
-    final List<String> argv = error.argv;
-    if (!argv.contains('worktree') || !argv.contains('prune')) return false;
-    _autoPruneWorktreesInFlight--;
-    return true;
+    pruneWorktrees(automatic: true);
   }
 
   void _readRemotes() {
@@ -2281,12 +2276,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         break;
     }
 
-    // Suppression means "do not write", not "write null": an unrelated
-    // failure already on screen must survive a background prune failing
-    // behind it -- the same rule the automatic preview's suppressor follows.
-    if (error != null &&
-        !_isUserCancel(error) &&
-        !_isSuppressedAutoPruneWorktreesError(error)) {
+    if (error != null && !_isUserCancel(error)) {
       state = state.copyWith(lastError: error);
     }
   }
@@ -4026,9 +4016,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  void pruneWorktrees() {
+  /// `git worktree prune`. [automatic] marks one this class started in the
+  /// background ([_autoPruneWorktrees]), whose failure stays out of
+  /// [RepoSessionState.lastError]; the panel's Prune button is not automatic.
+  void pruneWorktrees({bool automatic = false}) {
     if (_session == nullptr) return;
-    _bindings.worktreePrune(_session);
+    _worktreePrunesQueued.add(automatic);
+    // 0: nothing was queued, so no outcome will come for this entry.
+    if (_bindings.worktreePrune(_session) == 0) {
+      _worktreePrunesQueued.removeLast();
+    }
   }
 
   void lockWorktree(String path, {String reason = ''}) {
@@ -5111,6 +5108,7 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // whatever is still pending.
     _pending.clear();
     _autoPrunePreviewsInFlight.clear();
+    _worktreePrunesQueued.clear();
     unawaited(_fetchFinished.close());
     super.dispose();
   }

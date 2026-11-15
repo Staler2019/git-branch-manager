@@ -331,7 +331,7 @@ class _GraphColumnsPopover extends StatelessWidget {
                   color: colors.surfaceOverlay,
                   border: Border.all(color: colors.borderDefault),
                   borderRadius: BorderRadius.circular(GbmSpacing.radiusMd),
-                  boxShadow: GbmEffects.shadowLg(context.gbmThemeVariant),
+                  boxShadow: GbmEffects.shadowLg(Theme.of(context).brightness),
                 ),
                 child: const SingleChildScrollView(
                   child: GraphColumnsSelector(),

@@ -2,7 +2,19 @@ import 'package:flutter/material.dart';
 
 /// The three theme variants defined in docs/design/tokens-reference.md's
 /// `colors.css` (`[data-theme="..."]` selectors), ported verbatim.
-enum GbmThemeVariant { darkTechnical, lightIde, neutralProfessional }
+enum GbmThemeVariant {
+  darkTechnical(isDark: true),
+  lightIde(isDark: false),
+  neutralProfessional(isDark: false);
+
+  const GbmThemeVariant({required this.isDark});
+
+  /// The one place that says which variants are dark: `buildGbmTheme`'s
+  /// [Brightness] reads it, and the shadow tokens follow that brightness.
+  /// Comparing against one named variant instead silently files any new
+  /// dark variant under light.
+  final bool isDark;
+}
 
 /// One theme variant's full semantic color set, so components never branch
 /// on which variant is active -- mirrors the design doc's own stated intent
@@ -467,39 +479,37 @@ abstract final class GbmSpacing {
   static const double radiusFull = 999;
 }
 
-/// `effects.css`. Shadow alpha differs for dark-technical (deeper shadows on
-/// a dark surface read correctly; the same alpha on light would be nearly
-/// invisible), so this is a function of variant rather than a flat constant.
+/// `effects.css`. Shadow alpha differs on a dark theme (deeper shadows on a
+/// dark surface read correctly; the same alpha on light would be nearly
+/// invisible), so this is a function of brightness rather than a flat
+/// constant.
 abstract final class GbmEffects {
   static const Duration durationFast = Duration(milliseconds: 100);
   static const Duration durationBase = Duration(milliseconds: 160);
   static const Curve easeStandard = Cubic(0.2, 0.8, 0.2, 1);
 
-  static List<BoxShadow> shadowSm(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowSm(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.4 : 0.08,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.4 : 0.08),
       blurRadius: 2,
       offset: const Offset(0, 1),
     ),
   ];
 
-  static List<BoxShadow> shadowMd(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowMd(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.5 : 0.12,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.5 : 0.12),
       blurRadius: 12,
       offset: const Offset(0, 4),
     ),
   ];
 
-  static List<BoxShadow> shadowLg(GbmThemeVariant variant) => <BoxShadow>[
+  static List<BoxShadow> shadowLg(Brightness brightness) => <BoxShadow>[
     BoxShadow(
-      color: const Color(0xFF000000).withValues(
-        alpha: variant == GbmThemeVariant.darkTechnical ? 0.6 : 0.18,
-      ),
+      color: const Color(0xFF000000)
+          .withValues(alpha: brightness == Brightness.dark ? 0.6 : 0.18),
       blurRadius: 32,
       offset: const Offset(0, 12),
     ),

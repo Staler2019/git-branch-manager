@@ -2707,8 +2707,8 @@ class _ScopeCardState extends State<_ScopeCard> {
           boxShadow: widget.superseded
               ? null
               : (lifted
-                    ? GbmEffects.shadowMd(context.gbmThemeVariant)
-                    : GbmEffects.shadowSm(context.gbmThemeVariant)),
+                    ? GbmEffects.shadowMd(Theme.of(context).brightness)
+                    : GbmEffects.shadowSm(Theme.of(context).brightness)),
         ),
         clipBehavior: Clip.antiAlias,
         child: Container(

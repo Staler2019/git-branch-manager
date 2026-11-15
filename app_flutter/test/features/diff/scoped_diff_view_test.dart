@@ -1369,10 +1369,7 @@ void main() {
         // a literal: shadowMd is a token whose values are the design's, and
         // copying them here would be a second source for them.
         expect(outerOf().boxShadow, isNot(equals(resting)));
-        expect(
-          outerOf().boxShadow,
-          GbmEffects.shadowMd(GbmThemeVariant.darkTechnical),
-        );
+        expect(outerOf().boxShadow, GbmEffects.shadowMd(Brightness.dark));
       });
     });
   });

@@ -8,7 +8,7 @@ import 'tokens.dart';
 /// theming types.
 ThemeData buildGbmTheme(GbmThemeVariant variant) {
   final GbmColors colors = tokensFor(variant);
-  final Brightness brightness = variant == GbmThemeVariant.darkTechnical
+  final Brightness brightness = variant.isDark
       ? Brightness.dark
       : Brightness.light;
 
@@ -78,12 +78,4 @@ ThemeData buildGbmTheme(GbmThemeVariant variant) {
 /// Convenience accessor, e.g. `context.gbmColors.accent`.
 extension GbmThemeContext on BuildContext {
   GbmColors get gbmColors => Theme.of(this).extension<GbmColors>()!;
-
-  /// Which variant is in effect, derived from the theme's brightness -- for
-  /// the handful of tokens that are functions of the variant rather than
-  /// entries in [GbmColors] (`GbmEffects.shadow*`).
-  GbmThemeVariant get gbmThemeVariant =>
-      Theme.of(this).brightness == Brightness.dark
-      ? GbmThemeVariant.darkTechnical
-      : GbmThemeVariant.lightIde;
 }

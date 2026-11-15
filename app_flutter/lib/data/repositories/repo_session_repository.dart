@@ -5098,6 +5098,25 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     // closed NativeCallable aborts the app. Nothing emits once it returns.
     closeNativeSession();
     _events?.dispose();
+    // No reply can arrive now, so a probe still awaited would never complete:
+    // answer it the way a failed read is answered, with `error` set.
+    for (final Completer<BranchDeletionProbeReply> probe
+        in _branchDeletionProbes.values) {
+      probe.complete(
+        const BranchDeletionProbeReply(
+          probes: <BranchDeletionProbe>[],
+          error: GitError(
+            code: -1,
+            codeName: 'Cancelled',
+            message: 'The repository was closed',
+            detail: '',
+            argv: <String>[],
+            exitCode: -1,
+          ),
+        ),
+      );
+    }
+    _branchDeletionProbes.clear();
     // Without this, a pending fallback or fast-dispatch timer would fire
     // after disposal and write to `state` on a StateNotifier that is gone --
     // the guard each refresh* member already has

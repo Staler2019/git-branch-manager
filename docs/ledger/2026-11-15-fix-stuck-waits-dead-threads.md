@@ -74,3 +74,9 @@ A3 (a)(b) 與 A7 不是事後另做的突變，而是修正前／實作中間的
   5. 計畫要求 `AWatchdogThatDiesDuringARequestEndsItPromptly` 也驗第二個請求在 1.5 s 後回 Timeout，實作只驗第一個請求 900 ms 內結束。計畫列出、未實作；換新子程序由 `ADeadWatchdogKillsTheChildAndTheNextChildIsHealthy` 涵蓋。
 - A4 的偏離：`AWriteThatCannotBeQueuedFinishesAsFailed` 只驗事件，沒有驗 native error 的回報。
 - 未處理、留給 R-B：其他匯出在交出前配置失敗（34 個 read 的失敗狀態，需 G1）；缺口 3、4 照舊。
+
+### 追加：A2 的 Windows CI 紅燈
+
+- PR #222，run 43714704748，job `capi (FFI) - Windows`：暫時 commit `f4e81c82` 把 stdin pump 與 deadline 執行緒的 onException 換成什麼都不做（stderr pump 照舊）。1118 個測試只紅 2 個，正是 `ProcessRunnerTimeout.ADeadDeadlineThreadEndsTheRunWithItsException`（「the run did not end with the watchdog's exception」，8.01 s，被 8 s backstop 結束）與 `ProcessRunnerTimeout.ADeadStdinPumpEndsTheRunWithItsException`（「the run did not end with the stdin pump's exception」，8.01 s）。A2 的 mutation 記為執行 1、變紅 2。
+- 這次沒有 force-push：先從 scratchpad 的備份還原檔案，再以一個新 commit 移除暫時修改，所以暫時 commit 與還原都留在歷史裡。修正版的 Windows 綠燈見 PR 最終 head 的 CI。
+- PR 開出時 GitHub 判定 CONFLICTING、CI 沒跑：`docs/ledger/INDEX.md` 在 `.gitattributes` 設 `merge=union`，本機 merge 自動解開，GitHub 的可合併判定不套用這個 driver。把 origin/main（#221）合進分支後才可合併；union 讓 INDEX 的 11-15 行排在 #221 的 11-12 行前面，沒有檢查依賴順序，未調整。合併後本機 ctest 1119/1119、Flutter 4626 過。

@@ -30,6 +30,7 @@ _OWN_FAILURE_VALUE = {
     'gbm_has_commit_graph': '0',
     'gbm_history_refresh': '0',
     'gbm_last_result_json_len': '0',
+    'gbm_register_callback': '0',
     'gbm_remote_fetch': '0',
     'gbm_remote_prune': '0',
 }

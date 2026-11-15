@@ -348,9 +348,12 @@ GBM_API void gbm_session_close(GbmSessionHandle session);
 /// Registers the event callback for this session. Replaces any previously
 /// registered callback. Must be called before any async-producing call
 /// (gbm_history_refresh, gbm_branch_checkout) if events are to be observed.
-GBM_API void gbm_register_callback(GbmSessionHandle session,
-                                   GbmEventCallback callback,
-                                   void* userData);
+/// Returns 1 when registered, 0 when it failed: the session then emits nothing,
+/// so a caller treats it as a failed open (close the session, read the error
+/// with gbm_last_result_json_len()/_copy()).
+GBM_API int32_t gbm_register_callback(GbmSessionHandle session,
+                                      GbmEventCallback callback,
+                                      void* userData);
 
 // --- Repository state --------------------------------------------------
 

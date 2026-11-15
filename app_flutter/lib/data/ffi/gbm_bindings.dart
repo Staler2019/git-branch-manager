@@ -127,12 +127,12 @@ typedef NativeErrorLogPathJsonDart = int Function();
 typedef _SessionCloseNative = Void Function(Pointer<Void> session);
 typedef SessionCloseDart = void Function(Pointer<Void> session);
 
-typedef _RegisterCallbackNative = Void Function(
+typedef _RegisterCallbackNative = Int32 Function(
   Pointer<Void> session,
   Pointer<NativeFunction<GbmEventCallbackNative>> callback,
   Pointer<Void> userData,
 );
-typedef RegisterCallbackDart = void Function(
+typedef RegisterCallbackDart = int Function(
   Pointer<Void> session,
   Pointer<NativeFunction<GbmEventCallbackNative>> callback,
   Pointer<Void> userData,

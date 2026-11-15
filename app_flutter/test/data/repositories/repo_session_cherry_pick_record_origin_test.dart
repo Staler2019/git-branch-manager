@@ -24,11 +24,12 @@ class _CherryPickRecordingBindings extends FakeGbmBindings {
   SessionCloseDart get sessionClose => (Pointer<Void> session) {};
 
   @override
-  RegisterCallbackDart get registerCallback => (
-    Pointer<Void> session,
-    Pointer<NativeFunction<GbmEventCallbackNative>> callback,
-    Pointer<Void> userData,
-  ) {};
+  RegisterCallbackDart get registerCallback =>
+      (
+        Pointer<Void> session,
+        Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+        Pointer<Void> userData,
+      ) => 1;
 
   @override
   HistoryRefreshDart get historyRefresh =>

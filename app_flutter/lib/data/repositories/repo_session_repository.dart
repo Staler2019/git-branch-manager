@@ -1312,6 +1312,16 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
 
     final GbmSessionEvents events = GbmSessionEvents(_bindings, _session);
+    if (!events.registered) {
+      // Read before the close, which may stage a result of its own. A session
+      // that cannot reach us would leave every reply-awaiting surface waiting
+      // for good, so this is a failed open like the null handle above.
+      final GitError? error = _decodeLastError();
+      closeNativeSession();
+      events.dispose();
+      state = state.copyWith(lastError: error);
+      return;
+    }
     _events = events;
     _subscription = events.events.listen(_onEvent);
 

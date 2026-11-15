@@ -136,6 +136,10 @@ void failReadForTest(std::string where);
 /// OperationRunner::submit; `after:<where>` throws right after submit()
 /// returns instead. An empty name disarms. Behind gbm_test_fail_submit().
 void failSubmitForTest(std::string where);
+
+/// Test-only: the next registerCallback() throws, the only failure it has in
+/// production being its lock. Behind gbm_test_fail_register().
+void failRegisterForTest();
 #endif
 
 class Session {

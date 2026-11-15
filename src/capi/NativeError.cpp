@@ -118,4 +118,13 @@ GBM_API void gbm_test_fail_submit(const char* where) try {
 } catch (...) {
     reportCurrentException(__func__);
 }
+
+GBM_API void gbm_test_fail_register(void);
+
+GBM_API void gbm_test_fail_register(void) try {
+    // registerCallback() has no input to name: one arm fails the next call.
+    failRegisterForTest();
+} catch (...) {
+    reportCurrentException(__func__);
+}
 #endif

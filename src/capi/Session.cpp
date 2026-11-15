@@ -234,15 +234,26 @@ ArmedFailure& armedSubmitFailure() {
     return armed;
 }
 
+ArmedFailure& armedRegisterFailure() {
+    static ArmedFailure armed{{}, {}, "injected register failure"};
+    return armed;
+}
+
 /// Compare-and-clear, so a name armed once fails exactly one read (or
-/// submit) under it and none under any other name.
+/// submit) under it and none under any other name. `sticky:<where>` fails every
+/// one until disarmed, for measuring what a persistent failure does.
 void throwIfArmedForTest(ArmedFailure& armed, const std::string& where) {
     {
         std::lock_guard<std::mutex> lock(armed.mutex);
-        if (where.empty() || armed.where != where) {
+        if (where.empty()) {
             return;
         }
-        armed.where.clear();
+        if (armed.where != where && armed.where != "sticky:" + where) {
+            return;
+        }
+        if (armed.where == where) {
+            armed.where.clear();
+        }
     }
     throw std::runtime_error(armed.what);
 }
@@ -264,6 +275,10 @@ void failReadForTest(std::string where) {
 
 void failSubmitForTest(std::string where) {
     arm(armedSubmitFailure(), std::move(where));
+}
+
+void failRegisterForTest() {
+    arm(armedRegisterFailure(), "Session::registerCallback");
 }
 #endif
 
@@ -531,6 +546,9 @@ Session::~Session() {
 }
 
 void Session::registerCallback(GbmEventCallback callback, void* userData) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    throwIfArmedForTest(armedRegisterFailure(), "Session::registerCallback");
+#endif
     callbacks_.set(static_cast<GbmSessionHandle>(this), callback, userData);
 }
 

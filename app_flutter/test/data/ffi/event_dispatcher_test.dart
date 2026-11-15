@@ -11,11 +11,12 @@ import '../../support/fake_repo_session.dart';
 
 class _RegisterOnly extends FakeGbmBindings {
   @override
-  RegisterCallbackDart get registerCallback => (
-    Pointer<Void> session,
-    Pointer<NativeFunction<GbmEventCallbackNative>> callback,
-    Pointer<Void> userData,
-  ) {};
+  RegisterCallbackDart get registerCallback =>
+      (
+        Pointer<Void> session,
+        Pointer<NativeFunction<GbmEventCallbackNative>> callback,
+        Pointer<Void> userData,
+      ) => 1;
 }
 
 void main() {

@@ -53,6 +53,7 @@ class _DrainingBindings extends FakeGbmBindings {
         Pointer<Void> userData,
       ) {
         registered = callback;
+        return 1;
       };
 
   @override

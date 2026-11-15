@@ -43,5 +43,5 @@ a301c2eb feat      dimGray：色盤、tokensFor、_readSaved、切換按鈕、�
 - ~~每個 commit 單獨 checkout 跑全套：沒有逐一做。commit 4 提交前全套 4607 綠、commit 5 提交前 4653 綠；commit 1–3 單獨 checkout 的結果沒有紀錄，算未驗。~~ 每個 commit 單獨 checkout 跑全套（暫時 worktree）：b7f5f8b6 +4603、6a6288c0 +4604、ada621b6 +4604，皆 ~19 skip、analyzer 0；154e678e 提交前 4607 綠、a301c2eb 提交前 +4653 綠。
 - 自己更正的錯誤陳述（設計階段）：text-tertiary 對 selected 4.498 誤寫為 4.50；「dim-gray 選取行較淡」實測各主題都在 1.18–1.25；合成色沒把字也疊色，實際 neutral add 4.39、light-ide ctx 4.44；停用圖示底色應為 `surfacePanelRaised`；Material scrollbar 預設 alpha 亮 0.1、暗 0.3；「接錯」應為「未接線」。
 - 未處理（非目標）：`dialog_route.dart:20` 的 `Colors.black54` barrier、`gbm_dialog_shell.dart:77` 的黑色 0.3 陰影、Material tooltip 與文字選取子主題。
-- Golden 只在 macOS 跑；本機 Darwin 27，CI macos-26，新 PNG 是否與 CI 一致未驗證。若 CI golden 腿對 dimGray PNG 轉紅，從 CI artifact 重新產生。
+- ~~Golden 只在 macOS 跑；本機 Darwin 27，CI macos-26，新 PNG 是否與 CI 一致未驗證。若 CI golden 腿對 dimGray PNG 轉紅，從 CI artifact 重新產生。~~ Golden 只在 macOS 跑；本機 Darwin 27 產生的 7 張 dimGray PNG，在 PR #223 的 CI「Flutter UI - macOS (arm64)」（run 43717164940）比對通過。
 - 沒有蒸餾新 rule：亮暗單一來源已由 `isDark` 與 `gbm_theme_test.dart` 編碼。

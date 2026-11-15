@@ -79,7 +79,7 @@ th{background:var(--pg-card)}
 <body>
 <main>
 <h1>Read 失敗時，畫面怎麼表現</h1>
-<p class="muted">R-B 設計稿 · 分支 <code>fix/read-failure-states</code> · 2026-11-15 · 實作前需使用者裁定</p>
+<p class="muted">R-B 設計稿 · 分支 <code>fix/read-failure-states</code> · 2026-11-15 · 已裁定（見第 4 節），實作依本頁</p>
 
 <div class="card">
 <strong>先更正我上一則的說法。</strong>我問「面板內一行失敗訊息」時，說 spec「沒有規定面板內的樣子」。<s>spec 沒有規定面板內的樣子</s> 這是錯的：P19 樣板規則 5 寫明<b>「例外狀態用面板內 banner，不用 dialog、不用 toast。」</b>所以你的裁定對 12 個 <code>GbmPanelTabShell</code> 面板有 spec 依據；其餘畫面（compare 頁、History 明細、Working copy diff、對話框）不是 P19 面板，仍然沒有出處，列在第 4 節另外裁定。
@@ -95,8 +95,8 @@ th{background:var(--pg-card)}
 <tr><td>P07 conflict mock</td><td><code>&lt;div class="gbm-banner gbm-banner-warning" style="font-size:11px;gap:8px"&gt;</code> 圖示、<code>flex:1</code> 文字、<code>Abort</code>／<code>Resolve…</code> 兩顆 <code>gbm-btn-sm</code></td><td>banner 裡可以放按鈕的先例</td></tr>
 </table>
 
-<h2>2. 面板的失敗狀態：兩個候選元件</h2>
-<p>P19 的文字說「banner」；P19 的 mock 把例外狀態（callout 5，路徑失效的 worktree）畫成明細欄裡一張凹陷的小卡。app 的 shell 已有 <code>banner</code> 插槽，放的是 <code>GbmWarningBanner</code>（kit 的 <code>.gbm-banner-warning</code>），worktrees 面板正在用。P19 的紀錄只寫「shell 沒有 banner 槽」就補上了，沒有記錄過文字與 mock 的取捨。<b>這是文字對 mock 的衝突，請裁定，我不會取兩者之間的第三種。</b></p>
+<h2>2. 面板的失敗狀態：採用 A</h2>
+<p>P19 的文字說「banner」；P19 的 mock 把例外狀態（callout 5，路徑失效的 worktree）畫成明細欄裡一張凹陷的小卡。app 的 shell 已有 <code>banner</code> 插槽，放的是 <code>GbmWarningBanner</code>（kit 的 <code>.gbm-banner-warning</code>），worktrees 面板正在用。P19 的紀錄只寫「shell 沒有 banner 槽」就補上了，沒有記錄過文字與 mock 的取捨。這是文字與 mock 的衝突，<b>裁定採用 A</b>；B 保留在右邊作為未採用的對照。</p>
 
 <div class="toggle" role="group" aria-label="palette">
 <button type="button" data-p="neutral-professional" aria-pressed="true">neutral-professional</button>
@@ -119,7 +119,7 @@ th{background:var(--pg-card)}
 <div class="panel-status-bar"><span>0 lines</span></div>
 </div>
 </div>
-<p class="cap"><b>A · shell 的 banner 插槽 + GbmWarningBanner</b>。跨整個面板、在工具列下方。現有元件，worktrees 已在用。按鈕照 P07 mock 的 banner（Abort／Resolve…）用 secondary sm。文案內的路徑、exit code 與 git 訊息是示意字串。</p>
+<p class="cap"><b>A · 採用 · shell 的 banner 插槽 + GbmWarningBanner</b>。跨整個面板、在工具列下方。現有元件，worktrees 已在用。按鈕照 P07 mock 的 banner（Abort／Resolve…）用 secondary sm。文案內的路徑、exit code 與 git 訊息是示意字串。</p>
 </div>
 <div>
 <div class="stage" data-pal="neutral-professional">
@@ -135,7 +135,7 @@ th{background:var(--pg-card)}
 <div class="panel-status-bar"><span>0 lines</span></div>
 </div>
 </div>
-<p class="cap"><b>B · P19 mock 的凹陷小卡</b>（callout 5 的數值）。mock 把它放在明細欄裡；失敗屬於整個面板，所以這裡改放在工具列下方，這個位置是推斷的。文案同 A，是示意字串。</p>
+<p class="cap"><b>B · 未採用 · P19 mock 的凹陷小卡</b>（callout 5 的數值）。mock 把它放在明細欄裡；失敗屬於整個面板，所以這裡改放在工具列下方，這個位置是推斷的。文案同 A，是示意字串。</p>
 </div>
 </div>
 
@@ -158,27 +158,27 @@ th{background:var(--pg-card)}
 </table></div>
 
 <h2>3. 34 個 read：現在怎麼表現，之後怎麼表現</h2>
-<p class="muted">類別：K＝失敗時已有自己的回覆（帶 key）；R＝刷新類（成功時重讀清單）；C＝成功帶 key、失敗時只送不帶 key 的 ERROR_OCCURRED；U＝兩邊都不帶 key。「現況」是讀程式碼得到的，不是實機觀察。</p>
+<p class="muted">類別：K＝失敗時已有自己的回覆（帶 key）；R＝刷新類（成功時重讀清單）；C＝成功帶 key、失敗時只送不帶 key 的 ERROR_OCCURRED；U＝兩邊都不帶 key。「現況」是讀程式碼得到的，不是實機觀察。「之後」一律遵守裁定 4：U／C 類清空舊內容，R 類保留舊清單。</p>
 <div class="scroll"><table>
 <tr><th>#</th><th>read</th><th>類</th><th>畫面</th><th>現況：失敗時</th><th>之後</th></tr>
 <tr><td>17</td><td>blame</td><td>U</td><td>Blame 面板</td><td>顯示上一個檔案的 blame 或空白（<code>lastBlame</code> 不分路徑）</td><td>面板 banner</td></tr>
 <tr><td>25</td><td>file history</td><td>U</td><td>File history 面板</td><td>清單維持舊的或空白</td><td>面板 banner</td></tr>
-<tr><td>21</td><td>commit file diff</td><td>C</td><td>File history 明細、History 明細</td><td>一直轉（<code>diff == null</code>）</td><td>面板 banner；History 見第 4 節</td></tr>
+<tr><td>21</td><td>commit file diff</td><td>C</td><td>File history 明細、History 明細</td><td>一直轉（<code>diff == null</code>）</td><td>面板 banner；History 明細：窗格頂端 A</td></tr>
 <tr><td>26</td><td>line history</td><td>U</td><td>Line history 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>27</td><td>reflog</td><td>U</td><td>Reflog 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>29</td><td>rebase plan</td><td>U</td><td>Interactive rebase 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>10, 11</td><td>stashes、stash diff</td><td>R, C</td><td>Stashes 面板</td><td>清單維持舊的；明細一直轉</td><td>面板 banner</td></tr>
-<tr><td>12, 13</td><td>worktrees、pending counts</td><td>R</td><td>Worktrees 面板</td><td>維持舊的</td><td>面板 banner（與「路徑失效」banner 同時出現的處理見裁定 3）</td></tr>
+<tr><td>12, 13</td><td>worktrees、pending counts</td><td>R</td><td>Worktrees 面板</td><td>維持舊的</td><td>面板 banner；與「路徑失效」同時出現時只顯示失敗那一則</td></tr>
 <tr><td>14</td><td>remotes</td><td>R</td><td>Remotes 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>30</td><td>submodules</td><td>R</td><td>Submodules 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>31</td><td>bisect</td><td>R</td><td>Bisect 面板</td><td>維持舊的</td><td>面板 banner</td></tr>
 <tr><td>32</td><td>lfs</td><td>R</td><td>LFS 面板</td><td>送空的 LFS_UPDATED，畫面像「沒有 LFS」</td><td>面板 banner</td></tr>
-<tr><td>22, 23, 24</td><td>compare refs / file diff / with WC</td><td>C</td><td>Compare 頁</td><td>一直轉（以 key 查不到結果）</td><td>第 4 節（無出處）</td></tr>
-<tr><td>20</td><td>commit files</td><td>C</td><td>History 明細</td><td>維持上一個 commit 的檔案</td><td>第 4 節</td></tr>
-<tr><td>18, 19</td><td>commit meta、file counts</td><td>K</td><td>History 明細、各面板明細</td><td>回 <code>[]</code>，meta 永遠 null，明細一直轉</td><td>第 4 節</td></tr>
-<tr><td>3, 4</td><td>WC diff、full diff</td><td>C</td><td>Working copy diff 窗格</td><td>窗格已有「in flight / refused」一行；ERROR_OCCURRED 不會結束 loading</td><td>第 4 節：沿用該窗格現有的那一行</td></tr>
-<tr><td>28</td><td>clean preview</td><td>U</td><td>Clean untracked 對話框</td><td>顯示舊的預覽清單，Delete 按鈕照舊可按</td><td>第 4 節：dialog 的 <code>warn</code> 欄位</td></tr>
-<tr><td>33, 34</td><td>local / effective identity</td><td>R</td><td>Repository settings 對話框、commit 方塊</td><td>維持舊值</td><td>第 4 節</td></tr>
+<tr><td>22, 23, 24</td><td>compare refs / file diff / with WC</td><td>C</td><td>Compare 頁</td><td>一直轉（以 key 查不到結果）</td><td>窗格頂端 A，清掉轉圈</td></tr>
+<tr><td>20</td><td>commit files</td><td>C</td><td>History 明細</td><td>維持上一個 commit 的檔案</td><td>清空，窗格頂端 A</td></tr>
+<tr><td>18, 19</td><td>commit meta、file counts</td><td>K</td><td>History 明細、各面板明細</td><td>回 <code>[]</code>，meta 永遠 null，明細一直轉</td><td>窗格頂端 A，清掉轉圈</td></tr>
+<tr><td>3, 4</td><td>WC diff、full diff</td><td>C</td><td>Working copy diff 窗格</td><td>窗格已有「in flight / refused」一行；ERROR_OCCURRED 不會結束 loading</td><td>沿用該窗格現有的「in flight / refused」那一行，顯示失敗</td></tr>
+<tr><td>28</td><td>clean preview</td><td>U</td><td>Clean untracked 對話框</td><td>顯示舊的預覽清單，Delete 按鈕照舊可按</td><td>dialog 的 <code>warn</code> 欄位，清空舊預覽，停用 Delete</td></tr>
+<tr><td>33, 34</td><td>local / effective identity</td><td>R</td><td>Repository settings 對話框、commit 方塊</td><td>維持舊值</td><td>Repository settings 對話框：<code>warn</code> 欄位；值保留（同一對象）</td></tr>
 <tr><td>1, 2</td><td>history refresh、WC refresh</td><td>R</td><td>History 圖、Working copy 清單</td><td>維持舊的；錯誤進 log 與 status bar</td><td>不變（P10：status bar + log）</td></tr>
 <tr><td>5–9, 15, 16</td><td>original message、squash、prepared、working tree content、export、prune preview、deletion probe</td><td>K</td><td>衝突視窗、merge／commit、對話框</td><td>已有失敗回覆；Dart 端是否都處理到待逐一確認</td><td>只補缺的部分，不新增畫面</td></tr>
 </table></div>
@@ -221,7 +221,7 @@ th{background:var(--pg-card)}
 </ul>
 
 <h2>7. 不需要畫面裁定的 native 部分</h2>
-<p>每個 C／U 類 read 的失敗回覆改成帶上成功回覆同一個 key（path／oid／ref／requestId），Dart 才能把失敗對應到畫面；匯出函式在交出前丟例外時也走同一個失敗回覆；<code>CallbackRegistry::emit</code> 在 malloc 失敗時（缺口 3b）要有替代的通知。這屬於跨 FFI 的 wire 變更，計畫要先經 plan-verifier。key 要對到哪個欄位，取決於上面的畫面裁定，所以等裁定後再寫。</p>
+<p>每個 C／U 類 read 的失敗回覆改成帶上成功回覆同一個 key（path／oid／ref／requestId），Dart 才能把失敗對應到畫面；匯出函式在交出前丟例外時也走同一個失敗回覆；<code>CallbackRegistry::emit</code> 在 malloc 失敗時（缺口 3b）要有替代的通知。這屬於跨 FFI 的 wire 變更，計畫要先經 plan-verifier。畫面已裁定，下一步依本頁寫實作計畫。</p>
 </main>
 <script>
 document.querySelectorAll('.toggle button').forEach(function(b){

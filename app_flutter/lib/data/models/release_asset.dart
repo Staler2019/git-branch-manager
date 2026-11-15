@@ -68,23 +68,28 @@ class LatestRelease {
 ///
 /// The tokens are **not** derivable from the ABI name: they come from
 /// release.yml's build matrix, which spells the architecture differently on
-/// each platform (`arm64` on macOS, `x64` on Windows, `x86_64` on Linux).
-/// Deriving them would be a guess that happens to work for one platform.
+/// each platform (`arm64` on macOS, `x64`/`arm64` on Windows, `x86_64` on
+/// Linux). Deriving them would be a guess that happens to work for one
+/// platform.
 ///
 /// Windows is an `.msi` rather than the portable zip earlier releases
 /// shipped: Windows Installer, not this app, replaces a Windows install. A
 /// release that still lists only the zip therefore has nothing a current
 /// build can install, and says so through the null below.
 ///
-/// Three entries, because release.yml has three matrix legs. An Intel Mac,
-/// an ARM Linux box or an ARM Windows machine gets null and must be told
-/// there is nothing to install — never handed another platform's bundle.
+/// Four entries, because release.yml has four matrix legs. An Intel Mac or
+/// an ARM Linux box gets null and must be told there is nothing to install —
+/// never handed another platform's bundle. An ARM Windows build likewise
+/// gets nothing from a release made before the arm64 leg existed.
 String? assetSuffixForAbi(Abi abi) {
   if (abi == Abi.macosArm64) {
     return '-macos-arm64.dmg';
   }
   if (abi == Abi.windowsX64) {
     return '-windows-x64.msi';
+  }
+  if (abi == Abi.windowsArm64) {
+    return '-windows-arm64.msi';
   }
   if (abi == Abi.linuxX64) {
     return '-linux-x86_64.tar.gz';

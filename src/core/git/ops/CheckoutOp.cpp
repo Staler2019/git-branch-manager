@@ -67,6 +67,10 @@ public:
         if (request_.createBranch) {
             args = {"switch", "--create", request_.newBranchName};
             if (!request_.target.empty()) {
+                // Every caller that creates here is checking a remote branch
+                // out as a local one, which is meant to track it -- under
+                // any branch.autoSetupMerge, `false` included, so explicit.
+                args.emplace_back("--track");
                 args.push_back(request_.target);
             }
         } else if (request_.detach) {

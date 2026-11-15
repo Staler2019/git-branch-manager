@@ -9,8 +9,13 @@
   255.255.65535; anything else would either fail to build or, worse, build an
   MSI that never upgrades.
 
+.PARAMETER Arch
+  x64 (default) or arm64: picks Flutter's output directory for that
+  architecture and the MSI's target platform. One value drives both, so an
+  arm64 bundle can never be packaged as an x64 MSI.
+
 .PARAMETER ReleaseDir
-  The bundle to package. Defaults to Flutter's own output directory.
+  The bundle to package. Defaults to Flutter's own output directory for -Arch.
 
 .PARAMETER OutFile
   Where the .msi goes.
@@ -22,6 +27,7 @@
 #>
 param(
   [Parameter(Mandatory = $true)][string]$Version,
+  [ValidateSet('x64', 'arm64')][string]$Arch = 'x64',
   [string]$ReleaseDir,
   [Parameter(Mandatory = $true)][string]$OutFile
 )
@@ -31,7 +37,7 @@ $ErrorActionPreference = 'Stop'
 # Defaulted here rather than in param(): Windows PowerShell 5.1 has no
 # $PSScriptRoot yet while it binds parameter defaults.
 if (-not $ReleaseDir) {
-  $ReleaseDir = Join-Path $PSScriptRoot '..\build\windows\x64\runner\Release'
+  $ReleaseDir = Join-Path $PSScriptRoot "..\build\windows\$Arch\runner\Release"
 }
 
 if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)$' -or
@@ -65,7 +71,7 @@ if ($outDir) { New-Item -ItemType Directory -Force -Path $outDir | Out-Null }
 
 # -pdbtype none: by default WiX writes a .wixpdb beside the .msi, and
 # release.yml publishes everything in that directory.
-& wix build $source -arch x64 -pdbtype none -d "Version=$Version" -d "ReleaseDir=$release" -o $OutFile
+& wix build $source -arch $Arch -pdbtype none -d "Version=$Version" -d "ReleaseDir=$release" -o $OutFile
 if ($LASTEXITCODE -ne 0) {
   throw "wix build failed with exit code $LASTEXITCODE."
 }

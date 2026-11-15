@@ -87,7 +87,9 @@ class UpdateController extends StateNotifier<UpdateState> {
   final AppVersion? _currentVersion;
 
   /// Overridable so a test can exercise every platform's asset selection
-  /// from one machine.
+  /// from one machine. `Abi.current()` is the ABI this binary was compiled
+  /// for, not the host's: an x64 build emulated on Windows ARM64 reports
+  /// `windowsX64`, so it is offered the x64 installer and never the arm64 one.
   final Abi _abi;
 
   bool _checkInFlight = false;

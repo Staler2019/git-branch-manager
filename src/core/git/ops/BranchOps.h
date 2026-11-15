@@ -13,8 +13,6 @@ struct CreateBranchRequest {
     std::string name;
     std::string startPoint;  ///< Empty means HEAD.
     bool checkoutAfter = false;
-    bool setUpstream = false;
-    std::string upstream;
 };
 
 struct RenameBranchRequest {

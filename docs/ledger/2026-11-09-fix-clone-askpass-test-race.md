@@ -1,4 +1,4 @@
-# fix/clone-askpass-test-race — 假 askpass 腳本的 request 寫入 race
+# fix/clone-askpass-test-race — 假 askpass 腳本的 request 寫入 race；Windows 裝置層三個 fixture 改問 git 實際換行
 
 ## Situation
 
@@ -33,7 +33,7 @@ PR #213 的 diff 沒有碰 clone、credential 或 askpass；同一個 build 單�
 - ~~`RemoteApiTest.cpp` 的 push 那一處沒有另外做 mutation；它跟 clone 那處是同一種寫法，這裡照實記下。~~ 已補做：push 那一處改回舊寫法並拉大時間窗（`{ sleep 0.5; printf ...; } > request`），`SshRemoteApiTest.*` 2 個中只有 `PushQueuedBehindABackgroundFetchStillRaisesItsPrompt` 變紅，訊息同樣是 `"{\"prompt\":\"\"}"`；新寫法套上同樣的 `sleep 0.5`，2/2 通過。Mutation 合計執行 2 次，各有 1 個測試變紅。
 - 另外兩處（`ACancelledPromptLetsTheCloneFail`、`BackgroundFetchNeverRaisesACredentialPrompt`）不比對 prompt 文字，race 不會讓它們變紅，所以沒有可觀察的紅燈；改它們只是為了跟其他地方寫法一致。
 - `tests/` 不在 `format-check.sh` 的範圍內（它只檢查 `src/`）；用 clang-format 22.1.8 比對修改前後，這兩個檔案的格式差異行數不變。
-- 沒有萃取新規則：fixture 旁的註解已經指向 `writeHandshakeFile()`。
+- 沒有萃取新規則：~~fixture 旁的註解已經指向 `writeHandshakeFile()`。~~ 四處裡只有 `ACredentialPromptIsRaisedAndAnswered` 的註解（`CloneJobApiTest.cpp:577`）指向 `writeHandshakeFile()`，其餘三處（Clone 一處、`RemoteApiTest.cpp` 兩處）沒有；寫法本身（tmp+mv）在四處都看得到，所以仍不另立規則。（memory-steward 審查時指出）
 
 ## 追加：Windows 裝置層的三個 fixture 紅燈
 
@@ -50,7 +50,7 @@ PR #213 的 diff 沒有碰 clone、credential 或 askpass；同一個 build 單�
 
 ### Action
 
-- 實測：Git for Windows 安裝時就在系統層設了 `core.autocrlf=true`（`C:/Program Files/Git/etc/gitconfig`）。Discard 走的是 `git apply -R`（`PatchOps.cpp:80`），git 會把整個檔案改寫成 CRLF。這就是 git 在這台機器上的真實行為。
+- 實測：Git for Windows 安裝時就在系統層設了 `core.autocrlf=true`（`C:/Program Files/Git/etc/gitconfig`）。Discard 走的是 ~~`git apply -R`（`PatchOps.cpp:80`）~~ `git apply --reverse`（`StageOps.cpp:28,34`，`DiscardLinesOperation`；`PatchOps.cpp:80` 是套用 patch 檔的操作，引用錯誤，memory-steward 審查時指出），git 會把整個檔案改寫成 CRLF。這就是 git 在這台機器上的真實行為。
 - 換行該是什麼，由 git 的 eol 設定決定，不是作業系統，所以 Dart 的 `Platform.lineTerminator` 並不準。新增 `integration_test/support/git_worktree_bytes.dart` 的 `expectedWorktreeText`（位置依 arch-suggester 建議）：先把內容以 `hash-object -w --no-filters` 存成 blob，再用 `cat-file --filters --path=<path>` 取得 checkout 時會套用的轉換結果。實測它的輸出跟 `apply -R` 寫出的檔案逐位元組相同。
 - `merge_squash_flow_test` 的 `_gitsSquashMsg` 會另外 clone 一份當參照，但 clone 不會帶上 local config，所以非 fast-forward 的 squash 拿不到身分。改成沿用受測 repo 自己的 `user.name`/`user.email`。修好之後，同一個測試接著出現同樣的 CRLF 問題（`topic.txt`），也改用 helper。
 

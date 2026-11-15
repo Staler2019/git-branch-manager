@@ -46,15 +46,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
     required this.accentSubtle,
     required this.success,
     required this.danger,
-    required this.dangerHover,
     required this.warning,
     required this.graphLanes,
     required this.diffAddBg,
     required this.diffAddText,
     required this.diffDelBg,
     required this.diffDelText,
-    required this.diffAddStrong,
-    required this.diffDelStrong,
     required this.scrollbarThumb,
     required this.refChipFill,
     required this.refChipText,
@@ -86,7 +83,6 @@ class GbmColors extends ThemeExtension<GbmColors> {
 
   final Color success;
   final Color danger;
-  final Color dangerHover;
   final Color warning;
 
   /// The commit graph's lane colours, indexed by `GraphRow.color` /
@@ -121,8 +117,6 @@ class GbmColors extends ThemeExtension<GbmColors> {
   final Color diffAddText;
   final Color diffDelBg;
   final Color diffDelText;
-  final Color diffAddStrong;
-  final Color diffDelStrong;
 
   final Color scrollbarThumb;
 
@@ -171,15 +165,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
     Color? accentSubtle,
     Color? success,
     Color? danger,
-    Color? dangerHover,
     Color? warning,
     List<Color>? graphLanes,
     Color? diffAddBg,
     Color? diffAddText,
     Color? diffDelBg,
     Color? diffDelText,
-    Color? diffAddStrong,
-    Color? diffDelStrong,
     Color? scrollbarThumb,
     Color? refChipFill,
     Color? refChipText,
@@ -207,15 +198,12 @@ class GbmColors extends ThemeExtension<GbmColors> {
       accentSubtle: accentSubtle ?? this.accentSubtle,
       success: success ?? this.success,
       danger: danger ?? this.danger,
-      dangerHover: dangerHover ?? this.dangerHover,
       warning: warning ?? this.warning,
       graphLanes: graphLanes ?? this.graphLanes,
       diffAddBg: diffAddBg ?? this.diffAddBg,
       diffAddText: diffAddText ?? this.diffAddText,
       diffDelBg: diffDelBg ?? this.diffDelBg,
       diffDelText: diffDelText ?? this.diffDelText,
-      diffAddStrong: diffAddStrong ?? this.diffAddStrong,
-      diffDelStrong: diffDelStrong ?? this.diffDelStrong,
       scrollbarThumb: scrollbarThumb ?? this.scrollbarThumb,
       refChipFill: refChipFill ?? this.refChipFill,
       refChipText: refChipText ?? this.refChipText,
@@ -241,7 +229,6 @@ const Color _accent700 = Color(0xFF1857B8);
 
 const Color _green500 = Color(0xFF1A8A4A);
 const Color _red500 = Color(0xFFD33D3D);
-const Color _red600 = Color(0xFFB32C2C);
 const Color _amber500 = Color(0xFFC97A17);
 
 /// `[data-theme="neutral-professional"]` in colors.css.
@@ -268,7 +255,6 @@ const GbmColors _neutralProfessional = GbmColors(
   accentSubtle: _accent50,
   success: _green500,
   danger: _red500,
-  dangerHover: _red600,
   warning: _amber500,
   // OkLCH L=0.618 C=0.193 -- _accent500's own lightness and chroma, stepped
   // 30 deg at a time round the wheel, chroma reduced only where sRGB runs out.
@@ -291,8 +277,6 @@ const GbmColors _neutralProfessional = GbmColors(
   diffAddText: Color(0xFF136C37),
   diffDelBg: Color(0xFFFBEAEA),
   diffDelText: Color(0xFFA32E2E),
-  diffAddStrong: Color(0xFFBFE9CD),
-  diffDelStrong: Color(0xFFF3C8C8),
   scrollbarThumb: _gray300,
   refChipFill: Color(0xFFC7DBFA),
   refChipText: _accent700,
@@ -322,7 +306,6 @@ const GbmColors _darkTechnical = GbmColors(
   accentSubtle: Color(0xFF0D2A4D),
   success: Color(0xFF3FB950),
   danger: Color(0xFFF85149),
-  dangerHover: Color(0xFFFF6A63),
   warning: Color(0xFFD29922),
   // OkLCH L=0.687 C=0.167, anchored on this theme's own lane 0 (#4C9BFF,
   // accentHover rather than accent -- the brighter blue reads better on
@@ -345,8 +328,6 @@ const GbmColors _darkTechnical = GbmColors(
   diffAddText: Color(0xFF7EE2A8),
   diffDelBg: Color(0xFF3A1414),
   diffDelText: Color(0xFFFF9B93),
-  diffAddStrong: Color(0xFF173E24),
-  diffDelStrong: Color(0xFF4D1C1C),
   scrollbarThumb: Color(0xFF30363D),
   refChipFill: Color(0xFF1C3F66),
   refChipText: Color(0xFFEAF1FE),
@@ -376,7 +357,6 @@ const GbmColors _lightIde = GbmColors(
   accentSubtle: _accent50,
   success: Color(0xFF1A7F37),
   danger: Color(0xFFCF222E),
-  dangerHover: Color(0xFFA40E26),
   warning: Color(0xFF9A6700),
   // OkLCH L=0.546 C=0.151 -- the mean of the five GitHub-light lanes this
   // replaces, so the palette stays darker and less saturated than
@@ -401,8 +381,6 @@ const GbmColors _lightIde = GbmColors(
   diffAddText: Color(0xFF116329),
   diffDelBg: Color(0xFFFFEBE9),
   diffDelText: Color(0xFF82241F),
-  diffAddStrong: Color(0xFFC9F0D4),
-  diffDelStrong: Color(0xFFFFC9C2),
   scrollbarThumb: Color(0xFFDCDFE4),
   refChipFill: Color(0xFFC7DBFA),
   refChipText: _accent700,

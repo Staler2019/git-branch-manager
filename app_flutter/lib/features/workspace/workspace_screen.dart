@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../actions/gbm_action_availability.dart';
 import '../../actions/gbm_action_id.dart';
+import '../../actions/workspace_log_scope.dart';
 import '../../data/repositories/working_copy_draft_repository.dart';
 import '../../data/repositories/working_copy_repository.dart' as wc;
 import '../diff/temporary_scope_provider.dart';
@@ -771,18 +772,7 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
                       allOids: session.graph.oidsHex,
                     )
                   : null,
-              // 「可點開直接跳到該筆 log」. Plain `open()`, not the toggle: the
-              // summary means 「show me this error」, and closing a drawer
-              // someone is reading would be the opposite. Un-collapses a
-              // drawer never dragged open (GbmSplitPaneController's doc).
-              onOpenError: () {
-                setState(() {
-                  _seenError = newestError;
-                  _logFocus = unreadError;
-                  _logFocusSerial++;
-                });
-                _logDrawerController.open();
-              },
+              onOpenError: _openLogAtNewestError,
               // Ruling Q6: the always-present `Log` entry is View → Log
               // itself -- the same closure, so the two cannot drift.
               onToggleLog: () => actionHandlers[GbmActionId.viewLog]?.call(),
@@ -822,9 +812,32 @@ class _WorkspaceScreenState extends ConsumerState<WorkspaceScreen> {
     return Column(
       children: <Widget>[
         tabRow,
-        Expanded(child: widget.child),
+        Expanded(
+          // A panel's failure banner opens the log through this, the same
+          // method as the status bar's red summary (WorkspaceLogScope's doc).
+          child: WorkspaceLogScope(
+            openLogAtNewestError: _openLogAtNewestError,
+            child: widget.child,
+          ),
+        ),
       ],
     );
+  }
+
+  /// 「可點開直接跳到該筆 log」. Plain `open()`, not the toggle: the summary
+  /// means 「show me this error」, and closing a drawer someone is reading
+  /// would be the opposite. Un-collapses a drawer never dragged open
+  /// (GbmSplitPaneController's doc).
+  void _openLogAtNewestError() {
+    final GbmLogEntry? newestError = _newestError(
+      ref.read(repoSessionProvider(widget.identity)),
+    );
+    setState(() {
+      _logFocus = identical(newestError, _seenError) ? null : newestError;
+      _seenError = newestError;
+      _logFocusSerial++;
+    });
+    _logDrawerController.open();
   }
 
   /// The [RefInfo] HEAD currently points to, or null if detached/unknown --

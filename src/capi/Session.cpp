@@ -230,6 +230,21 @@ std::string lineHistoryPayload(const std::string& path,
     return payload;
 }
 
+/// REFLOG_READY's one shape, for a reflog and for its failure: the ref as requested, then exactly
+/// one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string reflogPayload(const std::string& ref,
+                          const std::vector<ReflogEntry>* entries,
+                          const GitError* error) {
+    std::string payload = "{\"ref\":";
+    jsonAppendEscaped(payload, ref);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -2198,16 +2213,16 @@ void Session::requestReflog(std::string ref) {
     postRead(
         ReadLane::Back,
         "Session::requestReflog",
-        [this, ref = std::move(ref)]() {
+        [this, ref]() {
             const GitResult<std::vector<ReflogEntry>> result =
                 reflogStore_->list(ref, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_REFLOG_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_REFLOG_READY,
+                            result ? reflogPayload(ref, &result.value(), nullptr)
+                                   : reflogPayload(ref, nullptr, &result.error()));
         },
-        errorReply());
+        [this, ref](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REFLOG_READY, reflogPayload(ref, nullptr, &error));
+        });
 }
 
 void Session::refreshUndoJournalCache() {

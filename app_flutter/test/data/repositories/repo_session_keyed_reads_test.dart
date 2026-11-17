@@ -10,6 +10,7 @@ import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
+import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -122,6 +123,32 @@ GbmEvent _linesFailed(String path, int start, int end, String message) =>
       'error': gitErrorJson(message),
     });
 
+GbmEvent _reflogOk(String ref, {String s = 'x'}) =>
+    readyEvent(GbmEventType.reflogReady, <String, dynamic>{
+      'ref': ref,
+      'entries': <dynamic>[
+        <String, dynamic>{
+          'index': 0,
+          'oid': 'a1b2c3',
+          'message': s,
+          'who': <String, dynamic>{
+            'name': 'Ada',
+            'email': 'ada@example.invalid',
+            'when': 1,
+            'tzOffsetMinutes': 0,
+          },
+        },
+      ],
+      'error': null,
+    });
+
+GbmEvent _reflogFailed(String ref, String message) =>
+    readyEvent(GbmEventType.reflogReady, <String, dynamic>{
+      'ref': ref,
+      'entries': null,
+      'error': gitErrorJson(message),
+    });
+
 int _errorLines(RepoSessionController c) => c.state.operationLog
     .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
     .length;
@@ -207,6 +234,78 @@ void main() {
       expect(bindings.blameRequests, hasLength(1));
       expect(reply()?.key, const BlameKey(path: 'a.txt'));
       expect(reply()?.error?.message, 'Native error in gbm_request_blame');
+      expect(_errorLines(c), before);
+      expect(c.state.lastError, isNull);
+    });
+  });
+
+  group('reflog', () {
+    KeyedReadReply<ReflogKey, List<ReflogEntry>>? reply() => c.state.lastReflog;
+
+    // (e)
+    test('a request resets the reply to pending for its own key', () {
+      c.requestReflog();
+      c.debugHandleEvent(_reflogOk(''));
+      expect(reply()?.value, isNotNull);
+
+      c.requestReflog(ref: 'main');
+
+      expect(reply()?.key, const ReflogKey('main'));
+      expect(reply()?.value, isNull);
+      expect(reply()?.error, isNull);
+      expect(bindings.reflogRequests.where((r) => r == 'main').length, 1);
+    });
+
+    // The key is the ref as sent: '' is not 'HEAD', though git reads both
+    // the same.
+    test('a reply for the current key is kept, under the ref as sent', () {
+      c.requestReflog();
+      c.debugHandleEvent(_reflogOk('', s: 'one'));
+      expect(reply()?.value?.single.message, 'one');
+    });
+
+    // (b)
+    test('a reply for an older ref is dropped', () {
+      c.requestReflog();
+      c.requestReflog(ref: 'main');
+      c.debugHandleEvent(_reflogOk(''));
+
+      expect(reply()?.key, const ReflogKey('main'));
+      expect(reply()?.value, isNull);
+    });
+
+    // (a)
+    test('a failure reply clears the value and carries the error', () {
+      c.requestReflog(ref: 'main');
+      c.debugHandleEvent(_reflogOk('main'));
+      c.requestReflog(ref: 'main');
+      c.debugHandleEvent(_reflogFailed('main', 'fatal: bad ref'));
+
+      expect(reply()?.value, isNull);
+      expect(reply()?.error?.message, 'fatal: bad ref');
+    });
+
+    // (f)
+    test('a failure reply logs one error line and leaves lastError alone', () {
+      c.requestReflog(ref: 'nope');
+      final int before = _errorLines(c);
+      c.debugHandleEvent(_reflogFailed('nope', 'fatal: bad ref nope'));
+
+      expect(_errorLines(c), before + 1);
+      expect(c.state.operationLog.last.message, contains('bad ref nope'));
+      expect(c.state.lastError, isNull);
+    });
+
+    // (c) + (h)
+    test('an export that queued nothing fails the read without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.requestReflog(ref: 'main');
+
+      expect(bindings.reflogRequests, <String>['main']);
+      expect(reply()?.key, const ReflogKey('main'));
+      expect(reply()?.error?.message, 'Native error in gbm_request_reflog');
       expect(_errorLines(c), before);
       expect(c.state.lastError, isNull);
     });

@@ -140,7 +140,13 @@ void main() {
       final PumpedWorkspace pumped = await pumpWorkspace(
         tester,
         identity: _identity,
-        initialState: RepoSessionState(isOpen: true, lastReflog: _entries),
+        initialState: RepoSessionState(
+          isOpen: true,
+          lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.succeeded(
+            const ReflogKey(''),
+            _entries,
+          ),
+        ),
         extraRoutes: _panelRoute,
       );
 

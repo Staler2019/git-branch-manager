@@ -320,6 +320,46 @@ TEST_F(ReadFailureApiTest, ALineHistoryThatCannotBePostedRepliesWithAnErrorAndRe
     EXPECT_EQ(countFailedLineHistories(log_.snapshot()), 1u);
 }
 
+std::size_t countFailedReflogs(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_REFLOG_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatThrowsRepliesUnderItsRefWithAnError) {
+    gbm_test_fail_read("Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, "main"), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REFLOG_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_REFLOG_READY);
+    EXPECT_TRUE(contains(reply, "\"ref\":\"main\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, ""), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_REFLOG_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_reflog\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REFLOG_READY));
+    EXPECT_EQ(countFailedReflogs(log_.snapshot()), 1u);
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");

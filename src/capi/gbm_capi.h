@@ -143,7 +143,9 @@ enum GbmEventType {
     /// JSON, the other null. Reply to gbm_request_line_history(), on success
     /// and on failure.
     GBM_EVENT_LINE_HISTORY_READY = 15,
-    /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
+    /// payload: `{ref, entries, error}` -- the ref as requested, then a
+    /// ReflogEntry JSON array or a GitError JSON, the other null. Reply to
+    /// gbm_request_reflog(), on success and on failure.
     GBM_EVENT_REFLOG_READY = 16,
 
     /// payload: RebaseTodoEntry JSON array. Reply to
@@ -1261,8 +1263,10 @@ GBM_API int32_t gbm_request_line_history(GbmSessionHandle session,
                                          const char* startRevision);
 
 /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
-/// GBM_EVENT_REFLOG_READY.
-GBM_API void gbm_request_reflog(GbmSessionHandle session, const char* ref);
+/// GBM_EVENT_REFLOG_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_reflog(GbmSessionHandle session, const char* ref);
 
 /// Populates the staging buffer with the current undo journal (most recent
 /// last) as a JSON array -- one entry per operation submitted this

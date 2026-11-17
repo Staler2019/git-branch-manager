@@ -552,7 +552,7 @@ class RepoSessionState {
     this.commitFiles = const <ChangedFile>[],
     this.selectedCommitFileDiff,
     this.lastLineHistory,
-    this.lastReflog = const <ReflogEntry>[],
+    this.lastReflog,
     this.undoJournal = const <UndoEntry>[],
     this.lastCleanPreview = const <CleanEntry>[],
     this.lastRebasePlan = const <RebaseTodoEntry>[],
@@ -695,7 +695,9 @@ class RepoSessionState {
   final KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory;
 
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
-  final List<ReflogEntry> lastReflog;
+  /// The reflog the panel last asked for, under the ref as sent: pending, its
+  /// entries (newest first), or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<ReflogKey, List<ReflogEntry>>? lastReflog;
 
   /// Oldest-first, refreshed after every operation that can be undone --
   /// see Session::refreshUndoJournalCache()'s doc comment in Session.cpp for
@@ -889,7 +891,7 @@ class RepoSessionState {
     List<ChangedFile>? commitFiles,
     ParsedDiff? selectedCommitFileDiff,
     KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory,
-    List<ReflogEntry>? lastReflog,
+    KeyedReadReply<ReflogKey, List<ReflogEntry>>? lastReflog,
     List<UndoEntry>? undoJournal,
     List<CleanEntry>? lastCleanPreview,
     List<RebaseTodoEntry>? lastRebasePlan,
@@ -1794,8 +1796,24 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.reflogReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(lastReflog: ReflogEntry.listFromJson(payload));
+        if (payload is Map<String, dynamic>) {
+          final ReflogKey key = ReflogKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<ReflogKey, List<ReflogEntry>>(
+            current: state.lastReflog,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<ReflogKey, List<ReflogEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<ReflogKey, List<ReflogEntry>>.succeeded(
+                    key,
+                    ReflogEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<ReflogKey, List<ReflogEntry>> r) =>
+                state = state.copyWith(lastReflog: r),
+          );
         }
       case GbmEventType.rebasePlanReady:
         final Object? payload = decodeEventPayload(event.payload);
@@ -4663,13 +4681,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
-  /// GBM_EVENT_REFLOG_READY into [RepoSessionState.lastReflog], newest-first.
+  /// `git reflog show <ref>`. `ref` empty means HEAD. Async:
+  /// GBM_EVENT_REFLOG_READY answers into [RepoSessionState.lastReflog] under
+  /// the ref as sent, on success and on failure.
   void requestReflog({String ref = ''}) {
     if (_session == nullptr) return;
+    final ReflogKey key = ReflogKey(ref);
+    state = state.copyWith(
+      lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.pending(key),
+    );
     final Pointer<Utf8> refPtr = ref.toNativeUtf8();
     try {
-      _bindings.requestReflog(_session, refPtr);
+      final int queued = _bindings.requestReflog(_session, refPtr);
+      if (queued == 0) {
+        state = state.copyWith(
+          lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.failed(
+            key,
+            _stagedNativeError(),
+          ),
+        );
+      }
     } finally {
       malloc.free(refPtr);
     }

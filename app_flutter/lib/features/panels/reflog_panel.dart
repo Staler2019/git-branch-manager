@@ -5,12 +5,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/commit_meta.dart';
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/models/reflog_entry.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -69,10 +74,30 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
   int? _selectedIndex;
   String _query = '';
 
+  /// The request this panel last sent. The session's
+  /// [RepoSessionState.lastReflog] is drawn -- content and failure banner
+  /// alike -- only while its key is this one: the mount's send reaches the
+  /// controller a microtask late, and the frame in between must not show
+  /// another ref (read-failure-states-spec.html, ruling 4).
+  ReflogKey? _sentKey;
+
+  /// Every send goes through here, so [_sentKey] is always the request the
+  /// controller was last asked for. From a lifecycle method the controller
+  /// call is deferred: a provider write during build throws.
+  void _send(ReflogKey key, {bool fromLifecycle = false}) {
+    _sentKey = key;
+    void request() => _session.requestReflog(ref: key.ref);
+    if (fromLifecycle) {
+      Future.microtask(request);
+    } else {
+      request();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _session.requestReflog());
+    _send(const ReflogKey(''), fromLifecycle: true);
   }
 
   @override
@@ -90,7 +115,7 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
       _loadedRef = ref.isEmpty ? 'HEAD' : ref;
       _selectedIndex = null;
     });
-    _session.requestReflog(ref: ref);
+    _send(ReflogKey(ref));
   }
 
   /// Matches the action text **and the oid**, though the row draws only the
@@ -122,7 +147,12 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
-    final List<ReflogEntry> entries = session.lastReflog;
+    final KeyedReadReply<ReflogKey, List<ReflogEntry>>? reply =
+        session.lastReflog;
+    final bool answersThisPanel = reply != null && reply.key == _sentKey;
+    final List<ReflogEntry> entries =
+        (answersThisPanel ? reply.value : null) ?? const <ReflogEntry>[];
+    final GitError? error = answersThisPanel ? reply.error : null;
     final List<ReflogEntry> visible = entries
         .where(_matchesQuery)
         .toList(growable: false);
@@ -134,6 +164,12 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
       storageId: panelStorageId(GbmPanelKind.reflog),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a reflog entry to see its commit',
+      banner: error == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 $_loadedRef 的 reflog。${error.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           // Restoring a branch needs a name, so it opens the new-branch

@@ -953,11 +953,11 @@ typedef RequestLineHistoryDart = int Function(
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestReflogNative = Void Function(
+typedef _RequestReflogNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );
-typedef RequestReflogDart = void Function(
+typedef RequestReflogDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );

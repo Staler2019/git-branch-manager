@@ -49,6 +49,7 @@ class ReadBindings extends FakeGbmBindings {
       <Map<String, Object?>>[];
   final List<Map<String, Object?>> lineHistoryRequests =
       <Map<String, Object?>>[];
+  final List<String> reflogRequests = <String>[];
 
   Uint8List _staged = Uint8List(0);
 
@@ -101,6 +102,14 @@ class ReadBindings extends FakeGbmBindings {
           'startRevision': startRevision.toDartString(),
         });
         if (answer == 0) _stage(nativeErrorJson('gbm_request_line_history'));
+        return answer;
+      };
+
+  @override
+  RequestReflogDart get requestReflog =>
+      (Pointer<Void> session, Pointer<Utf8> ref) {
+        reflogRequests.add(ref.toDartString());
+        if (answer == 0) _stage(nativeErrorJson('gbm_request_reflog'));
         return answer;
       };
 

@@ -104,3 +104,23 @@ class LineHistoryKey {
   String toString() =>
       'LineHistoryKey($path, $startLine, $endLine, $startRevision)';
 }
+
+/// `gbm_request_reflog`'s argument, the ref as sent: `''` is HEAD, and stays
+/// `''` -- it is not the same key as `'HEAD'`.
+class ReflogKey {
+  const ReflogKey(this.ref);
+
+  factory ReflogKey.fromJson(Map<String, dynamic> json) =>
+      ReflogKey(json['ref'] as String);
+
+  final String ref;
+
+  @override
+  bool operator ==(Object other) => other is ReflogKey && other.ref == ref;
+
+  @override
+  int get hashCode => ref.hashCode;
+
+  @override
+  String toString() => 'ReflogKey($ref)';
+}

@@ -548,7 +548,7 @@ class RepoSessionState {
     this.refsEpoch = 0,
     this.refsCoverRequest = 0,
     this.commitFileCountCache = const <String, int>{},
-    this.lastFileHistory = const <FileHistoryEntry>[],
+    this.lastFileHistory,
     this.commitFiles = const <ChangedFile>[],
     this.selectedCommitFileDiff,
     this.lastLineHistory = const <LineHistoryChunk>[],
@@ -683,7 +683,10 @@ class RepoSessionState {
   /// see GBM_EVENT_COMMIT_FILE_COUNTS_READY. Caching a 0 for an unanswerable
   /// oid would show "0 files" for the rest of the session.
   final Map<String, int> commitFileCountCache;
-  final List<FileHistoryEntry> lastFileHistory;
+
+  /// The file history the panel last asked for, under its key: pending, its
+  /// entries, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory;
   final List<ChangedFile> commitFiles;
   final ParsedDiff? selectedCommitFileDiff;
   final List<LineHistoryChunk> lastLineHistory;
@@ -879,7 +882,7 @@ class RepoSessionState {
     int? refsEpoch,
     int? refsCoverRequest,
     Map<String, int>? commitFileCountCache,
-    List<FileHistoryEntry>? lastFileHistory,
+    KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory,
     List<ChangedFile>? commitFiles,
     ParsedDiff? selectedCommitFileDiff,
     List<LineHistoryChunk>? lastLineHistory,
@@ -1740,9 +1743,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastFileHistory: FileHistoryEntry.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final FileHistoryKey key = FileHistoryKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<FileHistoryKey, List<FileHistoryEntry>>(
+            current: state.lastFileHistory,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    FileHistoryKey,
+                    List<FileHistoryEntry>
+                  >.succeeded(
+                    key,
+                    FileHistoryEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>> r) =>
+                state = state.copyWith(lastFileHistory: r),
           );
         }
       case GbmEventType.lineHistoryReady:
@@ -4541,14 +4561,36 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// `git log --follow` for one file. `startRevision` empty starts from
-  /// HEAD. Async: fires GBM_EVENT_FILE_HISTORY_READY into
-  /// [RepoSessionState.lastFileHistory].
+  /// HEAD. Async: GBM_EVENT_FILE_HISTORY_READY answers into
+  /// [RepoSessionState.lastFileHistory] under this request's key, on success
+  /// and on failure.
   void requestFileHistory(String path, {String startRevision = ''}) {
     if (_session == nullptr) return;
+    final FileHistoryKey key = FileHistoryKey(
+      path: path,
+      startRevision: startRevision,
+    );
+    state = state.copyWith(
+      lastFileHistory:
+          KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
     try {
-      _bindings.requestFileHistory(_session, pathPtr, startRevisionPtr);
+      final int queued = _bindings.requestFileHistory(
+        _session,
+        pathPtr,
+        startRevisionPtr,
+      );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastFileHistory:
+              KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(startRevisionPtr);

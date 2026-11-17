@@ -8,6 +8,7 @@ import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -55,6 +56,36 @@ GbmEvent _blameFailed(String path, String message) =>
       'startLine': 0,
       'endLine': 0,
       'result': null,
+      'error': gitErrorJson(message),
+    });
+
+Map<String, dynamic> _historyEntry(String subject) => <String, dynamic>{
+  'oid': 'a1b2c3',
+  'author': <String, dynamic>{
+    'name': 'Ada',
+    'email': 'ada@example.invalid',
+    'when': 1,
+    'tzOffsetMinutes': 0,
+  },
+  'subject': subject,
+  'status': 'M',
+  'renamedFrom': '',
+  'path': '',
+};
+
+GbmEvent _historyOk(String path, {String startRevision = '', String s = 'x'}) =>
+    readyEvent(GbmEventType.fileHistoryReady, <String, dynamic>{
+      'path': path,
+      'startRevision': startRevision,
+      'entries': <dynamic>[_historyEntry(s)],
+      'error': null,
+    });
+
+GbmEvent _historyFailed(String path, String message) =>
+    readyEvent(GbmEventType.fileHistoryReady, <String, dynamic>{
+      'path': path,
+      'startRevision': '',
+      'entries': null,
       'error': gitErrorJson(message),
     });
 
@@ -143,6 +174,85 @@ void main() {
       expect(bindings.blameRequests, hasLength(1));
       expect(reply()?.key, const BlameKey(path: 'a.txt'));
       expect(reply()?.error?.message, 'Native error in gbm_request_blame');
+      expect(_errorLines(c), before);
+      expect(c.state.lastError, isNull);
+    });
+  });
+
+  group('file history', () {
+    KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? reply() =>
+        c.state.lastFileHistory;
+
+    // (e)
+    test('a request resets the reply to pending for its own key', () {
+      c.requestFileHistory('a.txt');
+      c.debugHandleEvent(_historyOk('a.txt'));
+      expect(reply()?.value, isNotNull);
+
+      c.requestFileHistory('b.txt');
+
+      expect(reply()?.key, const FileHistoryKey(path: 'b.txt'));
+      expect(reply()?.value, isNull);
+      expect(reply()?.error, isNull);
+      expect(
+        bindings.fileHistoryRequests.where((r) => r['path'] == 'b.txt').length,
+        1,
+      );
+    });
+
+    test('a reply for the current key is kept', () {
+      c.requestFileHistory('a.txt', startRevision: 'HEAD~1');
+      c.debugHandleEvent(
+        _historyOk('a.txt', startRevision: 'HEAD~1', s: 'one'),
+      );
+      expect(reply()?.value?.single.subject, 'one');
+    });
+
+    // (b)
+    test('a reply for an older key is dropped', () {
+      c.requestFileHistory('a.txt');
+      c.requestFileHistory('b.txt');
+      c.debugHandleEvent(_historyOk('a.txt'));
+
+      expect(reply()?.key, const FileHistoryKey(path: 'b.txt'));
+      expect(reply()?.value, isNull);
+    });
+
+    // (a)
+    test('a failure reply clears the value and carries the error', () {
+      c.requestFileHistory('a.txt');
+      c.debugHandleEvent(_historyOk('a.txt'));
+      c.requestFileHistory('a.txt');
+      c.debugHandleEvent(_historyFailed('a.txt', 'fatal: bad revision'));
+
+      expect(reply()?.value, isNull);
+      expect(reply()?.error?.message, 'fatal: bad revision');
+    });
+
+    // (f)
+    test('a failure reply logs one error line and leaves lastError alone', () {
+      c.requestFileHistory('a.txt');
+      final int before = _errorLines(c);
+      c.debugHandleEvent(_historyFailed('a.txt', 'fatal: bad revision'));
+
+      expect(_errorLines(c), before + 1);
+      expect(c.state.operationLog.last.message, contains('bad revision'));
+      expect(c.state.lastError, isNull);
+    });
+
+    // (c) + (h)
+    test('an export that queued nothing fails the read without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.requestFileHistory('a.txt');
+
+      expect(bindings.fileHistoryRequests, hasLength(1));
+      expect(reply()?.key, const FileHistoryKey(path: 'a.txt'));
+      expect(
+        reply()?.error?.message,
+        'Native error in gbm_request_file_history',
+      );
       expect(_errorLines(c), before);
       expect(c.state.lastError, isNull);
     });

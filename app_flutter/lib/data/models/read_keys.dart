@@ -41,3 +41,28 @@ class BlameKey {
   @override
   String toString() => 'BlameKey($path, $revision, $startLine, $endLine)';
 }
+
+/// `gbm_request_file_history`'s arguments; `startRevision` empty is HEAD.
+class FileHistoryKey {
+  const FileHistoryKey({required this.path, this.startRevision = ''});
+
+  factory FileHistoryKey.fromJson(Map<String, dynamic> json) => FileHistoryKey(
+    path: json['path'] as String,
+    startRevision: json['startRevision'] as String,
+  );
+
+  final String path;
+  final String startRevision;
+
+  @override
+  bool operator ==(Object other) =>
+      other is FileHistoryKey &&
+      other.path == path &&
+      other.startRevision == startRevision;
+
+  @override
+  int get hashCode => Object.hash(path, startRevision);
+
+  @override
+  String toString() => 'FileHistoryKey($path, $startRevision)';
+}

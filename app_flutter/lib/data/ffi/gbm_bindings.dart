@@ -927,12 +927,12 @@ typedef RemoteRemoveDart = void Function(
   Pointer<Utf8> name,
 );
 
-typedef _RequestFileHistoryNative = Void Function(
+typedef _RequestFileHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,
 );
-typedef RequestFileHistoryDart = void Function(
+typedef RequestFileHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,

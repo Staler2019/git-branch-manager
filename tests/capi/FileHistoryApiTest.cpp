@@ -147,6 +147,40 @@ TEST_F(FileHistoryApiTest, FileHistoryEntriesCarryThePathAsOfTheirOwnCommit) {
         << payload;
 }
 
+bool fileHistoryArrived(const std::vector<std::pair<int32_t, std::string>>& events) {
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_FILE_HISTORY_READY) return true;
+    }
+    return false;
+}
+
+// The reply names the request it answers, so Dart can drop one for a file it has since left
+// (read-failure-states-spec.html, ruling 4). Prefix-matched: each entry carries a `path` too.
+TEST_F(FileHistoryApiTest, TheReplyCarriesTheRequestItAnswers) {
+    EXPECT_EQ(gbm_request_file_history(session_, "new.txt", "HEAD"), 1);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return fileHistoryArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_FILE_HISTORY_READY);
+    EXPECT_EQ(payload.rfind("{\"path\":\"new.txt\",\"startRevision\":\"HEAD\",\"entries\":[", 0),
+              0u)
+        << payload;
+    EXPECT_NE(payload.find("\"error\":null"), std::string::npos) << payload;
+}
+
+// A history git refuses is answered on FILE_HISTORY_READY under its own key, never on the
+// session-wide ERROR_OCCURRED, which matches no request and would leave the last file's list.
+TEST_F(FileHistoryApiTest, AFailedFileHistoryRepliesUnderItsKeyAndNotOnTheErrorEvent) {
+    gbm_request_file_history(session_, "new.txt", "no-such-revision");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return fileHistoryArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_FILE_HISTORY_READY);
+    EXPECT_NE(payload.find("\"startRevision\":\"no-such-revision\""), std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"entries\":null"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":{"), std::string::npos) << payload;
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_ERROR_OCCURRED), "");
+}
+
 TEST_F(FileHistoryApiTest, LineHistoryReturnsTheHunkThatTouchedTheRange) {
     gbm_request_line_history(session_, "new.txt", /*startLine=*/1, /*endLine=*/1, "");
 

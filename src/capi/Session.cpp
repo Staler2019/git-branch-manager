@@ -188,6 +188,24 @@ std::string blamePayload(const std::string& path,
     return payload;
 }
 
+/// FILE_HISTORY_READY's one shape, for a history and for its failure: the request's key, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string fileHistoryPayload(const std::string& path,
+                               const std::string& startRevision,
+                               const std::vector<FileHistoryEntry>* entries,
+                               const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"startRevision\":";
+    jsonAppendEscaped(payload, startRevision);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -2111,16 +2129,17 @@ void Session::requestFileHistory(std::string path, std::string startRevision) {
     postRead(
         ReadLane::Front,
         "Session::requestFileHistory",
-        [this, path = std::move(path), startRevision = std::move(startRevision)]() {
+        [this, path, startRevision]() {
             const GitResult<std::vector<FileHistoryEntry>> result =
                 fileHistoryStore_->fileHistory(path, startRevision, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY,
+                            result ? fileHistoryPayload(path, startRevision, &result.value(), nullptr)
+                                   : fileHistoryPayload(path, startRevision, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, startRevision](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY,
+                            fileHistoryPayload(path, startRevision, nullptr, &error));
+        });
 }
 
 void Session::requestLineHistory(std::string path,

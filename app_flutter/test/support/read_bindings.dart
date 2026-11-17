@@ -45,6 +45,8 @@ class ReadBindings extends FakeGbmBindings {
   int answer = 1;
 
   final List<Map<String, Object?>> blameRequests = <Map<String, Object?>>[];
+  final List<Map<String, Object?>> fileHistoryRequests =
+      <Map<String, Object?>>[];
 
   Uint8List _staged = Uint8List(0);
 
@@ -67,6 +69,17 @@ class ReadBindings extends FakeGbmBindings {
           'endLine': endLine,
         });
         if (answer == 0) _stage(nativeErrorJson('gbm_request_blame'));
+        return answer;
+      };
+
+  @override
+  RequestFileHistoryDart get requestFileHistory =>
+      (Pointer<Void> session, Pointer<Utf8> path, Pointer<Utf8> startRevision) {
+        fileHistoryRequests.add(<String, Object?>{
+          'path': path.toDartString(),
+          'startRevision': startRevision.toDartString(),
+        });
+        if (answer == 0) _stage(nativeErrorJson('gbm_request_file_history'));
         return answer;
       };
 

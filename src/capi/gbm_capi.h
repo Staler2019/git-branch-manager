@@ -134,8 +134,9 @@ enum GbmEventType {
     /// request's key, then a BlameResult JSON or a GitError JSON, the other
     /// null. Reply to gbm_request_blame(), on success and on failure.
     GBM_EVENT_BLAME_READY = 13,
-    /// payload: FileHistoryEntry JSON array. Reply to
-    /// gbm_request_file_history().
+    /// payload: `{path, startRevision, entries, error}` -- the request's key,
+    /// then a FileHistoryEntry JSON array or a GitError JSON, the other null.
+    /// Reply to gbm_request_file_history(), on success and on failure.
     GBM_EVENT_FILE_HISTORY_READY = 14,
     /// payload: LineHistoryChunk JSON array. Reply to
     /// gbm_request_line_history().
@@ -1239,10 +1240,12 @@ GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
 
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires
-/// GBM_EVENT_FILE_HISTORY_READY.
-GBM_API void gbm_request_file_history(GbmSessionHandle session,
-                                      const char* path,
-                                      const char* startRevision);
+/// GBM_EVENT_FILE_HISTORY_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_file_history(GbmSessionHandle session,
+                                         const char* path,
+                                         const char* startRevision);
 
 /// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
 /// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.

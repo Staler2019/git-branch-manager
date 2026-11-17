@@ -190,6 +190,8 @@ class _InteractiveRebasePanelState
               children: <Widget>[
                 Expanded(
                   child: TextField(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-field:upstream'),
                     controller: _upstreamController,
                     onSubmitted: (_) => _session.requestRebasePlan(
                       _upstreamController.text.trim(),
@@ -217,6 +219,8 @@ class _InteractiveRebasePanelState
                     message: 'Load a plan to see the commits it would replay',
                   )
                 : ReorderableListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: todo.length,
                     // The rebase replays oldest-first, so the list order is
                     // the execution order -- dragging a row is editing the

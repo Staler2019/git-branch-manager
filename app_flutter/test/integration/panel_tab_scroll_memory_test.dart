@@ -162,10 +162,22 @@ void main() {
       expect(scrolled, greaterThan(0), reason: 'the drag must have scrolled');
 
       // Away and back -- which unmounts the page and disposes its controller.
-      await _goTo(tester, pumped, otherTab);
-      await _goTo(tester, pumped, reflogTab);
+      // Three times, not once: the toolbar's filter field is a Scrollable
+      // too, and while it shared the tab's storage slot it restored the
+      // list's offset, clamped it to its own extent and saved 0 over it --
+      // the list still read the right value on the first return and lost it
+      // on the second ([TEST-fixture-cannot-disagree] 8: one return could
+      // not see it).
+      for (int visit = 1; visit <= 3; visit++) {
+        await _goTo(tester, pumped, otherTab);
+        await _goTo(tester, pumped, reflogTab);
 
-      expect(_listOffset(tester), closeTo(scrolled, 1.0));
+        expect(
+          _listOffset(tester),
+          closeTo(scrolled, 1.0),
+          reason: 'return $visit',
+        );
+      }
     });
 
     // The claim 「各自」 actually makes, and the one a cross-kind fixture

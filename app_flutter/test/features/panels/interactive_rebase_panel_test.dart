@@ -225,6 +225,7 @@ void main() {
         statusBar: RegExp(r'^2 commits$'),
         filterEnabled: false,
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // Rule 3 makes this list writable, and a filtered order is not the real

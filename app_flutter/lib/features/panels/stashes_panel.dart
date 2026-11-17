@@ -203,6 +203,8 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
                   : 'No stash matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               // P19 list column: stash 編號 + 訊息 + 時間.
               itemBuilder: (context, i) => PanelListRow(

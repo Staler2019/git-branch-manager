@@ -221,6 +221,7 @@ void main() {
         statusBar: RegExp(r'^2 lines$'),
         filterEnabled: false,
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // This list is *file content*, not a named collection, so there is

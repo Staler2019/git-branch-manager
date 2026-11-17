@@ -292,17 +292,15 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                                   kBlameGutterWidth + GbmSpacing.space2,
                             );
                       return GbmCodeHScroll(
+                        // Own scroll-memory slot (expectDistinctScrollStorage).
+                        key: const PageStorageKey<String>('panel-code-hscroll'),
                         contentWidth: cap?.totalWidth ?? 0,
                         codeClipWidth: cap?.clipWidth,
                         verticalController: _vertical,
                         backdrop: colors.surfacePanel,
                         child: ListView.builder(
-                          // Its own storage slot. While a reply is pending the
-                          // list is not mounted, and another Scrollable in
-                          // this tab with the same key chain would restore
-                          // this offset, clamp it to its own extent and save
-                          // 0 over it (P19 rule 1's 各自記憶捲動位置).
-                          key: const PageStorageKey<String>('blame-lines'),
+                          // Own scroll-memory slot (expectDistinctScrollStorage).
+                          key: const PageStorageKey<String>('panel-list'),
                           controller: _vertical,
                           itemCount: lines.length,
                           itemBuilder: (context, i) => _BlameLineRow(

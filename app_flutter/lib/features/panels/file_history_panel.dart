@@ -195,6 +195,8 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
                   : 'No commit matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, i) {
                 final FileHistoryEntry e = visible[i];

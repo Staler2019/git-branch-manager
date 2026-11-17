@@ -180,6 +180,8 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
                         : 'No pattern matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) {
                       final String p = visible[i];
@@ -222,6 +224,8 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
         children: <Widget>[
           Expanded(
             child: TextField(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-field:pattern'),
               controller: _patternController,
               decoration: const InputDecoration(
                 hintText: 'Pattern (e.g. *.psd)',
@@ -268,6 +272,8 @@ class _PatternFiles extends StatelessWidget {
       );
     }
     return ListView.builder(
+      // Own scroll-memory slot (expectDistinctScrollStorage).
+      key: const PageStorageKey<String>('lfs-detail-files'),
       itemCount: files.length,
       itemBuilder: (context, i) {
         final LfsFileInfo f = files[i];

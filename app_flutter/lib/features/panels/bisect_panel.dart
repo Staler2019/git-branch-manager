@@ -261,6 +261,8 @@ class _MarkedSteps extends StatelessWidget {
     }
 
     return ListView.builder(
+      // Own scroll-memory slot (expectDistinctScrollStorage).
+      key: const PageStorageKey<String>('panel-list'),
       itemCount: steps.length,
       itemBuilder: (context, i) => PanelListRow(
         title: steps[i].oid,
@@ -339,6 +341,8 @@ class _StartForm extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return SingleChildScrollView(
+      // Own scroll-memory slot (expectDistinctScrollStorage).
+      key: const PageStorageKey<String>('bisect-detail'),
       padding: const EdgeInsets.all(GbmSpacing.space3),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -352,6 +356,8 @@ class _StartForm extends StatelessWidget {
           ),
           const SizedBox(height: GbmSpacing.space3),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:bad'),
             controller: badController,
             decoration: const InputDecoration(
               labelText: 'Known bad (empty = HEAD)',
@@ -361,6 +367,8 @@ class _StartForm extends StatelessWidget {
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:good'),
             controller: goodController,
             decoration: const InputDecoration(
               labelText: 'Known good',

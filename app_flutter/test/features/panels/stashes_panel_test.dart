@@ -97,6 +97,7 @@ void main() {
           listHeader: 'Stashes · 2',
           statusBar: RegExp(r'^2 stashes$'),
         );
+        await expectDistinctScrollStorage(tester);
       },
     );
 

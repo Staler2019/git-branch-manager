@@ -320,3 +320,79 @@ Future<void> startRefreshSweep(
 
 int countCommand(FakeRepoSessionController fake, String name) =>
     fake.commandLog.where((FakeCommand c) => c.name == name).length;
+
+/// The scroll-memory slot a Scrollable stores its offset under: the
+/// `PageStorageKey`s from it up to its `PageStorage`, the rule Flutter's
+/// `PageStorageBucket._allKeys` applies (page_storage.dart).
+List<Object?> _storageSlot(Element scrollable) {
+  final List<Object?> keys = <Object?>[];
+  bool add(Element e) {
+    final Key? key = e.widget.key;
+    if (key is PageStorageKey) keys.add(key.value);
+    return e.widget is! PageStorage;
+  }
+
+  if (add(scrollable)) scrollable.visitAncestorElements(add);
+  return keys;
+}
+
+/// P19 rule 1's 「各自記憶捲動位置」 holds only if no two Scrollables in a
+/// panel store under the same slot: one that shares the list's slot restores
+/// the list's offset, clamps it to its own extent and saves that over it
+/// (measured: a text field's own Scrollable wrote 0 over the reflog list's
+/// 380). Checked as mounted, then again with the first row selected, so a
+/// detail pane's text fields and scroll views are counted too.
+///
+/// Every panel test calls this once, with its own fixture: a new text field
+/// or scroll view with no key of its own reddens it here.
+Future<void> expectDistinctScrollStorage(WidgetTester tester) async {
+  void check(String when) {
+    final Map<String, List<String>> bySlot = <String, List<String>>{};
+    for (final Element e in find.byType(Scrollable).evaluate()) {
+      final ScrollableState state =
+          (e as StatefulElement).state as ScrollableState;
+      if (!state.position.keepScrollOffset) continue;
+      final String slot = _storageSlot(e).toString();
+      String owner = '?';
+      e.visitAncestorElements((Element a) {
+        final String t = a.widget.runtimeType.toString();
+        if (t == 'TextField' ||
+            t == 'SelectableText' ||
+            t.startsWith('ListView') ||
+            t.startsWith('ReorderableListView') ||
+            t == 'SingleChildScrollView' ||
+            t == 'CustomScrollView') {
+          owner = t;
+          return false;
+        }
+        return true;
+      });
+      (bySlot[slot] ??= <String>[]).add(owner);
+    }
+    // `[]` is the panel tab's own slot (pumpPanel has no tab key above the
+    // panel; PanelPage's adds the same prefix to every slot). Nothing may
+    // store there even alone: the next unkeyed Scrollable added beside it
+    // would share it, and only a rule that names the lone one is local.
+    final Map<String, List<String>> shared = <String, List<String>>{
+      for (final MapEntry<String, List<String>> e in bySlot.entries)
+        if (e.value.length > 1 || e.key == '[]') e.key: e.value,
+    };
+    expect(
+      shared,
+      isEmpty,
+      reason: '$when: Scrollables sharing a slot or using the tab\'s own',
+    );
+  }
+
+  check('as mounted');
+  final Finder rows = find.byType(PanelListRow);
+  if (rows.evaluate().isNotEmpty) {
+    await tester.tap(rows.first);
+    // Not pumpAndSettle: selecting a stash or a file-history commit puts a
+    // spinner on the detail pane until a reply this fake never sends
+    // ([TEST-no-pumpandsettle-with-spinner]).
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    check('with the first row selected');
+  }
+}

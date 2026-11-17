@@ -271,6 +271,7 @@ void main() {
         listHeader: 'Reflog · 2',
         statusBar: RegExp(r'^2 entries$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('the filter narrows the list, the header and the status line', (

@@ -196,6 +196,8 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
               children: <Widget>[
                 Expanded(
                   child: TextField(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-field:ref'),
                     controller: _refController,
                     onSubmitted: (_) => _load(),
                     decoration: const InputDecoration(
@@ -218,6 +220,8 @@ class _ReflogPanelState extends ConsumerState<ReflogPanel> {
                         : 'No reflog entry matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) {
                       final ReflogEntry e = visible[i];

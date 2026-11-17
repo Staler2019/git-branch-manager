@@ -202,6 +202,8 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
                         : 'No commit matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) => PanelListRow(
                       title: visible[i].subject,
@@ -257,6 +259,8 @@ class _RangeFields extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: TextField(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-field:start'),
               controller: startController,
               keyboardType: TextInputType.number,
               onSubmitted: (_) => onSubmit(),
@@ -270,6 +274,8 @@ class _RangeFields extends StatelessWidget {
           const SizedBox(width: GbmSpacing.space2),
           Expanded(
             child: TextField(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-field:end'),
               controller: endController,
               keyboardType: TextInputType.number,
               onSubmitted: (_) => onSubmit(),

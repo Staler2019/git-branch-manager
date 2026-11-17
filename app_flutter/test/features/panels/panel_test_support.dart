@@ -45,11 +45,20 @@ GbmColors gbmColorsFor(WidgetTester tester) =>
 /// `commandLog` to assert a toolbar action reached the session) and the
 /// container (to read other providers).
 class PumpedPanel {
-  const PumpedPanel(this.container, this.fake, this.router);
+  const PumpedPanel(this.container, this.controller, this.router);
 
   final ProviderContainer container;
-  final FakeRepoSessionController fake;
+
+  /// The session controller under the panel: the fake, or whatever
+  /// `controllerFactory` built.
+  final RepoSessionController controller;
   final GoRouter router;
+
+  /// The fake controller; only for a panel pumped without
+  /// `controllerFactory`.
+  FakeRepoSessionController get fake => controller is FakeRepoSessionController
+      ? controller as FakeRepoSessionController
+      : throw StateError('pumped with a controllerFactory: use controller');
 }
 
 /// Pumps [panel] behind a minimal GoRouter with [state] as the session.
@@ -66,6 +75,7 @@ Future<PumpedPanel> pumpPanel(
   List<RouteBase> extraRoutes = const <RouteBase>[],
   Size surfaceSize = const Size(1200, 800),
   Map<String, Object> initialPrefs = const <String, Object>{},
+  RepoSessionController Function()? controllerFactory,
 }) async {
   tester.view.physicalSize = surfaceSize;
   tester.view.devicePixelRatio = 1.0;
@@ -75,10 +85,11 @@ Future<PumpedPanel> pumpPanel(
   SharedPreferences.setMockInitialValues(initialPrefs);
   final SharedPreferences prefs = await SharedPreferences.getInstance();
 
-  final FakeRepoSessionController fake = FakeRepoSessionController(
-    panelTestIdentity,
-    state,
-  );
+  // A real controller (over a bindings fake) where the claim is about the
+  // controller's own reaction to the panel -- read-failure-states' (j).
+  final RepoSessionController fake =
+      controllerFactory?.call() ??
+      FakeRepoSessionController(panelTestIdentity, state);
   final ProviderContainer container = ProviderContainer(
     overrides: <Override>[
       sharedPreferencesProvider.overrideWithValue(prefs),

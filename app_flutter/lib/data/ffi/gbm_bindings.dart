@@ -785,14 +785,16 @@ typedef ProvideCredentialDart = void Function(
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
-typedef _RequestBlameNative = Void Function(
+typedef _RequestBlameNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,
   Int32 startLine,
   Int32 endLine,
 );
-typedef RequestBlameDart = void Function(
+
+/// 1 = queued, 0 = nothing queued and no reply will come (gbm_capi.h).
+typedef RequestBlameDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,

@@ -17,6 +17,8 @@
 // the behavioural half, proving a seeded width actually reaches the pane.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/blame_panel.dart';
 import 'package:gbm_flutter/features/panels/file_history_panel.dart';
@@ -63,7 +65,10 @@ void main() {
         BlamePanel(identity: panelTestIdentity, path: _pathA),
         state: const RepoSessionState(
           isOpen: true,
-          lastBlame: BlameResult(lines: <BlameLine>[_line], truncated: false),
+          lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+            BlameKey(path: _pathA),
+            BlameResult(lines: <BlameLine>[_line], truncated: false),
+          ),
         ),
         initialPrefs: const <String, Object>{
           'panelLayout.panel.blame:$_pathA': '[$_seeded]',
@@ -84,7 +89,10 @@ void main() {
         BlamePanel(identity: panelTestIdentity, path: _pathB),
         state: const RepoSessionState(
           isOpen: true,
-          lastBlame: BlameResult(lines: <BlameLine>[_line], truncated: false),
+          lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+            BlameKey(path: _pathB),
+            BlameResult(lines: <BlameLine>[_line], truncated: false),
+          ),
         ),
         initialPrefs: const <String, Object>{
           'panelLayout.panel.blame:$_pathA': '[$_seeded]',

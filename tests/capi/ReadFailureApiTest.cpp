@@ -190,12 +190,51 @@ TEST_F(ReadFailureApiTest, HistoryStillRefreshesAfterARefreshThatThrew) {
     }));
 }
 
-TEST_F(ReadFailureApiTest, ABlameThatThrowsRepliesWithAnError) {
-    gbm_test_fail_read("Session::requestBlame");
-    gbm_request_blame(session_, "file.txt", "", 0, 0);
+/// Blame answers a failure on its own reply, under its key (read-failure-states-spec.html);
+/// `"error":{` is a failed reply, `"error":null` a successful one.
+std::size_t countFailedBlames(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_BLAME_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
 
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+TEST_F(ReadFailureApiTest, ABlameThatThrowsRepliesUnderItsPathWithAnError) {
+    gbm_test_fail_read("Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BLAME_READY);
+    EXPECT_TRUE(contains(reply, "\"path\":\"file.txt\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+// A throw before postRead's try -- its own make_shared, or the export's string temporaries --
+// never reaches the pool or onFailure. The export answers it: 0, with the error staged, and no
+// reply follows, so Dart sees exactly one of the two.
+TEST_F(ReadFailureApiTest, ABlameThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
     EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_BLAME_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_blame\"")) << reports[0];
+}
+
+// A hand-off that throws inside postRead's try is answered by onFailure on the caller's thread,
+// so the export has queued an answer and returns 1 -- never 0 as well.
+TEST_F(ReadFailureApiTest, ABlameThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 // Dart keeps a fetch-triggered preview's failure out of the banner by matching this argv
@@ -224,17 +263,19 @@ TEST_F(ReadFailureApiTest, AnArmedNameIsNotUsedUpByAnotherRead) {
     EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 0u);
 
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 TEST_F(ReadFailureApiTest, AnArmedNameFailsOneReadOnly) {
     gbm_test_fail_read("Session::requestBlame");
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
 
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
-    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 1u);
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_BLAME_READY) >= 2; }));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 // The reads below answer a failure in their own reply rather than (or as well as) on
@@ -381,13 +422,12 @@ TEST_F(ReadFailureApiTest, ConcurrentBlamesFailOnlyTheOneThatTookTheArmedName) {
     for (std::thread& poster : posters) poster.join();
 
     ASSERT_TRUE(log_.waitFor([](const Events& events) {
-        return countOf(events, GBM_EVENT_BLAME_READY) + countOf(events, GBM_EVENT_ERROR_OCCURRED) >=
-               static_cast<std::size_t>(kReads);
+        return countOf(events, GBM_EVENT_BLAME_READY) >= static_cast<std::size_t>(kReads);
     }));
     sharedReadPool().drain();
     const Events events = log_.snapshot();
-    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 1u);
-    EXPECT_EQ(countOf(events, GBM_EVENT_BLAME_READY), static_cast<std::size_t>(kReads - 1));
+    EXPECT_EQ(countFailedBlames(events), 1u);
+    EXPECT_EQ(countOf(events, GBM_EVENT_BLAME_READY), static_cast<std::size_t>(kReads));
     EXPECT_EQ(nativeErrors().size(), 1u);
 }
 

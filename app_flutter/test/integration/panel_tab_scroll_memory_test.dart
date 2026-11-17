@@ -13,6 +13,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
@@ -98,6 +100,25 @@ Future<void> _goTo(
   await tester.pumpAndSettle();
 }
 
+/// Answers the blame [path]'s tab just asked for. Each blame tab draws only
+/// the reply to its own request (read-failure-states-spec.html, ruling 4),
+/// and the fake controller only logs requests, so the test answers each one.
+Future<void> _answerBlame(
+  WidgetTester tester,
+  PumpedWorkspace pumped,
+  String path,
+) async {
+  pumped.controller.emit(
+    pumped.controller.state.copyWith(
+      lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+        BlameKey(path: path),
+        BlameResult(lines: _blame, truncated: false),
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
 /// The offset of the reflog panel's own list.
 ///
 /// Found by type rather than by a key so the assertion does not depend on
@@ -149,9 +170,11 @@ void main() {
 
     // The claim 「各自」 actually makes, and the one a cross-kind fixture
     // cannot test: **two tabs of one kind**. Blame is the sharpest subject
-    // available, because both tabs read the same session-level `lastBlame`
-    // and so render *byte-identical* lists -- the only thing that can tell
-    // the two scroll positions apart is the tab id. A memory keyed on the
+    // available, because both tabs are answered with *byte-identical* lists
+    // (~~both tabs read the same session-level `lastBlame`~~ -- each now draws
+    // only the reply to its own path, so [_answerBlame] answers each switch
+    // with the same lines) -- the only thing that can tell the two scroll
+    // positions apart is the tab id. A memory keyed on the
     // panel kind (`'panel.blame'`, which is what the splitter ids still do
     // for the singleton kinds) makes these two share one offset, which is
     // exactly the failure the rule names.
@@ -169,7 +192,10 @@ void main() {
         identity: _identity,
         initialState: RepoSessionState(
           isOpen: true,
-          lastBlame: BlameResult(lines: _blame, truncated: false),
+          lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+            const BlameKey(path: 'lib/a.dart'),
+            BlameResult(lines: _blame, truncated: false),
+          ),
         ),
         extraRoutes: _panelRoute,
       );
@@ -183,12 +209,14 @@ void main() {
       expect(first, isNot(second));
 
       await _goTo(tester, pumped, first);
+      await _answerBlame(tester, pumped, 'lib/a.dart');
       await tester.drag(find.byType(ListView), const Offset(0, -400));
       await tester.pumpAndSettle();
       final double scrolled = _listOffset(tester);
       expect(scrolled, greaterThan(0), reason: 'the drag must have scrolled');
 
       await _goTo(tester, pumped, second);
+      await _answerBlame(tester, pumped, 'lib/b.dart');
       expect(
         _listOffset(tester),
         0,
@@ -198,6 +226,7 @@ void main() {
       );
 
       await _goTo(tester, pumped, first);
+      await _answerBlame(tester, pumped, 'lib/a.dart');
       expect(_listOffset(tester), closeTo(scrolled, 1.0));
     });
   });

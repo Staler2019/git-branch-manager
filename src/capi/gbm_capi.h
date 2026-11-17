@@ -130,7 +130,9 @@ enum GbmEventType {
     /// operation belongs to another session open on the same directories.
     GBM_EVENT_OPERATION_LOG_RECORD = 12,
 
-    /// payload: BlameResult JSON. Reply to gbm_request_blame().
+    /// payload: `{path, revision, startLine, endLine, result, error}` -- the
+    /// request's key, then a BlameResult JSON or a GitError JSON, the other
+    /// null. Reply to gbm_request_blame(), on success and on failure.
     GBM_EVENT_BLAME_READY = 13,
     /// payload: FileHistoryEntry JSON array. Reply to
     /// gbm_request_file_history().
@@ -1191,16 +1193,18 @@ GBM_API int32_t gbm_askpass_main(int32_t argc, const char* const* argv);
 
 /// Blames `path` as of `revision` (empty means the working tree).
 /// `startLine`/`endLine` are 1-based and inclusive; either 0 blames the
-/// whole file. Async: fires GBM_EVENT_BLAME_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure. A newer request for the same
+/// whole file. Async: fires GBM_EVENT_BLAME_READY on success and on failure
+/// (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was
+/// queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()). A newer request for the same
 /// session jumps ahead of any older, still-queued one (interactive
 /// priority, like requesting a different file's diff while a slow one is
 /// still loading).
-GBM_API void gbm_request_blame(GbmSessionHandle session,
-                               const char* path,
-                               const char* revision,
-                               int32_t startLine,
-                               int32_t endLine);
+GBM_API int32_t gbm_request_blame(GbmSessionHandle session,
+                                  const char* path,
+                                  const char* revision,
+                                  int32_t startLine,
+                                  int32_t endLine);
 
 /// Batch commit metadata (author/subject/body) for `oids`, e.g. the rows
 /// currently visible in a scrolling commit list. Backed by a single

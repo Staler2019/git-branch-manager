@@ -164,6 +164,30 @@ std::string fileAtRevisionPayload(const std::string& revision,
     return payload;
 }
 
+/// BLAME_READY's one shape, for a blame and for its failure: the request's key, then exactly one
+/// of `result` and `error` non-null (read-failure-states-spec.html).
+std::string blamePayload(const std::string& path,
+                         const std::string& revision,
+                         int startLine,
+                         int endLine,
+                         const BlameResult* result,
+                         const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"revision\":";
+    jsonAppendEscaped(payload, revision);
+    payload += ",\"startLine\":";
+    jsonAppendInt(payload, startLine);
+    payload += ",\"endLine\":";
+    jsonAppendInt(payload, endLine);
+    payload += ",\"result\":";
+    payload += result != nullptr ? toJson(*result) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -358,6 +382,11 @@ void postRead(ReadLane lane,
               std::function<void()> task,
               std::function<void(const GitError&)> onFailure,
               std::function<void()> onAlways) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    // Stands in for the two make_shared below throwing: outside the try, so it
+    // propagates to the export, which answers with 0 instead of a reply.
+    throwIfArmedForTest("pre:" + where);
+#endif
     // Shared with `run`, so a hand-off that throws after `run` has been moved
     // away can still answer from here.
     const auto failure =
@@ -1837,16 +1866,18 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
     postRead(
         ReadLane::Front,
         "Session::requestBlame",
-        [this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
+        [this, path, revision, startLine, endLine]() {
             const GitResult<BlameResultPtr> result =
                 blameStore_->blame(path, revision, startLine, endLine, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
+            callbacks_.emit(
+                GBM_EVENT_BLAME_READY,
+                result ? blamePayload(path, revision, startLine, endLine, result.value().get(), nullptr)
+                       : blamePayload(path, revision, startLine, endLine, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, revision, startLine, endLine](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BLAME_READY,
+                            blamePayload(path, revision, startLine, endLine, nullptr, &error));
+        });
 }
 
 void Session::requestCommitMeta(std::vector<std::string> oids) {

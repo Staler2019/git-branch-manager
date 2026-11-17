@@ -13,6 +13,8 @@ import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
 import '../models/branch_deletion_probe.dart';
 import '../models/blame_result.dart';
+import '../models/keyed_read_reply.dart';
+import '../models/read_keys.dart';
 import '../models/changed_file.dart';
 import '../models/clean_entry.dart';
 import '../models/commit_meta.dart';
@@ -626,7 +628,10 @@ class RepoSessionState {
   /// compares this, not the log's length: a replacement leaves the length
   /// alone, and so does an append once the log is at its cap.
   final int operationLogRevision;
-  final BlameResult? lastBlame;
+
+  /// The blame the panel last asked for, under its key: pending, its lines, or
+  /// its failure (read-failure-states-spec.html).
+  final KeyedReadReply<BlameKey, BlameResult>? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
   /// accumulated across every GBM_EVENT_COMMIT_META_READY reply rather than
@@ -866,7 +871,7 @@ class RepoSessionState {
     bool clearCredentialPrompt = false,
     List<GbmLogEntry>? operationLog,
     int? operationLogRevision,
-    BlameResult? lastBlame,
+    KeyedReadReply<BlameKey, BlameResult>? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     int? commitMetaReplySeq,
     int? commitOutcomeSeq,
@@ -1564,7 +1569,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.blameReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
+          final BlameKey key = BlameKey.fromJson(payload);
+          final Object? result = payload['result'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<BlameKey, BlameResult>(
+            current: state.lastBlame,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<BlameKey, BlameResult>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<BlameKey, BlameResult>.succeeded(
+                    key,
+                    BlameResult.fromJson(result! as Map<String, dynamic>),
+                  ),
+            write: (KeyedReadReply<BlameKey, BlameResult> r) =>
+                state = state.copyWith(lastBlame: r),
+          );
         }
       case GbmEventType.commitMetaReady:
         // Counted even when empty, and even when the payload cannot be
@@ -4185,11 +4206,53 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     state = state.copyWith(clearCredentialPrompt: true);
   }
 
+  /// Installs [reply] through [write] when it answers [current]'s request,
+  /// and drops it otherwise: the surface has asked for something else since.
+  /// A failure is logged as the session-wide `ERROR_OCCURRED` handler logs
+  /// one, without writing [RepoSessionState.lastError] -- these reads show
+  /// their failure on their own surface (read-failure-states-spec.html).
+  void _applyKeyedReply<K extends Object, V extends Object>({
+    required KeyedReadReply<K, V>? current,
+    required KeyedReadReply<K, V> reply,
+    required void Function(KeyedReadReply<K, V>) write,
+  }) {
+    if (current == null || current.key != reply.key) return;
+    write(reply);
+    if (reply.error case final GitError error) {
+      state = state.withOperationRecord(
+        AppLogEvents.errorOccurred(
+          codeName: error.codeName,
+          message: error.message,
+          atEpochMs: _nowEpochMs(),
+        ),
+        maxEntries: maxOperationLogEntries,
+      );
+    }
+  }
+
+  /// What a read export that returned 0 staged: nothing was queued, so no
+  /// reply will come. The native error channel has already logged it, so
+  /// the caller adds no log line ([branchCheckout]'s convention).
+  GitError _stagedNativeError() {
+    final String staged = readLastResultJson(_bindings);
+    final Object? json = staged.isEmpty ? null : jsonDecode(staged);
+    return json is Map<String, dynamic>
+        ? GitError.fromJson(json)
+        : const GitError(
+            code: 1,
+            codeName: 'Unknown',
+            message: 'The read could not be started',
+            detail: '',
+            argv: <String>[],
+            exitCode: -1,
+          );
+  }
+
   /// `git blame`. `revision` empty blames from the working copy; `startLine`/
-  /// `endLine` both 0 blames the whole file. Async: fires
-  /// GBM_EVENT_BLAME_READY into [RepoSessionState.lastBlame]. A newer call
-  /// supersedes an older still-queued one (see gbm_request_blame()'s doc
-  /// comment in gbm_capi.h).
+  /// `endLine` both 0 blames the whole file. Async: GBM_EVENT_BLAME_READY
+  /// answers into [RepoSessionState.lastBlame] under this request's key, on
+  /// success and on failure. A newer call supersedes an older still-queued
+  /// one (see gbm_request_blame()'s doc comment in gbm_capi.h).
   void requestBlame(
     String path, {
     String revision = '',
@@ -4197,16 +4260,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     int endLine = 0,
   }) {
     if (_session == nullptr) return;
+    final BlameKey key = BlameKey(
+      path: path,
+      revision: revision,
+      startLine: startLine,
+      endLine: endLine,
+    );
+    state = state.copyWith(
+      lastBlame: KeyedReadReply<BlameKey, BlameResult>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> revisionPtr = revision.toNativeUtf8();
     try {
-      _bindings.requestBlame(
+      final int queued = _bindings.requestBlame(
         _session,
         pathPtr,
         revisionPtr,
         startLine,
         endLine,
       );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastBlame: KeyedReadReply<BlameKey, BlameResult>.failed(
+            key,
+            _stagedNativeError(),
+          ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(revisionPtr);

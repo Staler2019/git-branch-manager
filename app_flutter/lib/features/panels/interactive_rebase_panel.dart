@@ -146,6 +146,11 @@ class _InteractiveRebasePanelState
     final bool answersThisPanel = reply != null && reply.key == _sentKey;
     _seedFrom(answersThisPanel ? reply.value : null);
     final GitError? error = answersThisPanel ? reply.error : null;
+    // The upstream the drawn plan was loaded for -- what Start replays onto,
+    // never the field's current text, which may hold one not loaded yet.
+    final String? plannedUpstream = answersThisPanel
+        ? reply.key.upstream
+        : null;
 
     final List<RebaseTodoEntry> todo = _todo ?? const <RebaseTodoEntry>[];
     final RebaseTodoEntry? selected = todo
@@ -173,12 +178,9 @@ class _InteractiveRebasePanelState
           GbmButton(
             label: 'Start',
             kind: GbmButtonKind.primary,
-            onPressed: todo.isEmpty || rebaseRunning
+            onPressed: todo.isEmpty || rebaseRunning || plannedUpstream == null
                 ? null
-                : () => _session.startInteractiveRebase(
-                    _upstreamController.text.trim(),
-                    todo,
-                  ),
+                : () => _session.startInteractiveRebase(plannedUpstream, todo),
           ),
         ],
         maintenance: <Widget>[

@@ -201,6 +201,31 @@ void main() {
     expect(panelButton(tester, 'Start').onPressed, isNotNull);
   });
 
+  // The plan belongs to the upstream it was loaded for. Typing another one
+  // without loading it changes nothing drawn, so Start must not replay
+  // main's todo onto it: the native side swaps git's own todo for this one
+  // wholesale (RebaseOps.cpp), and the commits only `develop..HEAD` holds
+  // would be dropped.
+  testWidgets('Start replays the plan onto the upstream it was loaded for', (
+    tester,
+  ) async {
+    final PumpedPanel pumped = await _pumpWithMainLoaded(tester);
+    await tester.enterText(_upstreamField, 'develop');
+    // An unrelated session change (a refresh, say) rebuilds the panel with
+    // the new text in the field; the plan's upstream must not follow it.
+    pumped.fake.emit(pumped.fake.state.copyWith(isOpen: true));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Start'));
+    await tester.pumpAndSettle();
+
+    final List<FakeCommand> starts = pumped.fake.commandLog
+        .where((FakeCommand c) => c.name == 'startInteractiveRebase')
+        .toList();
+    expect(starts, hasLength(1));
+    expect(starts.single.args['upstream'], 'main');
+  });
+
   // Over the real controller: Load plan sends the typed upstream once, and
   // the session is pending under it.
   testWidgets('Load plan sends the upstream once and resets', (tester) async {

@@ -206,6 +206,30 @@ std::string fileHistoryPayload(const std::string& path,
     return payload;
 }
 
+/// LINE_HISTORY_READY's one shape, for a history and for its failure: the request's key, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string lineHistoryPayload(const std::string& path,
+                               int startLine,
+                               int endLine,
+                               const std::string& startRevision,
+                               const std::vector<LineHistoryChunk>* entries,
+                               const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"startLine\":";
+    jsonAppendInt(payload, startLine);
+    payload += ",\"endLine\":";
+    jsonAppendInt(payload, endLine);
+    payload += ",\"startRevision\":";
+    jsonAppendEscaped(payload, startRevision);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -2149,20 +2173,21 @@ void Session::requestLineHistory(std::string path,
     postRead(
         ReadLane::Front,
         "Session::requestLineHistory",
-        [this,
-         path = std::move(path),
-         startLine,
-         endLine,
-         startRevision = std::move(startRevision)]() {
+        [this, path, startLine, endLine, startRevision]() {
             const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
                 path, startLine, endLine, startRevision, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+            callbacks_.emit(
+                GBM_EVENT_LINE_HISTORY_READY,
+                result ? lineHistoryPayload(
+                             path, startLine, endLine, startRevision, &result.value(), nullptr)
+                       : lineHistoryPayload(
+                             path, startLine, endLine, startRevision, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, startLine, endLine, startRevision](const GitError& error) {
+            callbacks_.emit(
+                GBM_EVENT_LINE_HISTORY_READY,
+                lineHistoryPayload(path, startLine, endLine, startRevision, nullptr, &error));
+        });
 }
 
 void Session::requestReflog(std::string ref) {

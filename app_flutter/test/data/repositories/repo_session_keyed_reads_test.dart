@@ -9,6 +9,7 @@ import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
 import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
+import 'package:gbm_flutter/data/models/line_history_chunk.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
@@ -84,6 +85,38 @@ GbmEvent _historyOk(String path, {String startRevision = '', String s = 'x'}) =>
 GbmEvent _historyFailed(String path, String message) =>
     readyEvent(GbmEventType.fileHistoryReady, <String, dynamic>{
       'path': path,
+      'startRevision': '',
+      'entries': null,
+      'error': gitErrorJson(message),
+    });
+
+Map<String, dynamic> _chunk(String subject) => <String, dynamic>{
+  'oid': 'a1b2c3',
+  'author': <String, dynamic>{
+    'name': 'Ada',
+    'email': 'ada@example.invalid',
+    'when': 1,
+    'tzOffsetMinutes': 0,
+  },
+  'subject': subject,
+  'diffText': '@@ -1 +1 @@',
+};
+
+GbmEvent _linesOk(String path, int start, int end, {String s = 'x'}) =>
+    readyEvent(GbmEventType.lineHistoryReady, <String, dynamic>{
+      'path': path,
+      'startLine': start,
+      'endLine': end,
+      'startRevision': '',
+      'entries': <dynamic>[_chunk(s)],
+      'error': null,
+    });
+
+GbmEvent _linesFailed(String path, int start, int end, String message) =>
+    readyEvent(GbmEventType.lineHistoryReady, <String, dynamic>{
+      'path': path,
+      'startLine': start,
+      'endLine': end,
       'startRevision': '',
       'entries': null,
       'error': gitErrorJson(message),
@@ -174,6 +207,91 @@ void main() {
       expect(bindings.blameRequests, hasLength(1));
       expect(reply()?.key, const BlameKey(path: 'a.txt'));
       expect(reply()?.error?.message, 'Native error in gbm_request_blame');
+      expect(_errorLines(c), before);
+      expect(c.state.lastError, isNull);
+    });
+  });
+
+  group('line history', () {
+    KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? reply() =>
+        c.state.lastLineHistory;
+
+    // (e)
+    test('a request resets the reply to pending for its own key', () {
+      c.requestLineHistory('a.txt', 1, 2);
+      c.debugHandleEvent(_linesOk('a.txt', 1, 2));
+      expect(reply()?.value, isNotNull);
+
+      c.requestLineHistory('a.txt', 1, 12);
+
+      expect(
+        reply()?.key,
+        const LineHistoryKey(path: 'a.txt', startLine: 1, endLine: 12),
+      );
+      expect(reply()?.value, isNull);
+      expect(reply()?.error, isNull);
+      expect(
+        bindings.lineHistoryRequests.where((r) => r['endLine'] == 12).length,
+        1,
+      );
+    });
+
+    test('a reply for the current key is kept', () {
+      c.requestLineHistory('a.txt', 3, 4);
+      c.debugHandleEvent(_linesOk('a.txt', 3, 4, s: 'one'));
+      expect(reply()?.value?.single.subject, 'one');
+    });
+
+    // (b) Same path, older range: the range is part of the key.
+    test('a reply for an older range is dropped', () {
+      c.requestLineHistory('a.txt', 1, 2);
+      c.requestLineHistory('a.txt', 1, 12);
+      c.debugHandleEvent(_linesOk('a.txt', 1, 2));
+
+      expect(reply()?.key.endLine, 12);
+      expect(reply()?.value, isNull);
+    });
+
+    // (a)
+    test('a failure reply clears the value and carries the error', () {
+      c.requestLineHistory('a.txt', 1, 2);
+      c.debugHandleEvent(_linesOk('a.txt', 1, 2));
+      c.requestLineHistory('a.txt', 1, 2);
+      c.debugHandleEvent(
+        _linesFailed('a.txt', 1, 2, 'fatal: file a.txt has only 1 lines'),
+      );
+
+      expect(reply()?.value, isNull);
+      expect(reply()?.error?.message, 'fatal: file a.txt has only 1 lines');
+    });
+
+    // (f)
+    test('a failure reply logs one error line and leaves lastError alone', () {
+      c.requestLineHistory('a.txt', 1, 2);
+      final int before = _errorLines(c);
+      c.debugHandleEvent(_linesFailed('a.txt', 1, 2, 'fatal: bad range'));
+
+      expect(_errorLines(c), before + 1);
+      expect(c.state.operationLog.last.message, contains('bad range'));
+      expect(c.state.lastError, isNull);
+    });
+
+    // (c) + (h)
+    test('an export that queued nothing fails the read without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.requestLineHistory('a.txt', 1, 2);
+
+      expect(bindings.lineHistoryRequests, hasLength(1));
+      expect(
+        reply()?.key,
+        const LineHistoryKey(path: 'a.txt', startLine: 1, endLine: 2),
+      );
+      expect(
+        reply()?.error?.message,
+        'Native error in gbm_request_line_history',
+      );
       expect(_errorLines(c), before);
       expect(c.state.lastError, isNull);
     });

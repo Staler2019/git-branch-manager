@@ -551,7 +551,7 @@ class RepoSessionState {
     this.lastFileHistory,
     this.commitFiles = const <ChangedFile>[],
     this.selectedCommitFileDiff,
-    this.lastLineHistory = const <LineHistoryChunk>[],
+    this.lastLineHistory,
     this.lastReflog = const <ReflogEntry>[],
     this.undoJournal = const <UndoEntry>[],
     this.lastCleanPreview = const <CleanEntry>[],
@@ -689,7 +689,10 @@ class RepoSessionState {
   final KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory;
   final List<ChangedFile> commitFiles;
   final ParsedDiff? selectedCommitFileDiff;
-  final List<LineHistoryChunk> lastLineHistory;
+
+  /// The line history the panel last asked for, under its key: pending, its
+  /// steps, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory;
 
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
   final List<ReflogEntry> lastReflog;
@@ -885,7 +888,7 @@ class RepoSessionState {
     KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory,
     List<ChangedFile>? commitFiles,
     ParsedDiff? selectedCommitFileDiff,
-    List<LineHistoryChunk>? lastLineHistory,
+    KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory,
     List<ReflogEntry>? lastReflog,
     List<UndoEntry>? undoJournal,
     List<CleanEntry>? lastCleanPreview,
@@ -1767,9 +1770,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.lineHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastLineHistory: LineHistoryChunk.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final LineHistoryKey key = LineHistoryKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<LineHistoryKey, List<LineHistoryChunk>>(
+            current: state.lastLineHistory,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    LineHistoryKey,
+                    List<LineHistoryChunk>
+                  >.succeeded(
+                    key,
+                    LineHistoryChunk.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>> r) =>
+                state = state.copyWith(lastLineHistory: r),
           );
         }
       case GbmEventType.reflogReady:
@@ -4598,8 +4618,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// `git log -L startLine,endLine:path`. `startRevision` empty starts from
-  /// HEAD. Async: fires GBM_EVENT_LINE_HISTORY_READY into
-  /// [RepoSessionState.lastLineHistory].
+  /// HEAD. Async: GBM_EVENT_LINE_HISTORY_READY answers into
+  /// [RepoSessionState.lastLineHistory] under this request's key, on success
+  /// and on failure.
   void requestLineHistory(
     String path,
     int startLine,
@@ -4607,16 +4628,35 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     String startRevision = '',
   }) {
     if (_session == nullptr) return;
+    final LineHistoryKey key = LineHistoryKey(
+      path: path,
+      startLine: startLine,
+      endLine: endLine,
+      startRevision: startRevision,
+    );
+    state = state.copyWith(
+      lastLineHistory:
+          KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
     try {
-      _bindings.requestLineHistory(
+      final int queued = _bindings.requestLineHistory(
         _session,
         pathPtr,
         startLine,
         endLine,
         startRevisionPtr,
       );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastLineHistory:
+              KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(startRevisionPtr);

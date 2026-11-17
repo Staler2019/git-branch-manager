@@ -938,14 +938,14 @@ typedef RequestFileHistoryDart = int Function(
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestLineHistoryNative = Void Function(
+typedef _RequestLineHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Int32 startLine,
   Int32 endLine,
   Pointer<Utf8> startRevision,
 );
-typedef RequestLineHistoryDart = void Function(
+typedef RequestLineHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   int startLine,

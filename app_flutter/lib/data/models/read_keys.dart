@@ -66,3 +66,41 @@ class FileHistoryKey {
   @override
   String toString() => 'FileHistoryKey($path, $startRevision)';
 }
+
+/// `gbm_request_line_history`'s arguments: the range as sent, `startRevision`
+/// empty is HEAD.
+class LineHistoryKey {
+  const LineHistoryKey({
+    required this.path,
+    required this.startLine,
+    required this.endLine,
+    this.startRevision = '',
+  });
+
+  factory LineHistoryKey.fromJson(Map<String, dynamic> json) => LineHistoryKey(
+    path: json['path'] as String,
+    startLine: json['startLine'] as int,
+    endLine: json['endLine'] as int,
+    startRevision: json['startRevision'] as String,
+  );
+
+  final String path;
+  final int startLine;
+  final int endLine;
+  final String startRevision;
+
+  @override
+  bool operator ==(Object other) =>
+      other is LineHistoryKey &&
+      other.path == path &&
+      other.startLine == startLine &&
+      other.endLine == endLine &&
+      other.startRevision == startRevision;
+
+  @override
+  int get hashCode => Object.hash(path, startLine, endLine, startRevision);
+
+  @override
+  String toString() =>
+      'LineHistoryKey($path, $startLine, $endLine, $startRevision)';
+}

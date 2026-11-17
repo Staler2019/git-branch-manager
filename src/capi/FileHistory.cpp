@@ -15,15 +15,17 @@ GBM_API int32_t gbm_request_file_history(GbmSessionHandle session,
     return 0;
 }
 
-GBM_API void gbm_request_line_history(GbmSessionHandle session,
-                                      const char* path,
-                                      int32_t startLine,
-                                      int32_t endLine,
-                                      const char* startRevision) try {
+GBM_API int32_t gbm_request_line_history(GbmSessionHandle session,
+                                         const char* path,
+                                         int32_t startLine,
+                                         int32_t endLine,
+                                         const char* startRevision) try {
     toSession(session)->requestLineHistory(path != nullptr ? path : "",
                                            startLine,
                                            endLine,
                                            startRevision != nullptr ? startRevision : "");
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }

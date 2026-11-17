@@ -138,8 +138,10 @@ enum GbmEventType {
     /// then a FileHistoryEntry JSON array or a GitError JSON, the other null.
     /// Reply to gbm_request_file_history(), on success and on failure.
     GBM_EVENT_FILE_HISTORY_READY = 14,
-    /// payload: LineHistoryChunk JSON array. Reply to
-    /// gbm_request_line_history().
+    /// payload: `{path, startLine, endLine, startRevision, entries, error}` --
+    /// the request's key, then a LineHistoryChunk JSON array or a GitError
+    /// JSON, the other null. Reply to gbm_request_line_history(), on success
+    /// and on failure.
     GBM_EVENT_LINE_HISTORY_READY = 15,
     /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
     GBM_EVENT_REFLOG_READY = 16,
@@ -1248,12 +1250,15 @@ GBM_API int32_t gbm_request_file_history(GbmSessionHandle session,
                                          const char* startRevision);
 
 /// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
-/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.
-GBM_API void gbm_request_line_history(GbmSessionHandle session,
-                                      const char* path,
-                                      int32_t startLine,
-                                      int32_t endLine,
-                                      const char* startRevision);
+/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_line_history(GbmSessionHandle session,
+                                         const char* path,
+                                         int32_t startLine,
+                                         int32_t endLine,
+                                         const char* startRevision);
 
 /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
 /// GBM_EVENT_REFLOG_READY.

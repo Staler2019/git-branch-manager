@@ -196,5 +196,39 @@ TEST_F(FileHistoryApiTest, LineHistoryReturnsTheHunkThatTouchedTheRange) {
     EXPECT_NE(payload.find("\"diffText\""), std::string::npos) << payload;
 }
 
+bool lineHistoryArrived(const std::vector<std::pair<int32_t, std::string>>& events) {
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_LINE_HISTORY_READY) return true;
+    }
+    return false;
+}
+
+// The reply names the range it answers, so Dart can drop one for a range the panel has since
+// left (read-failure-states-spec.html, ruling 4).
+TEST_F(FileHistoryApiTest, ALineHistoryReplyCarriesTheRequestItAnswers) {
+    EXPECT_EQ(gbm_request_line_history(session_, "new.txt", 1, 2, "HEAD"), 1);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return lineHistoryArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_LINE_HISTORY_READY);
+    EXPECT_EQ(payload.rfind("{\"path\":\"new.txt\",\"startLine\":1,\"endLine\":2,"
+                            "\"startRevision\":\"HEAD\",\"entries\":[",
+                            0),
+              0u)
+        << payload;
+    EXPECT_NE(payload.find("\"error\":null"), std::string::npos) << payload;
+}
+
+TEST_F(FileHistoryApiTest, AFailedLineHistoryRepliesUnderItsKeyAndNotOnTheErrorEvent) {
+    gbm_request_line_history(session_, "new.txt", 1, 1, "no-such-revision");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return lineHistoryArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_LINE_HISTORY_READY);
+    EXPECT_NE(payload.find("\"startRevision\":\"no-such-revision\""), std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"entries\":null"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":{"), std::string::npos) << payload;
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_ERROR_OCCURRED), "");
+}
+
 }  // namespace
 }  // namespace gbm::capi

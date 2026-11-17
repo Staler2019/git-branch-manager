@@ -5,7 +5,9 @@
 //   toolbar: 擴大行區、跳到 commit
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -67,7 +69,14 @@ Future<PumpedPanel> _pump(
     initialStartLine: from,
     initialEndLine: to,
   ),
-  state: RepoSessionState(isOpen: true, lastLineHistory: chunks),
+  state: RepoSessionState(
+    isOpen: true,
+    lastLineHistory:
+        KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.succeeded(
+          LineHistoryKey(path: 'lib/main.dart', startLine: from, endLine: to),
+          chunks,
+        ),
+  ),
   extraRoutes: <RouteBase>[
     GoRoute(
       path: RoutePaths.history,

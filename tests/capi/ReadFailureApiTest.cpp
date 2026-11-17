@@ -280,6 +280,46 @@ TEST_F(ReadFailureApiTest, AFileHistoryThatCannotBePostedRepliesWithAnErrorAndRe
     EXPECT_EQ(countFailedFileHistories(log_.snapshot()), 1u);
 }
 
+std::size_t countFailedLineHistories(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_LINE_HISTORY_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatThrowsRepliesUnderItsRangeWithAnError) {
+    gbm_test_fail_read("Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 3, 4, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LINE_HISTORY_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_LINE_HISTORY_READY);
+    EXPECT_TRUE(contains(reply, "\"path\":\"file.txt\",\"startLine\":3,\"endLine\":4")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 1, 1, ""), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_LINE_HISTORY_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_line_history\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 1, 1, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LINE_HISTORY_READY));
+    EXPECT_EQ(countFailedLineHistories(log_.snapshot()), 1u);
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");

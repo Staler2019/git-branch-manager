@@ -555,7 +555,7 @@ class RepoSessionState {
     this.lastReflog,
     this.undoJournal = const <UndoEntry>[],
     this.lastCleanPreview = const <CleanEntry>[],
-    this.lastRebasePlan = const <RebaseTodoEntry>[],
+    this.lastRebasePlan,
     this.submodules = const <SubmoduleInfo>[],
     this.bisectStatus = BisectStatus.empty,
     this.lfsInstallation,
@@ -708,7 +708,9 @@ class RepoSessionState {
 
   /// Oldest-first -- the order gbm_rebase_interactive_start()'s `todo`
   /// array is applied in, see RebasePlanner::plan()'s doc comment.
-  final List<RebaseTodoEntry> lastRebasePlan;
+  /// The rebase plan the panel last asked for, under the upstream as sent:
+  /// pending, its todo, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan;
   final List<SubmoduleInfo> submodules;
   final BisectStatus bisectStatus;
 
@@ -894,7 +896,7 @@ class RepoSessionState {
     KeyedReadReply<ReflogKey, List<ReflogEntry>>? lastReflog,
     List<UndoEntry>? undoJournal,
     List<CleanEntry>? lastCleanPreview,
-    List<RebaseTodoEntry>? lastRebasePlan,
+    KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan,
     List<SubmoduleInfo>? submodules,
     BisectStatus? bisectStatus,
     LfsInstallation? lfsInstallation,
@@ -1817,9 +1819,26 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.rebasePlanReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastRebasePlan: RebaseTodoEntry.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final RebasePlanKey key = RebasePlanKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<RebasePlanKey, List<RebaseTodoEntry>>(
+            current: state.lastRebasePlan,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    RebasePlanKey,
+                    List<RebaseTodoEntry>
+                  >.succeeded(
+                    key,
+                    RebaseTodoEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>> r) =>
+                state = state.copyWith(lastRebasePlan: r),
           );
         }
       case GbmEventType.submodulesUpdated:
@@ -4773,13 +4792,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Builds the todo list a plain `git rebase -i <upstream>` would start
   /// from -- read-only, for the caller to show and let the user edit before
-  /// calling [startInteractiveRebase]. Async: fires
-  /// GBM_EVENT_REBASE_PLAN_READY into [RepoSessionState.lastRebasePlan].
+  /// calling [startInteractiveRebase]. Async: GBM_EVENT_REBASE_PLAN_READY
+  /// answers into [RepoSessionState.lastRebasePlan] under the upstream as
+  /// sent, on success and on failure.
   void requestRebasePlan(String upstream) {
     if (_session == nullptr) return;
+    final RebasePlanKey key = RebasePlanKey(upstream);
+    state = state.copyWith(
+      lastRebasePlan:
+          KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.pending(key),
+    );
     final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     try {
-      _bindings.requestRebasePlan(_session, upstreamPtr);
+      final int queued = _bindings.requestRebasePlan(_session, upstreamPtr);
+      if (queued == 0) {
+        state = state.copyWith(
+          lastRebasePlan:
+              KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(upstreamPtr);
     }

@@ -10,6 +10,7 @@ import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
+import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
 import 'package:gbm_flutter/data/models/read_keys.dart';
@@ -149,6 +150,27 @@ GbmEvent _reflogFailed(String ref, String message) =>
       'error': gitErrorJson(message),
     });
 
+GbmEvent _planOk(String upstream, {String s = 'x'}) =>
+    readyEvent(GbmEventType.rebasePlanReady, <String, dynamic>{
+      'upstream': upstream,
+      'entries': <dynamic>[
+        <String, dynamic>{
+          'action': 0,
+          'oid': 'a1b2c3d4',
+          'shortOid': 'a1b2c3d',
+          'subject': s,
+        },
+      ],
+      'error': null,
+    });
+
+GbmEvent _planFailed(String upstream, String message) =>
+    readyEvent(GbmEventType.rebasePlanReady, <String, dynamic>{
+      'upstream': upstream,
+      'entries': null,
+      'error': gitErrorJson(message),
+    });
+
 int _errorLines(RepoSessionController c) => c.state.operationLog
     .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
     .length;
@@ -234,6 +256,84 @@ void main() {
       expect(bindings.blameRequests, hasLength(1));
       expect(reply()?.key, const BlameKey(path: 'a.txt'));
       expect(reply()?.error?.message, 'Native error in gbm_request_blame');
+      expect(_errorLines(c), before);
+      expect(c.state.lastError, isNull);
+    });
+  });
+
+  group('rebase plan', () {
+    KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? reply() =>
+        c.state.lastRebasePlan;
+
+    // (e)
+    test('a request resets the reply to pending for its own key', () {
+      c.requestRebasePlan('main');
+      c.debugHandleEvent(_planOk('main'));
+      expect(reply()?.value, isNotNull);
+
+      c.requestRebasePlan('develop');
+
+      expect(reply()?.key, const RebasePlanKey('develop'));
+      expect(reply()?.value, isNull);
+      expect(reply()?.error, isNull);
+      expect(
+        bindings.rebasePlanRequests.where((r) => r == 'develop').length,
+        1,
+      );
+    });
+
+    test('a reply for the current key is kept', () {
+      c.requestRebasePlan('main');
+      c.debugHandleEvent(_planOk('main', s: 'one'));
+      expect(reply()?.value?.single.subject, 'one');
+    });
+
+    // (b) A plan for main is never kept while the panel waits on develop:
+    // Start would replay main's commits onto develop.
+    test('a reply for an older upstream is dropped', () {
+      c.requestRebasePlan('main');
+      c.requestRebasePlan('develop');
+      c.debugHandleEvent(_planOk('main'));
+
+      expect(reply()?.key, const RebasePlanKey('develop'));
+      expect(reply()?.value, isNull);
+    });
+
+    // (a)
+    test('a failure reply clears the value and carries the error', () {
+      c.requestRebasePlan('main');
+      c.debugHandleEvent(_planOk('main'));
+      c.requestRebasePlan('main');
+      c.debugHandleEvent(_planFailed('main', 'fatal: invalid upstream'));
+
+      expect(reply()?.value, isNull);
+      expect(reply()?.error?.message, 'fatal: invalid upstream');
+    });
+
+    // (f)
+    test('a failure reply logs one error line and leaves lastError alone', () {
+      c.requestRebasePlan('nope');
+      final int before = _errorLines(c);
+      c.debugHandleEvent(_planFailed('nope', "fatal: invalid upstream 'nope'"));
+
+      expect(_errorLines(c), before + 1);
+      expect(c.state.operationLog.last.message, contains('invalid upstream'));
+      expect(c.state.lastError, isNull);
+    });
+
+    // (c) + (h)
+    test('an export that queued nothing fails the read without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.requestRebasePlan('main');
+
+      expect(bindings.rebasePlanRequests, <String>['main']);
+      expect(reply()?.key, const RebasePlanKey('main'));
+      expect(
+        reply()?.error?.message,
+        'Native error in gbm_request_rebase_plan',
+      );
       expect(_errorLines(c), before);
       expect(c.state.lastError, isNull);
     });

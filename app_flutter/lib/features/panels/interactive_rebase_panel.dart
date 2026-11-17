@@ -3,12 +3,17 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/models/rebase_todo_entry.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../../widgets/gbm_row.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -66,12 +71,30 @@ class _InteractiveRebasePanelState
     extends ConsumerState<InteractiveRebasePanel> {
   final TextEditingController _upstreamController = TextEditingController();
 
-  /// The locally-edited plan. Null until a plan has been loaded, which is
-  /// what tells [_seedFrom] a freshly-published plan is new rather than the
-  /// same one arriving again.
+  /// The locally-edited plan. Null until a plan has been loaded, and again
+  /// whenever the sent upstream's reply has none.
   List<RebaseTodoEntry>? _todo;
-  List<RebaseTodoEntry> _publishedPlan = const <RebaseTodoEntry>[];
+
+  /// The plan [_todo] was seeded from, which is what tells [_seedFrom] a
+  /// freshly-published plan is new rather than the same one arriving again.
+  /// Null after a clear, so the next plan is always adopted.
+  List<RebaseTodoEntry>? _publishedPlan;
   String? _selectedOid;
+
+  /// The request this panel last sent. The session's
+  /// [RepoSessionState.lastRebasePlan] is drawn -- plan and failure banner
+  /// alike -- only while its key is this one (read-failure-states-spec.html,
+  /// ruling 4).
+  RebasePlanKey? _sentKey;
+
+  /// Every send goes through here, so [_sentKey] is always the request the
+  /// controller was last asked for. Both callers are user events, so the
+  /// controller is called at once; the rebuild re-runs the guard against the
+  /// new key whether or not the session's state changes.
+  void _send(RebasePlanKey key) {
+    setState(() => _sentKey = key);
+    _session.requestRebasePlan(key.upstream);
+  }
 
   @override
   void dispose() {
@@ -85,7 +108,17 @@ class _InteractiveRebasePanelState
   /// Adopts a newly-published plan, discarding local edits — a new plan is a
   /// different rebase, so keeping edits from the previous one would silently
   /// apply them to the wrong commits.
-  void _seedFrom(List<RebaseTodoEntry> plan) {
+  ///
+  /// [plan] null -- the sent upstream is pending, failed, or was never
+  /// queued, or nothing answers this panel's request -- clears the local
+  /// todo, so Start cannot replay another upstream's plan onto this one.
+  void _seedFrom(List<RebaseTodoEntry>? plan) {
+    if (plan == null) {
+      _publishedPlan = null;
+      _todo = null;
+      _selectedOid = null;
+      return;
+    }
     if (identical(plan, _publishedPlan)) return;
     _publishedPlan = plan;
     _todo = List<RebaseTodoEntry>.of(plan);
@@ -108,7 +141,11 @@ class _InteractiveRebasePanelState
     );
     // Seeding during build is safe because it only ever runs on a plan the
     // controller has just published, and it touches no provider.
-    _seedFrom(session.lastRebasePlan);
+    final KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? reply =
+        session.lastRebasePlan;
+    final bool answersThisPanel = reply != null && reply.key == _sentKey;
+    _seedFrom(answersThisPanel ? reply.value : null);
+    final GitError? error = answersThisPanel ? reply.error : null;
 
     final List<RebaseTodoEntry> todo = _todo ?? const <RebaseTodoEntry>[];
     final RebaseTodoEntry? selected = todo
@@ -122,6 +159,13 @@ class _InteractiveRebasePanelState
       emptyDetailMessage:
           'Select a commit to change what the rebase does '
           'with it',
+      banner: error == null
+          ? null
+          : GbmWarningBanner(
+              message:
+                  '無法載入 ${reply?.key.upstream} 的 rebase plan。${error.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           // Starting needs a plan; a plan needs an upstream. Both come from
@@ -158,7 +202,9 @@ class _InteractiveRebasePanelState
             onPressed: _todo == null
                 ? null
                 : () => setState(() {
-                    _todo = List<RebaseTodoEntry>.of(_publishedPlan);
+                    _todo = List<RebaseTodoEntry>.of(
+                      _publishedPlan ?? const <RebaseTodoEntry>[],
+                    );
                     _selectedOid = null;
                   }),
           ),
@@ -193,9 +239,8 @@ class _InteractiveRebasePanelState
                     // Own scroll-memory slot (expectDistinctScrollStorage).
                     key: const PageStorageKey<String>('panel-field:upstream'),
                     controller: _upstreamController,
-                    onSubmitted: (_) => _session.requestRebasePlan(
-                      _upstreamController.text.trim(),
-                    ),
+                    onSubmitted: (_) =>
+                        _send(RebasePlanKey(_upstreamController.text.trim())),
                     decoration: const InputDecoration(
                       labelText: 'Upstream (e.g. main)',
                       isDense: true,
@@ -206,9 +251,8 @@ class _InteractiveRebasePanelState
                 const SizedBox(width: GbmSpacing.space2),
                 GbmButton(
                   label: 'Load plan',
-                  onPressed: () => _session.requestRebasePlan(
-                    _upstreamController.text.trim(),
-                  ),
+                  onPressed: () =>
+                      _send(RebasePlanKey(_upstreamController.text.trim())),
                 ),
               ],
             ),

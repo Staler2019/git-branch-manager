@@ -50,6 +50,7 @@ class ReadBindings extends FakeGbmBindings {
   final List<Map<String, Object?>> lineHistoryRequests =
       <Map<String, Object?>>[];
   final List<String> reflogRequests = <String>[];
+  final List<String> rebasePlanRequests = <String>[];
 
   Uint8List _staged = Uint8List(0);
 
@@ -110,6 +111,14 @@ class ReadBindings extends FakeGbmBindings {
       (Pointer<Void> session, Pointer<Utf8> ref) {
         reflogRequests.add(ref.toDartString());
         if (answer == 0) _stage(nativeErrorJson('gbm_request_reflog'));
+        return answer;
+      };
+
+  @override
+  RequestRebasePlanDart get requestRebasePlan =>
+      (Pointer<Void> session, Pointer<Utf8> upstream) {
+        rebasePlanRequests.add(upstream.toDartString());
+        if (answer == 0) _stage(nativeErrorJson('gbm_request_rebase_plan'));
         return answer;
       };
 

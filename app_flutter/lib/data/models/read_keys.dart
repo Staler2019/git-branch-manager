@@ -124,3 +124,23 @@ class ReflogKey {
   @override
   String toString() => 'ReflogKey($ref)';
 }
+
+/// `gbm_request_rebase_plan`'s argument, the upstream as sent.
+class RebasePlanKey {
+  const RebasePlanKey(this.upstream);
+
+  factory RebasePlanKey.fromJson(Map<String, dynamic> json) =>
+      RebasePlanKey(json['upstream'] as String);
+
+  final String upstream;
+
+  @override
+  bool operator ==(Object other) =>
+      other is RebasePlanKey && other.upstream == upstream;
+
+  @override
+  int get hashCode => upstream.hashCode;
+
+  @override
+  String toString() => 'RebasePlanKey($upstream)';
+}

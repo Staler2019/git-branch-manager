@@ -148,8 +148,9 @@ enum GbmEventType {
     /// gbm_request_reflog(), on success and on failure.
     GBM_EVENT_REFLOG_READY = 16,
 
-    /// payload: RebaseTodoEntry JSON array. Reply to
-    /// gbm_request_rebase_plan().
+    /// payload: `{upstream, entries, error}` -- the upstream as requested, then
+    /// a RebaseTodoEntry JSON array or a GitError JSON, the other null. Reply
+    /// to gbm_request_rebase_plan(), on success and on failure.
     GBM_EVENT_REBASE_PLAN_READY = 17,
     /// no payload; read the new list with gbm_submodules_json().
     GBM_EVENT_SUBMODULES_UPDATED = 18,
@@ -1322,9 +1323,11 @@ GBM_API void gbm_clean_untracked(GbmSessionHandle session,
 
 /// Builds the todo list a plain `git rebase -i <upstream>` would start
 /// from -- read-only, so the caller can show and let the user edit it
-/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
+/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
 
 /// `git rebase -i`, with the todo list supplied by the caller instead of
 /// through an interactive editor. `actions[i]` is a RebaseTodoEntry::Action

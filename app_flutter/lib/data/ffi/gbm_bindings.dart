@@ -1005,11 +1005,11 @@ typedef CleanUntrackedDart = void Function(
   int includeIgnored,
 );
 
-typedef _RequestRebasePlanNative = Void Function(
+typedef _RequestRebasePlanNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );
-typedef RequestRebasePlanDart = void Function(
+typedef RequestRebasePlanDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );

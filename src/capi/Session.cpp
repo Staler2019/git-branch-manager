@@ -245,6 +245,21 @@ std::string reflogPayload(const std::string& ref,
     return payload;
 }
 
+/// REBASE_PLAN_READY's one shape, for a plan and for its failure: the upstream as requested, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string rebasePlanPayload(const std::string& upstream,
+                              const std::vector<RebaseTodoEntry>* entries,
+                              const GitError* error) {
+    std::string payload = "{\"upstream\":";
+    jsonAppendEscaped(payload, upstream);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -2290,17 +2305,18 @@ void Session::requestRebasePlan(std::string upstream) {
     postRead(
         ReadLane::Back,
         "Session::requestRebasePlan",
-        [this, upstream = std::move(upstream)]() {
+        [this, upstream]() {
             RebasePlanner planner(*runner_, paths_);
             const GitResult<std::vector<RebaseTodoEntry>> result =
                 planner.plan(upstream, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY,
+                            result ? rebasePlanPayload(upstream, &result.value(), nullptr)
+                                   : rebasePlanPayload(upstream, nullptr, &result.error()));
         },
-        errorReply());
+        [this, upstream](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY,
+                            rebasePlanPayload(upstream, nullptr, &error));
+        });
 }
 
 void Session::startInteractiveRebase(RebaseInteractiveRequest request) {

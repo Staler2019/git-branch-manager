@@ -7,9 +7,14 @@ import 'lucide_icon.dart';
 /// `.gbm-banner-warning` (docs/design/tokens-reference.md's components.css)
 /// -- used to surface a [GitError.message] near the top of a screen.
 class GbmWarningBanner extends StatelessWidget {
-  const GbmWarningBanner({super.key, required this.message});
+  const GbmWarningBanner({super.key, required this.message, this.action});
 
   final String message;
+
+  /// Drawn after the message, the way P07's conflict mock puts `gbm-btn-sm`
+  /// buttons after its `flex:1` text; a panel's failed read puts
+  /// `GbmOpenLogButton` here (read-failure-states-spec.html, candidate A).
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -37,6 +42,10 @@ class GbmWarningBanner extends StatelessWidget {
               ),
             ),
           ),
+          if (action case final Widget action) ...<Widget>[
+            const SizedBox(width: GbmSpacing.space2),
+            action,
+          ],
         ],
       ),
     );

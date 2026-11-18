@@ -5,6 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/models/blame_result.dart';
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/models/commit_meta.dart';
 import '../../data/models/list_selection.dart';
 import '../../data/repositories/history_repository.dart';
@@ -15,9 +18,11 @@ import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
 import '../../data/repositories/app_preferences_repository.dart';
 import '../../widgets/code_line_metrics.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_code_hscroll.dart';
 import '../../widgets/gbm_code_text.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../../widgets/gbm_row.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -100,10 +105,35 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
   /// 上一版 sets it.
   String _revision = '';
 
+  /// The request this panel last sent. The session's [RepoSessionState.lastBlame]
+  /// is drawn -- content and failure banner alike -- only while its key is
+  /// this one: a lifecycle send reaches the controller a microtask late, and
+  /// the frame in between must not show the previous subject
+  /// (read-failure-states-spec.html, ruling 4).
+  BlameKey? _sentKey;
+
+  /// Every send goes through here, so [_sentKey] is always the request the
+  /// controller was last asked for. From a lifecycle method the controller
+  /// call is deferred: a provider write during build throws.
+  void _send(BlameKey key, {bool fromLifecycle = false}) {
+    _sentKey = key;
+    void request() => _session.requestBlame(
+      key.path,
+      revision: key.revision,
+      startLine: key.startLine,
+      endLine: key.endLine,
+    );
+    if (fromLifecycle) {
+      Future.microtask(request);
+    } else {
+      request();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _session.requestBlame(widget.path));
+    _send(BlameKey(path: widget.path), fromLifecycle: true);
   }
 
   @override
@@ -120,7 +150,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
         _selectedLine = null;
         _revision = '';
       });
-      _session.requestBlame(widget.path);
+      _send(BlameKey(path: widget.path), fromLifecycle: true);
     }
   }
 
@@ -140,7 +170,10 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
-    final BlameResult? blame = session.lastBlame;
+    final KeyedReadReply<BlameKey, BlameResult>? reply = session.lastBlame;
+    final bool answersThisPanel = reply != null && reply.key == _sentKey;
+    final BlameResult? blame = answersThisPanel ? reply.value : null;
+    final GitError? error = answersThisPanel ? reply.error : null;
     final List<BlameLine> lines = blame?.lines ?? const <BlameLine>[];
     final BlameLine? selected = lines
         .where((BlameLine l) => l.finalLine == _selectedLine)
@@ -160,6 +193,12 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
       // ids -- re-keying those would orphan every saved size to buy a
       // distinction that cannot arise.
       storageId: panelStorageId(GbmPanelKind.blame, subject: widget.path),
+      banner: error == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 ${widget.path} 的 blame。${error.message}',
+              action: const GbmOpenLogButton(),
+            ),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a line to see the commit that wrote it',
       toolbar: PanelToolbarSpec(
@@ -174,7 +213,7 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                       _revision = parent;
                       _selectedLine = null;
                     });
-                    _session.requestBlame(widget.path, revision: parent);
+                    _send(BlameKey(path: widget.path, revision: parent));
                   },
           ),
           const Tooltip(
@@ -253,11 +292,15 @@ class _BlamePanelState extends ConsumerState<BlamePanel> {
                                   kBlameGutterWidth + GbmSpacing.space2,
                             );
                       return GbmCodeHScroll(
+                        // Own scroll-memory slot (expectDistinctScrollStorage).
+                        key: const PageStorageKey<String>('panel-code-hscroll'),
                         contentWidth: cap?.totalWidth ?? 0,
                         codeClipWidth: cap?.clipWidth,
                         verticalController: _vertical,
                         backdrop: colors.surfacePanel,
                         child: ListView.builder(
+                          // Own scroll-memory slot (expectDistinctScrollStorage).
+                          key: const PageStorageKey<String>('panel-list'),
                           controller: _vertical,
                           itemCount: lines.length,
                           itemBuilder: (context, i) => _BlameLineRow(

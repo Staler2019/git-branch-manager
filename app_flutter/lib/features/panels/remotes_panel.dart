@@ -186,6 +186,8 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
                   : 'No remote matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, i) => PanelListRow(
                 title: visible[i].name,

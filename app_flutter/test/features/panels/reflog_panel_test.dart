@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -60,7 +62,10 @@ Future<PumpedPanel> _pump(
   ReflogPanel(identity: panelTestIdentity),
   state: RepoSessionState(
     isOpen: true,
-    lastReflog: entries,
+    lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.succeeded(
+      const ReflogKey(''),
+      entries,
+    ),
     commitMetaCache: meta,
   ),
   extraRoutes: <RouteBase>[
@@ -271,6 +276,7 @@ void main() {
         listHeader: 'Reflog · 2',
         statusBar: RegExp(r'^2 entries$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('the filter narrows the list, the header and the status line', (

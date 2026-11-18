@@ -226,6 +226,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
                         : 'No submodule matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) {
                       final SubmoduleInfo s = visible[i];
@@ -277,6 +279,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:url'),
             controller: _urlController,
             decoration: const InputDecoration(
               hintText: 'Repository URL',
@@ -286,6 +290,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:path'),
             controller: _pathController,
             decoration: const InputDecoration(
               hintText: 'Path (leave empty to derive from URL)',
@@ -295,6 +301,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:branch'),
             controller: _branchController,
             decoration: const InputDecoration(
               hintText: 'Branch (optional)',

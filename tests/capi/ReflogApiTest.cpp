@@ -128,5 +128,35 @@ TEST_F(ReflogApiTest, ReflogListsHeadMovementsNewestFirst) {
     EXPECT_NE(payload.find("First commit"), std::string::npos) << payload;
 }
 
+bool reflogArrived(const std::vector<std::pair<int32_t, std::string>>& events) {
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_REFLOG_READY) return true;
+    }
+    return false;
+}
+
+// The reply names the ref it answers, as sent -- "" stays "", not "HEAD" -- so Dart can drop
+// one for a ref the panel has since left (read-failure-states-spec.html, ruling 4).
+TEST_F(ReflogApiTest, TheReplyCarriesTheRefItAnswersAsSent) {
+    EXPECT_EQ(gbm_request_reflog(session_, ""), 1);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return reflogArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_REFLOG_READY);
+    EXPECT_EQ(payload.rfind("{\"ref\":\"\",\"entries\":[", 0), 0u) << payload;
+    EXPECT_NE(payload.find("\"error\":null"), std::string::npos) << payload;
+}
+
+TEST_F(ReflogApiTest, AFailedReflogRepliesUnderItsRefAndNotOnTheErrorEvent) {
+    gbm_request_reflog(session_, "refs/heads/no-such-branch");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return reflogArrived(events); }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_REFLOG_READY);
+    EXPECT_NE(payload.find("\"ref\":\"refs/heads/no-such-branch\""), std::string::npos)
+        << payload;
+    EXPECT_NE(payload.find("\"entries\":null"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":{"), std::string::npos) << payload;
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_ERROR_OCCURRED), "");
+}
+
 }  // namespace
 }  // namespace gbm::capi

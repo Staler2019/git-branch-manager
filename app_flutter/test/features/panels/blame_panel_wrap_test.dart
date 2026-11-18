@@ -13,6 +13,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
 import 'package:gbm_flutter/features/panels/blame_panel.dart';
 import 'package:gbm_flutter/widgets/code_line_metrics.dart';
@@ -45,9 +47,9 @@ Future<void> _pump(
   BlamePanel(identity: panelTestIdentity, path: 'lib/main.dart'),
   state: RepoSessionState(
     isOpen: true,
-    lastBlame: BlameResult(
-      lines: <BlameLine>[_line(content)],
-      truncated: false,
+    lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+      const BlameKey(path: 'lib/main.dart'),
+      BlameResult(lines: <BlameLine>[_line(content)], truncated: false),
     ),
   ),
   // The list column is one pane of a split shell inside a 1200px surface, so

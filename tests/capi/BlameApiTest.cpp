@@ -130,5 +130,42 @@ TEST_F(BlameApiTest, BlameAttributesEachLineToTheCommitThatIntroducedIt) {
     EXPECT_NE(payload.find("\"truncated\":false"), std::string::npos) << payload;
 }
 
+// The reply names the request it answers, so Dart can drop one for a subject it has since left
+// (read-failure-states-spec.html, ruling 4).
+TEST_F(BlameApiTest, TheReplyCarriesTheRequestItAnswers) {
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "HEAD", 1, 2), 1);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_BLAME_READY) return true;
+        }
+        return false;
+    }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_BLAME_READY);
+    EXPECT_NE(payload.find("\"path\":\"file.txt\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"revision\":\"HEAD\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"startLine\":1"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"endLine\":2"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":null"), std::string::npos) << payload;
+}
+
+// A blame git refuses is answered on BLAME_READY under its own key, never on the session-wide
+// ERROR_OCCURRED, which matches no request and would leave the panel showing the last file.
+TEST_F(BlameApiTest, AFailedBlameRepliesUnderItsPathAndNotOnTheErrorEvent) {
+    gbm_request_blame(session_, "missing.txt", "", 0, 0);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) {
+        for (const auto& [type, payload] : events) {
+            if (type == GBM_EVENT_BLAME_READY) return true;
+        }
+        return false;
+    }));
+    const std::string payload = log_.lastPayloadOfType(GBM_EVENT_BLAME_READY);
+    EXPECT_NE(payload.find("\"path\":\"missing.txt\""), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"error\":{"), std::string::npos) << payload;
+    EXPECT_NE(payload.find("\"result\":null"), std::string::npos) << payload;
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_ERROR_OCCURRED), "");
+}
+
 }  // namespace
 }  // namespace gbm::capi

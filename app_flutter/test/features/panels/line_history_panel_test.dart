@@ -5,7 +5,9 @@
 //   toolbar: 擴大行區、跳到 commit
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/line_history_chunk.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -67,7 +69,14 @@ Future<PumpedPanel> _pump(
     initialStartLine: from,
     initialEndLine: to,
   ),
-  state: RepoSessionState(isOpen: true, lastLineHistory: chunks),
+  state: RepoSessionState(
+    isOpen: true,
+    lastLineHistory:
+        KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.succeeded(
+          LineHistoryKey(path: 'lib/main.dart', startLine: from, endLine: to),
+          chunks,
+        ),
+  ),
   extraRoutes: <RouteBase>[
     GoRoute(
       path: RoutePaths.history,
@@ -128,6 +137,28 @@ void main() {
       expect(find.byType(PanelDiffText), findsOneWidget);
       expect(find.text('+new line'), findsOneWidget);
       expect(find.text('-old line'), findsOneWidget);
+    });
+
+    // A line wider than the pane mounts PanelDiffText's sideways scroller,
+    // which holds a slot of its own beside the diff list's.
+    testWidgets('a diff wider than the pane keeps both scroll slots apart', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        chunks: <LineHistoryChunk>[
+          LineHistoryChunk(
+            oid: _step.oid,
+            author: _who,
+            subject: _step.subject,
+            diffText: '@@ -1 +1 @@\n+${'x' * 400}\n',
+          ),
+        ],
+      );
+      await tester.tap(find.text(_step.subject));
+      await tester.pumpAndSettle();
+      expect(find.byType(SingleChildScrollView), findsWidgets);
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('Widen range re-requests a larger range', (tester) async {
@@ -201,6 +232,7 @@ void main() {
         listHeader: 'Commits · 1',
         statusBar: RegExp(r'^1 commit$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // **The filter is live here, and the round's own plan said it would be

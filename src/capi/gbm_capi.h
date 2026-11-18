@@ -130,19 +130,27 @@ enum GbmEventType {
     /// operation belongs to another session open on the same directories.
     GBM_EVENT_OPERATION_LOG_RECORD = 12,
 
-    /// payload: BlameResult JSON. Reply to gbm_request_blame().
+    /// payload: `{path, revision, startLine, endLine, result, error}` -- the
+    /// request's key, then a BlameResult JSON or a GitError JSON, the other
+    /// null. Reply to gbm_request_blame(), on success and on failure.
     GBM_EVENT_BLAME_READY = 13,
-    /// payload: FileHistoryEntry JSON array. Reply to
-    /// gbm_request_file_history().
+    /// payload: `{path, startRevision, entries, error}` -- the request's key,
+    /// then a FileHistoryEntry JSON array or a GitError JSON, the other null.
+    /// Reply to gbm_request_file_history(), on success and on failure.
     GBM_EVENT_FILE_HISTORY_READY = 14,
-    /// payload: LineHistoryChunk JSON array. Reply to
-    /// gbm_request_line_history().
+    /// payload: `{path, startLine, endLine, startRevision, entries, error}` --
+    /// the request's key, then a LineHistoryChunk JSON array or a GitError
+    /// JSON, the other null. Reply to gbm_request_line_history(), on success
+    /// and on failure.
     GBM_EVENT_LINE_HISTORY_READY = 15,
-    /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
+    /// payload: `{ref, entries, error}` -- the ref as requested, then a
+    /// ReflogEntry JSON array or a GitError JSON, the other null. Reply to
+    /// gbm_request_reflog(), on success and on failure.
     GBM_EVENT_REFLOG_READY = 16,
 
-    /// payload: RebaseTodoEntry JSON array. Reply to
-    /// gbm_request_rebase_plan().
+    /// payload: `{upstream, entries, error}` -- the upstream as requested, then
+    /// a RebaseTodoEntry JSON array or a GitError JSON, the other null. Reply
+    /// to gbm_request_rebase_plan(), on success and on failure.
     GBM_EVENT_REBASE_PLAN_READY = 17,
     /// no payload; read the new list with gbm_submodules_json().
     GBM_EVENT_SUBMODULES_UPDATED = 18,
@@ -1191,16 +1199,18 @@ GBM_API int32_t gbm_askpass_main(int32_t argc, const char* const* argv);
 
 /// Blames `path` as of `revision` (empty means the working tree).
 /// `startLine`/`endLine` are 1-based and inclusive; either 0 blames the
-/// whole file. Async: fires GBM_EVENT_BLAME_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure. A newer request for the same
+/// whole file. Async: fires GBM_EVENT_BLAME_READY on success and on failure
+/// (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was
+/// queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()). A newer request for the same
 /// session jumps ahead of any older, still-queued one (interactive
 /// priority, like requesting a different file's diff while a slow one is
 /// still loading).
-GBM_API void gbm_request_blame(GbmSessionHandle session,
-                               const char* path,
-                               const char* revision,
-                               int32_t startLine,
-                               int32_t endLine);
+GBM_API int32_t gbm_request_blame(GbmSessionHandle session,
+                                  const char* path,
+                                  const char* revision,
+                                  int32_t startLine,
+                                  int32_t endLine);
 
 /// Batch commit metadata (author/subject/body) for `oids`, e.g. the rows
 /// currently visible in a scrolling commit list. Backed by a single
@@ -1235,22 +1245,29 @@ GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
 
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires
-/// GBM_EVENT_FILE_HISTORY_READY.
-GBM_API void gbm_request_file_history(GbmSessionHandle session,
-                                      const char* path,
-                                      const char* startRevision);
+/// GBM_EVENT_FILE_HISTORY_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_file_history(GbmSessionHandle session,
+                                         const char* path,
+                                         const char* startRevision);
 
 /// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
-/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.
-GBM_API void gbm_request_line_history(GbmSessionHandle session,
-                                      const char* path,
-                                      int32_t startLine,
-                                      int32_t endLine,
-                                      const char* startRevision);
+/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_line_history(GbmSessionHandle session,
+                                         const char* path,
+                                         int32_t startLine,
+                                         int32_t endLine,
+                                         const char* startRevision);
 
 /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
-/// GBM_EVENT_REFLOG_READY.
-GBM_API void gbm_request_reflog(GbmSessionHandle session, const char* ref);
+/// GBM_EVENT_REFLOG_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_reflog(GbmSessionHandle session, const char* ref);
 
 /// Populates the staging buffer with the current undo journal (most recent
 /// last) as a JSON array -- one entry per operation submitted this
@@ -1306,9 +1323,11 @@ GBM_API void gbm_clean_untracked(GbmSessionHandle session,
 
 /// Builds the todo list a plain `git rebase -i <upstream>` would start
 /// from -- read-only, so the caller can show and let the user edit it
-/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
+/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
 
 /// `git rebase -i`, with the todo list supplied by the caller instead of
 /// through an interactive editor. `actions[i]` is a RebaseTodoEntry::Action

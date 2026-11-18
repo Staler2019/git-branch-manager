@@ -220,6 +220,11 @@ class PanelDetailField extends StatelessWidget {
           // before any flex could rescue it.
           Expanded(
             child: SelectableText(
+              // Its own scroll-memory slot, named by its label: a
+              // SelectableText scrolls, and an unkeyed one stores under the
+              // panel tab's slot with every other unkeyed Scrollable there
+              // (expectDistinctScrollStorage).
+              key: PageStorageKey<String>('panel-detail-field:$label'),
               value,
               style: TextStyle(
                 fontSize: GbmTypography.textSm,
@@ -250,6 +255,10 @@ class PanelDetailColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     final GbmColors colors = context.gbmColors;
     return SingleChildScrollView(
+      // Its own scroll-memory slot: unkeyed, it shared the panel tab's slot
+      // with the list and restored, clamped and overwrote the list's offset
+      // (expectDistinctScrollStorage).
+      key: const PageStorageKey<String>('panel-detail'),
       padding: const EdgeInsets.all(GbmSpacing.space4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

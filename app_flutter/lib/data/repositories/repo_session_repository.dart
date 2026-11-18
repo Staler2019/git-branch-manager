@@ -13,6 +13,8 @@ import '../ffi/json_codec.dart';
 import '../models/bisect_status.dart';
 import '../models/branch_deletion_probe.dart';
 import '../models/blame_result.dart';
+import '../models/keyed_read_reply.dart';
+import '../models/read_keys.dart';
 import '../models/changed_file.dart';
 import '../models/clean_entry.dart';
 import '../models/commit_meta.dart';
@@ -546,14 +548,14 @@ class RepoSessionState {
     this.refsEpoch = 0,
     this.refsCoverRequest = 0,
     this.commitFileCountCache = const <String, int>{},
-    this.lastFileHistory = const <FileHistoryEntry>[],
+    this.lastFileHistory,
     this.commitFiles = const <ChangedFile>[],
     this.selectedCommitFileDiff,
-    this.lastLineHistory = const <LineHistoryChunk>[],
-    this.lastReflog = const <ReflogEntry>[],
+    this.lastLineHistory,
+    this.lastReflog,
     this.undoJournal = const <UndoEntry>[],
     this.lastCleanPreview = const <CleanEntry>[],
-    this.lastRebasePlan = const <RebaseTodoEntry>[],
+    this.lastRebasePlan,
     this.submodules = const <SubmoduleInfo>[],
     this.bisectStatus = BisectStatus.empty,
     this.lfsInstallation,
@@ -626,7 +628,10 @@ class RepoSessionState {
   /// compares this, not the log's length: a replacement leaves the length
   /// alone, and so does an append once the log is at its cap.
   final int operationLogRevision;
-  final BlameResult? lastBlame;
+
+  /// The blame the panel last asked for, under its key: pending, its lines, or
+  /// its failure (read-failure-states-spec.html).
+  final KeyedReadReply<BlameKey, BlameResult>? lastBlame;
 
   /// Batch-fetched commit metadata (author/subject/body), keyed by oid and
   /// accumulated across every GBM_EVENT_COMMIT_META_READY reply rather than
@@ -678,13 +683,21 @@ class RepoSessionState {
   /// see GBM_EVENT_COMMIT_FILE_COUNTS_READY. Caching a 0 for an unanswerable
   /// oid would show "0 files" for the rest of the session.
   final Map<String, int> commitFileCountCache;
-  final List<FileHistoryEntry> lastFileHistory;
+
+  /// The file history the panel last asked for, under its key: pending, its
+  /// entries, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory;
   final List<ChangedFile> commitFiles;
   final ParsedDiff? selectedCommitFileDiff;
-  final List<LineHistoryChunk> lastLineHistory;
+
+  /// The line history the panel last asked for, under its key: pending, its
+  /// steps, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory;
 
   /// Newest-first -- see gbm_request_reflog()'s doc comment in gbm_capi.h.
-  final List<ReflogEntry> lastReflog;
+  /// The reflog the panel last asked for, under the ref as sent: pending, its
+  /// entries (newest first), or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<ReflogKey, List<ReflogEntry>>? lastReflog;
 
   /// Oldest-first, refreshed after every operation that can be undone --
   /// see Session::refreshUndoJournalCache()'s doc comment in Session.cpp for
@@ -695,7 +708,9 @@ class RepoSessionState {
 
   /// Oldest-first -- the order gbm_rebase_interactive_start()'s `todo`
   /// array is applied in, see RebasePlanner::plan()'s doc comment.
-  final List<RebaseTodoEntry> lastRebasePlan;
+  /// The rebase plan the panel last asked for, under the upstream as sent:
+  /// pending, its todo, or its failure (read-failure-states-spec.html).
+  final KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan;
   final List<SubmoduleInfo> submodules;
   final BisectStatus bisectStatus;
 
@@ -866,7 +881,7 @@ class RepoSessionState {
     bool clearCredentialPrompt = false,
     List<GbmLogEntry>? operationLog,
     int? operationLogRevision,
-    BlameResult? lastBlame,
+    KeyedReadReply<BlameKey, BlameResult>? lastBlame,
     Map<String, CommitMeta>? commitMetaCache,
     int? commitMetaReplySeq,
     int? commitOutcomeSeq,
@@ -874,14 +889,14 @@ class RepoSessionState {
     int? refsEpoch,
     int? refsCoverRequest,
     Map<String, int>? commitFileCountCache,
-    List<FileHistoryEntry>? lastFileHistory,
+    KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? lastFileHistory,
     List<ChangedFile>? commitFiles,
     ParsedDiff? selectedCommitFileDiff,
-    List<LineHistoryChunk>? lastLineHistory,
-    List<ReflogEntry>? lastReflog,
+    KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? lastLineHistory,
+    KeyedReadReply<ReflogKey, List<ReflogEntry>>? lastReflog,
     List<UndoEntry>? undoJournal,
     List<CleanEntry>? lastCleanPreview,
-    List<RebaseTodoEntry>? lastRebasePlan,
+    KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan,
     List<SubmoduleInfo>? submodules,
     BisectStatus? bisectStatus,
     LfsInstallation? lfsInstallation,
@@ -1564,7 +1579,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.blameReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(lastBlame: BlameResult.fromJson(payload));
+          final BlameKey key = BlameKey.fromJson(payload);
+          final Object? result = payload['result'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<BlameKey, BlameResult>(
+            current: state.lastBlame,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<BlameKey, BlameResult>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<BlameKey, BlameResult>.succeeded(
+                    key,
+                    BlameResult.fromJson(result! as Map<String, dynamic>),
+                  ),
+            write: (KeyedReadReply<BlameKey, BlameResult> r) =>
+                state = state.copyWith(lastBlame: r),
+          );
         }
       case GbmEventType.commitMetaReady:
         // Counted even when empty, and even when the payload cannot be
@@ -1719,28 +1750,95 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         }
       case GbmEventType.fileHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastFileHistory: FileHistoryEntry.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final FileHistoryKey key = FileHistoryKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<FileHistoryKey, List<FileHistoryEntry>>(
+            current: state.lastFileHistory,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    FileHistoryKey,
+                    List<FileHistoryEntry>
+                  >.succeeded(
+                    key,
+                    FileHistoryEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>> r) =>
+                state = state.copyWith(lastFileHistory: r),
           );
         }
       case GbmEventType.lineHistoryReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastLineHistory: LineHistoryChunk.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final LineHistoryKey key = LineHistoryKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<LineHistoryKey, List<LineHistoryChunk>>(
+            current: state.lastLineHistory,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    LineHistoryKey,
+                    List<LineHistoryChunk>
+                  >.succeeded(
+                    key,
+                    LineHistoryChunk.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>> r) =>
+                state = state.copyWith(lastLineHistory: r),
           );
         }
       case GbmEventType.reflogReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(lastReflog: ReflogEntry.listFromJson(payload));
+        if (payload is Map<String, dynamic>) {
+          final ReflogKey key = ReflogKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<ReflogKey, List<ReflogEntry>>(
+            current: state.lastReflog,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<ReflogKey, List<ReflogEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<ReflogKey, List<ReflogEntry>>.succeeded(
+                    key,
+                    ReflogEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<ReflogKey, List<ReflogEntry>> r) =>
+                state = state.copyWith(lastReflog: r),
+          );
         }
       case GbmEventType.rebasePlanReady:
         final Object? payload = decodeEventPayload(event.payload);
-        if (payload is List<dynamic>) {
-          state = state.copyWith(
-            lastRebasePlan: RebaseTodoEntry.listFromJson(payload),
+        if (payload is Map<String, dynamic>) {
+          final RebasePlanKey key = RebasePlanKey.fromJson(payload);
+          final Object? entries = payload['entries'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<RebasePlanKey, List<RebaseTodoEntry>>(
+            current: state.lastRebasePlan,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<
+                    RebasePlanKey,
+                    List<RebaseTodoEntry>
+                  >.succeeded(
+                    key,
+                    RebaseTodoEntry.listFromJson(entries! as List<dynamic>),
+                  ),
+            write: (KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>> r) =>
+                state = state.copyWith(lastRebasePlan: r),
           );
         }
       case GbmEventType.submodulesUpdated:
@@ -4185,11 +4283,53 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     state = state.copyWith(clearCredentialPrompt: true);
   }
 
+  /// Installs [reply] through [write] when it answers [current]'s request,
+  /// and drops it otherwise: the surface has asked for something else since.
+  /// A failure is logged as the session-wide `ERROR_OCCURRED` handler logs
+  /// one, without writing [RepoSessionState.lastError] -- these reads show
+  /// their failure on their own surface (read-failure-states-spec.html).
+  void _applyKeyedReply<K extends Object, V extends Object>({
+    required KeyedReadReply<K, V>? current,
+    required KeyedReadReply<K, V> reply,
+    required void Function(KeyedReadReply<K, V>) write,
+  }) {
+    if (current == null || current.key != reply.key) return;
+    write(reply);
+    if (reply.error case final GitError error) {
+      state = state.withOperationRecord(
+        AppLogEvents.errorOccurred(
+          codeName: error.codeName,
+          message: error.message,
+          atEpochMs: _nowEpochMs(),
+        ),
+        maxEntries: maxOperationLogEntries,
+      );
+    }
+  }
+
+  /// What a read export that returned 0 staged: nothing was queued, so no
+  /// reply will come. The native error channel has already logged it, so
+  /// the caller adds no log line ([branchCheckout]'s convention).
+  GitError _stagedNativeError() {
+    final String staged = readLastResultJson(_bindings);
+    final Object? json = staged.isEmpty ? null : jsonDecode(staged);
+    return json is Map<String, dynamic>
+        ? GitError.fromJson(json)
+        : const GitError(
+            code: 1,
+            codeName: 'Unknown',
+            message: 'The read could not be started',
+            detail: '',
+            argv: <String>[],
+            exitCode: -1,
+          );
+  }
+
   /// `git blame`. `revision` empty blames from the working copy; `startLine`/
-  /// `endLine` both 0 blames the whole file. Async: fires
-  /// GBM_EVENT_BLAME_READY into [RepoSessionState.lastBlame]. A newer call
-  /// supersedes an older still-queued one (see gbm_request_blame()'s doc
-  /// comment in gbm_capi.h).
+  /// `endLine` both 0 blames the whole file. Async: GBM_EVENT_BLAME_READY
+  /// answers into [RepoSessionState.lastBlame] under this request's key, on
+  /// success and on failure. A newer call supersedes an older still-queued
+  /// one (see gbm_request_blame()'s doc comment in gbm_capi.h).
   void requestBlame(
     String path, {
     String revision = '',
@@ -4197,16 +4337,33 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     int endLine = 0,
   }) {
     if (_session == nullptr) return;
+    final BlameKey key = BlameKey(
+      path: path,
+      revision: revision,
+      startLine: startLine,
+      endLine: endLine,
+    );
+    state = state.copyWith(
+      lastBlame: KeyedReadReply<BlameKey, BlameResult>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> revisionPtr = revision.toNativeUtf8();
     try {
-      _bindings.requestBlame(
+      final int queued = _bindings.requestBlame(
         _session,
         pathPtr,
         revisionPtr,
         startLine,
         endLine,
       );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastBlame: KeyedReadReply<BlameKey, BlameResult>.failed(
+            key,
+            _stagedNativeError(),
+          ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(revisionPtr);
@@ -4461,14 +4618,36 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// `git log --follow` for one file. `startRevision` empty starts from
-  /// HEAD. Async: fires GBM_EVENT_FILE_HISTORY_READY into
-  /// [RepoSessionState.lastFileHistory].
+  /// HEAD. Async: GBM_EVENT_FILE_HISTORY_READY answers into
+  /// [RepoSessionState.lastFileHistory] under this request's key, on success
+  /// and on failure.
   void requestFileHistory(String path, {String startRevision = ''}) {
     if (_session == nullptr) return;
+    final FileHistoryKey key = FileHistoryKey(
+      path: path,
+      startRevision: startRevision,
+    );
+    state = state.copyWith(
+      lastFileHistory:
+          KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
     try {
-      _bindings.requestFileHistory(_session, pathPtr, startRevisionPtr);
+      final int queued = _bindings.requestFileHistory(
+        _session,
+        pathPtr,
+        startRevisionPtr,
+      );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastFileHistory:
+              KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(startRevisionPtr);
@@ -4476,8 +4655,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   }
 
   /// `git log -L startLine,endLine:path`. `startRevision` empty starts from
-  /// HEAD. Async: fires GBM_EVENT_LINE_HISTORY_READY into
-  /// [RepoSessionState.lastLineHistory].
+  /// HEAD. Async: GBM_EVENT_LINE_HISTORY_READY answers into
+  /// [RepoSessionState.lastLineHistory] under this request's key, on success
+  /// and on failure.
   void requestLineHistory(
     String path,
     int startLine,
@@ -4485,29 +4665,61 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     String startRevision = '',
   }) {
     if (_session == nullptr) return;
+    final LineHistoryKey key = LineHistoryKey(
+      path: path,
+      startLine: startLine,
+      endLine: endLine,
+      startRevision: startRevision,
+    );
+    state = state.copyWith(
+      lastLineHistory:
+          KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.pending(key),
+    );
     final Pointer<Utf8> pathPtr = path.toNativeUtf8();
     final Pointer<Utf8> startRevisionPtr = startRevision.toNativeUtf8();
     try {
-      _bindings.requestLineHistory(
+      final int queued = _bindings.requestLineHistory(
         _session,
         pathPtr,
         startLine,
         endLine,
         startRevisionPtr,
       );
+      if (queued == 0) {
+        state = state.copyWith(
+          lastLineHistory:
+              KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(pathPtr);
       malloc.free(startRevisionPtr);
     }
   }
 
-  /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
-  /// GBM_EVENT_REFLOG_READY into [RepoSessionState.lastReflog], newest-first.
+  /// `git reflog show <ref>`. `ref` empty means HEAD. Async:
+  /// GBM_EVENT_REFLOG_READY answers into [RepoSessionState.lastReflog] under
+  /// the ref as sent, on success and on failure.
   void requestReflog({String ref = ''}) {
     if (_session == nullptr) return;
+    final ReflogKey key = ReflogKey(ref);
+    state = state.copyWith(
+      lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.pending(key),
+    );
     final Pointer<Utf8> refPtr = ref.toNativeUtf8();
     try {
-      _bindings.requestReflog(_session, refPtr);
+      final int queued = _bindings.requestReflog(_session, refPtr);
+      if (queued == 0) {
+        state = state.copyWith(
+          lastReflog: KeyedReadReply<ReflogKey, List<ReflogEntry>>.failed(
+            key,
+            _stagedNativeError(),
+          ),
+        );
+      }
     } finally {
       malloc.free(refPtr);
     }
@@ -4580,13 +4792,28 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
 
   /// Builds the todo list a plain `git rebase -i <upstream>` would start
   /// from -- read-only, for the caller to show and let the user edit before
-  /// calling [startInteractiveRebase]. Async: fires
-  /// GBM_EVENT_REBASE_PLAN_READY into [RepoSessionState.lastRebasePlan].
+  /// calling [startInteractiveRebase]. Async: GBM_EVENT_REBASE_PLAN_READY
+  /// answers into [RepoSessionState.lastRebasePlan] under the upstream as
+  /// sent, on success and on failure.
   void requestRebasePlan(String upstream) {
     if (_session == nullptr) return;
+    final RebasePlanKey key = RebasePlanKey(upstream);
+    state = state.copyWith(
+      lastRebasePlan:
+          KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.pending(key),
+    );
     final Pointer<Utf8> upstreamPtr = upstream.toNativeUtf8();
     try {
-      _bindings.requestRebasePlan(_session, upstreamPtr);
+      final int queued = _bindings.requestRebasePlan(_session, upstreamPtr);
+      if (queued == 0) {
+        state = state.copyWith(
+          lastRebasePlan:
+              KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.failed(
+                key,
+                _stagedNativeError(),
+              ),
+        );
+      }
     } finally {
       malloc.free(upstreamPtr);
     }

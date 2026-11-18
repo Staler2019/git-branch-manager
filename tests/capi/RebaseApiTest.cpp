@@ -144,6 +144,35 @@ TEST_F(RebaseApiTest, RequestRebasePlanListsCommitsOldestFirst) {
     EXPECT_NE(json.find("\"action\":0"), std::string::npos) << json;
 }
 
+bool rebasePlanArrived(const std::vector<std::pair<int32_t, std::string>>& events) {
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_REBASE_PLAN_READY) return true;
+    }
+    return false;
+}
+
+// The reply names the upstream it answers, so Dart can drop a plan for an upstream the panel has
+// since left -- Start would otherwise replay one plan onto another (read-failure-states-spec.html).
+TEST_F(RebaseApiTest, ARebasePlanReplyCarriesTheUpstreamItAnswers) {
+    EXPECT_EQ(gbm_request_rebase_plan(session_, "main"), 1);
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return rebasePlanArrived(events); }));
+    const std::string json = log_.lastPayloadOfType(GBM_EVENT_REBASE_PLAN_READY);
+    EXPECT_EQ(json.rfind("{\"upstream\":\"main\",\"entries\":[", 0), 0u) << json;
+    EXPECT_NE(json.find("\"error\":null"), std::string::npos) << json;
+}
+
+TEST_F(RebaseApiTest, AFailedRebasePlanRepliesUnderItsUpstreamAndNotOnTheErrorEvent) {
+    gbm_request_rebase_plan(session_, "no-such-branch");
+
+    ASSERT_TRUE(log_.waitFor([](const auto& events) { return rebasePlanArrived(events); }));
+    const std::string json = log_.lastPayloadOfType(GBM_EVENT_REBASE_PLAN_READY);
+    EXPECT_NE(json.find("\"upstream\":\"no-such-branch\""), std::string::npos) << json;
+    EXPECT_NE(json.find("\"entries\":null"), std::string::npos) << json;
+    EXPECT_NE(json.find("\"error\":{"), std::string::npos) << json;
+    EXPECT_EQ(log_.lastPayloadOfType(GBM_EVENT_ERROR_OCCURRED), "");
+}
+
 TEST_F(RebaseApiTest, PlainRebaseReplaysFeatureCommitsOntoMain) {
     gbm_rebase_start(session_, "main", "", /*stashFirst=*/0, /*rebaseMerges=*/0, /*autosquash=*/0);
     ASSERT_TRUE(waitForOperationFinished());

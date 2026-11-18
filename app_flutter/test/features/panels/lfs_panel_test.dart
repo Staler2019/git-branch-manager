@@ -169,6 +169,9 @@ void main() {
 
       await tester.tap(find.text('Track…'));
       await tester.pumpAndSettle();
+      // The form's fields only exist in this state; the toolbar test's fixture
+      // never reaches it.
+      await expectDistinctScrollStorage(tester);
       await tester.enterText(
         find.ancestor(
           of: find.text('Pattern (e.g. *.psd)'),
@@ -221,6 +224,7 @@ void main() {
         listHeader: 'Tracked patterns · 2',
         statusBar: RegExp(r'^2 patterns$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets(

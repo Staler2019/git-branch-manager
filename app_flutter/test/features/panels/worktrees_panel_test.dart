@@ -268,6 +268,7 @@ void main() {
           listHeader: 'Worktrees · 2',
           statusBar: RegExp(r'^2 worktrees · 掃描 \d+ ms$'),
         );
+        await expectDistinctScrollStorage(tester);
       },
     );
 

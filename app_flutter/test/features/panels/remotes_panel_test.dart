@@ -130,6 +130,7 @@ void main() {
           listHeader: 'Remotes · 2',
           statusBar: RegExp(r'^2 remotes$'),
         );
+        await expectDistinctScrollStorage(tester);
       },
     );
 

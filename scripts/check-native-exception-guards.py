@@ -33,6 +33,11 @@ _OWN_FAILURE_VALUE = {
     'gbm_register_callback': '0',
     'gbm_remote_fetch': '0',
     'gbm_remote_prune': '0',
+    'gbm_request_blame': '0',
+    'gbm_request_file_history': '0',
+    'gbm_request_line_history': '0',
+    'gbm_request_reflog': '0',
+    'gbm_request_rebase_plan': '0',
     'gbm_worktree_prune': '0',
 }
 _VOID_CATCH = re.compile(r'(gbm::)?reportCurrentException\(__func__\);$')

@@ -369,6 +369,8 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                   : 'No worktree matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, index) {
                 final WorktreeInfo w = visible[index];

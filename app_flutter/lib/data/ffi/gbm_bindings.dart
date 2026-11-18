@@ -785,14 +785,16 @@ typedef ProvideCredentialDart = void Function(
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
-typedef _RequestBlameNative = Void Function(
+typedef _RequestBlameNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,
   Int32 startLine,
   Int32 endLine,
 );
-typedef RequestBlameDart = void Function(
+
+/// 1 = queued, 0 = nothing queued and no reply will come (gbm_capi.h).
+typedef RequestBlameDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,
@@ -925,25 +927,25 @@ typedef RemoteRemoveDart = void Function(
   Pointer<Utf8> name,
 );
 
-typedef _RequestFileHistoryNative = Void Function(
+typedef _RequestFileHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,
 );
-typedef RequestFileHistoryDart = void Function(
+typedef RequestFileHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestLineHistoryNative = Void Function(
+typedef _RequestLineHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Int32 startLine,
   Int32 endLine,
   Pointer<Utf8> startRevision,
 );
-typedef RequestLineHistoryDart = void Function(
+typedef RequestLineHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   int startLine,
@@ -951,11 +953,11 @@ typedef RequestLineHistoryDart = void Function(
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestReflogNative = Void Function(
+typedef _RequestReflogNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );
-typedef RequestReflogDart = void Function(
+typedef RequestReflogDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );
@@ -1003,11 +1005,11 @@ typedef CleanUntrackedDart = void Function(
   int includeIgnored,
 );
 
-typedef _RequestRebasePlanNative = Void Function(
+typedef _RequestRebasePlanNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );
-typedef RequestRebasePlanDart = void Function(
+typedef RequestRebasePlanDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );

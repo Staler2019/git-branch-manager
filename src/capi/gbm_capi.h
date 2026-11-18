@@ -168,9 +168,11 @@ enum GbmEventType {
     /// payload {"error": GitError}: the refresh failed and the published
     /// status is unchanged.
     GBM_EVENT_BISECT_STATUS_UPDATED = 19,
-    /// no payload; read installation/patterns/files with
+    /// no payload: read installation/patterns/files with
     /// gbm_lfs_installation_json()/gbm_lfs_patterns_json()/
-    /// gbm_lfs_files_json().
+    /// gbm_lfs_files_json(). payload {"error": GitError}: patterns or files
+    /// (or both) failed; the first failure is sent, and whichever succeeded
+    /// was still published.
     GBM_EVENT_LFS_UPDATED = 20,
     /// payload: CleanEntry JSON array. Reply to gbm_clean_preview().
     GBM_EVENT_CLEAN_PREVIEW_READY = 21,
@@ -1502,9 +1504,12 @@ GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target);
 
 /// Detects `git-lfs` (once per session, cached) and re-reads tracked
 /// patterns and file status. Async: always fires GBM_EVENT_LFS_UPDATED,
-/// never GBM_EVENT_ERROR_OCCURRED -- a read that fails leaves its part of the
-/// snapshot as it was.
-GBM_API void gbm_lfs_refresh(GbmSessionHandle session);
+/// never GBM_EVENT_ERROR_OCCURRED -- with no payload on success, and with
+/// {"error": GitError} when a read failed; a read that fails leaves its part
+/// of the snapshot as it was. Without `git-lfs` nothing is listed and the
+/// event has no payload. Returns 1 when queued; 0 when it could not be, with
+/// the native error staged and no event to follow.
+GBM_API int32_t gbm_lfs_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with `{"available": bool, "version":
 /// string}`. Returns 0 on success, or a negative GbmErrorCode if

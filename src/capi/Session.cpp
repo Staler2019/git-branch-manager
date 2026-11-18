@@ -2529,7 +2529,9 @@ void Session::refreshLfs() {
 
             // Matches RepositorySession::refreshLfs(): an individual read
             // failing here is not fatal to the refresh as a whole -- whichever
-            // of patterns/files succeeded is still published.
+            // of patterns/files succeeded is still published. The reply still
+            // says one failed, with the first failure, so the panel does not
+            // read a failed listing as "no LFS" (read-failure-states-spec.html).
             const GitResult<std::vector<std::string>> patterns =
                 lfsStore_->trackedPatterns(readCancel_.token());
             const GitResult<std::vector<LfsFileInfo>> files =
@@ -2544,10 +2546,17 @@ void Session::refreshLfs() {
                     lfsFiles_ = std::make_shared<const std::vector<LfsFileInfo>>(files.value());
                 }
             }
-            callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+            if (!patterns) {
+                callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(patterns.error()));
+            } else if (!files) {
+                callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(files.error()));
+            } else {
+                callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+            }
         },
-        // A failed read is not an error here either: answer with whatever was last published.
-        [this](const GitError&) { callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED); });
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 std::optional<LfsInstallation> Session::currentLfsInstallation() const {

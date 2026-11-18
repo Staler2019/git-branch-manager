@@ -997,6 +997,90 @@ void main() {
     });
   });
 
+  group('lfs', () {
+    void seed() {
+      bindings.lfsInstallationMap = <String, dynamic>{
+        'available': true,
+        'version': '3.4.0',
+      };
+      bindings.lfsPatternsList = <String>['*.psd'];
+      bindings.lfsFilesList = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'path': 'art/logo.psd',
+          'oid': 'aaa',
+          'downloadedLocally': true,
+        },
+      ];
+      c.debugHandleEvent(_updated(GbmEventType.lfsUpdated));
+      expect(c.state.lfsInstallation?.available, isTrue);
+      expect(c.state.lfsPatterns, <String>['*.psd']);
+      expect(c.state.lfsFiles.single.path, 'art/logo.psd');
+    }
+
+    // (r1) All three parts stay as they were, and none is re-read.
+    test(
+      'a failed refresh keeps all three parts, re-reads nothing, logs once',
+      () {
+        seed();
+        final int reads = bindings.lfsReads;
+        final int before = _errorLines(c);
+
+        c.debugHandleEvent(
+          _refreshFailed(GbmEventType.lfsUpdated, 'fatal: not a git repo'),
+        );
+
+        expect(c.state.lfsInstallation?.available, isTrue);
+        expect(c.state.lfsPatterns, <String>['*.psd']);
+        expect(c.state.lfsFiles.single.path, 'art/logo.psd');
+        expect(bindings.lfsReads - reads, 0);
+        expect(c.state.lfsError?.message, 'fatal: not a git repo');
+        expect(_errorLines(c), before + 1);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.lfsUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.lfsReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.lfsUpdated));
+
+      expect(bindings.lfsReads - reads, 3);
+      expect(c.state.lfsError, isNull);
+    });
+
+    // (r3)
+    test(
+      'an export that queued nothing fails the refresh without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.refreshLfs();
+
+        expect(bindings.lfsRefreshes, 1);
+        expect(c.state.lfsError?.message, 'Native error in gbm_lfs_refresh');
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2
+    test('sending a refresh does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.lfsUpdated, 'fatal: boom'),
+      );
+
+      c.refreshLfs();
+
+      expect(bindings.lfsRefreshes, 1);
+      expect(c.state.lfsError?.message, 'fatal: boom');
+    });
+  });
+
   group('stash diff', () {
     KeyedReadReply<StashDiffKey, ParsedDiff>? reply() => c.state.lastStashDiff;
 

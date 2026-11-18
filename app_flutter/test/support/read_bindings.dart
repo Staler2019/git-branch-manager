@@ -162,6 +162,45 @@ class ReadBindings extends FakeGbmBindings {
     return 0;
   };
 
+  /// One counter for the three LFS getters: the re-read path calls all
+  /// three, so a re-read moves it by 3.
+  int lfsRefreshes = 0;
+  int lfsReads = 0;
+  Map<String, dynamic> lfsInstallationMap = <String, dynamic>{
+    'available': true,
+    'version': '3.4.0',
+  };
+  List<String> lfsPatternsList = <String>[];
+  List<Map<String, dynamic>> lfsFilesList = <Map<String, dynamic>>[];
+
+  @override
+  LfsRefreshDart get lfsRefresh => (Pointer<Void> session) {
+    lfsRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_lfs_refresh'));
+    return answer;
+  };
+
+  @override
+  LfsInstallationJsonDart get lfsInstallationJson => (Pointer<Void> session) {
+    lfsReads++;
+    _stage(lfsInstallationMap);
+    return 0;
+  };
+
+  @override
+  LfsPatternsJsonDart get lfsPatternsJson => (Pointer<Void> session) {
+    lfsReads++;
+    _stage(lfsPatternsList);
+    return 0;
+  };
+
+  @override
+  LfsFilesJsonDart get lfsFilesJson => (Pointer<Void> session) {
+    lfsReads++;
+    _stage(lfsFilesList);
+    return 0;
+  };
+
   int submoduleRefreshes = 0;
   int submodulesReads = 0;
   List<Map<String, dynamic>> submodulesList = <Map<String, dynamic>>[];

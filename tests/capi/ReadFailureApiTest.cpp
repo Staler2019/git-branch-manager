@@ -928,18 +928,115 @@ TEST_F(ReadFailureApiTest, CommitFileCountsThatThrowRepliesWithAnEmptyBatch) {
     EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
 }
 
-// An LFS read that fails is not an error: the refresh still fires GBM_EVENT_LFS_UPDATED with
-// whatever it had (Session::refreshLfs), so a throw answers the same way.
-TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsStillFiresLfsUpdatedAndNoError) {
+// An LFS refresh that fails says so on its own event (read-failure-states-spec.html, R class):
+// GBM_EVENT_LFS_UPDATED carries {"error"}, never GBM_EVENT_ERROR_OCCURRED. This test once
+// asserted the opposite -- that a throw answered with an empty payload, "whatever it had" -- which
+// is the premise the spec overruled: an empty answer made a failed read look like no LFS at all.
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsRepliesOnLfsUpdatedWithAnError) {
     gbm_test_fail_read("Session::refreshLfs");
-    gbm_lfs_refresh(session_);
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
 
     ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
     sharedReadPool().drain();
-    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 0u);
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_LFS_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
     const std::vector<std::string> reports = nativeErrors();
     ASSERT_EQ(reports.size(), 1u);
     EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::refreshLfs\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshLfs");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_LFS_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_lfs_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshLfs");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_LFS_UPDATED), 1u);
+}
+
+// The ordinary failure path needs git-lfs: without it the refresh runs nothing and answers with
+// no payload, which is the separate not-installed state. The first refresh probes; once the
+// repository is gone, `git lfs track` and `git lfs ls-files` both fail, and the reply says so.
+TEST_F(ReadFailureApiTest, AnLfsRefreshGitRefusesRepliesOnLfsUpdatedWithItsError) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    sharedReadPool().drain();
+    ASSERT_EQ(gbm_lfs_installation_json(session_), 0);
+    std::string installation(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(installation.data()),
+                              static_cast<int32_t>(installation.size()));
+    if (!contains(installation, "\"available\":true")) {
+        GTEST_SKIP() << "git-lfs is not installed: " << installation;
+    }
+
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_LFS_UPDATED) >= 2; }));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    // Of the two replies, the probe's carried no payload and this one an error.
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_LFS_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_LFS_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+// Only the file listing fails: HEAD names an object that does not exist, so `git lfs track` still
+// answers from .gitattributes while `git lfs ls-files` cannot scan a tree (measured: exit 0 and
+// exit 2). The patterns that were read are published, and the reply still carries the failure.
+TEST_F(ReadFailureApiTest, AnLfsRefreshWhoseFileListingAloneFailsStillRepliesWithItsError) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    sharedReadPool().drain();
+    ASSERT_EQ(gbm_lfs_installation_json(session_), 0);
+    std::string installation(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(installation.data()),
+                              static_cast<int32_t>(installation.size()));
+    if (!contains(installation, "\"available\":true")) {
+        GTEST_SKIP() << "git-lfs is not installed: " << installation;
+    }
+
+    {
+        std::ofstream attributes(repo_ / ".gitattributes");
+        attributes << "*.psd filter=lfs diff=lfs merge=lfs -text\n";
+    }
+    {
+        std::ofstream head(repo_ / ".git" / "HEAD", std::ios::trunc);
+        head << "0000000000000000000000000000000000000bad\n";
+    }
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_LFS_UPDATED) >= 2; }));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_LFS_UPDATED), 1u);
+    ASSERT_EQ(gbm_lfs_patterns_json(session_), 0);
+    std::string patterns(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(patterns.data()),
+                              static_cast<int32_t>(patterns.size()));
+    EXPECT_TRUE(contains(patterns, "*.psd")) << patterns;
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_LFS_UPDATED), "");
 }
 
 // Reads posted from several threads at once compete for the armed name: compare-and-clear under

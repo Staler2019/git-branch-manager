@@ -550,6 +550,7 @@ class RepoSessionState {
     this.lfsInstallation,
     this.lfsPatterns = const <String>[],
     this.lfsFiles = const <LfsFileInfo>[],
+    this.lfsError,
     this.localIdentity = LocalIdentity.empty,
     this.effectiveIdentity = EffectiveIdentity.empty,
     this.hasCommitGraph = false,
@@ -732,6 +733,11 @@ class RepoSessionState {
   final LfsInstallation? lfsInstallation;
   final List<String> lfsPatterns;
   final List<LfsFileInfo> lfsFiles;
+
+  /// Why the last LFS refresh failed, until one succeeds. [lfsInstallation],
+  /// [lfsPatterns] and [lfsFiles] keep what they had, so a failed listing
+  /// does not read as "no LFS" (read-failure-states-spec.html, R class).
+  final GitError? lfsError;
   final LocalIdentity localIdentity;
   final EffectiveIdentity effectiveIdentity;
 
@@ -925,6 +931,8 @@ class RepoSessionState {
     LfsInstallation? lfsInstallation,
     List<String>? lfsPatterns,
     List<LfsFileInfo>? lfsFiles,
+    GitError? lfsError,
+    bool clearLfsError = false,
     LocalIdentity? localIdentity,
     EffectiveIdentity? effectiveIdentity,
     bool? hasCommitGraph,
@@ -1005,6 +1013,7 @@ class RepoSessionState {
       lfsInstallation: lfsInstallation ?? this.lfsInstallation,
       lfsPatterns: lfsPatterns ?? this.lfsPatterns,
       lfsFiles: lfsFiles ?? this.lfsFiles,
+      lfsError: clearLfsError ? null : (lfsError ?? this.lfsError),
       localIdentity: localIdentity ?? this.localIdentity,
       effectiveIdentity: effectiveIdentity ?? this.effectiveIdentity,
       hasCommitGraph: hasCommitGraph ?? this.hasCommitGraph,
@@ -1921,7 +1930,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(clearBisectError: true);
         }
       case GbmEventType.lfsUpdated:
-        _readLfsState();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(lfsError: error);
+        } else {
+          _readLfsState();
+          state = state.copyWith(clearLfsError: true);
+        }
       case GbmEventType.cleanPreviewReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is List<dynamic>) {
@@ -5214,7 +5228,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// patterns and file status. Async: fires GBM_EVENT_LFS_UPDATED.
   void refreshLfs() {
     if (_session == nullptr) return;
-    _bindings.lfsRefresh(_session);
+    if (_bindings.lfsRefresh(_session) == 0) {
+      state = state.copyWith(lfsError: _stagedNativeError());
+    }
   }
 
   /// `git lfs install --local`.

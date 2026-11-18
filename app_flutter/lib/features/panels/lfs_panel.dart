@@ -3,12 +3,15 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
 import '../../data/models/lfs_state.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'lfs_pattern_match.dart';
 import 'panel_filter_field.dart';
@@ -119,6 +122,7 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
     final List<String> patterns = session.lfsPatterns;
     final List<LfsFileInfo> files = session.lfsFiles;
     final LfsInstallation? installation = session.lfsInstallation;
+    final GitError? listError = session.lfsError;
     final String? selected = patterns.contains(_selectedPattern)
         ? _selectedPattern
         : null;
@@ -130,6 +134,12 @@ class _LfsPanelState extends ConsumerState<LfsPanel> {
       storageId: panelStorageId(GbmPanelKind.manageLfs),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a tracked pattern to see its files',
+      banner: listError == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 LFS 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(

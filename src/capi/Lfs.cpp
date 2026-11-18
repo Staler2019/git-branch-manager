@@ -10,10 +10,12 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_lfs_refresh(GbmSessionHandle session) try {
+GBM_API int32_t gbm_lfs_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshLfs();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_lfs_installation_json(GbmSessionHandle session) try {

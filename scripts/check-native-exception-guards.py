@@ -45,6 +45,7 @@ _OWN_FAILURE_VALUE = {
     'gbm_remote_refresh': '0',
     'gbm_submodule_refresh': '0',
     'gbm_bisect_refresh': '0',
+    'gbm_lfs_refresh': '0',
     'gbm_worktree_prune': '0',
 }
 _VOID_CATCH = re.compile(r'(gbm::)?reportCurrentException\(__func__\);$')

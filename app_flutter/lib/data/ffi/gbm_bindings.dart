@@ -1201,8 +1201,8 @@ typedef BisectResetDart = void Function(
   Pointer<Utf8> target,
 );
 
-typedef _LfsRefreshNative = Void Function(Pointer<Void> session);
-typedef LfsRefreshDart = void Function(Pointer<Void> session);
+typedef _LfsRefreshNative = Int32 Function(Pointer<Void> session);
+typedef LfsRefreshDart = int Function(Pointer<Void> session);
 
 typedef _LfsInstallationJsonNative = Int32 Function(Pointer<Void> session);
 typedef LfsInstallationJsonDart = int Function(Pointer<Void> session);

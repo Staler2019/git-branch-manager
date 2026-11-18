@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../data/models/commit_meta.dart';
 import '../../data/models/external_app_entry.dart';
+import '../../data/models/git_error.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/worktree_info.dart';
 import '../../data/repositories/app_preferences_repository.dart';
@@ -23,6 +24,7 @@ import '../../theme/tokens.dart';
 import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_menu.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../../widgets/gbm_split_button.dart';
 import '../../widgets/lucide_icon.dart';
 import 'panel_filter_field.dart';
@@ -289,20 +291,27 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
 
   @override
   Widget build(BuildContext context) {
-    // Watches a record of exactly the three fields this panel renders, not
+    // Watches a record of exactly the four fields this panel renders, not
     // the whole session ([FLU-watch-a-record-not-the-state]). `refs` and
     // `commitMetaCache` are here because the 分支 and HEAD rows read them:
     // watching only `worktrees` left the commit subject frozen on whatever
     // frame it happened to arrive on, since nothing else republishes the
     // worktree list when a meta lands.
+    // `worktreesError` is the banner's.
     final (
       List<WorktreeInfo> worktrees,
       RefSnapshot refSnapshot,
       Map<String, CommitMeta> metas,
+      GitError? listError,
     ) = ref.watch(
-      repoSessionProvider(
-        widget.identity,
-      ).select((state) => (state.worktrees, state.refs, state.commitMetaCache)),
+      repoSessionProvider(widget.identity).select(
+        (state) => (
+          state.worktrees,
+          state.refs,
+          state.commitMetaCache,
+          state.worktreesError,
+        ),
+      ),
     );
     _harvestAndRequestCounts(worktrees);
     _stopScanTimer(worktrees);
@@ -351,7 +360,14 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
           onChanged: (String value) => setState(() => _query = value),
         ),
       ),
-      banner: goneCount == 0
+      // One banner, and a failure wins over the gone paths
+      // (read-failure-states-spec.html: 「兩則 banner 同時出現時，只顯示失敗那一則」).
+      banner: listError != null
+          ? GbmWarningBanner(
+              message: '無法載入 worktree 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            )
+          : goneCount == 0
           ? null
           : GbmWarningBanner(message: _goneBannerMessage(worktrees)),
       listHeader: PanelListHeaderText(text: 'Worktrees · ${visible.length}'),
@@ -369,6 +385,8 @@ class _WorktreesPanelState extends ConsumerState<WorktreesPanel> {
                   : 'No worktree matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, index) {
                 final WorktreeInfo w = visible[index];

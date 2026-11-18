@@ -9,10 +9,12 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream) try {
+GBM_API int32_t gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream) try {
     toSession(session)->requestRebasePlan(upstream != nullptr ? upstream : "");
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API void gbm_rebase_interactive_start(GbmSessionHandle session,

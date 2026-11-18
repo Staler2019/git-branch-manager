@@ -4,14 +4,19 @@ import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
 import '../../data/models/line_history_chunk.dart';
 import '../../data/models/list_selection.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/repositories/history_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -92,7 +97,7 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
       text: '${widget.initialStartLine}',
     );
     _endController = TextEditingController(text: '${widget.initialEndLine}');
-    Future.microtask(_request);
+    _send(_fieldsKey(), fromLifecycle: true);
   }
 
   @override
@@ -108,9 +113,39 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
   int get _start => int.tryParse(_startController.text.trim()) ?? 1;
   int get _end => int.tryParse(_endController.text.trim()) ?? _start;
 
+  /// The range the fields say now. Read only at send time: what is typed but
+  /// not submitted is not a request.
+  LineHistoryKey _fieldsKey() =>
+      LineHistoryKey(path: widget.path, startLine: _start, endLine: _end);
+
+  /// The request this panel last sent. The session's
+  /// [RepoSessionState.lastLineHistory] is drawn -- content and failure banner
+  /// alike -- only while its key is this one: the mount's send reaches the
+  /// controller a microtask late, and the frame in between must not show
+  /// another range (read-failure-states-spec.html, ruling 4).
+  LineHistoryKey? _sentKey;
+
+  /// Every send goes through here, so [_sentKey] is always the request the
+  /// controller was last asked for. From a lifecycle method the controller
+  /// call is deferred: a provider write during build throws.
+  void _send(LineHistoryKey key, {bool fromLifecycle = false}) {
+    _sentKey = key;
+    void request() => _session.requestLineHistory(
+      key.path,
+      key.startLine,
+      key.endLine,
+      startRevision: key.startRevision,
+    );
+    if (fromLifecycle) {
+      Future.microtask(request);
+    } else {
+      request();
+    }
+  }
+
   void _request() {
     setState(() => _selectedIndex = null);
-    _session.requestLineHistory(widget.path, _start, _end);
+    _send(_fieldsKey());
   }
 
   void _widen() {
@@ -135,9 +170,14 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final List<LineHistoryChunk> chunks = ref.watch(
-      repoSessionProvider(widget.identity).select((s) => s.lastLineHistory),
-    );
+    final KeyedReadReply<LineHistoryKey, List<LineHistoryChunk>>? reply = ref
+        .watch(
+          repoSessionProvider(widget.identity).select((s) => s.lastLineHistory),
+        );
+    final bool answersThisPanel = reply != null && reply.key == _sentKey;
+    final List<LineHistoryChunk> chunks =
+        (answersThisPanel ? reply.value : null) ?? const <LineHistoryChunk>[];
+    final GitError? error = answersThisPanel ? reply.error : null;
     final List<LineHistoryChunk> visible = chunks
         .where(_matchesQuery)
         .toList(growable: false);
@@ -156,6 +196,12 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
       storageId: panelStorageId(GbmPanelKind.lineHistory, subject: widget.path),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a step to see its before/after',
+      banner: error == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 ${widget.path} 的 line history。${error.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         maintenance: <Widget>[
           GbmButton(
@@ -202,6 +248,8 @@ class _LineHistoryPanelState extends ConsumerState<LineHistoryPanel> {
                         : 'No commit matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) => PanelListRow(
                       title: visible[i].subject,
@@ -257,6 +305,8 @@ class _RangeFields extends StatelessWidget {
         children: <Widget>[
           Expanded(
             child: TextField(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-field:start'),
               controller: startController,
               keyboardType: TextInputType.number,
               onSubmitted: (_) => onSubmit(),
@@ -270,6 +320,8 @@ class _RangeFields extends StatelessWidget {
           const SizedBox(width: GbmSpacing.space2),
           Expanded(
             child: TextField(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-field:end'),
               controller: endController,
               keyboardType: TextInputType.number,
               onSubmitted: (_) => onSubmit(),

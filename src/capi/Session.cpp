@@ -164,6 +164,121 @@ std::string fileAtRevisionPayload(const std::string& revision,
     return payload;
 }
 
+/// BLAME_READY's one shape, for a blame and for its failure: the request's key, then exactly one
+/// of `result` and `error` non-null (read-failure-states-spec.html).
+std::string blamePayload(const std::string& path,
+                         const std::string& revision,
+                         int startLine,
+                         int endLine,
+                         const BlameResult* result,
+                         const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"revision\":";
+    jsonAppendEscaped(payload, revision);
+    payload += ",\"startLine\":";
+    jsonAppendInt(payload, startLine);
+    payload += ",\"endLine\":";
+    jsonAppendInt(payload, endLine);
+    payload += ",\"result\":";
+    payload += result != nullptr ? toJson(*result) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
+/// FILE_HISTORY_READY's one shape, for a history and for its failure: the request's key, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string fileHistoryPayload(const std::string& path,
+                               const std::string& startRevision,
+                               const std::vector<FileHistoryEntry>* entries,
+                               const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"startRevision\":";
+    jsonAppendEscaped(payload, startRevision);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
+/// LINE_HISTORY_READY's one shape, for a history and for its failure: the request's key, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string lineHistoryPayload(const std::string& path,
+                               int startLine,
+                               int endLine,
+                               const std::string& startRevision,
+                               const std::vector<LineHistoryChunk>* entries,
+                               const GitError* error) {
+    std::string payload = "{\"path\":";
+    jsonAppendEscaped(payload, path);
+    payload += ",\"startLine\":";
+    jsonAppendInt(payload, startLine);
+    payload += ",\"endLine\":";
+    jsonAppendInt(payload, endLine);
+    payload += ",\"startRevision\":";
+    jsonAppendEscaped(payload, startRevision);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
+/// REFLOG_READY's one shape, for a reflog and for its failure: the ref as requested, then exactly
+/// one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string reflogPayload(const std::string& ref,
+                          const std::vector<ReflogEntry>* entries,
+                          const GitError* error) {
+    std::string payload = "{\"ref\":";
+    jsonAppendEscaped(payload, ref);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
+/// REBASE_PLAN_READY's one shape, for a plan and for its failure: the upstream as requested, then
+/// exactly one of `entries` and `error` non-null (read-failure-states-spec.html).
+std::string rebasePlanPayload(const std::string& upstream,
+                              const std::vector<RebaseTodoEntry>* entries,
+                              const GitError* error) {
+    std::string payload = "{\"upstream\":";
+    jsonAppendEscaped(payload, upstream);
+    payload += ",\"entries\":";
+    payload += entries != nullptr ? toJson(*entries) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
+/// A refreshed list's failure, sent on that list's own *_UPDATED event: `{"error": GitError}`.
+/// Success keeps the empty payload that means "re-read" (read-failure-states-spec.html, R class).
+std::string refreshFailurePayload(const GitError& error) {
+    return "{\"error\":" + toJson(error) + '}';
+}
+
+/// STASH_DIFF_READY's one shape, for a diff and for its failure: the index as requested, then
+/// exactly one of `diff` and `error` non-null (read-failure-states-spec.html).
+std::string stashDiffPayload(int index, const ParsedDiff* diff, const GitError* error) {
+    std::string payload = "{\"index\":";
+    jsonAppendInt(payload, index);
+    payload += ",\"diff\":";
+    payload += diff != nullptr ? toJson(*diff) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -358,6 +473,11 @@ void postRead(ReadLane lane,
               std::function<void()> task,
               std::function<void(const GitError&)> onFailure,
               std::function<void()> onAlways) {
+#if defined(GBM_CAPI_TEST_EXPORTS)
+    // Stands in for the two make_shared below throwing: outside the try, so it
+    // propagates to the export, which answers with 0 instead of a reply.
+    throwIfArmedForTest("pre:" + where);
+#endif
     // Shared with `run`, so a hand-off that throws after `run` has been moved
     // away can still answer from here.
     const auto failure =
@@ -1432,7 +1552,7 @@ void Session::refreshStashes() {
             const GitResult<std::vector<StashEntry>> result =
                 stashStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_STASHES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1441,7 +1561,9 @@ void Session::refreshStashes() {
             }
             callbacks_.emitEmpty(GBM_EVENT_STASHES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_STASHES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 StashListPtr Session::currentStashes() const {
@@ -1488,18 +1610,13 @@ void Session::requestStashDiff(int index) {
         [this, index]() {
             const GitResult<DiffService::ParsedDiffPtr> result = diffs_->stashDiff(
                 index, /*includeUntracked=*/true, DiffOptions{}, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            std::string payload = "{\"index\":";
-            jsonAppendInt(payload, index);
-            payload += ",\"diff\":";
-            payload += toJson(*result.value());
-            payload += '}';
-            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, payload);
+            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY,
+                            result ? stashDiffPayload(index, result.value().get(), nullptr)
+                                   : stashDiffPayload(index, nullptr, &result.error()));
         },
-        errorReply());
+        [this, index](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, stashDiffPayload(index, nullptr, &error));
+        });
 }
 
 // --- Tags ------------------------------------------------------------------
@@ -1536,7 +1653,7 @@ void Session::refreshWorktrees() {
             const GitResult<std::vector<WorktreeInfo>> result =
                 worktreeStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1545,7 +1662,9 @@ void Session::refreshWorktrees() {
             }
             callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 void Session::requestWorktreePendingCounts() {
@@ -1555,7 +1674,9 @@ void Session::requestWorktreePendingCounts() {
         [this]() {
             GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                // The list failed, so no count was taken: the same failure as
+                // a plain refresh's, on the same event.
+                callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             // Re-listed rather than counted onto the published snapshot: that
@@ -1569,7 +1690,9 @@ void Session::requestWorktreePendingCounts() {
             }
             callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 WorktreeListPtr Session::currentWorktrees() const {
@@ -1624,7 +1747,7 @@ void Session::refreshRemotes() {
             const GitResult<std::vector<RemoteInfo>> result =
                 remoteStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_REMOTES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1633,7 +1756,9 @@ void Session::refreshRemotes() {
             }
             callbacks_.emitEmpty(GBM_EVENT_REMOTES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REMOTES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 RemoteListPtr Session::currentRemotes() const {
@@ -1837,16 +1962,20 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
     postRead(
         ReadLane::Front,
         "Session::requestBlame",
-        [this, path = std::move(path), revision = std::move(revision), startLine, endLine]() {
+        [this, path, revision, startLine, endLine]() {
             const GitResult<BlameResultPtr> result =
                 blameStore_->blame(path, revision, startLine, endLine, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_BLAME_READY, toJson(*result.value()));
+            callbacks_.emit(
+                GBM_EVENT_BLAME_READY,
+                result
+                    ? blamePayload(
+                          path, revision, startLine, endLine, result.value().get(), nullptr)
+                    : blamePayload(path, revision, startLine, endLine, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, revision, startLine, endLine](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BLAME_READY,
+                            blamePayload(path, revision, startLine, endLine, nullptr, &error));
+        });
 }
 
 void Session::requestCommitMeta(std::vector<std::string> oids) {
@@ -2080,16 +2209,18 @@ void Session::requestFileHistory(std::string path, std::string startRevision) {
     postRead(
         ReadLane::Front,
         "Session::requestFileHistory",
-        [this, path = std::move(path), startRevision = std::move(startRevision)]() {
+        [this, path, startRevision]() {
             const GitResult<std::vector<FileHistoryEntry>> result =
                 fileHistoryStore_->fileHistory(path, startRevision, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY, toJson(result.value()));
+            callbacks_.emit(
+                GBM_EVENT_FILE_HISTORY_READY,
+                result ? fileHistoryPayload(path, startRevision, &result.value(), nullptr)
+                       : fileHistoryPayload(path, startRevision, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, startRevision](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY,
+                            fileHistoryPayload(path, startRevision, nullptr, &error));
+        });
 }
 
 void Session::requestLineHistory(std::string path,
@@ -2099,20 +2230,21 @@ void Session::requestLineHistory(std::string path,
     postRead(
         ReadLane::Front,
         "Session::requestLineHistory",
-        [this,
-         path = std::move(path),
-         startLine,
-         endLine,
-         startRevision = std::move(startRevision)]() {
+        [this, path, startLine, endLine, startRevision]() {
             const GitResult<std::vector<LineHistoryChunk>> result = fileHistoryStore_->lineHistory(
                 path, startLine, endLine, startRevision, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_LINE_HISTORY_READY, toJson(result.value()));
+            callbacks_.emit(
+                GBM_EVENT_LINE_HISTORY_READY,
+                result ? lineHistoryPayload(
+                             path, startLine, endLine, startRevision, &result.value(), nullptr)
+                       : lineHistoryPayload(
+                             path, startLine, endLine, startRevision, nullptr, &result.error()));
         },
-        errorReply());
+        [this, path, startLine, endLine, startRevision](const GitError& error) {
+            callbacks_.emit(
+                GBM_EVENT_LINE_HISTORY_READY,
+                lineHistoryPayload(path, startLine, endLine, startRevision, nullptr, &error));
+        });
 }
 
 void Session::requestReflog(std::string ref) {
@@ -2123,16 +2255,16 @@ void Session::requestReflog(std::string ref) {
     postRead(
         ReadLane::Back,
         "Session::requestReflog",
-        [this, ref = std::move(ref)]() {
+        [this, ref]() {
             const GitResult<std::vector<ReflogEntry>> result =
                 reflogStore_->list(ref, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_REFLOG_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_REFLOG_READY,
+                            result ? reflogPayload(ref, &result.value(), nullptr)
+                                   : reflogPayload(ref, nullptr, &result.error()));
         },
-        errorReply());
+        [this, ref](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REFLOG_READY, reflogPayload(ref, nullptr, &error));
+        });
 }
 
 void Session::refreshUndoJournalCache() {
@@ -2200,17 +2332,18 @@ void Session::requestRebasePlan(std::string upstream) {
     postRead(
         ReadLane::Back,
         "Session::requestRebasePlan",
-        [this, upstream = std::move(upstream)]() {
+        [this, upstream]() {
             RebasePlanner planner(*runner_, paths_);
             const GitResult<std::vector<RebaseTodoEntry>> result =
                 planner.plan(upstream, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY, toJson(result.value()));
+            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY,
+                            result ? rebasePlanPayload(upstream, &result.value(), nullptr)
+                                   : rebasePlanPayload(upstream, nullptr, &result.error()));
         },
-        errorReply());
+        [this, upstream](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REBASE_PLAN_READY,
+                            rebasePlanPayload(upstream, nullptr, &error));
+        });
 }
 
 void Session::startInteractiveRebase(RebaseInteractiveRequest request) {
@@ -2249,7 +2382,8 @@ void Session::refreshSubmodules() {
             const GitResult<std::vector<SubmoduleInfo>> result =
                 submoduleStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_SUBMODULES_UPDATED,
+                                refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -2258,7 +2392,9 @@ void Session::refreshSubmodules() {
             }
             callbacks_.emitEmpty(GBM_EVENT_SUBMODULES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_SUBMODULES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 SubmoduleListPtr Session::currentSubmodules() const {
@@ -2312,7 +2448,8 @@ void Session::refreshBisectStatus() {
         [this]() {
             const GitResult<BisectStatus> result = bisectStore_->status(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_BISECT_STATUS_UPDATED,
+                                refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -2321,7 +2458,9 @@ void Session::refreshBisectStatus() {
             }
             callbacks_.emitEmpty(GBM_EVENT_BISECT_STATUS_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BISECT_STATUS_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 BisectStatusPtr Session::currentBisectStatus() const {
@@ -2390,7 +2529,9 @@ void Session::refreshLfs() {
 
             // Matches RepositorySession::refreshLfs(): an individual read
             // failing here is not fatal to the refresh as a whole -- whichever
-            // of patterns/files succeeded is still published.
+            // of patterns/files succeeded is still published. The reply still
+            // says one failed, with the first failure, so the panel does not
+            // read a failed listing as "no LFS" (read-failure-states-spec.html).
             const GitResult<std::vector<std::string>> patterns =
                 lfsStore_->trackedPatterns(readCancel_.token());
             const GitResult<std::vector<LfsFileInfo>> files =
@@ -2405,10 +2546,17 @@ void Session::refreshLfs() {
                     lfsFiles_ = std::make_shared<const std::vector<LfsFileInfo>>(files.value());
                 }
             }
-            callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+            if (!patterns) {
+                callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(patterns.error()));
+            } else if (!files) {
+                callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(files.error()));
+            } else {
+                callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED);
+            }
         },
-        // A failed read is not an error here either: answer with whatever was last published.
-        [this](const GitError&) { callbacks_.emitEmpty(GBM_EVENT_LFS_UPDATED); });
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_LFS_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 std::optional<LfsInstallation> Session::currentLfsInstallation() const {

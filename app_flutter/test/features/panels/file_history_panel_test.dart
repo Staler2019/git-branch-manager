@@ -9,7 +9,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/file_history_entry.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/repositories/compare_tabs_repository.dart';
@@ -99,7 +101,11 @@ Future<PumpedPanel> _pump(
   FileHistoryPanel(identity: panelTestIdentity, path: 'lib/main.dart'),
   state: RepoSessionState(
     isOpen: true,
-    lastFileHistory: entries,
+    lastFileHistory:
+        KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>.succeeded(
+          const FileHistoryKey(path: 'lib/main.dart'),
+          entries,
+        ),
     selectedCommitFileDiff: diff,
   ),
   extraRoutes: <RouteBase>[
@@ -351,6 +357,7 @@ void main() {
         listHeader: 'Commits · 2',
         statusBar: RegExp(r'^2 commits$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('the filter narrows the list, the header and the status line', (

@@ -190,17 +190,588 @@ TEST_F(ReadFailureApiTest, HistoryStillRefreshesAfterARefreshThatThrew) {
     }));
 }
 
-TEST_F(ReadFailureApiTest, ABlameThatThrowsRepliesWithAnError) {
-    gbm_test_fail_read("Session::requestBlame");
-    gbm_request_blame(session_, "file.txt", "", 0, 0);
+/// Blame answers a failure on its own reply, under its key (read-failure-states-spec.html);
+/// `"error":{` is a failed reply, `"error":null` a successful one.
+std::size_t countFailedBlames(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_BLAME_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
 
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+TEST_F(ReadFailureApiTest, ABlameThatThrowsRepliesUnderItsPathWithAnError) {
+    gbm_test_fail_read("Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BLAME_READY);
+    EXPECT_TRUE(contains(reply, "\"path\":\"file.txt\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+// A throw before postRead's try -- its own make_shared, or the export's string temporaries --
+// never reaches the pool or onFailure. The export answers it: 0, with the error staged, and no
+// reply follows, so Dart sees exactly one of the two.
+TEST_F(ReadFailureApiTest, ABlameThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
     EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_BLAME_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_blame\"")) << reports[0];
+}
+
+// A hand-off that throws inside postRead's try is answered by onFailure on the caller's thread,
+// so the export has queued an answer and returns 1 -- never 0 as well.
+TEST_F(ReadFailureApiTest, ABlameThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestBlame");
+    EXPECT_EQ(gbm_request_blame(session_, "file.txt", "", 0, 0), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 // Dart keeps a fetch-triggered preview's failure out of the banner by matching this argv
 // (repo_session_repository.dart's _isSuppressedAutoPrunePreviewError); an error without it
 // would surface as a banner and leave that remote's in-flight marker behind.
+std::size_t countFailedFileHistories(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_FILE_HISTORY_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, AFileHistoryThatThrowsRepliesUnderItsPathWithAnError) {
+    gbm_test_fail_read("Session::requestFileHistory");
+    EXPECT_EQ(gbm_request_file_history(session_, "file.txt", ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_FILE_HISTORY_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_FILE_HISTORY_READY);
+    EXPECT_TRUE(contains(reply, "\"path\":\"file.txt\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AFileHistoryThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestFileHistory");
+    EXPECT_EQ(gbm_request_file_history(session_, "file.txt", ""), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_FILE_HISTORY_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_file_history\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AFileHistoryThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestFileHistory");
+    EXPECT_EQ(gbm_request_file_history(session_, "file.txt", ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_FILE_HISTORY_READY));
+    EXPECT_EQ(countFailedFileHistories(log_.snapshot()), 1u);
+}
+
+std::size_t countFailedLineHistories(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_LINE_HISTORY_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatThrowsRepliesUnderItsRangeWithAnError) {
+    gbm_test_fail_read("Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 3, 4, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LINE_HISTORY_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_LINE_HISTORY_READY);
+    EXPECT_TRUE(contains(reply, "\"path\":\"file.txt\",\"startLine\":3,\"endLine\":4")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 1, 1, ""), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_LINE_HISTORY_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_line_history\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ALineHistoryThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestLineHistory");
+    EXPECT_EQ(gbm_request_line_history(session_, "file.txt", 1, 1, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LINE_HISTORY_READY));
+    EXPECT_EQ(countFailedLineHistories(log_.snapshot()), 1u);
+}
+
+std::size_t countFailedReflogs(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_REFLOG_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatThrowsRepliesUnderItsRefWithAnError) {
+    gbm_test_fail_read("Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, "main"), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REFLOG_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_REFLOG_READY);
+    EXPECT_TRUE(contains(reply, "\"ref\":\"main\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, ""), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_REFLOG_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_reflog\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AReflogThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestReflog");
+    EXPECT_EQ(gbm_request_reflog(session_, ""), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REFLOG_READY));
+    EXPECT_EQ(countFailedReflogs(log_.snapshot()), 1u);
+}
+
+std::size_t countFailedRebasePlans(const Events& events) {
+    std::size_t n = 0;
+    for (const auto& [type, payload] : events) {
+        if (type == GBM_EVENT_REBASE_PLAN_READY && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, ARebasePlanThatThrowsRepliesUnderItsUpstreamWithAnError) {
+    gbm_test_fail_read("Session::requestRebasePlan");
+    EXPECT_EQ(gbm_request_rebase_plan(session_, "main"), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REBASE_PLAN_READY));
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_REBASE_PLAN_READY);
+    EXPECT_TRUE(contains(reply, "\"upstream\":\"main\"")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ARebasePlanThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestRebasePlan");
+    EXPECT_EQ(gbm_request_rebase_plan(session_, "main"), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_REBASE_PLAN_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_request_rebase_plan\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ARebasePlanThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestRebasePlan");
+    EXPECT_EQ(gbm_request_rebase_plan(session_, "main"), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REBASE_PLAN_READY));
+    EXPECT_EQ(countFailedRebasePlans(log_.snapshot()), 1u);
+}
+
+// A refreshed list that fails answers on its own *_UPDATED event with {"error": ...} instead of
+// ERROR_OCCURRED: the panel keeps the list it has and says the refresh failed
+// (read-failure-states-spec.html, R class). Success still sends no payload.
+std::size_t countFailedRefreshes(const Events& events, int32_t type) {
+    std::size_t n = 0;
+    for (const auto& [eventType, payload] : events) {
+        if (eventType == type && contains(payload, "\"error\":{")) ++n;
+    }
+    return n;
+}
+
+TEST_F(ReadFailureApiTest, AStashListThatThrowsRepliesOnStashesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshStashes");
+    EXPECT_EQ(gbm_stash_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASHES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_STASHES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AStashListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshStashes");
+    EXPECT_EQ(gbm_stash_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_STASHES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_stash_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AStashListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshStashes");
+    EXPECT_EQ(gbm_stash_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASHES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_STASHES_UPDATED), 1u);
+}
+
+// The ordinary failure path, not the injected throw: git itself fails once the repository is
+// gone, and the reply is the same shape.
+TEST_F(ReadFailureApiTest, AStashListGitRefusesRepliesOnStashesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_stash_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASHES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_STASHES_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_STASHES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AStashListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_stash_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASHES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_STASHES_UPDATED), "");
+}
+
+// A stash diff answers under the index it was asked for, on success and on failure, so the
+// panel can stop waiting for the stash it shows (read-failure-states-spec.html, C class).
+TEST_F(ReadFailureApiTest, AStashDiffThatThrowsRepliesUnderItsIndexWithAnError) {
+    gbm_test_fail_read("Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_STASH_DIFF_READY);
+    EXPECT_TRUE(contains(reply, "\"index\":3")) << reply;
+    EXPECT_TRUE(contains(reply, "\"diff\":null")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AStashDiffThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_STASH_DIFF_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_stash_request_diff\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AStashDiffThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_STASH_DIFF_READY), 1u);
+}
+
+// The ordinary failure path: there is no stash@{3} in this repository, and git says so.
+TEST_F(ReadFailureApiTest, AStashDiffGitRefusesRepliesUnderItsIndexWithItsError) {
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_STASH_DIFF_READY);
+    EXPECT_TRUE(contains(reply, "\"index\":3")) << reply;
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_STASH_DIFF_READY), 1u) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatThrowsRepliesOnWorktreesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_worktree_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git worktree list` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, AWorktreeListGitRefusesRepliesOnWorktreesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_WORKTREES_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), "");
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatThrowsRepliesOnWorktreesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_worktree_request_pending_counts\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git worktree list` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, APendingCountGitRefusesRepliesOnWorktreesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_WORKTREES_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), "");
+}
+
+TEST_F(ReadFailureApiTest, ARemoteListThatThrowsRepliesOnRemotesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshRemotes");
+    EXPECT_EQ(gbm_remote_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REMOTES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_REMOTES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ARemoteListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshRemotes");
+    EXPECT_EQ(gbm_remote_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_REMOTES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_remote_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ARemoteListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshRemotes");
+    EXPECT_EQ(gbm_remote_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REMOTES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_REMOTES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git remote -v` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, ARemoteListGitRefusesRepliesOnRemotesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_remote_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REMOTES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_REMOTES_UPDATED), 1u) << *firstOf(events, GBM_EVENT_REMOTES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ARemoteListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_remote_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_REMOTES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_REMOTES_UPDATED), "");
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatThrowsRepliesOnBisectStatusUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BISECT_STATUS_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_bisect_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), 1u);
+}
+
+// The ordinary failure path. With no BISECT_LOG the status is read without running git at all,
+// so the log has to exist and `git bisect log` still fail: a directory in its place does both
+// (measured, git 2.56.1: exit 1, nothing on stdout).
+TEST_F(ReadFailureApiTest, ABisectStatusGitRefusesRepliesOnBisectStatusUpdatedWithItsError) {
+    std::filesystem::create_directory(repo_ / ".git" / "BISECT_LOG");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_BISECT_STATUS_UPDATED), 1u) << *firstOf(events, GBM_EVENT_BISECT_STATUS_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), "");
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatThrowsRepliesOnSubmodulesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_SUBMODULES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_submodule_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git submodule status` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, ASubmoduleListGitRefusesRepliesOnSubmodulesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_SUBMODULES_UPDATED), 1u) << *firstOf(events, GBM_EVENT_SUBMODULES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), "");
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");
@@ -224,17 +795,19 @@ TEST_F(ReadFailureApiTest, AnArmedNameIsNotUsedUpByAnotherRead) {
     EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 0u);
 
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 TEST_F(ReadFailureApiTest, AnArmedNameFailsOneReadOnly) {
     gbm_test_fail_read("Session::requestBlame");
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_ERROR_OCCURRED));
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
 
     gbm_request_blame(session_, "file.txt", "", 0, 0);
-    ASSERT_TRUE(waitForEvent(GBM_EVENT_BLAME_READY));
-    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 1u);
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_BLAME_READY) >= 2; }));
+    EXPECT_EQ(countFailedBlames(log_.snapshot()), 1u);
 }
 
 // The reads below answer a failure in their own reply rather than (or as well as) on
@@ -355,18 +928,115 @@ TEST_F(ReadFailureApiTest, CommitFileCountsThatThrowRepliesWithAnEmptyBatch) {
     EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
 }
 
-// An LFS read that fails is not an error: the refresh still fires GBM_EVENT_LFS_UPDATED with
-// whatever it had (Session::refreshLfs), so a throw answers the same way.
-TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsStillFiresLfsUpdatedAndNoError) {
+// An LFS refresh that fails says so on its own event (read-failure-states-spec.html, R class):
+// GBM_EVENT_LFS_UPDATED carries {"error"}, never GBM_EVENT_ERROR_OCCURRED. This test once
+// asserted the opposite -- that a throw answered with an empty payload, "whatever it had" -- which
+// is the premise the spec overruled: an empty answer made a failed read look like no LFS at all.
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatThrowsRepliesOnLfsUpdatedWithAnError) {
     gbm_test_fail_read("Session::refreshLfs");
-    gbm_lfs_refresh(session_);
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
 
     ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
     sharedReadPool().drain();
-    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_ERROR_OCCURRED), 0u);
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_LFS_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
     const std::vector<std::string> reports = nativeErrors();
     ASSERT_EQ(reports.size(), 1u);
     EXPECT_TRUE(contains(reports[0], "\"where\":\"Session::refreshLfs\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshLfs");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_LFS_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_lfs_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshLfs");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_LFS_UPDATED), 1u);
+}
+
+// The ordinary failure path needs git-lfs: without it the refresh runs nothing and answers with
+// no payload, which is the separate not-installed state. The first refresh probes; once the
+// repository is gone, `git lfs track` and `git lfs ls-files` both fail, and the reply says so.
+TEST_F(ReadFailureApiTest, AnLfsRefreshGitRefusesRepliesOnLfsUpdatedWithItsError) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    sharedReadPool().drain();
+    ASSERT_EQ(gbm_lfs_installation_json(session_), 0);
+    std::string installation(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(installation.data()),
+                              static_cast<int32_t>(installation.size()));
+    if (!contains(installation, "\"available\":true")) {
+        GTEST_SKIP() << "git-lfs is not installed: " << installation;
+    }
+
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_LFS_UPDATED) >= 2; }));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    // Of the two replies, the probe's carried no payload and this one an error.
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_LFS_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_LFS_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+// Only the file listing fails: HEAD names an object that does not exist, so `git lfs track` still
+// answers from .gitattributes while `git lfs ls-files` cannot scan a tree (measured: exit 0 and
+// exit 2). The patterns that were read are published, and the reply still carries the failure.
+TEST_F(ReadFailureApiTest, AnLfsRefreshWhoseFileListingAloneFailsStillRepliesWithItsError) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    sharedReadPool().drain();
+    ASSERT_EQ(gbm_lfs_installation_json(session_), 0);
+    std::string installation(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(installation.data()),
+                              static_cast<int32_t>(installation.size()));
+    if (!contains(installation, "\"available\":true")) {
+        GTEST_SKIP() << "git-lfs is not installed: " << installation;
+    }
+
+    {
+        std::ofstream attributes(repo_ / ".gitattributes");
+        attributes << "*.psd filter=lfs diff=lfs merge=lfs -text\n";
+    }
+    {
+        std::ofstream head(repo_ / ".git" / "HEAD", std::ios::trunc);
+        head << "0000000000000000000000000000000000000bad\n";
+    }
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(log_.waitFor(
+        [](const Events& events) { return countOf(events, GBM_EVENT_LFS_UPDATED) >= 2; }));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_LFS_UPDATED), 1u);
+    ASSERT_EQ(gbm_lfs_patterns_json(session_), 0);
+    std::string patterns(static_cast<std::size_t>(gbm_last_result_json_len()), '\0');
+    gbm_last_result_json_copy(reinterpret_cast<uint8_t*>(patterns.data()),
+                              static_cast<int32_t>(patterns.size()));
+    EXPECT_TRUE(contains(patterns, "*.psd")) << patterns;
+}
+
+TEST_F(ReadFailureApiTest, AnLfsRefreshThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_lfs_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_LFS_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_LFS_UPDATED), "");
 }
 
 // Reads posted from several threads at once compete for the armed name: compare-and-clear under
@@ -381,13 +1051,12 @@ TEST_F(ReadFailureApiTest, ConcurrentBlamesFailOnlyTheOneThatTookTheArmedName) {
     for (std::thread& poster : posters) poster.join();
 
     ASSERT_TRUE(log_.waitFor([](const Events& events) {
-        return countOf(events, GBM_EVENT_BLAME_READY) + countOf(events, GBM_EVENT_ERROR_OCCURRED) >=
-               static_cast<std::size_t>(kReads);
+        return countOf(events, GBM_EVENT_BLAME_READY) >= static_cast<std::size_t>(kReads);
     }));
     sharedReadPool().drain();
     const Events events = log_.snapshot();
-    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 1u);
-    EXPECT_EQ(countOf(events, GBM_EVENT_BLAME_READY), static_cast<std::size_t>(kReads - 1));
+    EXPECT_EQ(countFailedBlames(events), 1u);
+    EXPECT_EQ(countOf(events, GBM_EVENT_BLAME_READY), static_cast<std::size_t>(kReads));
     EXPECT_EQ(nativeErrors().size(), 1u);
 }
 

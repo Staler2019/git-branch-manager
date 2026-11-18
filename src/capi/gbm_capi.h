@@ -105,14 +105,22 @@ enum GbmEventType {
     /// caller that issued several diff requests match replies back up.
     GBM_EVENT_WORKING_COPY_DIFF_READY = 6,
 
-    /// no payload; read the new list with gbm_stashes_json().
+    /// no payload: read the new list with gbm_stashes_json(). payload
+    /// {"error": GitError}: the refresh failed and the published list is
+    /// unchanged.
     GBM_EVENT_STASHES_UPDATED = 7,
-    /// payload: {"index": int, "diff": ParsedDiff JSON}. Reply to
-    /// gbm_stash_request_diff().
+    /// payload: {"index": int, "diff": ParsedDiff JSON | null, "error":
+    /// GitError | null}, exactly one of the last two non-null. Reply to
+    /// gbm_stash_request_diff(), on success and on failure, under the index
+    /// as requested.
     GBM_EVENT_STASH_DIFF_READY = 8,
-    /// no payload; read the new list with gbm_worktrees_json().
+    /// no payload: read the new list with gbm_worktrees_json(). payload
+    /// {"error": GitError}: the list (or the pending-count pass's own list)
+    /// failed and the published list is unchanged.
     GBM_EVENT_WORKTREES_UPDATED = 9,
-    /// no payload; read the new list with gbm_remotes_json().
+    /// no payload: read the new list with gbm_remotes_json(). payload
+    /// {"error": GitError}: the refresh failed and the published list is
+    /// unchanged.
     GBM_EVENT_REMOTES_UPDATED = 10,
     /// payload: {"prompt": string}. A `git` subprocess spawned by a
     /// fetch/pull/push/remote-tag-delete is blocked waiting for a username
@@ -130,27 +138,41 @@ enum GbmEventType {
     /// operation belongs to another session open on the same directories.
     GBM_EVENT_OPERATION_LOG_RECORD = 12,
 
-    /// payload: BlameResult JSON. Reply to gbm_request_blame().
+    /// payload: `{path, revision, startLine, endLine, result, error}` -- the
+    /// request's key, then a BlameResult JSON or a GitError JSON, the other
+    /// null. Reply to gbm_request_blame(), on success and on failure.
     GBM_EVENT_BLAME_READY = 13,
-    /// payload: FileHistoryEntry JSON array. Reply to
-    /// gbm_request_file_history().
+    /// payload: `{path, startRevision, entries, error}` -- the request's key,
+    /// then a FileHistoryEntry JSON array or a GitError JSON, the other null.
+    /// Reply to gbm_request_file_history(), on success and on failure.
     GBM_EVENT_FILE_HISTORY_READY = 14,
-    /// payload: LineHistoryChunk JSON array. Reply to
-    /// gbm_request_line_history().
+    /// payload: `{path, startLine, endLine, startRevision, entries, error}` --
+    /// the request's key, then a LineHistoryChunk JSON array or a GitError
+    /// JSON, the other null. Reply to gbm_request_line_history(), on success
+    /// and on failure.
     GBM_EVENT_LINE_HISTORY_READY = 15,
-    /// payload: ReflogEntry JSON array. Reply to gbm_request_reflog().
+    /// payload: `{ref, entries, error}` -- the ref as requested, then a
+    /// ReflogEntry JSON array or a GitError JSON, the other null. Reply to
+    /// gbm_request_reflog(), on success and on failure.
     GBM_EVENT_REFLOG_READY = 16,
 
-    /// payload: RebaseTodoEntry JSON array. Reply to
-    /// gbm_request_rebase_plan().
+    /// payload: `{upstream, entries, error}` -- the upstream as requested, then
+    /// a RebaseTodoEntry JSON array or a GitError JSON, the other null. Reply
+    /// to gbm_request_rebase_plan(), on success and on failure.
     GBM_EVENT_REBASE_PLAN_READY = 17,
-    /// no payload; read the new list with gbm_submodules_json().
+    /// no payload: read the new list with gbm_submodules_json(). payload
+    /// {"error": GitError}: the refresh failed and the published list is
+    /// unchanged.
     GBM_EVENT_SUBMODULES_UPDATED = 18,
-    /// no payload; read the new status with gbm_bisect_status_json().
+    /// no payload: read the new status with gbm_bisect_status_json().
+    /// payload {"error": GitError}: the refresh failed and the published
+    /// status is unchanged.
     GBM_EVENT_BISECT_STATUS_UPDATED = 19,
-    /// no payload; read installation/patterns/files with
+    /// no payload: read installation/patterns/files with
     /// gbm_lfs_installation_json()/gbm_lfs_patterns_json()/
-    /// gbm_lfs_files_json().
+    /// gbm_lfs_files_json(). payload {"error": GitError}: patterns or files
+    /// (or both) failed; the first failure is sent, and whichever succeeded
+    /// was still published.
     GBM_EVENT_LFS_UPDATED = 20,
     /// payload: CleanEntry JSON array. Reply to gbm_clean_preview().
     GBM_EVENT_CLEAN_PREVIEW_READY = 21,
@@ -917,9 +939,11 @@ GBM_API void gbm_commit_changes(GbmSessionHandle session,
 // Mirrors RepositorySession's "M3: stashes" section -- see
 // src/core/git/ops/StashOps.h.
 
-/// Re-reads `git stash list`. Async: fires GBM_EVENT_STASHES_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_stash_refresh(GbmSessionHandle session);
+/// Re-reads `git stash list`. Async: fires GBM_EVENT_STASHES_UPDATED, with
+/// no payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_stash_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published stash list
 /// as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
@@ -955,8 +979,10 @@ GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index);
 GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName);
 
 /// `git stash show -p --include-untracked stash@{index}`. Async: fires
-/// GBM_EVENT_STASH_DIFF_READY.
-GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index);
+/// GBM_EVENT_STASH_DIFF_READY, on success and on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_stash_request_diff(GbmSessionHandle session, int32_t index);
 
 // --- Tags ----------------------------------------------------------------
 // Tags themselves are read through gbm_refs_json() (RefKind::Tag); only the
@@ -990,9 +1016,10 @@ GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, cons
 // src/core/git/ops/WorktreeOps.h.
 
 /// Re-reads `git worktree list --porcelain`. Async: fires
-/// GBM_EVENT_WORKTREES_UPDATED on success or GBM_EVENT_ERROR_OCCURRED on
-/// failure.
-GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
+/// GBM_EVENT_WORKTREES_UPDATED, with no payload on success and
+/// {"error": GitError} on failure. Returns 1 when queued; 0 when it could not
+/// be, with the native error staged and no event to follow.
+GBM_API int32_t gbm_worktree_refresh(GbmSessionHandle session);
 
 /// Re-lists the worktrees *and* measures each one's uncommitted change count,
 /// then republishes. Async: fires the same GBM_EVENT_WORKTREES_UPDATED, so a
@@ -1007,8 +1034,11 @@ GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
 ///
 /// A count that could not be taken is reported as `failed`, never left as
 /// `unmeasured` -- a caller that re-requests "whatever has no count" would
-/// otherwise spin on it forever.
-GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session);
+/// otherwise spin on it forever. When the list itself fails, the event
+/// carries {"error": GitError} as gbm_worktree_refresh()'s does. Returns 1
+/// when queued; 0 when it could not be, with the native error staged and no
+/// event to follow.
+GBM_API int32_t gbm_worktree_request_pending_counts(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published worktree
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
@@ -1042,9 +1072,11 @@ GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path);
 // gbm_provide_credential()/gbm_cancel_credential() rather than failing
 // outright the moment auth is needed (GIT_TERMINAL_PROMPT is always 0).
 
-/// Re-reads `git remote -v`. Async: fires GBM_EVENT_REMOTES_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_remote_refresh(GbmSessionHandle session);
+/// Re-reads `git remote -v`. Async: fires GBM_EVENT_REMOTES_UPDATED, with no
+/// payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_remote_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published remote
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if
@@ -1191,16 +1223,18 @@ GBM_API int32_t gbm_askpass_main(int32_t argc, const char* const* argv);
 
 /// Blames `path` as of `revision` (empty means the working tree).
 /// `startLine`/`endLine` are 1-based and inclusive; either 0 blames the
-/// whole file. Async: fires GBM_EVENT_BLAME_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure. A newer request for the same
+/// whole file. Async: fires GBM_EVENT_BLAME_READY on success and on failure
+/// (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was
+/// queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()). A newer request for the same
 /// session jumps ahead of any older, still-queued one (interactive
 /// priority, like requesting a different file's diff while a slow one is
 /// still loading).
-GBM_API void gbm_request_blame(GbmSessionHandle session,
-                               const char* path,
-                               const char* revision,
-                               int32_t startLine,
-                               int32_t endLine);
+GBM_API int32_t gbm_request_blame(GbmSessionHandle session,
+                                  const char* path,
+                                  const char* revision,
+                                  int32_t startLine,
+                                  int32_t endLine);
 
 /// Batch commit metadata (author/subject/body) for `oids`, e.g. the rows
 /// currently visible in a scrolling commit list. Backed by a single
@@ -1235,22 +1269,29 @@ GBM_API void gbm_request_commit_file_counts(GbmSessionHandle session,
 
 /// Commits that touched `path`, newest first, following renames the way
 /// `git log --follow` does. `startRevision` empty means HEAD. Async: fires
-/// GBM_EVENT_FILE_HISTORY_READY.
-GBM_API void gbm_request_file_history(GbmSessionHandle session,
-                                      const char* path,
-                                      const char* startRevision);
+/// GBM_EVENT_FILE_HISTORY_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_file_history(GbmSessionHandle session,
+                                         const char* path,
+                                         const char* startRevision);
 
 /// Commits that touched lines `startLine..endLine` (1-based, inclusive) of
-/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY.
-GBM_API void gbm_request_line_history(GbmSessionHandle session,
-                                      const char* path,
-                                      int32_t startLine,
-                                      int32_t endLine,
-                                      const char* startRevision);
+/// `path`, newest first. Async: fires GBM_EVENT_LINE_HISTORY_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_line_history(GbmSessionHandle session,
+                                         const char* path,
+                                         int32_t startLine,
+                                         int32_t endLine,
+                                         const char* startRevision);
 
 /// `git reflog show <ref>`. `ref` empty means HEAD. Async: fires
-/// GBM_EVENT_REFLOG_READY.
-GBM_API void gbm_request_reflog(GbmSessionHandle session, const char* ref);
+/// GBM_EVENT_REFLOG_READY on success and on failure (never
+/// GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0 when nothing was queued
+/// and no reply will come (the error is staged; see gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_reflog(GbmSessionHandle session, const char* ref);
 
 /// Populates the staging buffer with the current undo journal (most recent
 /// last) as a JSON array -- one entry per operation submitted this
@@ -1306,9 +1347,11 @@ GBM_API void gbm_clean_untracked(GbmSessionHandle session,
 
 /// Builds the todo list a plain `git rebase -i <upstream>` would start
 /// from -- read-only, so the caller can show and let the user edit it
-/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY, or
-/// GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
+/// before anything runs. Async: fires GBM_EVENT_REBASE_PLAN_READY on success
+/// and on failure (never GBM_EVENT_ERROR_OCCURRED). Returns 1 when queued, 0
+/// when nothing was queued and no reply will come (the error is staged; see
+/// gbm_last_result_json_len()).
+GBM_API int32_t gbm_request_rebase_plan(GbmSessionHandle session, const char* upstream);
 
 /// `git rebase -i`, with the todo list supplied by the caller instead of
 /// through an interactive editor. `actions[i]` is a RebaseTodoEntry::Action
@@ -1363,9 +1406,10 @@ GBM_API void gbm_rebase_continue_with_message(GbmSessionHandle session, const ch
 // gbm_remote_fetch(), since both can clone/fetch over the network.
 
 /// Re-reads `.gitmodules` + `git submodule status`. Async: fires
-/// GBM_EVENT_SUBMODULES_UPDATED on success or GBM_EVENT_ERROR_OCCURRED on
-/// failure.
-GBM_API void gbm_submodule_refresh(GbmSessionHandle session);
+/// GBM_EVENT_SUBMODULES_UPDATED, with no payload on success and
+/// {"error": GitError} on failure. Returns 1 when queued; 0 when it could not
+/// be, with the native error staged and no event to follow.
+GBM_API int32_t gbm_submodule_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published submodule
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode
@@ -1415,9 +1459,11 @@ GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
 // Mirrors RepositorySession's "M5: bisect" section -- see
 // src/core/git/ops/BisectOps.h.
 
-/// Re-reads BISECT_LOG. Async: fires GBM_EVENT_BISECT_STATUS_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_bisect_refresh(GbmSessionHandle session);
+/// Re-reads BISECT_LOG. Async: fires GBM_EVENT_BISECT_STATUS_UPDATED, with
+/// no payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_bisect_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published
 /// BisectStatus as JSON. Returns 0 on success, or a negative GbmErrorCode
@@ -1458,9 +1504,12 @@ GBM_API void gbm_bisect_reset(GbmSessionHandle session, const char* target);
 
 /// Detects `git-lfs` (once per session, cached) and re-reads tracked
 /// patterns and file status. Async: always fires GBM_EVENT_LFS_UPDATED,
-/// never GBM_EVENT_ERROR_OCCURRED -- a read that fails leaves its part of the
-/// snapshot as it was.
-GBM_API void gbm_lfs_refresh(GbmSessionHandle session);
+/// never GBM_EVENT_ERROR_OCCURRED -- with no payload on success, and with
+/// {"error": GitError} when a read failed; a read that fails leaves its part
+/// of the snapshot as it was. Without `git-lfs` nothing is listed and the
+/// event has no payload. Returns 1 when queued; 0 when it could not be, with
+/// the native error staged and no event to follow.
+GBM_API int32_t gbm_lfs_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with `{"available": bool, "version":
 /// string}`. Returns 0 on success, or a negative GbmErrorCode if

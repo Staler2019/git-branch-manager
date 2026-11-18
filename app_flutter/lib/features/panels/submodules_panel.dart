@@ -3,6 +3,7 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
 import '../../data/models/submodule_info.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
@@ -10,7 +11,9 @@ import '../../data/services/app_action_runner.dart';
 import '../../data/services/app_actions.dart';
 import '../../data/services/desktop_launcher.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
@@ -115,8 +118,9 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
   @override
   Widget build(BuildContext context) {
     listenToRefreshSweep(ref, widget.identity, _session.refreshSubmodules);
-    final List<SubmoduleInfo> submodules = ref.watch(
-      repoSessionProvider(widget.identity).select((s) => s.submodules),
+    final (List<SubmoduleInfo> submodules, GitError? listError) = ref.watch(
+      repoSessionProvider(widget.identity)
+          .select((s) => (s.submodules, s.submodulesError)),
     );
     final SubmoduleInfo? selected = submodules
         .where((SubmoduleInfo s) => s.path == _selectedPath)
@@ -129,6 +133,12 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
       storageId: panelStorageId(GbmPanelKind.manageSubmodules),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a submodule to see its details',
+      banner: listError == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 submodule 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
@@ -226,6 +236,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
                         : 'No submodule matches the filter',
                   )
                 : ListView.builder(
+                    // Own scroll-memory slot (expectDistinctScrollStorage).
+                    key: const PageStorageKey<String>('panel-list'),
                     itemCount: visible.length,
                     itemBuilder: (context, i) {
                       final SubmoduleInfo s = visible[i];
@@ -277,6 +289,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:url'),
             controller: _urlController,
             decoration: const InputDecoration(
               hintText: 'Repository URL',
@@ -286,6 +300,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:path'),
             controller: _pathController,
             decoration: const InputDecoration(
               hintText: 'Path (leave empty to derive from URL)',
@@ -295,6 +311,8 @@ class _SubmodulesPanelState extends ConsumerState<SubmodulesPanel> {
           ),
           const SizedBox(height: GbmSpacing.space2),
           TextField(
+            // Own scroll-memory slot (expectDistinctScrollStorage).
+            key: const PageStorageKey<String>('panel-field:branch'),
             controller: _branchController,
             decoration: const InputDecoration(
               hintText: 'Branch (optional)',

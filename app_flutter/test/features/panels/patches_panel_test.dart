@@ -269,6 +269,8 @@ void main() {
       expect(find.byType(PanelDiffText), findsOneWidget);
       expect(find.text('+new line'), findsOneWidget);
       expect(find.text('-old line'), findsOneWidget);
+      // The list only has rows once a patch is picked.
+      await expectDistinctScrollStorage(tester);
     });
 
     // A patch can be deleted between being picked and being previewed.
@@ -299,6 +301,7 @@ void main() {
         listHeader: 'Patches · 0',
         statusBar: RegExp(r'^0 patches$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('the filter narrows the list, the header and the status line', (

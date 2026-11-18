@@ -3,12 +3,15 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
 import '../../data/models/ref_snapshot.dart';
 import '../../data/models/remote_info.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import 'add_remote_prompt.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -113,6 +116,7 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
       repoSessionProvider(widget.identity),
     );
     final List<RemoteInfo> remotes = session.remotes;
+    final GitError? listError = session.remotesError;
     final RemoteInfo? selected = remotes
         .where((RemoteInfo r) => r.name == _selectedName)
         .firstOrNull;
@@ -122,6 +126,12 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
       storageId: panelStorageId(GbmPanelKind.manageRemotes),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a remote to see its details',
+      banner: listError == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 remote 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         primary: <Widget>[
           GbmButton(
@@ -186,6 +196,8 @@ class _RemotesPanelState extends ConsumerState<RemotesPanel> {
                   : 'No remote matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, i) => PanelListRow(
                 title: visible[i].name,

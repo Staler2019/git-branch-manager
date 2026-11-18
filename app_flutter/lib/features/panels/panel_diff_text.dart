@@ -83,11 +83,15 @@ class _PanelDiffTextState extends ConsumerState<PanelDiffText> {
 
     return SelectionArea(
       child: GbmCodeHScroll(
+        // Own scroll-memory slot (expectDistinctScrollStorage).
+        key: const PageStorageKey<String>('panel-code-hscroll'),
         contentWidth: cap?.totalWidth ?? 0,
         codeClipWidth: cap?.clipWidth,
         verticalController: _vertical,
         backdrop: colors.surfacePanel,
         child: ListView.builder(
+          // Own scroll-memory slot (expectDistinctScrollStorage).
+          key: const PageStorageKey<String>('panel-diff-lines'),
           controller: _vertical,
           padding: const EdgeInsets.symmetric(vertical: GbmSpacing.space2),
           itemCount: lines.length,

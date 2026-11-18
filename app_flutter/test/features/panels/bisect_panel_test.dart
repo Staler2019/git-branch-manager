@@ -150,6 +150,9 @@ void main() {
       );
 
       expect(find.text('No bisect in progress'), findsWidgets);
+      // The form's fields only exist in this state; the toolbar test's fixture
+      // never reaches it.
+      await expectDistinctScrollStorage(tester);
       // Scoped by label. These were `.first`/`.last`, which is the
       // *dangerous* form of this round's recurring finder trap: the
       // toolbar's filter is a TextField too and sits before both of these
@@ -208,6 +211,7 @@ void main() {
         listHeader: 'Marked steps · 3',
         statusBar: RegExp(r'^3 steps$'),
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // Undisputed gap 1: these rows were a bare Padding + Row, so they had

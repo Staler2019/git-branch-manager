@@ -94,6 +94,7 @@ void main() {
           listHeader: 'Submodules · 2',
           statusBar: RegExp(r'^2 submodules$'),
         );
+        await expectDistinctScrollStorage(tester);
       },
     );
 
@@ -164,6 +165,15 @@ void main() {
       expect(find.text('Deinit'), findsNothing);
       await _select(tester, 'vendor/libgit');
       expect(find.text('Deinit'), findsOneWidget);
+    });
+
+    testWidgets('Add…\'s form fields keep scroll memory of their own', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await tester.tap(find.text('Add…'));
+      await tester.pumpAndSettle();
+      await expectDistinctScrollStorage(tester);
     });
 
     testWidgets('the list shows each path over its current commit', (

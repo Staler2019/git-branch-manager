@@ -9,6 +9,8 @@
 // both are decisions this pins down.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/models/blame_result.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/commit_meta.dart';
 import 'package:gbm_flutter/data/models/signature.dart';
 import 'package:gbm_flutter/data/repositories/history_repository.dart';
@@ -76,7 +78,10 @@ Future<PumpedPanel> _pump(
   BlamePanel(identity: panelTestIdentity, path: 'lib/main.dart'),
   state: RepoSessionState(
     isOpen: true,
-    lastBlame: BlameResult(lines: lines, truncated: false),
+    lastBlame: KeyedReadReply<BlameKey, BlameResult>.succeeded(
+      const BlameKey(path: 'lib/main.dart'),
+      BlameResult(lines: lines, truncated: false),
+    ),
     commitMetaCache: meta,
   ),
   extraRoutes: <RouteBase>[
@@ -216,6 +221,7 @@ void main() {
         statusBar: RegExp(r'^2 lines$'),
         filterEnabled: false,
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // This list is *file content*, not a named collection, so there is

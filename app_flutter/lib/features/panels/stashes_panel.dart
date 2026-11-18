@@ -3,11 +3,17 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
+import '../../data/models/parsed_diff.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -84,7 +90,13 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
     super.didUpdateWidget(oldWidget);
     final int? incoming = widget.initialSelectedIndex;
     if (incoming != null && incoming != oldWidget.initialSelectedIndex) {
-      _select(incoming);
+      // The selection is local and moves now; the request writes the
+      // session's pending reply, which a lifecycle method may not do while
+      // the tree builds, so it waits for the microtask as initState's does.
+      setState(() => _selectedIndex = incoming);
+      Future.microtask(() {
+        if (mounted) _session.requestStashDiff(incoming);
+      });
     }
   }
 
@@ -122,7 +134,7 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
       repoSessionProvider(widget.identity),
     );
     final List<StashEntry> stashes = session.stashes;
-    final StashDiffReply? diff = session.lastStashDiff;
+    final GitError? listError = session.stashesError;
     // Indices shift when a stash is dropped or popped, so a selection that
     // no longer exists must fall back to "nothing selected" rather than
     // silently pointing the toolbar at a different stash.
@@ -130,10 +142,31 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
       (StashEntry s) => s.index == _selectedIndex,
     );
     final int? selected = hasSelection ? _selectedIndex : null;
+    // Only the reply for the selected stash is drawn; one for another
+    // index is a request the selection has since moved past.
+    final KeyedReadReply<StashDiffKey, ParsedDiff>? reply =
+        session.lastStashDiff;
+    final KeyedReadReply<StashDiffKey, ParsedDiff>? diff =
+        selected != null && reply?.key == StashDiffKey(selected) ? reply : null;
+    final ParsedDiff? parsed = diff?.value;
+    final GitError? diffError = diff?.error;
     final List<StashEntry> visible = stashes.where(_matchesQuery).toList();
 
     return GbmPanelTabShell(
       storageId: panelStorageId(GbmPanelKind.manageStashes),
+      // One banner. A failed refresh keeps the list it had (R class) and,
+      // covering the whole panel, wins over the selected stash's diff.
+      banner: listError != null
+          ? GbmWarningBanner(
+              message: '無法載入 stash 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            )
+          : diffError != null
+          ? GbmWarningBanner(
+              message: '無法載入 stash@{$selected} 的變更。${diffError.message}',
+              action: const GbmOpenLogButton(),
+            )
+          : null,
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a stash to see its changes',
       toolbar: PanelToolbarSpec(
@@ -203,6 +236,8 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
                   : 'No stash matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               // P19 list column: stash 編號 + 訊息 + 時間.
               itemBuilder: (context, i) => PanelListRow(
@@ -219,16 +254,19 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
             ),
       detail: selected == null
           ? const SizedBox.shrink()
-          : (diff != null && diff.index == selected)
+          : parsed != null
           // 檔案清單 + diff（唯讀）: DiffPage alone renders hunks with no
           // per-file header, so the file list is the wrapper's job.
           ? PanelFileDiffDetail(
-              diff: diff.diff,
+              diff: parsed,
               storageId: panelStorageId(
                 GbmPanelKind.manageStashes,
                 slot: 'detail',
               ),
             )
+          // A failed diff ends the wait: the banner says why.
+          : diffError != null
+          ? const SizedBox.shrink()
           : const Center(child: CircularProgressIndicator()),
     );
   }

@@ -5,13 +5,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/models/file_history_entry.dart';
+import '../../data/models/git_error.dart';
+import '../../data/models/keyed_read_reply.dart';
 import '../../data/models/parsed_diff.dart';
+import '../../data/models/read_keys.dart';
 import '../../data/repositories/compare_tabs_repository.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
 import '../../widgets/gbm_diff_header_bar.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../diff/diff_page.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
@@ -66,10 +71,31 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
   String? _selectedOid;
   String _query = '';
 
+  /// The request this panel last sent. The session's
+  /// [RepoSessionState.lastFileHistory] is drawn -- content and failure banner
+  /// alike -- only while its key is this one: a lifecycle send reaches the
+  /// controller a microtask late, and the frame in between must not show the
+  /// previous file (read-failure-states-spec.html, ruling 4).
+  FileHistoryKey? _sentKey;
+
+  /// Every send goes through here, so [_sentKey] is always the request the
+  /// controller was last asked for. From a lifecycle method the controller
+  /// call is deferred: a provider write during build throws.
+  void _send(FileHistoryKey key, {bool fromLifecycle = false}) {
+    _sentKey = key;
+    void request() =>
+        _session.requestFileHistory(key.path, startRevision: key.startRevision);
+    if (fromLifecycle) {
+      Future.microtask(request);
+    } else {
+      request();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
-    Future.microtask(() => _session.requestFileHistory(widget.path));
+    _send(FileHistoryKey(path: widget.path), fromLifecycle: true);
   }
 
   @override
@@ -80,7 +106,7 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
     // arrive as an update rather than a fresh mount.
     if (widget.path != oldWidget.path) {
       setState(() => _selectedOid = null);
-      _session.requestFileHistory(widget.path);
+      _send(FileHistoryKey(path: widget.path), fromLifecycle: true);
     }
   }
 
@@ -121,7 +147,12 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
     final RepoSessionState session = ref.watch(
       repoSessionProvider(widget.identity),
     );
-    final List<FileHistoryEntry> entries = session.lastFileHistory;
+    final KeyedReadReply<FileHistoryKey, List<FileHistoryEntry>>? reply =
+        session.lastFileHistory;
+    final bool answersThisPanel = reply != null && reply.key == _sentKey;
+    final List<FileHistoryEntry> entries =
+        (answersThisPanel ? reply.value : null) ?? const <FileHistoryEntry>[];
+    final GitError? error = answersThisPanel ? reply.error : null;
     final List<FileHistoryEntry> visible = entries
         .where(_matchesQuery)
         .toList(growable: false);
@@ -140,6 +171,12 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
       storageId: panelStorageId(GbmPanelKind.fileHistory, subject: widget.path),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a commit to see how it changed this file',
+      banner: error == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 ${widget.path} 的 file history。${error.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         maintenance: <Widget>[
           const Tooltip(
@@ -195,6 +232,8 @@ class _FileHistoryPanelState extends ConsumerState<FileHistoryPanel> {
                   : 'No commit matches the filter',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, i) {
                 final FileHistoryEntry e = visible[i];

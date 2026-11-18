@@ -10,6 +10,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/models/repo_state.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -33,19 +35,38 @@ const RebaseTodoEntry _second = RebaseTodoEntry(
   subject: 'fix the guard',
 );
 
+/// Mounted with `main` loaded: the panel draws only the plan for the
+/// upstream it sent (read-failure-states-spec.html), so the fixture sends
+/// `main` the way a user does, and the session already holds its answer.
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<RebaseTodoEntry> plan = const <RebaseTodoEntry>[_first, _second],
   RepoState? repoState,
-}) => pumpPanel(
-  tester,
-  InteractiveRebasePanel(identity: panelTestIdentity),
-  state: RepoSessionState(
-    isOpen: true,
-    lastRebasePlan: plan,
-    repoState: repoState,
-  ),
-);
+}) async {
+  final PumpedPanel pumped = await pumpPanel(
+    tester,
+    InteractiveRebasePanel(identity: panelTestIdentity),
+    state: RepoSessionState(
+      isOpen: true,
+      lastRebasePlan:
+          KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>.succeeded(
+            const RebasePlanKey('main'),
+            plan,
+          ),
+      repoState: repoState,
+    ),
+  );
+  await tester.enterText(
+    find.ancestor(
+      of: find.text('Upstream (e.g. main)'),
+      matching: find.byType(TextField),
+    ),
+    'main',
+  );
+  await tester.tap(find.text('Load plan'));
+  await tester.pumpAndSettle();
+  return pumped;
+}
 
 /// The subjects as *painted*, top to bottom -- a reorder claim is about
 /// render order, so it is read out of the tree rather than out of the model.
@@ -225,6 +246,7 @@ void main() {
         statusBar: RegExp(r'^2 commits$'),
         filterEnabled: false,
       );
+      await expectDistinctScrollStorage(tester);
     });
 
     // Rule 3 makes this list writable, and a filtered order is not the real

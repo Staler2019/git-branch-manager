@@ -186,6 +186,7 @@ TEST_F(StashApiTest, RequestDiffReportsTheStashedChange) {
     }
     EXPECT_NE(diffPayload.find("\"index\":0"), std::string::npos) << diffPayload;
     EXPECT_NE(diffPayload.find("\"text\":\"line2\""), std::string::npos) << diffPayload;
+    EXPECT_NE(diffPayload.find("\"error\":null"), std::string::npos) << diffPayload;
 }
 
 }  // namespace

@@ -556,8 +556,8 @@ typedef UnstageLinesDart = void Function(
   int lineIndexCount,
 );
 
-typedef _StashRefreshNative = Void Function(Pointer<Void> session);
-typedef StashRefreshDart = void Function(Pointer<Void> session);
+typedef _StashRefreshNative = Int32 Function(Pointer<Void> session);
+typedef StashRefreshDart = int Function(Pointer<Void> session);
 
 typedef _StashesJsonNative = Int32 Function(Pointer<Void> session);
 typedef StashesJsonDart = int Function(Pointer<Void> session);
@@ -604,11 +604,11 @@ typedef StashBranchDart = void Function(
   Pointer<Utf8> branchName,
 );
 
-typedef _StashRequestDiffNative = Void Function(
+typedef _StashRequestDiffNative = Int32 Function(
   Pointer<Void> session,
   Int32 index,
 );
-typedef StashRequestDiffDart = void Function(Pointer<Void> session, int index);
+typedef StashRequestDiffDart = int Function(Pointer<Void> session, int index);
 
 typedef _TagCreateNative = Void Function(
   Pointer<Void> session,
@@ -649,12 +649,12 @@ typedef TagPushDart = void Function(
   Pointer<Utf8> name,
 );
 
-typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
-typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
-typedef _WorktreeRequestPendingCountsNative = Void Function(
+typedef _WorktreeRefreshNative = Int32 Function(Pointer<Void> session);
+typedef WorktreeRefreshDart = int Function(Pointer<Void> session);
+typedef _WorktreeRequestPendingCountsNative = Int32 Function(
   Pointer<Void> session,
 );
-typedef WorktreeRequestPendingCountsDart = void Function(Pointer<Void> session);
+typedef WorktreeRequestPendingCountsDart = int Function(Pointer<Void> session);
 
 typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorktreesJsonDart = int Function(Pointer<Void> session);
@@ -714,8 +714,8 @@ typedef WorktreeUnlockDart = void Function(
   Pointer<Utf8> path,
 );
 
-typedef _RemoteRefreshNative = Void Function(Pointer<Void> session);
-typedef RemoteRefreshDart = void Function(Pointer<Void> session);
+typedef _RemoteRefreshNative = Int32 Function(Pointer<Void> session);
+typedef RemoteRefreshDart = int Function(Pointer<Void> session);
 
 typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
 typedef RemotesJsonDart = int Function(Pointer<Void> session);
@@ -785,14 +785,16 @@ typedef ProvideCredentialDart = void Function(
 typedef _CancelCredentialNative = Void Function(Pointer<Void> session);
 typedef CancelCredentialDart = void Function(Pointer<Void> session);
 
-typedef _RequestBlameNative = Void Function(
+typedef _RequestBlameNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,
   Int32 startLine,
   Int32 endLine,
 );
-typedef RequestBlameDart = void Function(
+
+/// 1 = queued, 0 = nothing queued and no reply will come (gbm_capi.h).
+typedef RequestBlameDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> revision,
@@ -925,25 +927,25 @@ typedef RemoteRemoveDart = void Function(
   Pointer<Utf8> name,
 );
 
-typedef _RequestFileHistoryNative = Void Function(
+typedef _RequestFileHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,
 );
-typedef RequestFileHistoryDart = void Function(
+typedef RequestFileHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestLineHistoryNative = Void Function(
+typedef _RequestLineHistoryNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   Int32 startLine,
   Int32 endLine,
   Pointer<Utf8> startRevision,
 );
-typedef RequestLineHistoryDart = void Function(
+typedef RequestLineHistoryDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> path,
   int startLine,
@@ -951,11 +953,11 @@ typedef RequestLineHistoryDart = void Function(
   Pointer<Utf8> startRevision,
 );
 
-typedef _RequestReflogNative = Void Function(
+typedef _RequestReflogNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );
-typedef RequestReflogDart = void Function(
+typedef RequestReflogDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> ref,
 );
@@ -1003,11 +1005,11 @@ typedef CleanUntrackedDart = void Function(
   int includeIgnored,
 );
 
-typedef _RequestRebasePlanNative = Void Function(
+typedef _RequestRebasePlanNative = Int32 Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );
-typedef RequestRebasePlanDart = void Function(
+typedef RequestRebasePlanDart = int Function(
   Pointer<Void> session,
   Pointer<Utf8> upstream,
 );
@@ -1068,8 +1070,8 @@ typedef RebaseSkipDart = void Function(Pointer<Void> session);
 typedef _RebaseAbortNative = Void Function(Pointer<Void> session);
 typedef RebaseAbortDart = void Function(Pointer<Void> session);
 
-typedef _SubmoduleRefreshNative = Void Function(Pointer<Void> session);
-typedef SubmoduleRefreshDart = void Function(Pointer<Void> session);
+typedef _SubmoduleRefreshNative = Int32 Function(Pointer<Void> session);
+typedef SubmoduleRefreshDart = int Function(Pointer<Void> session);
 
 typedef _SubmodulesJsonNative = Int32 Function(Pointer<Void> session);
 typedef SubmodulesJsonDart = int Function(Pointer<Void> session);
@@ -1143,8 +1145,8 @@ typedef SubmoduleDeinitDart = void Function(
   int force,
 );
 
-typedef _BisectRefreshNative = Void Function(Pointer<Void> session);
-typedef BisectRefreshDart = void Function(Pointer<Void> session);
+typedef _BisectRefreshNative = Int32 Function(Pointer<Void> session);
+typedef BisectRefreshDart = int Function(Pointer<Void> session);
 
 typedef _BisectStatusJsonNative = Int32 Function(Pointer<Void> session);
 typedef BisectStatusJsonDart = int Function(Pointer<Void> session);
@@ -1199,8 +1201,8 @@ typedef BisectResetDart = void Function(
   Pointer<Utf8> target,
 );
 
-typedef _LfsRefreshNative = Void Function(Pointer<Void> session);
-typedef LfsRefreshDart = void Function(Pointer<Void> session);
+typedef _LfsRefreshNative = Int32 Function(Pointer<Void> session);
+typedef LfsRefreshDart = int Function(Pointer<Void> session);
 
 typedef _LfsInstallationJsonNative = Int32 Function(Pointer<Void> session);
 typedef LfsInstallationJsonDart = int Function(Pointer<Void> session);

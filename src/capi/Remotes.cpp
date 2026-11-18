@@ -13,10 +13,12 @@ using namespace gbm::capi;
 
 namespace {}  // namespace
 
-GBM_API void gbm_remote_refresh(GbmSessionHandle session) try {
+GBM_API int32_t gbm_remote_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshRemotes();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_remotes_json(GbmSessionHandle session) try {

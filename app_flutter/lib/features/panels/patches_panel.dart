@@ -282,6 +282,8 @@ class _PatchesPanelState extends ConsumerState<PatchesPanel> {
                         '${commits.items.length} selected commit(s)',
             )
           : ListView.builder(
+              // Own scroll-memory slot (expectDistinctScrollStorage).
+              key: const PageStorageKey<String>('panel-list'),
               itemCount: visible.length,
               itemBuilder: (context, i) => PanelListRow(
                 title: visible[i].title,

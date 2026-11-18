@@ -116,6 +116,13 @@ class _PanelFilterFieldState extends State<PanelFilterField> {
           const SingleActivator(LogicalKeyboardKey.escape): _clear,
         },
         child: TextField(
+          // Its own scroll-memory slot. A TextField's text scrolls, and with
+          // no key of its own it stored under the panel tab's slot -- the one
+          // the panel's list uses -- so it restored the list's offset,
+          // clamped it to its own extent and saved 0 over it: the list lost
+          // its position on the second return to the tab (P19 rule 1's
+          // 各自記憶捲動位置; panel_filter_field_storage_test.dart).
+          key: const PageStorageKey<String>('panel-filter-field'),
           controller: _controller,
           enabled: widget.enabled,
           style: TextStyle(

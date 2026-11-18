@@ -9,7 +9,9 @@
 // most here are the selection gates -- a Drop that fires against no
 // selection, or against a stale index after a pop, is irreversible.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gbm_flutter/data/models/keyed_read_reply.dart';
 import 'package:gbm_flutter/data/models/parsed_diff.dart';
+import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/models/working_copy_status.dart';
 import 'package:gbm_flutter/data/models/stash_entry.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -57,15 +59,17 @@ const DiffFile _file = DiffFile(
   hunks: <DiffHunk>[],
 );
 
-const StashDiffReply _diffOfStash1 = StashDiffReply(
-  index: 1,
-  diff: ParsedDiff(files: <DiffFile>[_file], truncated: false, inputBytes: 42),
+typedef _StashDiff = KeyedReadReply<StashDiffKey, ParsedDiff>;
+
+const _StashDiff _diffOfStash1 = _StashDiff.succeeded(
+  StashDiffKey(1),
+  ParsedDiff(files: <DiffFile>[_file], truncated: false, inputBytes: 42),
 );
 
 Future<PumpedPanel> _pump(
   WidgetTester tester, {
   List<StashEntry> stashes = _stashes,
-  StashDiffReply? diff,
+  _StashDiff? diff,
   int? initialSelectedIndex,
 }) => pumpPanel(
   tester,
@@ -97,6 +101,7 @@ void main() {
           listHeader: 'Stashes · 2',
           statusBar: RegExp(r'^2 stashes$'),
         );
+        await expectDistinctScrollStorage(tester);
       },
     );
 
@@ -217,9 +222,9 @@ void main() {
     ) async {
       await _pump(
         tester,
-        diff: const StashDiffReply(
-          index: 1,
-          diff: ParsedDiff(
+        diff: const _StashDiff.succeeded(
+          StashDiffKey(1),
+          ParsedDiff(
             files: <DiffFile>[
               DiffFile(
                 oldPath: 'lib/old.dart',

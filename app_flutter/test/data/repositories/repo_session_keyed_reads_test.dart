@@ -181,6 +181,23 @@ Map<String, dynamic> _stash(int index, String message) => <String, dynamic>{
   'timestamp': 1,
 };
 
+Map<String, dynamic> _worktree(String path) => <String, dynamic>{
+  'path': path,
+  'headOid': 'a1b2c3d',
+  'branch': 'main',
+  'isMain': true,
+  'isBare': false,
+  'isDetached': false,
+  'isLocked': false,
+  'lockReason': '',
+  'isPrunable': false,
+  'prunableReason': '',
+  'isPrimary': true,
+  'pendingChanges': 0,
+  'pendingCountState': 'unmeasured',
+  'createdAtUnix': 0,
+};
+
 GbmEvent _updated(int type) => GbmEvent(type, Uint8List(0));
 
 GbmEvent _refreshFailed(int type, String message) =>
@@ -656,6 +673,92 @@ void main() {
 
       expect(bindings.stashRefreshes, 1);
       expect(c.state.stashesError?.message, 'fatal: boom');
+    });
+  });
+
+  group('worktree list', () {
+    void seed() {
+      bindings.worktreesList = <Map<String, dynamic>>[_worktree('/src/a')];
+      c.debugHandleEvent(_updated(GbmEventType.worktreesUpdated));
+      expect(c.state.worktrees.single.path, '/src/a');
+    }
+
+    // (r1)
+    test('a failed refresh keeps the list, re-reads nothing and logs once', () {
+      seed();
+      final int reads = bindings.worktreesReads;
+      final int before = _errorLines(c);
+
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.worktreesUpdated, 'fatal: not a git repo'),
+      );
+
+      expect(c.state.worktrees.single.path, '/src/a');
+      expect(bindings.worktreesReads - reads, 0);
+      expect(c.state.worktreesError?.message, 'fatal: not a git repo');
+      expect(_errorLines(c), before + 1);
+      expect(c.state.lastError, isNull);
+    });
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.worktreesUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.worktreesReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.worktreesUpdated));
+
+      expect(bindings.worktreesReads - reads, 1);
+      expect(c.state.worktreesError, isNull);
+    });
+
+    // (r3), once per export.
+    test('a refresh export that queued nothing fails without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.refreshWorktrees();
+
+      expect(bindings.worktreeRefreshes, 1);
+      expect(
+        c.state.worktreesError?.message,
+        'Native error in gbm_worktree_refresh',
+      );
+      expect(_errorLines(c), before);
+      expect(c.state.lastError, isNull);
+    });
+
+    test(
+      'a pending-count export that queued nothing fails without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.requestWorktreePendingCounts();
+
+        expect(bindings.worktreePendingCountRequests, 1);
+        expect(
+          c.state.worktreesError?.message,
+          'Native error in gbm_worktree_request_pending_counts',
+        );
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2: neither send clears the banner; only a success does.
+    test('sending either request does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.worktreesUpdated, 'fatal: boom'),
+      );
+
+      c.refreshWorktrees();
+      c.requestWorktreePendingCounts();
+
+      expect(bindings.worktreeRefreshes, 1);
+      expect(bindings.worktreePendingCountRequests, 1);
+      expect(c.state.worktreesError?.message, 'fatal: boom');
     });
   });
 

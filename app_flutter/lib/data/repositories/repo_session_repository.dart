@@ -521,6 +521,7 @@ class RepoSessionState {
     this.stashesError,
     this.lastStashDiff,
     this.worktrees = const <WorktreeInfo>[],
+    this.worktreesError,
     this.remotes = const <RemoteInfo>[],
     this.credentialPrompt,
     this.operationLog = const <GbmLogEntry>[],
@@ -599,6 +600,12 @@ class RepoSessionState {
   final GitError? stashesError;
   final KeyedReadReply<StashDiffKey, ParsedDiff>? lastStashDiff;
   final List<WorktreeInfo> worktrees;
+
+  /// Why the last worktree-list read failed -- a refresh's, or the
+  /// pending-count pass's own `git worktree list` -- until one succeeds.
+  /// [worktrees] keeps the list it had (read-failure-states-spec.html,
+  /// R class).
+  final GitError? worktreesError;
   final List<RemoteInfo> remotes;
 
   /// The prompt text of a credential request currently awaiting
@@ -867,6 +874,8 @@ class RepoSessionState {
     bool clearStashesError = false,
     KeyedReadReply<StashDiffKey, ParsedDiff>? lastStashDiff,
     List<WorktreeInfo>? worktrees,
+    GitError? worktreesError,
+    bool clearWorktreesError = false,
     List<RemoteInfo>? remotes,
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
@@ -935,6 +944,9 @@ class RepoSessionState {
           : (stashesError ?? this.stashesError),
       lastStashDiff: lastStashDiff ?? this.lastStashDiff,
       worktrees: worktrees ?? this.worktrees,
+      worktreesError: clearWorktreesError
+          ? null
+          : (worktreesError ?? this.worktreesError),
       remotes: remotes ?? this.remotes,
       credentialPrompt: clearCredentialPrompt
           ? null
@@ -1570,7 +1582,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
         }
       case GbmEventType.worktreesUpdated:
-        _readWorktrees();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(worktreesError: error);
+        } else {
+          _readWorktrees();
+          state = state.copyWith(clearWorktreesError: true);
+        }
       case GbmEventType.remotesUpdated:
         _readRemotes();
       case GbmEventType.credentialRequested:
@@ -4075,7 +4092,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Async: see gbm_worktree_refresh()'s doc comment in gbm_capi.h.
   void refreshWorktrees() {
     if (_session == nullptr) return;
-    _bindings.worktreeRefresh(_session);
+    if (_bindings.worktreeRefresh(_session) == 0) {
+      state = state.copyWith(worktreesError: _stagedNativeError());
+    }
   }
 
   /// Measures 待提交數 for every worktree -- one `git status` per worktree,
@@ -4092,7 +4111,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// untouched and stays in the sweep; it is the counts that are opt-in.
   void requestWorktreePendingCounts() {
     if (_session == nullptr) return;
-    _bindings.worktreeRequestPendingCounts(_session);
+    if (_bindings.worktreeRequestPendingCounts(_session) == 0) {
+      state = state.copyWith(worktreesError: _stagedNativeError());
+    }
   }
 
   /// `git worktree add`. See gbm_worktree_add()'s doc comment: on success

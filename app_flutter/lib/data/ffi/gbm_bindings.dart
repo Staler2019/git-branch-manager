@@ -649,12 +649,12 @@ typedef TagPushDart = void Function(
   Pointer<Utf8> name,
 );
 
-typedef _WorktreeRefreshNative = Void Function(Pointer<Void> session);
-typedef WorktreeRefreshDart = void Function(Pointer<Void> session);
-typedef _WorktreeRequestPendingCountsNative = Void Function(
+typedef _WorktreeRefreshNative = Int32 Function(Pointer<Void> session);
+typedef WorktreeRefreshDart = int Function(Pointer<Void> session);
+typedef _WorktreeRequestPendingCountsNative = Int32 Function(
   Pointer<Void> session,
 );
-typedef WorktreeRequestPendingCountsDart = void Function(Pointer<Void> session);
+typedef WorktreeRequestPendingCountsDart = int Function(Pointer<Void> session);
 
 typedef _WorktreesJsonNative = Int32 Function(Pointer<Void> session);
 typedef WorktreesJsonDart = int Function(Pointer<Void> session);

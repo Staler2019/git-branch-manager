@@ -9,16 +9,20 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_worktree_refresh(GbmSessionHandle session) try {
+GBM_API int32_t gbm_worktree_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshWorktrees();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
-GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session) try {
+GBM_API int32_t gbm_worktree_request_pending_counts(GbmSessionHandle session) try {
     toSession(session)->requestWorktreePendingCounts();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_worktrees_json(GbmSessionHandle session) try {

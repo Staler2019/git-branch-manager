@@ -87,6 +87,38 @@ class ReadBindings extends FakeGbmBindings {
     return 0;
   };
 
+  int worktreeRefreshes = 0;
+  int worktreePendingCountRequests = 0;
+  int worktreesReads = 0;
+
+  /// No prunable row by default, so `publishWorktrees`' auto-prune reaches
+  /// no `worktreePrune` binding.
+  List<Map<String, dynamic>> worktreesList = <Map<String, dynamic>>[];
+
+  @override
+  WorktreeRefreshDart get worktreeRefresh => (Pointer<Void> session) {
+    worktreeRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_worktree_refresh'));
+    return answer;
+  };
+
+  @override
+  WorktreeRequestPendingCountsDart get worktreeRequestPendingCounts =>
+      (Pointer<Void> session) {
+        worktreePendingCountRequests++;
+        if (answer == 0) {
+          _stage(nativeErrorJson('gbm_worktree_request_pending_counts'));
+        }
+        return answer;
+      };
+
+  @override
+  WorktreesJsonDart get worktreesJson => (Pointer<Void> session) {
+    worktreesReads++;
+    _stage(worktreesList);
+    return 0;
+  };
+
   @override
   RequestBlameDart get requestBlame =>
       (

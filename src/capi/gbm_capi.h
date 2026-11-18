@@ -114,7 +114,9 @@ enum GbmEventType {
     /// gbm_stash_request_diff(), on success and on failure, under the index
     /// as requested.
     GBM_EVENT_STASH_DIFF_READY = 8,
-    /// no payload; read the new list with gbm_worktrees_json().
+    /// no payload: read the new list with gbm_worktrees_json(). payload
+    /// {"error": GitError}: the list (or the pending-count pass's own list)
+    /// failed and the published list is unchanged.
     GBM_EVENT_WORKTREES_UPDATED = 9,
     /// no payload; read the new list with gbm_remotes_json().
     GBM_EVENT_REMOTES_UPDATED = 10,
@@ -1006,9 +1008,10 @@ GBM_API void gbm_tag_push(GbmSessionHandle session, const char* remoteName, cons
 // src/core/git/ops/WorktreeOps.h.
 
 /// Re-reads `git worktree list --porcelain`. Async: fires
-/// GBM_EVENT_WORKTREES_UPDATED on success or GBM_EVENT_ERROR_OCCURRED on
-/// failure.
-GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
+/// GBM_EVENT_WORKTREES_UPDATED, with no payload on success and
+/// {"error": GitError} on failure. Returns 1 when queued; 0 when it could not
+/// be, with the native error staged and no event to follow.
+GBM_API int32_t gbm_worktree_refresh(GbmSessionHandle session);
 
 /// Re-lists the worktrees *and* measures each one's uncommitted change count,
 /// then republishes. Async: fires the same GBM_EVENT_WORKTREES_UPDATED, so a
@@ -1023,8 +1026,11 @@ GBM_API void gbm_worktree_refresh(GbmSessionHandle session);
 ///
 /// A count that could not be taken is reported as `failed`, never left as
 /// `unmeasured` -- a caller that re-requests "whatever has no count" would
-/// otherwise spin on it forever.
-GBM_API void gbm_worktree_request_pending_counts(GbmSessionHandle session);
+/// otherwise spin on it forever. When the list itself fails, the event
+/// carries {"error": GitError} as gbm_worktree_refresh()'s does. Returns 1
+/// when queued; 0 when it could not be, with the native error staged and no
+/// event to follow.
+GBM_API int32_t gbm_worktree_request_pending_counts(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published worktree
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if

@@ -513,6 +513,110 @@ TEST_F(ReadFailureApiTest, AStashDiffGitRefusesRepliesUnderItsIndexWithItsError)
     EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
 }
 
+TEST_F(ReadFailureApiTest, AWorktreeListThatThrowsRepliesOnWorktreesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_worktree_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshWorktrees");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git worktree list` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, AWorktreeListGitRefusesRepliesOnWorktreesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_WORKTREES_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AWorktreeListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_worktree_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), "");
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatThrowsRepliesOnWorktreesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_worktree_request_pending_counts\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestWorktreePendingCounts");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git worktree list` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, APendingCountGitRefusesRepliesOnWorktreesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_WORKTREES_UPDATED), 1u)
+        << *firstOf(events, GBM_EVENT_WORKTREES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, APendingCountThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_worktree_request_pending_counts(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_WORKTREES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_WORKTREES_UPDATED), "");
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");

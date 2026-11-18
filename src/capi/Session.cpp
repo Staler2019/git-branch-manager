@@ -1653,7 +1653,7 @@ void Session::refreshWorktrees() {
             const GitResult<std::vector<WorktreeInfo>> result =
                 worktreeStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1662,7 +1662,9 @@ void Session::refreshWorktrees() {
             }
             callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 void Session::requestWorktreePendingCounts() {
@@ -1672,7 +1674,9 @@ void Session::requestWorktreePendingCounts() {
         [this]() {
             GitResult<std::vector<WorktreeInfo>> result = worktreeStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                // The list failed, so no count was taken: the same failure as
+                // a plain refresh's, on the same event.
+                callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             // Re-listed rather than counted onto the published snapshot: that
@@ -1686,7 +1690,9 @@ void Session::requestWorktreePendingCounts() {
             }
             callbacks_.emitEmpty(GBM_EVENT_WORKTREES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_WORKTREES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 WorktreeListPtr Session::currentWorktrees() const {

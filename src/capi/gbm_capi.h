@@ -118,7 +118,9 @@ enum GbmEventType {
     /// {"error": GitError}: the list (or the pending-count pass's own list)
     /// failed and the published list is unchanged.
     GBM_EVENT_WORKTREES_UPDATED = 9,
-    /// no payload; read the new list with gbm_remotes_json().
+    /// no payload: read the new list with gbm_remotes_json(). payload
+    /// {"error": GitError}: the refresh failed and the published list is
+    /// unchanged.
     GBM_EVENT_REMOTES_UPDATED = 10,
     /// payload: {"prompt": string}. A `git` subprocess spawned by a
     /// fetch/pull/push/remote-tag-delete is blocked waiting for a username
@@ -1064,9 +1066,11 @@ GBM_API void gbm_worktree_unlock(GbmSessionHandle session, const char* path);
 // gbm_provide_credential()/gbm_cancel_credential() rather than failing
 // outright the moment auth is needed (GIT_TERMINAL_PROMPT is always 0).
 
-/// Re-reads `git remote -v`. Async: fires GBM_EVENT_REMOTES_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_remote_refresh(GbmSessionHandle session);
+/// Re-reads `git remote -v`. Async: fires GBM_EVENT_REMOTES_UPDATED, with no
+/// payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_remote_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published remote
 /// list as a JSON array. Returns 0 on success, or a negative GbmErrorCode if

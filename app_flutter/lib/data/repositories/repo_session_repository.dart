@@ -523,6 +523,7 @@ class RepoSessionState {
     this.worktrees = const <WorktreeInfo>[],
     this.worktreesError,
     this.remotes = const <RemoteInfo>[],
+    this.remotesError,
     this.credentialPrompt,
     this.operationLog = const <GbmLogEntry>[],
     this.operationLogRevision = 0,
@@ -607,6 +608,10 @@ class RepoSessionState {
   /// R class).
   final GitError? worktreesError;
   final List<RemoteInfo> remotes;
+
+  /// Why the last remote-list refresh failed, until one succeeds. [remotes]
+  /// keeps the list it had (read-failure-states-spec.html, R class).
+  final GitError? remotesError;
 
   /// The prompt text of a credential request currently awaiting
   /// [RepoSessionController.provideCredential]/[RepoSessionController.cancelCredential],
@@ -877,6 +882,8 @@ class RepoSessionState {
     GitError? worktreesError,
     bool clearWorktreesError = false,
     List<RemoteInfo>? remotes,
+    GitError? remotesError,
+    bool clearRemotesError = false,
     String? credentialPrompt,
     bool clearCredentialPrompt = false,
     List<GbmLogEntry>? operationLog,
@@ -948,6 +955,9 @@ class RepoSessionState {
           ? null
           : (worktreesError ?? this.worktreesError),
       remotes: remotes ?? this.remotes,
+      remotesError: clearRemotesError
+          ? null
+          : (remotesError ?? this.remotesError),
       credentialPrompt: clearCredentialPrompt
           ? null
           : (credentialPrompt ?? this.credentialPrompt),
@@ -1589,7 +1599,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(clearWorktreesError: true);
         }
       case GbmEventType.remotesUpdated:
-        _readRemotes();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(remotesError: error);
+        } else {
+          _readRemotes();
+          state = state.copyWith(clearRemotesError: true);
+        }
       case GbmEventType.credentialRequested:
         final Object? payload = decodeEventPayload(event.payload);
         state = state.copyWith(
@@ -4197,7 +4212,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Async: see gbm_remote_refresh()'s doc comment in gbm_capi.h.
   void refreshRemotes() {
     if (_session == nullptr) return;
-    _bindings.remoteRefresh(_session);
+    if (_bindings.remoteRefresh(_session) == 0) {
+      state = state.copyWith(remotesError: _stagedNativeError());
+    }
   }
 
   /// `git fetch`. `remoteName` empty fetches every remote. Routes

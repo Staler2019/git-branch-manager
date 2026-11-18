@@ -119,6 +119,24 @@ class ReadBindings extends FakeGbmBindings {
     return 0;
   };
 
+  int remoteRefreshes = 0;
+  int remotesReads = 0;
+  List<Map<String, dynamic>> remotesList = <Map<String, dynamic>>[];
+
+  @override
+  RemoteRefreshDart get remoteRefresh => (Pointer<Void> session) {
+    remoteRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_remote_refresh'));
+    return answer;
+  };
+
+  @override
+  RemotesJsonDart get remotesJson => (Pointer<Void> session) {
+    remotesReads++;
+    _stage(remotesList);
+    return 0;
+  };
+
   @override
   RequestBlameDart get requestBlame =>
       (

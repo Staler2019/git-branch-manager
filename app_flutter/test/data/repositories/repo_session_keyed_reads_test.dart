@@ -762,6 +762,81 @@ void main() {
     });
   });
 
+  group('remote list', () {
+    void seed() {
+      bindings.remotesList = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'origin',
+          'fetchUrl': 'https://example.com/repo.git',
+          'pushUrl': 'https://example.com/repo.git',
+        },
+      ];
+      c.debugHandleEvent(_updated(GbmEventType.remotesUpdated));
+      expect(c.state.remotes.single.name, 'origin');
+    }
+
+    // (r1)
+    test('a failed refresh keeps the list, re-reads nothing and logs once', () {
+      seed();
+      final int reads = bindings.remotesReads;
+      final int before = _errorLines(c);
+
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.remotesUpdated, 'fatal: not a git repo'),
+      );
+
+      expect(c.state.remotes.single.name, 'origin');
+      expect(bindings.remotesReads - reads, 0);
+      expect(c.state.remotesError?.message, 'fatal: not a git repo');
+      expect(_errorLines(c), before + 1);
+      expect(c.state.lastError, isNull);
+    });
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.remotesUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.remotesReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.remotesUpdated));
+
+      expect(bindings.remotesReads - reads, 1);
+      expect(c.state.remotesError, isNull);
+    });
+
+    // (r3)
+    test(
+      'an export that queued nothing fails the refresh without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.refreshRemotes();
+
+        expect(bindings.remoteRefreshes, 1);
+        expect(
+          c.state.remotesError?.message,
+          'Native error in gbm_remote_refresh',
+        );
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2
+    test('sending a refresh does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.remotesUpdated, 'fatal: boom'),
+      );
+
+      c.refreshRemotes();
+
+      expect(bindings.remoteRefreshes, 1);
+      expect(c.state.remotesError?.message, 'fatal: boom');
+    });
+  });
+
   group('stash diff', () {
     KeyedReadReply<StashDiffKey, ParsedDiff>? reply() => c.state.lastStashDiff;
 

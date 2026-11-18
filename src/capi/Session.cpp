@@ -1747,7 +1747,7 @@ void Session::refreshRemotes() {
             const GitResult<std::vector<RemoteInfo>> result =
                 remoteStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_REMOTES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1756,7 +1756,9 @@ void Session::refreshRemotes() {
             }
             callbacks_.emitEmpty(GBM_EVENT_REMOTES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_REMOTES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 RemoteListPtr Session::currentRemotes() const {

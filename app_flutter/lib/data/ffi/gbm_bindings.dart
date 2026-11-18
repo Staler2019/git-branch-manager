@@ -714,8 +714,8 @@ typedef WorktreeUnlockDart = void Function(
   Pointer<Utf8> path,
 );
 
-typedef _RemoteRefreshNative = Void Function(Pointer<Void> session);
-typedef RemoteRefreshDart = void Function(Pointer<Void> session);
+typedef _RemoteRefreshNative = Int32 Function(Pointer<Void> session);
+typedef RemoteRefreshDart = int Function(Pointer<Void> session);
 
 typedef _RemotesJsonNative = Int32 Function(Pointer<Void> session);
 typedef RemotesJsonDart = int Function(Pointer<Void> session);

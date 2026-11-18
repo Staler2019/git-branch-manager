@@ -42,6 +42,7 @@ _OWN_FAILURE_VALUE = {
     'gbm_stash_request_diff': '0',
     'gbm_worktree_refresh': '0',
     'gbm_worktree_request_pending_counts': '0',
+    'gbm_remote_refresh': '0',
     'gbm_worktree_prune': '0',
 }
 _VOID_CATCH = re.compile(r'(gbm::)?reportCurrentException\(__func__\);$')

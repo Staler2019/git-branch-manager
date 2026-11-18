@@ -15,6 +15,7 @@ import 'package:gbm_flutter/data/models/line_history_chunk.dart';
 import 'package:gbm_flutter/data/models/rebase_todo_entry.dart';
 import 'package:gbm_flutter/data/models/reflog_entry.dart';
 import 'package:gbm_flutter/data/models/operation_record.dart';
+import 'package:gbm_flutter/data/models/parsed_diff.dart';
 import 'package:gbm_flutter/data/models/read_keys.dart';
 import 'package:gbm_flutter/data/repositories/repo_identity.dart';
 import 'package:gbm_flutter/data/repositories/repo_session_repository.dart';
@@ -655,6 +656,78 @@ void main() {
 
       expect(bindings.stashRefreshes, 1);
       expect(c.state.stashesError?.message, 'fatal: boom');
+    });
+  });
+
+  group('stash diff', () {
+    KeyedReadReply<StashDiffKey, ParsedDiff>? reply() => c.state.lastStashDiff;
+
+    GbmEvent diffOk(int index) =>
+        readyEvent(GbmEventType.stashDiffReady, <String, dynamic>{
+          'index': index,
+          'diff': <String, dynamic>{
+            'files': <dynamic>[],
+            'truncated': false,
+            'inputBytes': 0,
+          },
+          'error': null,
+        });
+
+    GbmEvent diffFailed(int index, String message) =>
+        readyEvent(GbmEventType.stashDiffReady, <String, dynamic>{
+          'index': index,
+          'diff': null,
+          'error': gitErrorJson(message),
+        });
+
+    // (e)
+    test('a request resets the reply to pending for its own index', () {
+      c.requestStashDiff(0);
+      c.debugHandleEvent(diffOk(0));
+      expect(reply()?.value, isNotNull);
+
+      c.requestStashDiff(1);
+
+      expect(reply()?.key, const StashDiffKey(1));
+      expect(reply()?.value, isNull);
+      expect(reply()?.error, isNull);
+      expect(bindings.stashDiffRequests.where((i) => i == 1).length, 1);
+    });
+
+    // (b)
+    test('a reply for an older index is dropped', () {
+      c.requestStashDiff(0);
+      c.requestStashDiff(1);
+      c.debugHandleEvent(diffOk(0));
+
+      expect(reply()?.key, const StashDiffKey(1));
+      expect(reply()?.value, isNull);
+    });
+
+    // (a) + (f)
+    test('a failure reply carries the error, logs once, leaves lastError', () {
+      c.requestStashDiff(1);
+      final int before = _errorLines(c);
+
+      c.debugHandleEvent(diffFailed(1, 'fatal: bad stash'));
+
+      expect(reply()?.value, isNull);
+      expect(reply()?.error?.message, 'fatal: bad stash');
+      expect(_errorLines(c), before + 1);
+      expect(c.state.lastError, isNull);
+    });
+
+    // (c) + (h)
+    test('an export that queued nothing fails the read without a log line', () {
+      bindings.answer = 0;
+      final int before = _errorLines(c);
+
+      c.requestStashDiff(1);
+
+      expect(bindings.stashDiffRequests, <int>[1]);
+      expect(reply()?.key, const StashDiffKey(1));
+      expect(reply()?.error?.message, 'Native error in gbm_stash_request_diff');
+      expect(_errorLines(c), before);
     });
   });
 }

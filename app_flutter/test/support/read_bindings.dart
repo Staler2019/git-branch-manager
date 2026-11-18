@@ -70,6 +70,16 @@ class ReadBindings extends FakeGbmBindings {
     return answer;
   };
 
+  final List<int> stashDiffRequests = <int>[];
+
+  @override
+  StashRequestDiffDart get stashRequestDiff =>
+      (Pointer<Void> session, int index) {
+        stashDiffRequests.add(index);
+        if (answer == 0) _stage(nativeErrorJson('gbm_stash_request_diff'));
+        return answer;
+      };
+
   @override
   StashesJsonDart get stashesJson => (Pointer<Void> session) {
     stashesReads++;

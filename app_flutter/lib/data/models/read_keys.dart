@@ -144,3 +144,23 @@ class RebasePlanKey {
   @override
   String toString() => 'RebasePlanKey($upstream)';
 }
+
+/// `gbm_stash_request_diff`'s argument, the stash index as sent.
+class StashDiffKey {
+  const StashDiffKey(this.index);
+
+  factory StashDiffKey.fromJson(Map<String, dynamic> json) =>
+      StashDiffKey(json['index'] as int);
+
+  final int index;
+
+  @override
+  bool operator ==(Object other) =>
+      other is StashDiffKey && other.index == index;
+
+  @override
+  int get hashCode => index.hashCode;
+
+  @override
+  String toString() => 'StashDiffKey($index)';
+}

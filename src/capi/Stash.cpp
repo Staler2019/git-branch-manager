@@ -79,8 +79,10 @@ GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const cha
     reportCurrentException(__func__);
 }
 
-GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index) try {
+GBM_API int32_t gbm_stash_request_diff(GbmSessionHandle session, int32_t index) try {
     toSession(session)->requestStashDiff(index);
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }

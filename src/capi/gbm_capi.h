@@ -109,8 +109,10 @@ enum GbmEventType {
     /// {"error": GitError}: the refresh failed and the published list is
     /// unchanged.
     GBM_EVENT_STASHES_UPDATED = 7,
-    /// payload: {"index": int, "diff": ParsedDiff JSON}. Reply to
-    /// gbm_stash_request_diff().
+    /// payload: {"index": int, "diff": ParsedDiff JSON | null, "error":
+    /// GitError | null}, exactly one of the last two non-null. Reply to
+    /// gbm_stash_request_diff(), on success and on failure, under the index
+    /// as requested.
     GBM_EVENT_STASH_DIFF_READY = 8,
     /// no payload; read the new list with gbm_worktrees_json().
     GBM_EVENT_WORKTREES_UPDATED = 9,
@@ -967,8 +969,10 @@ GBM_API void gbm_stash_drop(GbmSessionHandle session, int32_t index);
 GBM_API void gbm_stash_branch(GbmSessionHandle session, int32_t index, const char* branchName);
 
 /// `git stash show -p --include-untracked stash@{index}`. Async: fires
-/// GBM_EVENT_STASH_DIFF_READY.
-GBM_API void gbm_stash_request_diff(GbmSessionHandle session, int32_t index);
+/// GBM_EVENT_STASH_DIFF_READY, on success and on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_stash_request_diff(GbmSessionHandle session, int32_t index);
 
 // --- Tags ----------------------------------------------------------------
 // Tags themselves are read through gbm_refs_json() (RefKind::Tag); only the

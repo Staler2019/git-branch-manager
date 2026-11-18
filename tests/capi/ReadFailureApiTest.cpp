@@ -464,6 +464,55 @@ TEST_F(ReadFailureApiTest, AStashListThatSucceedsStillRepliesWithNoPayload) {
     EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_STASHES_UPDATED), "");
 }
 
+// A stash diff answers under the index it was asked for, on success and on failure, so the
+// panel can stop waiting for the stash it shows (read-failure-states-spec.html, C class).
+TEST_F(ReadFailureApiTest, AStashDiffThatThrowsRepliesUnderItsIndexWithAnError) {
+    gbm_test_fail_read("Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_STASH_DIFF_READY);
+    EXPECT_TRUE(contains(reply, "\"index\":3")) << reply;
+    EXPECT_TRUE(contains(reply, "\"diff\":null")) << reply;
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, AStashDiffThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_STASH_DIFF_READY), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_stash_request_diff\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, AStashDiffThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::requestStashDiff");
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_STASH_DIFF_READY), 1u);
+}
+
+// The ordinary failure path: there is no stash@{3} in this repository, and git says so.
+TEST_F(ReadFailureApiTest, AStashDiffGitRefusesRepliesUnderItsIndexWithItsError) {
+    EXPECT_EQ(gbm_stash_request_diff(session_, 3), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_STASH_DIFF_READY));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_STASH_DIFF_READY);
+    EXPECT_TRUE(contains(reply, "\"index\":3")) << reply;
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_STASH_DIFF_READY), 1u) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");

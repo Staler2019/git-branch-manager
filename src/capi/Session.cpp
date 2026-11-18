@@ -266,6 +266,19 @@ std::string refreshFailurePayload(const GitError& error) {
     return "{\"error\":" + toJson(error) + '}';
 }
 
+/// STASH_DIFF_READY's one shape, for a diff and for its failure: the index as requested, then
+/// exactly one of `diff` and `error` non-null (read-failure-states-spec.html).
+std::string stashDiffPayload(int index, const ParsedDiff* diff, const GitError* error) {
+    std::string payload = "{\"index\":";
+    jsonAppendInt(payload, index);
+    payload += ",\"diff\":";
+    payload += diff != nullptr ? toJson(*diff) : std::string("null");
+    payload += ",\"error\":";
+    payload += error != nullptr ? toJson(*error) : std::string("null");
+    payload += '}';
+    return payload;
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -1597,18 +1610,13 @@ void Session::requestStashDiff(int index) {
         [this, index]() {
             const GitResult<DiffService::ParsedDiffPtr> result = diffs_->stashDiff(
                 index, /*includeUntracked=*/true, DiffOptions{}, readCancel_.token());
-            if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
-                return;
-            }
-            std::string payload = "{\"index\":";
-            jsonAppendInt(payload, index);
-            payload += ",\"diff\":";
-            payload += toJson(*result.value());
-            payload += '}';
-            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, payload);
+            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY,
+                            result ? stashDiffPayload(index, result.value().get(), nullptr)
+                                   : stashDiffPayload(index, nullptr, &result.error()));
         },
-        errorReply());
+        [this, index](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_STASH_DIFF_READY, stashDiffPayload(index, nullptr, &error));
+        });
 }
 
 // --- Tags ------------------------------------------------------------------

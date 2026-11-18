@@ -604,11 +604,11 @@ typedef StashBranchDart = void Function(
   Pointer<Utf8> branchName,
 );
 
-typedef _StashRequestDiffNative = Void Function(
+typedef _StashRequestDiffNative = Int32 Function(
   Pointer<Void> session,
   Int32 index,
 );
-typedef StashRequestDiffDart = void Function(Pointer<Void> session, int index);
+typedef StashRequestDiffDart = int Function(Pointer<Void> session, int index);
 
 typedef _TagCreateNative = Void Function(
   Pointer<Void> session,

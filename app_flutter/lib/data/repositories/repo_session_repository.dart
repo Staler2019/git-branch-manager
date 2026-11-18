@@ -230,22 +230,6 @@ class FileAtRevisionExport {
   final GitError? error;
 }
 
-/// Reply to [RepoSessionController.requestStashDiff]: mirrors
-/// GBM_EVENT_STASH_DIFF_READY's payload shape.
-class StashDiffReply {
-  const StashDiffReply({required this.index, required this.diff});
-
-  factory StashDiffReply.fromJson(Map<String, dynamic> json) {
-    return StashDiffReply(
-      index: json['index'] as int,
-      diff: ParsedDiff.fromJson(json['diff'] as Map<String, dynamic>),
-    );
-  }
-
-  final int index;
-  final ParsedDiff diff;
-}
-
 /// A [RepoSessionController.requestPreparedMessage] reply: the commit
 /// message git prepared for the merge or squash in progress, comment lines
 /// already stripped by core (`PreparedMessageStore`).
@@ -613,7 +597,7 @@ class RepoSessionState {
   /// Why the last stash-list refresh failed, until one succeeds. [stashes]
   /// keeps the list it had (read-failure-states-spec.html, R class).
   final GitError? stashesError;
-  final StashDiffReply? lastStashDiff;
+  final KeyedReadReply<StashDiffKey, ParsedDiff>? lastStashDiff;
   final List<WorktreeInfo> worktrees;
   final List<RemoteInfo> remotes;
 
@@ -881,7 +865,7 @@ class RepoSessionState {
     List<StashEntry>? stashes,
     GitError? stashesError,
     bool clearStashesError = false,
-    StashDiffReply? lastStashDiff,
+    KeyedReadReply<StashDiffKey, ParsedDiff>? lastStashDiff,
     List<WorktreeInfo>? worktrees,
     List<RemoteInfo>? remotes,
     String? credentialPrompt,
@@ -1567,8 +1551,22 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
       case GbmEventType.stashDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
-          state = state.copyWith(
-            lastStashDiff: StashDiffReply.fromJson(payload),
+          final StashDiffKey key = StashDiffKey.fromJson(payload);
+          final Object? diff = payload['diff'];
+          final Object? error = payload['error'];
+          _applyKeyedReply<StashDiffKey, ParsedDiff>(
+            current: state.lastStashDiff,
+            reply: error is Map<String, dynamic>
+                ? KeyedReadReply<StashDiffKey, ParsedDiff>.failed(
+                    key,
+                    GitError.fromJson(error),
+                  )
+                : KeyedReadReply<StashDiffKey, ParsedDiff>.succeeded(
+                    key,
+                    ParsedDiff.fromJson(diff! as Map<String, dynamic>),
+                  ),
+            write: (KeyedReadReply<StashDiffKey, ParsedDiff> r) =>
+                state = state.copyWith(lastStashDiff: r),
           );
         }
       case GbmEventType.worktreesUpdated:
@@ -3995,11 +3993,23 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
     }
   }
 
-  /// `git stash show -p --include-untracked stash@{index}`. Async: fires
-  /// GBM_EVENT_STASH_DIFF_READY.
+  /// `git stash show -p --include-untracked stash@{index}`. Async:
+  /// GBM_EVENT_STASH_DIFF_READY answers into [RepoSessionState.lastStashDiff]
+  /// under this index, on success and on failure.
   void requestStashDiff(int index) {
     if (_session == nullptr) return;
-    _bindings.stashRequestDiff(_session, index);
+    final StashDiffKey key = StashDiffKey(index);
+    state = state.copyWith(
+      lastStashDiff: KeyedReadReply<StashDiffKey, ParsedDiff>.pending(key),
+    );
+    if (_bindings.stashRequestDiff(_session, index) == 0) {
+      state = state.copyWith(
+        lastStashDiff: KeyedReadReply<StashDiffKey, ParsedDiff>.failed(
+          key,
+          _stagedNativeError(),
+        ),
+      );
+    }
   }
 
   /// `git tag`. `target` empty means HEAD; `message` non-empty makes it

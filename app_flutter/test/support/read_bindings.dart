@@ -137,6 +137,24 @@ class ReadBindings extends FakeGbmBindings {
     return 0;
   };
 
+  int submoduleRefreshes = 0;
+  int submodulesReads = 0;
+  List<Map<String, dynamic>> submodulesList = <Map<String, dynamic>>[];
+
+  @override
+  SubmoduleRefreshDart get submoduleRefresh => (Pointer<Void> session) {
+    submoduleRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_submodule_refresh'));
+    return answer;
+  };
+
+  @override
+  SubmodulesJsonDart get submodulesJson => (Pointer<Void> session) {
+    submodulesReads++;
+    _stage(submodulesList);
+    return 0;
+  };
+
   @override
   RequestBlameDart get requestBlame =>
       (

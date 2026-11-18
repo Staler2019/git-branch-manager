@@ -13,10 +13,12 @@ using namespace gbm::capi;
 
 namespace {}  // namespace
 
-GBM_API void gbm_submodule_refresh(GbmSessionHandle session) try {
+GBM_API int32_t gbm_submodule_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshSubmodules();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_submodules_json(GbmSessionHandle session) try {

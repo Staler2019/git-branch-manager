@@ -837,6 +837,84 @@ void main() {
     });
   });
 
+  group('submodule list', () {
+    void seed() {
+      bindings.submodulesList = <Map<String, dynamic>>[
+        <String, dynamic>{
+          'name': 'vendor/libgit',
+          'path': 'vendor/libgit',
+          'url': 'https://example.com/libgit.git',
+          'branch': 'main',
+          'headOid': 'a1b2c3d',
+          'state': 1,
+        },
+      ];
+      c.debugHandleEvent(_updated(GbmEventType.submodulesUpdated));
+      expect(c.state.submodules.single.path, 'vendor/libgit');
+    }
+
+    // (r1)
+    test('a failed refresh keeps the list, re-reads nothing and logs once', () {
+      seed();
+      final int reads = bindings.submodulesReads;
+      final int before = _errorLines(c);
+
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.submodulesUpdated, 'fatal: not a git repo'),
+      );
+
+      expect(c.state.submodules.single.path, 'vendor/libgit');
+      expect(bindings.submodulesReads - reads, 0);
+      expect(c.state.submodulesError?.message, 'fatal: not a git repo');
+      expect(_errorLines(c), before + 1);
+      expect(c.state.lastError, isNull);
+    });
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.submodulesUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.submodulesReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.submodulesUpdated));
+
+      expect(bindings.submodulesReads - reads, 1);
+      expect(c.state.submodulesError, isNull);
+    });
+
+    // (r3)
+    test(
+      'an export that queued nothing fails the refresh without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.refreshSubmodules();
+
+        expect(bindings.submoduleRefreshes, 1);
+        expect(
+          c.state.submodulesError?.message,
+          'Native error in gbm_submodule_refresh',
+        );
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2
+    test('sending a refresh does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.submodulesUpdated, 'fatal: boom'),
+      );
+
+      c.refreshSubmodules();
+
+      expect(bindings.submoduleRefreshes, 1);
+      expect(c.state.submodulesError?.message, 'fatal: boom');
+    });
+  });
+
   group('stash diff', () {
     KeyedReadReply<StashDiffKey, ParsedDiff>? reply() => c.state.lastStashDiff;
 

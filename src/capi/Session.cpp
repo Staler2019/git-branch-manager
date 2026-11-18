@@ -2382,7 +2382,8 @@ void Session::refreshSubmodules() {
             const GitResult<std::vector<SubmoduleInfo>> result =
                 submoduleStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_SUBMODULES_UPDATED,
+                                refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -2391,7 +2392,9 @@ void Session::refreshSubmodules() {
             }
             callbacks_.emitEmpty(GBM_EVENT_SUBMODULES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_SUBMODULES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 SubmoduleListPtr Session::currentSubmodules() const {

@@ -668,6 +668,57 @@ TEST_F(ReadFailureApiTest, ARemoteListThatSucceedsStillRepliesWithNoPayload) {
     EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_REMOTES_UPDATED), "");
 }
 
+TEST_F(ReadFailureApiTest, ASubmoduleListThatThrowsRepliesOnSubmodulesUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_SUBMODULES_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_submodule_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshSubmodules");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), 1u);
+}
+
+// The ordinary failure path: `git submodule status` itself fails once the repository is gone.
+TEST_F(ReadFailureApiTest, ASubmoduleListGitRefusesRepliesOnSubmodulesUpdatedWithItsError) {
+    std::filesystem::remove_all(repo_ / ".git");
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_SUBMODULES_UPDATED), 1u) << *firstOf(events, GBM_EVENT_SUBMODULES_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ASubmoduleListThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_submodule_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_SUBMODULES_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_SUBMODULES_UPDATED), "");
+}
+
 TEST_F(ReadFailureApiTest, APrunePreviewThatThrowsCarriesItsDryRunArgv) {
     gbm_test_fail_read("Session::requestRemotePrunePreview");
     gbm_request_remote_prune_preview(session_, "origin");

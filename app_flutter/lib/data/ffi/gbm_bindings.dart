@@ -1070,8 +1070,8 @@ typedef RebaseSkipDart = void Function(Pointer<Void> session);
 typedef _RebaseAbortNative = Void Function(Pointer<Void> session);
 typedef RebaseAbortDart = void Function(Pointer<Void> session);
 
-typedef _SubmoduleRefreshNative = Void Function(Pointer<Void> session);
-typedef SubmoduleRefreshDart = void Function(Pointer<Void> session);
+typedef _SubmoduleRefreshNative = Int32 Function(Pointer<Void> session);
+typedef SubmoduleRefreshDart = int Function(Pointer<Void> session);
 
 typedef _SubmodulesJsonNative = Int32 Function(Pointer<Void> session);
 typedef SubmodulesJsonDart = int Function(Pointer<Void> session);

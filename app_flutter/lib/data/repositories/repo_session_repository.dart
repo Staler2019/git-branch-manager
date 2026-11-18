@@ -544,6 +544,7 @@ class RepoSessionState {
     this.lastCleanPreview = const <CleanEntry>[],
     this.lastRebasePlan,
     this.submodules = const <SubmoduleInfo>[],
+    this.submodulesError,
     this.bisectStatus = BisectStatus.empty,
     this.lfsInstallation,
     this.lfsPatterns = const <String>[],
@@ -713,6 +714,11 @@ class RepoSessionState {
   /// pending, its todo, or its failure (read-failure-states-spec.html).
   final KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan;
   final List<SubmoduleInfo> submodules;
+
+  /// Why the last submodule-list refresh failed, until one succeeds.
+  /// [submodules] keeps the list it had (read-failure-states-spec.html,
+  /// R class).
+  final GitError? submodulesError;
   final BisectStatus bisectStatus;
 
   /// Null until [RepoSessionController.refreshLfs] has run once -- see
@@ -905,6 +911,8 @@ class RepoSessionState {
     List<CleanEntry>? lastCleanPreview,
     KeyedReadReply<RebasePlanKey, List<RebaseTodoEntry>>? lastRebasePlan,
     List<SubmoduleInfo>? submodules,
+    GitError? submodulesError,
+    bool clearSubmodulesError = false,
     BisectStatus? bisectStatus,
     LfsInstallation? lfsInstallation,
     List<String>? lfsPatterns,
@@ -981,6 +989,9 @@ class RepoSessionState {
       lastCleanPreview: lastCleanPreview ?? this.lastCleanPreview,
       lastRebasePlan: lastRebasePlan ?? this.lastRebasePlan,
       submodules: submodules ?? this.submodules,
+      submodulesError: clearSubmodulesError
+          ? null
+          : (submodulesError ?? this.submodulesError),
       bisectStatus: bisectStatus ?? this.bisectStatus,
       lfsInstallation: lfsInstallation ?? this.lfsInstallation,
       lfsPatterns: lfsPatterns ?? this.lfsPatterns,
@@ -1887,7 +1898,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
         }
       case GbmEventType.submodulesUpdated:
-        _readSubmodules();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(submodulesError: error);
+        } else {
+          _readSubmodules();
+          state = state.copyWith(clearSubmodulesError: true);
+        }
       case GbmEventType.bisectStatusUpdated:
         _readBisectStatus();
       case GbmEventType.lfsUpdated:
@@ -5015,7 +5031,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Async: see gbm_submodule_refresh()'s doc comment in gbm_capi.h.
   void refreshSubmodules() {
     if (_session == nullptr) return;
-    _bindings.submoduleRefresh(_session);
+    if (_bindings.submoduleRefresh(_session) == 0) {
+      state = state.copyWith(submodulesError: _stagedNativeError());
+    }
   }
 
   /// `git submodule add [-b <branch>] <url> [<path>]`. `path` empty lets

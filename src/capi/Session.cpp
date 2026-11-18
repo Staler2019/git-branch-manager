@@ -1943,8 +1943,10 @@ void Session::requestBlame(std::string path, std::string revision, int startLine
                 blameStore_->blame(path, revision, startLine, endLine, readCancel_.token());
             callbacks_.emit(
                 GBM_EVENT_BLAME_READY,
-                result ? blamePayload(path, revision, startLine, endLine, result.value().get(), nullptr)
-                       : blamePayload(path, revision, startLine, endLine, nullptr, &result.error()));
+                result
+                    ? blamePayload(
+                          path, revision, startLine, endLine, result.value().get(), nullptr)
+                    : blamePayload(path, revision, startLine, endLine, nullptr, &result.error()));
         },
         [this, path, revision, startLine, endLine](const GitError& error) {
             callbacks_.emit(GBM_EVENT_BLAME_READY,
@@ -2186,9 +2188,10 @@ void Session::requestFileHistory(std::string path, std::string startRevision) {
         [this, path, startRevision]() {
             const GitResult<std::vector<FileHistoryEntry>> result =
                 fileHistoryStore_->fileHistory(path, startRevision, readCancel_.token());
-            callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY,
-                            result ? fileHistoryPayload(path, startRevision, &result.value(), nullptr)
-                                   : fileHistoryPayload(path, startRevision, nullptr, &result.error()));
+            callbacks_.emit(
+                GBM_EVENT_FILE_HISTORY_READY,
+                result ? fileHistoryPayload(path, startRevision, &result.value(), nullptr)
+                       : fileHistoryPayload(path, startRevision, nullptr, &result.error()));
         },
         [this, path, startRevision](const GitError& error) {
             callbacks_.emit(GBM_EVENT_FILE_HISTORY_READY,

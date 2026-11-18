@@ -137,6 +137,31 @@ class ReadBindings extends FakeGbmBindings {
     return 0;
   };
 
+  int bisectRefreshes = 0;
+  int bisectStatusReads = 0;
+  Map<String, dynamic> bisectStatusMap = <String, dynamic>{
+    'active': false,
+    'currentOid': '',
+    'badOid': '',
+    'goodOids': <String>[],
+    'skippedOids': <String>[],
+    'logText': '',
+  };
+
+  @override
+  BisectRefreshDart get bisectRefresh => (Pointer<Void> session) {
+    bisectRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_bisect_refresh'));
+    return answer;
+  };
+
+  @override
+  BisectStatusJsonDart get bisectStatusJson => (Pointer<Void> session) {
+    bisectStatusReads++;
+    _stage(bisectStatusMap);
+    return 0;
+  };
+
   int submoduleRefreshes = 0;
   int submodulesReads = 0;
   List<Map<String, dynamic>> submodulesList = <Map<String, dynamic>>[];

@@ -2448,7 +2448,8 @@ void Session::refreshBisectStatus() {
         [this]() {
             const GitResult<BisectStatus> result = bisectStore_->status(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_BISECT_STATUS_UPDATED,
+                                refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -2457,7 +2458,9 @@ void Session::refreshBisectStatus() {
             }
             callbacks_.emitEmpty(GBM_EVENT_BISECT_STATUS_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_BISECT_STATUS_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 BisectStatusPtr Session::currentBisectStatus() const {

@@ -668,6 +668,59 @@ TEST_F(ReadFailureApiTest, ARemoteListThatSucceedsStillRepliesWithNoPayload) {
     EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_REMOTES_UPDATED), "");
 }
 
+TEST_F(ReadFailureApiTest, ABisectStatusThatThrowsRepliesOnBisectStatusUpdatedWithAnError) {
+    gbm_test_fail_read("Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    const std::string reply = *firstOf(events, GBM_EVENT_BISECT_STATUS_UPDATED);
+    EXPECT_TRUE(contains(reply, "\"codeName\":\"Unknown\"")) << reply;
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatCannotBeHandedToPostReadReturnsZeroAndNeverReplies) {
+    gbm_test_fail_read("pre:Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 0);
+    EXPECT_GT(gbm_last_result_json_len(), 0);
+
+    sharedReadPool().drain();
+    EXPECT_EQ(countOf(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), 0u);
+    const std::vector<std::string> reports = nativeErrors();
+    ASSERT_EQ(reports.size(), 1u);
+    EXPECT_TRUE(contains(reports[0], "\"where\":\"gbm_bisect_refresh\"")) << reports[0];
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatCannotBePostedRepliesWithAnErrorAndReturnsOne) {
+    gbm_test_fail_read("post:Session::refreshBisectStatus");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    EXPECT_EQ(countFailedRefreshes(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), 1u);
+}
+
+// The ordinary failure path. With no BISECT_LOG the status is read without running git at all,
+// so the log has to exist and `git bisect log` still fail: a directory in its place does both
+// (measured, git 2.56.1: exit 1, nothing on stdout).
+TEST_F(ReadFailureApiTest, ABisectStatusGitRefusesRepliesOnBisectStatusUpdatedWithItsError) {
+    std::filesystem::create_directory(repo_ / ".git" / "BISECT_LOG");
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    sharedReadPool().drain();
+    const Events events = log_.snapshot();
+    EXPECT_EQ(countFailedRefreshes(events, GBM_EVENT_BISECT_STATUS_UPDATED), 1u) << *firstOf(events, GBM_EVENT_BISECT_STATUS_UPDATED);
+    EXPECT_EQ(countOf(events, GBM_EVENT_ERROR_OCCURRED), 0u);
+}
+
+TEST_F(ReadFailureApiTest, ABisectStatusThatSucceedsStillRepliesWithNoPayload) {
+    EXPECT_EQ(gbm_bisect_refresh(session_), 1);
+
+    ASSERT_TRUE(waitForEvent(GBM_EVENT_BISECT_STATUS_UPDATED));
+    EXPECT_EQ(*firstOf(log_.snapshot(), GBM_EVENT_BISECT_STATUS_UPDATED), "");
+}
+
 TEST_F(ReadFailureApiTest, ASubmoduleListThatThrowsRepliesOnSubmodulesUpdatedWithAnError) {
     gbm_test_fail_read("Session::refreshSubmodules");
     EXPECT_EQ(gbm_submodule_refresh(session_), 1);

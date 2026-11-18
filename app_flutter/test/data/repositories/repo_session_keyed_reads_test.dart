@@ -837,6 +837,88 @@ void main() {
     });
   });
 
+  group('bisect status', () {
+    void seed() {
+      bindings.bisectStatusMap = <String, dynamic>{
+        'active': true,
+        'currentOid': 'ccc',
+        'badOid': 'bbb',
+        'goodOids': <String>['aaa'],
+        'skippedOids': <String>[],
+        'logText': '# bad: [bbb]',
+      };
+      c.debugHandleEvent(_updated(GbmEventType.bisectStatusUpdated));
+      expect(c.state.bisectStatus.badOid, 'bbb');
+    }
+
+    // (r1)
+    test(
+      'a failed refresh keeps the status, re-reads nothing and logs once',
+      () {
+        seed();
+        final int reads = bindings.bisectStatusReads;
+        final int before = _errorLines(c);
+
+        c.debugHandleEvent(
+          _refreshFailed(
+            GbmEventType.bisectStatusUpdated,
+            'fatal: not a git repo',
+          ),
+        );
+
+        expect(c.state.bisectStatus.badOid, 'bbb');
+        expect(bindings.bisectStatusReads - reads, 0);
+        expect(c.state.bisectError?.message, 'fatal: not a git repo');
+        expect(_errorLines(c), before + 1);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.bisectStatusUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.bisectStatusReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.bisectStatusUpdated));
+
+      expect(bindings.bisectStatusReads - reads, 1);
+      expect(c.state.bisectError, isNull);
+    });
+
+    // (r3)
+    test(
+      'an export that queued nothing fails the refresh without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.refreshBisectStatus();
+
+        expect(bindings.bisectRefreshes, 1);
+        expect(
+          c.state.bisectError?.message,
+          'Native error in gbm_bisect_refresh',
+        );
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2
+    test('sending a refresh does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.bisectStatusUpdated, 'fatal: boom'),
+      );
+
+      c.refreshBisectStatus();
+
+      expect(bindings.bisectRefreshes, 1);
+      expect(c.state.bisectError?.message, 'fatal: boom');
+    });
+  });
+
   group('submodule list', () {
     void seed() {
       bindings.submodulesList = <Map<String, dynamic>>[

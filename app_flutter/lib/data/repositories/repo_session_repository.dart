@@ -546,6 +546,7 @@ class RepoSessionState {
     this.submodules = const <SubmoduleInfo>[],
     this.submodulesError,
     this.bisectStatus = BisectStatus.empty,
+    this.bisectError,
     this.lfsInstallation,
     this.lfsPatterns = const <String>[],
     this.lfsFiles = const <LfsFileInfo>[],
@@ -720,6 +721,11 @@ class RepoSessionState {
   /// R class).
   final GitError? submodulesError;
   final BisectStatus bisectStatus;
+
+  /// Why the last bisect-status refresh failed, until one succeeds.
+  /// [bisectStatus] keeps the status it had (read-failure-states-spec.html,
+  /// R class).
+  final GitError? bisectError;
 
   /// Null until [RepoSessionController.refreshLfs] has run once -- see
   /// gbm_lfs_installation_json()'s doc comment in gbm_capi.h.
@@ -914,6 +920,8 @@ class RepoSessionState {
     GitError? submodulesError,
     bool clearSubmodulesError = false,
     BisectStatus? bisectStatus,
+    GitError? bisectError,
+    bool clearBisectError = false,
     LfsInstallation? lfsInstallation,
     List<String>? lfsPatterns,
     List<LfsFileInfo>? lfsFiles,
@@ -993,6 +1001,7 @@ class RepoSessionState {
           ? null
           : (submodulesError ?? this.submodulesError),
       bisectStatus: bisectStatus ?? this.bisectStatus,
+      bisectError: clearBisectError ? null : (bisectError ?? this.bisectError),
       lfsInstallation: lfsInstallation ?? this.lfsInstallation,
       lfsPatterns: lfsPatterns ?? this.lfsPatterns,
       lfsFiles: lfsFiles ?? this.lfsFiles,
@@ -1905,7 +1914,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           state = state.copyWith(clearSubmodulesError: true);
         }
       case GbmEventType.bisectStatusUpdated:
-        _readBisectStatus();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(bisectError: error);
+        } else {
+          _readBisectStatus();
+          state = state.copyWith(clearBisectError: true);
+        }
       case GbmEventType.lfsUpdated:
         _readLfsState();
       case GbmEventType.cleanPreviewReady:
@@ -5121,7 +5135,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Async: see gbm_bisect_refresh()'s doc comment in gbm_capi.h.
   void refreshBisectStatus() {
     if (_session == nullptr) return;
-    _bindings.bisectRefresh(_session);
+    if (_bindings.bisectRefresh(_session) == 0) {
+      state = state.copyWith(bisectError: _stagedNativeError());
+    }
   }
 
   /// `git bisect start [<bad> [<good>...]] [--] [<paths>...]`. `badRef`

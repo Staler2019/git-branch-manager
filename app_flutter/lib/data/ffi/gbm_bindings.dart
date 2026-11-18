@@ -1145,8 +1145,8 @@ typedef SubmoduleDeinitDart = void Function(
   int force,
 );
 
-typedef _BisectRefreshNative = Void Function(Pointer<Void> session);
-typedef BisectRefreshDart = void Function(Pointer<Void> session);
+typedef _BisectRefreshNative = Int32 Function(Pointer<Void> session);
+typedef BisectRefreshDart = int Function(Pointer<Void> session);
 
 typedef _BisectStatusJsonNative = Int32 Function(Pointer<Void> session);
 typedef BisectStatusJsonDart = int Function(Pointer<Void> session);

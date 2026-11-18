@@ -5,11 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/models/bisect_status.dart';
 import '../../data/models/commit_meta.dart';
+import '../../data/models/git_error.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../theme/gbm_theme.dart';
 import '../../theme/tokens.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
 import 'panel_status_line.dart';
@@ -113,6 +116,7 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
       repoSessionProvider(widget.identity),
     );
     final BisectStatus status = session.bisectStatus;
+    final GitError? statusError = session.bisectError;
     final List<BisectStep> steps = bisectSteps(status, context.gbmColors);
     final List<BisectStep> visible = steps
         .where(
@@ -130,6 +134,12 @@ class _BisectPanelState extends ConsumerState<BisectPanel> {
       storageId: panelStorageId(GbmPanelKind.bisect),
       detailIsEmpty: !status.active,
       emptyDetailMessage: 'No bisect in progress',
+      banner: statusError == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法讀取 bisect 狀態。${statusError.message}',
+              action: const GbmOpenLogButton(),
+            ),
       toolbar: PanelToolbarSpec(
         // Good/Bad/Skip all act on HEAD -- the commit git checked out for
         // this step -- so they need no selection, only a running bisect.

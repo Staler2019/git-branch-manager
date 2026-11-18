@@ -164,7 +164,9 @@ enum GbmEventType {
     /// {"error": GitError}: the refresh failed and the published list is
     /// unchanged.
     GBM_EVENT_SUBMODULES_UPDATED = 18,
-    /// no payload; read the new status with gbm_bisect_status_json().
+    /// no payload: read the new status with gbm_bisect_status_json().
+    /// payload {"error": GitError}: the refresh failed and the published
+    /// status is unchanged.
     GBM_EVENT_BISECT_STATUS_UPDATED = 19,
     /// no payload; read installation/patterns/files with
     /// gbm_lfs_installation_json()/gbm_lfs_patterns_json()/
@@ -1455,9 +1457,11 @@ GBM_API void gbm_submodule_deinit(GbmSessionHandle session,
 // Mirrors RepositorySession's "M5: bisect" section -- see
 // src/core/git/ops/BisectOps.h.
 
-/// Re-reads BISECT_LOG. Async: fires GBM_EVENT_BISECT_STATUS_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_bisect_refresh(GbmSessionHandle session);
+/// Re-reads BISECT_LOG. Async: fires GBM_EVENT_BISECT_STATUS_UPDATED, with
+/// no payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_bisect_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published
 /// BisectStatus as JSON. Returns 0 on success, or a negative GbmErrorCode

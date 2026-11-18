@@ -556,8 +556,8 @@ typedef UnstageLinesDart = void Function(
   int lineIndexCount,
 );
 
-typedef _StashRefreshNative = Void Function(Pointer<Void> session);
-typedef StashRefreshDart = void Function(Pointer<Void> session);
+typedef _StashRefreshNative = Int32 Function(Pointer<Void> session);
+typedef StashRefreshDart = int Function(Pointer<Void> session);
 
 typedef _StashesJsonNative = Int32 Function(Pointer<Void> session);
 typedef StashesJsonDart = int Function(Pointer<Void> session);

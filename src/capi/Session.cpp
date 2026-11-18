@@ -260,6 +260,12 @@ std::string rebasePlanPayload(const std::string& upstream,
     return payload;
 }
 
+/// A refreshed list's failure, sent on that list's own *_UPDATED event: `{"error": GitError}`.
+/// Success keeps the empty payload that means "re-read" (read-failure-states-spec.html, R class).
+std::string refreshFailurePayload(const GitError& error) {
+    return "{\"error\":" + toJson(error) + '}';
+}
+
 std::string branchDeletionProbePayload(std::uint64_t requestId,
                                        const std::vector<BranchDeletionProbe>& probes,
                                        const GitError* error) {
@@ -1533,7 +1539,7 @@ void Session::refreshStashes() {
             const GitResult<std::vector<StashEntry>> result =
                 stashStore_->list(readCancel_.token());
             if (!result) {
-                callbacks_.emit(GBM_EVENT_ERROR_OCCURRED, toJson(result.error()));
+                callbacks_.emit(GBM_EVENT_STASHES_UPDATED, refreshFailurePayload(result.error()));
                 return;
             }
             {
@@ -1542,7 +1548,9 @@ void Session::refreshStashes() {
             }
             callbacks_.emitEmpty(GBM_EVENT_STASHES_UPDATED);
         },
-        errorReply());
+        [this](const GitError& error) {
+            callbacks_.emit(GBM_EVENT_STASHES_UPDATED, refreshFailurePayload(error));
+        });
 }
 
 StashListPtr Session::currentStashes() const {

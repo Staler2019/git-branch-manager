@@ -3,11 +3,14 @@ import 'package:gbm_flutter/data/repositories/panel_tabs_repository.dart';
 import 'package:gbm_flutter/features/panels/panel_storage_id.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/models/git_error.dart';
 import '../../data/models/stash_entry.dart';
 import '../../data/repositories/repo_identity.dart';
 import '../../data/repositories/repo_session_repository.dart';
 import '../../routing/route_paths.dart';
+import '../../widgets/gbm_banner.dart';
 import '../../widgets/gbm_button.dart';
+import '../../widgets/gbm_open_log_button.dart';
 import '../history_graph/widgets/graph_date_format.dart';
 import 'gbm_panel_tab_shell.dart';
 import 'panel_filter_field.dart';
@@ -123,6 +126,7 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
     );
     final List<StashEntry> stashes = session.stashes;
     final StashDiffReply? diff = session.lastStashDiff;
+    final GitError? listError = session.stashesError;
     // Indices shift when a stash is dropped or popped, so a selection that
     // no longer exists must fall back to "nothing selected" rather than
     // silently pointing the toolbar at a different stash.
@@ -134,6 +138,13 @@ class _StashesPanelState extends ConsumerState<StashesPanel> {
 
     return GbmPanelTabShell(
       storageId: panelStorageId(GbmPanelKind.manageStashes),
+      // A failed refresh keeps the list it had (R class) and says so here.
+      banner: listError == null
+          ? null
+          : GbmWarningBanner(
+              message: '無法載入 stash 清單。${listError.message}',
+              action: const GbmOpenLogButton(),
+            ),
       detailIsEmpty: selected == null,
       emptyDetailMessage: 'Select a stash to see its changes',
       toolbar: PanelToolbarSpec(

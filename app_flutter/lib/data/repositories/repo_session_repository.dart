@@ -534,6 +534,7 @@ class RepoSessionState {
     this.lastWorkingTreeContent,
     this.lastFileAtRevisionExport,
     this.stashes = const <StashEntry>[],
+    this.stashesError,
     this.lastStashDiff,
     this.worktrees = const <WorktreeInfo>[],
     this.remotes = const <RemoteInfo>[],
@@ -608,6 +609,10 @@ class RepoSessionState {
   final WorkingTreeContentReply? lastWorkingTreeContent;
   final FileAtRevisionExport? lastFileAtRevisionExport;
   final List<StashEntry> stashes;
+
+  /// Why the last stash-list refresh failed, until one succeeds. [stashes]
+  /// keeps the list it had (read-failure-states-spec.html, R class).
+  final GitError? stashesError;
   final StashDiffReply? lastStashDiff;
   final List<WorktreeInfo> worktrees;
   final List<RemoteInfo> remotes;
@@ -874,6 +879,8 @@ class RepoSessionState {
     WorkingTreeContentReply? lastWorkingTreeContent,
     FileAtRevisionExport? lastFileAtRevisionExport,
     List<StashEntry>? stashes,
+    GitError? stashesError,
+    bool clearStashesError = false,
     StashDiffReply? lastStashDiff,
     List<WorktreeInfo>? worktrees,
     List<RemoteInfo>? remotes,
@@ -939,6 +946,9 @@ class RepoSessionState {
       lastFileAtRevisionExport:
           lastFileAtRevisionExport ?? this.lastFileAtRevisionExport,
       stashes: stashes ?? this.stashes,
+      stashesError: clearStashesError
+          ? null
+          : (stashesError ?? this.stashesError),
       lastStashDiff: lastStashDiff ?? this.lastStashDiff,
       worktrees: worktrees ?? this.worktrees,
       remotes: remotes ?? this.remotes,
@@ -1548,7 +1558,12 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
           );
         }
       case GbmEventType.stashesUpdated:
-        _readStashes();
+        if (_refreshFailure(event) case final GitError error) {
+          state = state.copyWith(stashesError: error);
+        } else {
+          _readStashes();
+          state = state.copyWith(clearStashesError: true);
+        }
       case GbmEventType.stashDiffReady:
         final Object? payload = decodeEventPayload(event.payload);
         if (payload is Map<String, dynamic>) {
@@ -3920,7 +3935,9 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
   /// Async: see gbm_stash_refresh()'s doc comment in gbm_capi.h.
   void refreshStashes() {
     if (_session == nullptr) return;
-    _bindings.stashRefresh(_session);
+    if (_bindings.stashRefresh(_session) == 0) {
+      state = state.copyWith(stashesError: _stagedNativeError());
+    }
   }
 
   /// `git stash push`. `paths` restricts the stash to those paths, like
@@ -4305,6 +4322,27 @@ class RepoSessionController extends StateNotifier<RepoSessionState>
         maxEntries: maxOperationLogEntries,
       );
     }
+  }
+
+  /// The error a refreshed list's `*_UPDATED` event carries when the refresh
+  /// failed, logged as the session-wide `ERROR_OCCURRED` handler logs one
+  /// (without [RepoSessionState.lastError]); null for the empty payload that
+  /// means "re-read" (read-failure-states-spec.html, R class).
+  GitError? _refreshFailure(GbmEvent event) {
+    final Object? payload = decodeEventPayload(event.payload);
+    if (payload is! Map<String, dynamic>) return null;
+    final Object? json = payload['error'];
+    if (json is! Map<String, dynamic>) return null;
+    final GitError error = GitError.fromJson(json);
+    state = state.withOperationRecord(
+      AppLogEvents.errorOccurred(
+        codeName: error.codeName,
+        message: error.message,
+        atEpochMs: _nowEpochMs(),
+      ),
+      maxEntries: maxOperationLogEntries,
+    );
+    return error;
   }
 
   /// What a read export that returned 0 staged: nothing was queued, so no

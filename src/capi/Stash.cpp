@@ -11,10 +11,12 @@
 using namespace gbm;
 using namespace gbm::capi;
 
-GBM_API void gbm_stash_refresh(GbmSessionHandle session) try {
+GBM_API int32_t gbm_stash_refresh(GbmSessionHandle session) try {
     toSession(session)->refreshStashes();
+    return 1;
 } catch (...) {
-    reportCurrentException(__func__);
+    reportNativeException(__func__);
+    return 0;
 }
 
 GBM_API int32_t gbm_stashes_json(GbmSessionHandle session) try {

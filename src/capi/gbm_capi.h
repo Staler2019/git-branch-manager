@@ -105,7 +105,9 @@ enum GbmEventType {
     /// caller that issued several diff requests match replies back up.
     GBM_EVENT_WORKING_COPY_DIFF_READY = 6,
 
-    /// no payload; read the new list with gbm_stashes_json().
+    /// no payload: read the new list with gbm_stashes_json(). payload
+    /// {"error": GitError}: the refresh failed and the published list is
+    /// unchanged.
     GBM_EVENT_STASHES_UPDATED = 7,
     /// payload: {"index": int, "diff": ParsedDiff JSON}. Reply to
     /// gbm_stash_request_diff().
@@ -925,9 +927,11 @@ GBM_API void gbm_commit_changes(GbmSessionHandle session,
 // Mirrors RepositorySession's "M3: stashes" section -- see
 // src/core/git/ops/StashOps.h.
 
-/// Re-reads `git stash list`. Async: fires GBM_EVENT_STASHES_UPDATED on
-/// success or GBM_EVENT_ERROR_OCCURRED on failure.
-GBM_API void gbm_stash_refresh(GbmSessionHandle session);
+/// Re-reads `git stash list`. Async: fires GBM_EVENT_STASHES_UPDATED, with
+/// no payload on success and {"error": GitError} on failure. Returns 1 when
+/// queued; 0 when it could not be, with the native error staged and no event
+/// to follow.
+GBM_API int32_t gbm_stash_refresh(GbmSessionHandle session);
 
 /// Populates the staging buffer with the most recently published stash list
 /// as a JSON array. Returns 0 on success, or a negative GbmErrorCode if

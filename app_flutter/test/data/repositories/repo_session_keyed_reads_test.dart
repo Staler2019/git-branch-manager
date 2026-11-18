@@ -3,6 +3,8 @@
 // RepoSessionController over ReadBindings, replies as wire bytes, so the
 // request-time reset, the key check, the failure branch and the export-0
 // branch are the production code itself.
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gbm_flutter/data/ffi/event_dispatcher.dart';
 import 'package:gbm_flutter/data/ffi/gbm_bindings.dart';
@@ -170,6 +172,18 @@ GbmEvent _planFailed(String upstream, String message) =>
       'entries': null,
       'error': gitErrorJson(message),
     });
+
+Map<String, dynamic> _stash(int index, String message) => <String, dynamic>{
+  'index': index,
+  'message': message,
+  'oid': 'abc$index',
+  'timestamp': 1,
+};
+
+GbmEvent _updated(int type) => GbmEvent(type, Uint8List(0));
+
+GbmEvent _refreshFailed(int type, String message) =>
+    readyEvent(type, <String, dynamic>{'error': gitErrorJson(message)});
 
 int _errorLines(RepoSessionController c) => c.state.operationLog
     .where((GbmLogEntry e) => e.level == OperationLogLevel.error)
@@ -572,6 +586,75 @@ void main() {
       );
       expect(_errorLines(c), before);
       expect(c.state.lastError, isNull);
+    });
+  });
+
+  group('stash list', () {
+    void seed() {
+      bindings.stashesList = <Map<String, dynamic>>[_stash(0, 'wip on main')];
+      c.debugHandleEvent(_updated(GbmEventType.stashesUpdated));
+      expect(c.state.stashes.single.message, 'wip on main');
+    }
+
+    // (r1)
+    test('a failed refresh keeps the list, re-reads nothing and logs once', () {
+      seed();
+      final int reads = bindings.stashesReads;
+      final int before = _errorLines(c);
+
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.stashesUpdated, 'fatal: not a git repo'),
+      );
+
+      expect(c.state.stashes.single.message, 'wip on main');
+      expect(bindings.stashesReads - reads, 0);
+      expect(c.state.stashesError?.message, 'fatal: not a git repo');
+      expect(_errorLines(c), before + 1);
+      expect(c.state.lastError, isNull);
+    });
+
+    // (r2)
+    test('the next successful refresh re-reads and clears the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.stashesUpdated, 'fatal: boom'),
+      );
+      final int reads = bindings.stashesReads;
+
+      c.debugHandleEvent(_updated(GbmEventType.stashesUpdated));
+
+      expect(bindings.stashesReads - reads, 1);
+      expect(c.state.stashesError, isNull);
+    });
+
+    // (r3)
+    test(
+      'an export that queued nothing fails the refresh without a log line',
+      () {
+        bindings.answer = 0;
+        final int before = _errorLines(c);
+
+        c.refreshStashes();
+
+        expect(bindings.stashRefreshes, 1);
+        expect(
+          c.state.stashesError?.message,
+          'Native error in gbm_stash_refresh',
+        );
+        expect(_errorLines(c), before);
+        expect(c.state.lastError, isNull);
+      },
+    );
+
+    // (r4) I2: the banner stays through a sweep until a refresh succeeds.
+    test('sending a refresh does not clear the error', () {
+      c.debugHandleEvent(
+        _refreshFailed(GbmEventType.stashesUpdated, 'fatal: boom'),
+      );
+
+      c.refreshStashes();
+
+      expect(bindings.stashRefreshes, 1);
+      expect(c.state.stashesError?.message, 'fatal: boom');
     });
   });
 }

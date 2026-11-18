@@ -54,8 +54,28 @@ class ReadBindings extends FakeGbmBindings {
 
   Uint8List _staged = Uint8List(0);
 
-  void _stage(Map<String, dynamic> json) =>
-      _staged = utf8.encode(jsonEncode(json));
+  void _stage(Object json) => _staged = utf8.encode(jsonEncode(json));
+
+  /// Refreshed lists (R class): each refresh export counts its calls, and
+  /// each list getter the re-read path calls counts its reads and stages the
+  /// list set here -- so a test can tell a re-read from none.
+  int stashRefreshes = 0;
+  int stashesReads = 0;
+  List<Map<String, dynamic>> stashesList = <Map<String, dynamic>>[];
+
+  @override
+  StashRefreshDart get stashRefresh => (Pointer<Void> session) {
+    stashRefreshes++;
+    if (answer == 0) _stage(nativeErrorJson('gbm_stash_refresh'));
+    return answer;
+  };
+
+  @override
+  StashesJsonDart get stashesJson => (Pointer<Void> session) {
+    stashesReads++;
+    _stage(stashesList);
+    return 0;
+  };
 
   @override
   RequestBlameDart get requestBlame =>
